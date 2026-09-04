@@ -143,10 +143,18 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             public_name: "grok-4.6",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
-            providers: &[ProviderRouteRegistration {
-                upstream_target: "openrouter/grok-4-6",
-                surface: PublicModelSurface::DualProtocolNativeOnly,
-            }],
+            providers: &[
+                ProviderRouteRegistration {
+                    upstream_target: "openrouter/grok-4-6",
+                    surface: PublicModelSurface::DualProtocolNativeOnly,
+                },
+                // The subscription proxy exposes only Responses; Chat is served by bridging it.
+                // Capability intersection narrows only while the grok-cli pool is enabled.
+                ProviderRouteRegistration {
+                    upstream_target: "grok/grok-4-6",
+                    surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+                },
+            ],
         },
         PublicModelRegistration {
             public_name: "muse-spark-1.2-contributor",

@@ -107,6 +107,7 @@ impl ProviderMetricAttributes {
 fn provider_name(provider: ProviderKind) -> &'static str {
     match provider {
         ProviderKind::ChatGpt => "chatgpt",
+        ProviderKind::Grok => "grok",
         ProviderKind::OpenAi => "openai",
         ProviderKind::LongCat => "longcat",
         ProviderKind::DeepSeek => "deepseek",
@@ -123,6 +124,8 @@ fn provider_name(provider: ProviderKind) -> &'static str {
 fn gen_ai_provider_name(provider: ProviderKind) -> &'static str {
     match provider {
         ProviderKind::ChatGpt | ProviderKind::OpenAi => "openai",
+        // Grok speaks OpenAI Responses wire, but the closest stable GenAI namespace is x.ai.
+        ProviderKind::Grok => "x.ai",
         ProviderKind::LongCat => "longcat",
         ProviderKind::DeepSeek => "deepseek",
         ProviderKind::MiMo => "mimo",

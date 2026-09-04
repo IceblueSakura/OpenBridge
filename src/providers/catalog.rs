@@ -19,7 +19,7 @@ use crate::{
 };
 
 use super::{
-    bailian, chatgpt, deepseek, kimi_cn, longcat, mimo, nvidia, openai, openrouter, zhipu_cn,
+    bailian, chatgpt, deepseek, grok, kimi_cn, longcat, mimo, nvidia, openai, openrouter, zhipu_cn,
 };
 
 /// Version identifier for the built-in provider and model registry.
@@ -39,6 +39,7 @@ pub fn compiled_config() -> RegistryConfig {
             deepseek::provider_instance(),
             mimo::provider_instance(),
             chatgpt::provider_instance(),
+            grok::provider_instance(),
             nvidia::provider_instance(),
             bailian::provider_instance(),
             bailian::native_provider_instance(),
@@ -60,6 +61,11 @@ pub fn compiled_config() -> RegistryConfig {
                 ProviderKind::ChatGpt,
                 CredentialKind::OAuth2BearerAccessToken,
             ),
+            credential_pool_with_kind(
+                "grok-cli",
+                ProviderKind::Grok,
+                CredentialKind::OAuth2BearerAccessToken,
+            ),
         ],
         upstream_targets: [
             openai::upstream_targets(),
@@ -68,6 +74,7 @@ pub fn compiled_config() -> RegistryConfig {
             deepseek::upstream_targets(),
             mimo::upstream_targets(),
             chatgpt::upstream_targets(),
+            grok::upstream_targets(),
             nvidia::upstream_targets(),
             bailian::upstream_targets(),
             kimi_cn::upstream_targets(),

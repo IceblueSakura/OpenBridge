@@ -30,10 +30,7 @@ impl OAuth2CredentialManagerBuilder {
         pool_id: &str,
         path: PathBuf,
     ) -> Result<(), OAuth2CredentialManagerError> {
-        // Reject unsupported or duplicate Provider ownership before reading any locator.
-        if provider != ProviderKind::ChatGpt {
-            return Err(OAuth2CredentialManagerError::UnsupportedProvider);
-        }
+        // Reject duplicate Provider ownership before reading any locator.
         if self
             .credentials
             .iter()
@@ -44,7 +41,7 @@ impl OAuth2CredentialManagerBuilder {
 
         // Read and validate complete document shape while allowing an expired access token to refresh.
         let document = read_auth_document(&path).map_err(|_| OAuth2CredentialManagerError::Read)?;
-        let bundle = parse_auth_document(&document, false)?;
+        let bundle = parse_auth_document(provider, &document, false)?;
         let version = version_for_document(&document);
 
         // Bind the source and mutable lifecycle state to the compile-time Provider identity.

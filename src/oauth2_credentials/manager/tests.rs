@@ -21,7 +21,7 @@ use super::{
 };
 use crate::oauth2_credentials::document::parse_auth_document;
 use crate::oauth2_credentials::transport::refresh::{
-    ChatGptRefreshTransport, RefreshTerminalReason, RefreshTokenResponse, RefreshTransportError,
+    OAuth2RefreshTransport, RefreshTerminalReason, RefreshTokenResponse, RefreshTransportError,
 };
 use crate::provider::ProviderKind;
 
@@ -41,7 +41,7 @@ fn managed_snapshot_retains_complete_tokens_without_exposing_them_through_debug(
         state.bundle.refresh_token.expose_secret(),
         "synthetic-refresh"
     );
-    assert_eq!(state.bundle.account_id.expose_secret(), "synthetic-account");
+    assert_eq!(chatgpt_account_id(&state.bundle), "synthetic-account");
     drop(state);
 
     // Keep every secret and locator out of manager and snapshot diagnostics.
@@ -131,12 +131,12 @@ async fn refresh_preserves_optional_tokens_and_rejects_account_changes() {
         .await;
     assert_eq!(outcome, OAuth2RefreshOutcome::Refreshed { generation: 2 });
     let document = Zeroizing::new(fs::read(fixture.auth_file()).unwrap());
-    let persisted = parse_auth_document(&document, true).unwrap();
+    let persisted = parse_auth_document(ProviderKind::ChatGpt, &document, true).unwrap();
     assert_eq!(
         persisted.refresh_token.expose_secret(),
         "synthetic-preserved-refresh"
     );
-    assert_eq!(persisted.account_id.expose_secret(), "synthetic-account");
+    assert_eq!(chatgpt_account_id(&persisted), "synthetic-account");
 
     // Reject a successful response whose replacement ID token changes account identity.
     let fixture = TestDirectory::new();
@@ -149,6 +149,67 @@ async fn refresh_preserves_optional_tokens_and_rejects_account_changes() {
         token_type: Some("Bearer".to_owned()),
     });
     let credential = manager.find_credential(ProviderKind::ChatGpt).unwrap();
+    let outcome = manager
+        .refresh_provider_with(credential, &transport, SystemTime::now())
+        .await;
+    assert_eq!(outcome, OAuth2RefreshOutcome::Ambiguous { generation: 1 });
+    assert_eq!(fs::read(fixture.auth_file()).unwrap(), original);
+}
+
+#[tokio::test]
+async fn grok_refresh_preserves_optional_tokens_and_subscription_tier() {
+    // Preserve id/refresh tokens and the persisted tier when the authority omits all three.
+    let fixture = TestDirectory::new();
+    let original = grok_document("synthetic-subject", 1);
+    let manager = fixture.manager_for(ProviderKind::Grok, "grok-cli", original.clone());
+    let transport = ImmediateTransport::success(RefreshTokenResponse {
+        access_token: SecretString::from(jwt(json!({
+            "exp": unix_now() + 3_600,
+            "sub": "synthetic-subject"
+        }))),
+        id_token: None,
+        refresh_token: None,
+        token_type: None,
+    });
+    let credential = manager.find_credential(ProviderKind::Grok).unwrap();
+    let outcome = manager
+        .refresh_provider_with(credential, &transport, SystemTime::now())
+        .await;
+    assert_eq!(outcome, OAuth2RefreshOutcome::Refreshed { generation: 2 });
+    let document = Zeroizing::new(fs::read(fixture.auth_file()).unwrap());
+    let persisted = parse_auth_document(ProviderKind::Grok, &document, true).unwrap();
+    assert_eq!(
+        persisted.refresh_token.expose_secret(),
+        "synthetic-preserved-refresh"
+    );
+    let super::super::document::OAuth2AccountContext::Grok {
+        subject,
+        subscription_tier,
+    } = &persisted.context
+    else {
+        panic!("expected a Grok account context");
+    };
+    assert_eq!(subject.expose_secret(), "synthetic-subject");
+    // The refreshed access token omits the tier claim, so the stored tier is retained.
+    assert_eq!(subscription_tier, "supergrok_heavy");
+}
+
+#[tokio::test]
+async fn grok_refresh_rejects_rotated_access_tokens_for_another_subject() {
+    // A rotated access token that carries a different subject must never replace the bundle.
+    let fixture = TestDirectory::new();
+    let original = grok_document("synthetic-subject", 1);
+    let manager = fixture.manager_for(ProviderKind::Grok, "grok-cli", original.clone());
+    let transport = ImmediateTransport::success(RefreshTokenResponse {
+        access_token: SecretString::from(jwt(json!({
+            "exp": unix_now() + 3_600,
+            "sub": "synthetic-other-subject"
+        }))),
+        id_token: None,
+        refresh_token: None,
+        token_type: Some("Bearer".to_owned()),
+    });
+    let credential = manager.find_credential(ProviderKind::Grok).unwrap();
     let outcome = manager
         .refresh_provider_with(credential, &transport, SystemTime::now())
         .await;
@@ -262,7 +323,7 @@ impl BlockingTransport {
     }
 }
 
-impl ChatGptRefreshTransport for BlockingTransport {
+impl OAuth2RefreshTransport for BlockingTransport {
     async fn refresh(
         &self,
         _refresh_token: &SecretString,
@@ -295,7 +356,7 @@ impl ImmediateTransport {
     }
 }
 
-impl ChatGptRefreshTransport for ImmediateTransport {
+impl OAuth2RefreshTransport for ImmediateTransport {
     async fn refresh(
         &self,
         _refresh_token: &SecretString,
@@ -325,10 +386,20 @@ impl TestDirectory {
     }
 
     fn manager(&self, document: Vec<u8>) -> OAuth2CredentialManager {
+        self.manager_for(ProviderKind::ChatGpt, "chatgpt-codex", document)
+    }
+
+    /// Builds one manager bound to the selected Provider and pool.
+    fn manager_for(
+        &self,
+        provider: ProviderKind,
+        pool_id: &str,
+        document: Vec<u8>,
+    ) -> OAuth2CredentialManager {
         fs::write(self.auth_file(), document).unwrap();
         let mut builder = OAuth2CredentialManagerBuilder::new();
         builder
-            .load_auth_json_file(ProviderKind::ChatGpt, "chatgpt-codex", self.auth_file())
+            .load_auth_json_file(provider, pool_id, self.auth_file())
             .unwrap();
         builder.build()
     }
@@ -344,6 +415,15 @@ impl Drop for TestDirectory {
         }
         let _ = fs::remove_dir(&self.path);
     }
+}
+
+/// Extracts the ChatGPT account binding from a validated bundle's context variant.
+fn chatgpt_account_id(bundle: &super::super::document::ValidatedOAuth2Bundle) -> String {
+    let super::super::document::OAuth2AccountContext::ChatGpt { account_id, .. } = &bundle.context
+    else {
+        panic!("expected a ChatGPT account context");
+    };
+    account_id.expose_secret().to_owned()
 }
 
 fn expiring_document(account: &str, expiry: u64, refresh_token: &str) -> Vec<u8> {
@@ -368,6 +448,26 @@ fn id_token(account: &str) -> String {
             "chatgpt_account_is_fedramp": false
         }
     }))
+}
+
+/// Builds one expiring Grok auth document with a subject-bound token pair and stored tier.
+fn grok_document(subject: &str, expiry: u64) -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "auth_mode": "grok",
+        "OPENAI_API_KEY": null,
+        "tokens": {
+            "id_token": jwt(json!({"sub": subject})),
+            "access_token": jwt(json!({
+                "exp": expiry,
+                "sub": subject,
+                "tier": 5
+            })),
+            "refresh_token": "synthetic-preserved-refresh"
+        },
+        "last_refresh": "2026-08-05T00:00:00Z",
+        "subscription_tier": "supergrok_heavy"
+    }))
+    .unwrap()
 }
 
 fn jwt(payload: serde_json::Value) -> String {

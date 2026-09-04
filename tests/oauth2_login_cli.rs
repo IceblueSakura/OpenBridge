@@ -14,10 +14,11 @@ fn help_exits_before_loading_private_configuration() {
         .output()
         .unwrap();
 
-    // Verify help exposes only the fixed command and override prohibition.
+    // Verify help exposes only the fixed commands and override prohibition.
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
-    assert!(stdout.contains("Usage: openbridge-auth login chatgpt"));
+    assert!(stdout.contains("Usage: openbridge-auth login <provider>"));
+    assert!(stdout.contains("Providers: chatgpt, grok"));
     assert!(stdout.contains("cannot be overridden"));
     assert!(output.stderr.is_empty());
 }

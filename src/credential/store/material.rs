@@ -1,6 +1,6 @@
 //! Purpose-bound secret material and short-lived Provider views.
 //!
-//! This module keeps ChatGPT OAuth account context inseparable from its access token. The
+//! This module keeps Provider OAuth account context inseparable from its access token. The
 //! material itself remains private to the credential store; only validated Provider-bound views
 //! cross the crate's egress boundary.
 
@@ -30,6 +30,9 @@ pub(super) enum CredentialMaterial {
         account_id: SecretString,
         is_fedramp_account: bool,
     },
+    /// Grok access token; subscription identity stays in the managed document context because the
+    /// CLI proxy wire consumes only the Bearer token.
+    GrokOAuth { access_token: SecretString },
 }
 
 impl CredentialMaterial {
@@ -38,6 +41,7 @@ impl CredentialMaterial {
         match self {
             Self::Single(secret) => secret,
             Self::ChatGptOAuth { access_token, .. } => access_token,
+            Self::GrokOAuth { access_token, .. } => access_token,
         }
     }
 
@@ -47,7 +51,7 @@ impl CredentialMaterial {
             (self, kind),
             (Self::Single(_), CredentialKind::ApiKey)
                 | (
-                    Self::ChatGptOAuth { .. },
+                    Self::ChatGptOAuth { .. } | Self::GrokOAuth { .. },
                     CredentialKind::OAuth2BearerAccessToken
                 )
         )
@@ -95,7 +99,7 @@ impl UpstreamCredential<'_> {
     pub(crate) fn expose_chatgpt_account_id(&self) -> Option<&str> {
         match self.material {
             CredentialMaterial::ChatGptOAuth { account_id, .. } => Some(account_id.expose_secret()),
-            CredentialMaterial::Single(_) => None,
+            CredentialMaterial::Single(_) | CredentialMaterial::GrokOAuth { .. } => None,
         }
     }
 
@@ -105,7 +109,7 @@ impl UpstreamCredential<'_> {
             CredentialMaterial::ChatGptOAuth {
                 is_fedramp_account, ..
             } => Some(*is_fedramp_account),
-            CredentialMaterial::Single(_) => None,
+            CredentialMaterial::Single(_) | CredentialMaterial::GrokOAuth { .. } => None,
         }
     }
 }

@@ -9,6 +9,7 @@
 | [bailian.md](bailian.md) | Alibaba Cloud Model Studio |
 | [chatgpt.md](chatgpt.md) | ChatGPT |
 | [deepseek.md](deepseek.md) | DeepSeek |
+| [grok.md](grok.md) | Grok（xAI 订阅） |
 | [kimi_cn.md](kimi_cn.md) | Kimi CN |
 | [longcat.md](longcat.md) | LongCat |
 | [mimo.md](mimo.md) | Xiaomi MiMo |

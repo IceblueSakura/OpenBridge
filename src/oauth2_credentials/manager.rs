@@ -10,20 +10,44 @@ use std::{
 };
 
 use crate::provider::ProviderKind;
-use crate::providers::chatgpt::oauth::REGISTRATION;
+use crate::providers::chatgpt::oauth::REGISTRATION as CHATGPT_REGISTRATION;
+use crate::providers::grok::oauth::REGISTRATION as GROK_REGISTRATION;
 
 mod builder;
 mod credential;
 mod refresh;
 
 pub use super::error::OAuth2CredentialManagerError;
-use super::transport::refresh::{ChatGptRefreshTransport, ReqwestChatGptRefreshTransport};
+use super::transport::refresh::{OAuth2RefreshTransport, ReqwestOAuth2RefreshTransport};
 pub(crate) use builder::OAuth2CredentialManagerBuilder;
 use credential::ManagedOAuth2Credential;
 pub use credential::{OAuth2Credential, OAuth2CredentialStatus, OAuth2RefreshOutcome};
 pub(crate) use credential::{OAuth2CredentialLease, OAuth2CredentialLeaseError};
 
 const IDLE_SCHEDULER_WAKE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Resolves the compile-time refresh-grant parameters for one managed OAuth2 Provider.
+fn refresh_parameters(
+    provider: ProviderKind,
+) -> Option<super::transport::refresh::OAuth2RefreshParameters> {
+    match provider {
+        ProviderKind::ChatGpt => Some(CHATGPT_REGISTRATION.refresh_parameters()),
+        ProviderKind::Grok => Some(GROK_REGISTRATION.refresh_parameters()),
+        _ => None,
+    }
+}
+
+/// Builds the fixed refresh transport for one managed Provider without endpoint overrides.
+fn build_refresh_transport(
+    provider: ProviderKind,
+) -> Result<ReqwestOAuth2RefreshTransport, super::transport::refresh::RefreshTransportError> {
+    let parameters = refresh_parameters(provider).ok_or(
+        super::transport::refresh::RefreshTransportError::ReauthRequired(
+            super::transport::refresh::RefreshTerminalReason::InvalidRequest,
+        ),
+    )?;
+    ReqwestOAuth2RefreshTransport::new(parameters)
+}
 
 pub struct OAuth2CredentialManager {
     credentials: Vec<Arc<ManagedOAuth2Credential>>,
@@ -56,7 +80,7 @@ impl OAuth2CredentialManager {
         let Some(credential) = self.find_credential(provider) else {
             return OAuth2RefreshOutcome::NotConfigured;
         };
-        let transport = match ReqwestChatGptRefreshTransport::new(&REGISTRATION) {
+        let transport = match build_refresh_transport(provider) {
             Ok(transport) => transport,
             Err(error) => {
                 return credential.record_transport_failure(error, SystemTime::now());
@@ -104,7 +128,7 @@ impl OAuth2CredentialManager {
         let Some(credential) = self.find_credential(provider) else {
             return OAuth2RefreshOutcome::NotConfigured;
         };
-        let transport = match ReqwestChatGptRefreshTransport::new(&REGISTRATION) {
+        let transport = match build_refresh_transport(provider) {
             Ok(transport) => transport,
             Err(error) => {
                 return credential.record_transport_failure(error, SystemTime::now());
@@ -144,7 +168,7 @@ impl OAuth2CredentialManager {
             // Refresh each independently due Provider once; each credential owns its single-flight.
             let now = SystemTime::now();
             for credential in self.due_credentials(now) {
-                let transport = match ReqwestChatGptRefreshTransport::new(&REGISTRATION) {
+                let transport = match build_refresh_transport(credential.provider) {
                     Ok(transport) => transport,
                     Err(error) => {
                         let outcome = credential.record_transport_failure(error, SystemTime::now());
@@ -187,7 +211,7 @@ impl OAuth2CredentialManager {
         now: SystemTime,
     ) -> OAuth2RefreshOutcome
     where
-        T: ChatGptRefreshTransport,
+        T: OAuth2RefreshTransport,
     {
         refresh::refresh_provider_with(credential, transport, now).await
     }
@@ -201,7 +225,7 @@ impl OAuth2CredentialManager {
         rejected_generation: u64,
     ) -> OAuth2RefreshOutcome
     where
-        T: ChatGptRefreshTransport,
+        T: OAuth2RefreshTransport,
     {
         refresh::recover_after_unauthorized_with(credential, transport, now, rejected_generation)
             .await

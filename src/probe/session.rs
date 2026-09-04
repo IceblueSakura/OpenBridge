@@ -137,10 +137,10 @@ pub async fn probe_upstream_target(
     run_probe_session(registry, target, transport, credentials, selection).await
 }
 
-/// Probes a ChatGPT target by borrowing one guarded OAuth2 access-token lease.
+/// Probes a subscription target by borrowing one guarded OAuth2 access-token lease.
 ///
 /// The manager owns refresh and account binding. This entry point accepts no endpoint or
-/// credential override, and it deliberately supports only the ChatGPT Provider boundary.
+/// credential override, and it supports exactly the Providers that carry OAuth2 credentials.
 pub async fn probe_upstream_target_with_oauth2(
     registry: &RuntimeRegistry,
     upstream_target_id: &str,
@@ -160,7 +160,7 @@ pub async fn probe_upstream_target_with_oauth2(
             upstream_target: upstream_target_id.to_owned(),
         });
     }
-    if target.kind() != ProviderKind::ChatGpt {
+    if !matches!(target.kind(), ProviderKind::ChatGpt | ProviderKind::Grok) {
         return Err(ProbeError::OAuth2UnsupportedTarget {
             upstream_target: upstream_target_id.to_owned(),
         });
@@ -178,7 +178,7 @@ pub async fn probe_upstream_target_with_oauth2(
         .credential()
         .map_err(|_| ProbeError::CredentialUnavailable)?;
 
-    // Prepare the fixed ChatGPT authentication headers before entering the common probe session.
+    // Prepare the fixed subscription authentication headers before entering the common probe session.
     let adapter = ProviderAdapter::for_kind(target.kind());
     let headers = adapter
         .build_outbound_headers(&credential, &HeaderMap::new())

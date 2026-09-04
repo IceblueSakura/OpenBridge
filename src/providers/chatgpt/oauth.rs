@@ -6,6 +6,8 @@
 
 use std::time::Duration;
 
+use crate::oauth2_credentials::OAuth2RefreshParameters;
+
 /// Fixed OAuth endpoints, public client identity, and timing policy for ChatGPT login and refresh.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ChatGptOAuthRegistration {
@@ -31,6 +33,21 @@ pub(crate) struct ChatGptOAuthRegistration {
     pub(crate) maximum_poll_interval: Duration,
     /// Timeout applied independently to each HTTPS request.
     pub(crate) request_timeout: Duration,
+}
+
+impl ChatGptOAuthRegistration {
+    /// Returns the refresh-grant parameters derived from this registration.
+    ///
+    /// The refresh grant drops `offline_access` from the authorization scope, matching the pinned
+    /// reference client.
+    pub(crate) fn refresh_parameters(&self) -> OAuth2RefreshParameters {
+        OAuth2RefreshParameters {
+            token_endpoint: self.token_endpoint,
+            client_id: self.client_id,
+            scope: Some("openid profile email"),
+            request_timeout: self.request_timeout,
+        }
+    }
 }
 
 /// Compile-time ChatGPT subscription OAuth registration.

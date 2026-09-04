@@ -101,8 +101,8 @@
   `OAuth2BearerAccessToken` kind；TOML 不获得动态 Provider 选择权；
 - 每个 OAuth2 Provider 最多配置一个 auth 文件，并派生一个稳定的内部 member id；不提供 auth 文件数组、账号 pool、轮转、
   cooldown 或负载均衡；
-- ChatGPT 文件使用当前兼容的 OAuth 字段形状，但由 OpenBridge 独立拥有；不得默认、搜索、导入或回退到
-  `$CODEX_HOME/auth.json`；
+- ChatGPT 与 Grok auth 文件使用同一闭合 OAuth 信封家族，以 `auth_mode` 区分 Provider；文件由 OpenBridge 独立拥有；不得默认、
+  搜索、导入或回退到 `$CODEX_HOME/auth.json` 或任何第三方登录缓存；
 - 主服务在 listener 绑定前完成首次读取并要求完整校验；缺失、空白或损坏文件均阻止启动。显式 login CLI 可以在成功取得并校验
   bundle 后，从 missing version 事务性创建完整文件；之后只有 expiry-driven refresh 或首个预提交 `401` recovery transaction 在
   advisory lock 内 guarded reload，rotation 只能原子替换。错误、`Debug`、日志和 metric 不得包含 locator、token、账户或完整 auth record；

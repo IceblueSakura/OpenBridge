@@ -230,6 +230,11 @@ ChatGPT 是固定 Responses-only Codex backend profile：adapter 固定 `Accept:
 OS、terminal identity 或本机 Codex auth。它要求上游 stream，并允许经过验证的缺失 success Content-Type 作为 SSE；其他
 Provider 不继承该例外。
 
+Grok 是固定 Responses-only 订阅 CLI proxy profile：adapter 固定 `Accept: text/event-stream` 与订阅 CLI proxy 身份头
+（`x-xai-token-auth: xai-grok-cli`、`x-grok-client-version`、`x-grok-client-identifier: grok-shell`）及固定
+`xai-grok-workspace/<版本>` UA，版本漂移通过提交升级。它使用标准 `event:` 帧 Responses SSE 与严格的 success
+Content-Type 要求，身份头与 UA 为编译期常量，业务请求不能覆盖。
+
 Native SSE 业务 bytes 保持透明，由 decoder 观察 framing/terminal；Bridge SSE 按完整 event 增量渲染。需要 bounded takeover 的
 API 在下游 commit 前完整校验上游 SSE，并生成非流式 JSON。非法 media、超限、UTF-8/framing/terminal 冲突或 EOF-before-terminal
 失败关闭；下游 drop 会取消对应上游 body。

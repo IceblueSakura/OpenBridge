@@ -115,6 +115,33 @@ impl CredentialStoreBuilder {
         )
     }
 
+    /// Adds one Grok OAuth pool member after validating its subscription identity context.
+    ///
+    /// The subject proves the bundle carries a complete Grok account context, but only the access
+    /// token crosses into request-time material because the CLI proxy wire consumes nothing else.
+    pub fn insert_grok_oauth_member(
+        &mut self,
+        pool_id: impl Into<String>,
+        member_id: impl Into<String>,
+        access_token: SecretString,
+        subject: &SecretString,
+        metadata: CredentialMetadata,
+    ) -> Result<(), CredentialStoreError> {
+        // Require the complete subscription-bound OAuth bundle before adding it to the store.
+        if subject.expose_secret().trim().is_empty() || metadata.expires_at.is_none() {
+            return Err(CredentialStoreError::InvalidOAuthContext);
+        }
+
+        // Bind the access token to the sole Provider allowed to consume Grok OAuth material.
+        self.insert_upstream_material(
+            ProviderKind::Grok,
+            pool_id.into(),
+            member_id.into(),
+            CredentialMaterial::GrokOAuth { access_token },
+            metadata,
+        )
+    }
+
     /// Validates and stores one purpose-bound upstream credential material variant.
     fn insert_upstream_material(
         &mut self,

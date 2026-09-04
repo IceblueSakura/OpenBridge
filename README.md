@@ -154,7 +154,7 @@ OpenBridge 固定发送到 `/v1/traces` 和 `/v1/metrics`，不提供请求级 e
 指标口径与敏感属性边界见[当前实现](docs/implementation-status/current-state.md)和
 [当前状态边界](docs/implementation-status/current-boundaries.md#5-观测配置与生产边界)。
 
-## 6. ChatGPT OAuth2（可选）
+## 6. 订阅 OAuth2（ChatGPT / Grok，可选）
 
 在 `config/upstream-credentials.toml` 的 `chatgpt-codex` binding 中设置 OpenBridge-owned `auth_json_file`，然后执行：
 
@@ -165,13 +165,24 @@ cargo run --locked --bin openbridge-auth -- login chatgpt
 命令会显示固定 verification URI 与一次性 user code（验证码）；私有 device code 不会显示。完成 private device interaction 和
 PKCE exchange 后，命令事务性写入配置指定的 auth 文件。不要分享验证码，也不要导入或复制本机 Codex auth cache。
 
+Grok 订阅路径同构：在 `grok-cli` binding 中设置 `auth_json_file`，然后执行：
+
+```powershell
+cargo run --locked --bin openbridge-auth -- login grok
+```
+
+Grok 登录使用 authority 官方的标准 RFC 8628 device flow：命令显示固定 verification URI 与一次性 user code，管理员在浏览器
+人工批准后，CLI 按 authority 给定的 `interval` 轮询 token endpoint，成功后事务性写入 auth 文件。不实现任何自动批准或非标准
+旁路。
+
 常驻服务可在固定账户绑定内执行到期驱动 refresh、guarded reload 和一次有界的预提交 `401` recovery，但不提供运行时切换账户或
-自动交互登录。登录后重启服务，再以 `/v1/models` 确认当前配置会公开哪些 ChatGPT-backed Public Model；真实可调用性仍由 probe
+自动交互登录。登录后重启服务，再以 `/v1/models` 确认当前配置会公开哪些订阅-backed Public Model；真实可调用性仍由 probe
 或实际请求确认。
 
 详细边界见[当前实现](docs/implementation-status/current-state.md)、
-[配置与凭证合同](docs/functional-requirements/configuration/credentials.md)和
-[Provider 接入进度](docs/implementation-status/providers/chatgpt.md)。
+[配置与凭证合同](docs/functional-requirements/configuration/credentials.md)、
+[ChatGPT 接入进度](docs/implementation-status/providers/chatgpt.md)和
+[Grok 接入进度](docs/implementation-status/providers/grok.md)。
 
 ## 7. 显式 Provider 探测
 
@@ -244,7 +255,7 @@ OpenAI-compatible HTTP surface，不描述 MCP dual-era transport；MCP 合同�
 |---|---|
 | 服务在监听前退出 | 检查 Bootstrap schema、私有文件路径、loopback listener、非零 limit 和 replay/request 上限关系 |
 | 请求返回 `401` | 检查是否使用 `users.toml` 中已启用用户的完整 Bearer key |
-| 模型不在 `/v1/models` | 检查引用的 credential pool 是否存在有效 source；ChatGPT 还需完成显式登录并重启 |
+| 模型不在 `/v1/models` | 检查引用的 credential pool 是否存在有效 source；ChatGPT/Grok 订阅 Provider 还需完成显式登录并重启 |
 | 参数在上游调用前被拒绝 | 查看扩展 Models；能力属于所选 Public Model 的固定接口契约 |
 | `/healthz` 正常但业务失败 | 健康检查不访问 Provider；继续检查上游 credential、网络和脱敏 request id |
 | probe 报 target disabled | 检查 target ID 及其 pool 是否有有效 API key 或 OAuth auth 文件 |

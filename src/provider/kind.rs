@@ -3,7 +3,8 @@
 use crate::{
     core::ApiCapabilities,
     providers::{
-        bailian, chatgpt, deepseek, kimi_cn, longcat, mimo, nvidia, openai, openrouter, zhipu_cn,
+        bailian, chatgpt, deepseek, grok, kimi_cn, longcat, mimo, nvidia, openai, openrouter,
+        zhipu_cn,
     },
 };
 
@@ -18,6 +19,8 @@ use super::ProviderDefinition;
 pub enum ProviderKind {
     /// ChatGPT subscription access through the fixed Codex backend profile.
     ChatGpt,
+    /// Grok subscription access through the fixed CLI proxy backend profile.
+    Grok,
     /// OpenAI-compatible provider。
     OpenAi,
     /// LongCat OpenAI-compatible provider。
@@ -97,6 +100,7 @@ impl ProviderKind {
     pub const fn slug(self) -> &'static str {
         match self {
             Self::ChatGpt => "chatgpt",
+            Self::Grok => "grok",
             Self::OpenAi => "openai",
             Self::LongCat => "longcat",
             Self::DeepSeek => "deepseek",
@@ -121,6 +125,7 @@ impl ProviderKind {
     pub fn definition(self) -> &'static ProviderDefinition {
         match self {
             Self::ChatGpt => &chatgpt::DEFINITION,
+            Self::Grok => &grok::DEFINITION,
             Self::OpenAi => &openai::DEFINITION,
             Self::LongCat => &longcat::DEFINITION,
             Self::DeepSeek => &deepseek::DEFINITION,

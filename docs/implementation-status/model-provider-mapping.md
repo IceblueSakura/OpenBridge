@@ -25,6 +25,7 @@
 | `gemma-4-31b-it` | `google/gemma-4-31b-it` | OpenRouter | `openrouter/gemma-4-31b-it` |
 | `gemini-3.7-flash` | `google/gemini-3.7-flash` | OpenRouter | `openrouter/gemini-3-7-flash` |
 | `grok-4.6` | `xai/grok-4.6` | OpenRouter | `openrouter/grok-4-6` |
+| `grok-4.6` | `xai/grok-4.6` | Grok | `grok/grok-4-6` |
 | `muse-spark-1.2-contributor` | `meta/muse-spark-1.2-contributor` | OpenRouter | `openrouter/muse-spark-1.2-contributor` |
 | `glm-5.3` | `z-ai/glm-5.3` | Zhipu AI China | `zhipu-cn/glm-5-3` |
 | `glm-5.3-flash` | `z-ai/glm-5.3-flash` | Zhipu AI China | `zhipu-cn/glm-5-3-flash` |

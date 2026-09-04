@@ -1341,6 +1341,7 @@ fn add_responses_fallback(
             "longcat-test"
         }
         ProviderKind::ChatGpt
+        | ProviderKind::Grok
         | ProviderKind::DeepSeek
         | ProviderKind::MiMo
         | ProviderKind::OpenRouter

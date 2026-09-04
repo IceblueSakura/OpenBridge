@@ -67,10 +67,10 @@ async fn main() -> Result<()> {
     )
     .context("failed to initialize upstream HTTP client")?;
     // Select the credential lifecycle that matches the fixed target kind without opening unrelated sources.
-    let report = if target.kind() == ProviderKind::ChatGpt {
+    let report = if matches!(target.kind(), ProviderKind::ChatGpt | ProviderKind::Grok) {
         let oauth2_credentials = upstream_configuration
             .load_oauth2_for(&registry, [target.credential_pool_id()])
-            .context("failed to bind the selected ChatGPT OAuth2 credential")?;
+            .context("failed to bind the selected OAuth2 credential")?;
         probe_upstream_target_with_oauth2(
             &registry,
             &upstream_target_id,
@@ -268,6 +268,7 @@ fn next_value(
 fn parse_provider(value: &str) -> Result<ProviderKind> {
     match value {
         "chatgpt" => Ok(ProviderKind::ChatGpt),
+        "grok" => Ok(ProviderKind::Grok),
         "openai" => Ok(ProviderKind::OpenAi),
         "longcat" => Ok(ProviderKind::LongCat),
         "deepseek" => Ok(ProviderKind::DeepSeek),

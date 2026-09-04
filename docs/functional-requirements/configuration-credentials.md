@@ -16,4 +16,5 @@ policy 或 routing topology。
 | [凭证](configuration/credentials.md) | 凭证总则、API-key pool、ChatGPT 隔离、OAuth2 auth 文件 | — |
 | [Endpoint、出站与启动生命周期](configuration/egress-and-startup.md) | 出站边界、启动装配、冻结 wiring | — |
 | [ChatGPT OAuth credential 生命周期](configuration/oauth-chatgpt.md) | preflight、登录、bundle、refresh、401 recovery | OAUTH-01..12 |
+| [Grok OAuth credential 生命周期](configuration/oauth-grok.md) | preflight、device 登录、bundle、refresh、401 recovery | GROK-01..09 |
 | [验收](configuration/acceptance.md) | 全局功能验收要求 | CFG-01..19 |

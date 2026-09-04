@@ -247,16 +247,14 @@ impl ManagedOAuth2Credential {
 
         // Build the same purpose-bound credential shape consumed by the Provider adapter.
         let mut builder = CredentialStoreBuilder::new();
-        builder
-            .insert_chatgpt_oauth_member(
-                self.pool_id.clone(),
-                self.member_id.clone(),
-                SecretString::from(state.bundle.access_token.expose_secret().to_owned()),
-                SecretString::from(state.bundle.account_id.expose_secret().to_owned()),
-                state.bundle.is_fedramp_account,
-                oauth2_metadata(state.generation, state.bundle.expires_at),
-            )
-            .map_err(|_| OAuth2CredentialLeaseError::Unavailable)?;
+        insert_oauth_member(
+            &mut builder,
+            &self.pool_id,
+            &self.member_id,
+            &state.bundle,
+            oauth2_metadata(state.generation, state.bundle.expires_at),
+        )
+        .map_err(|_| OAuth2CredentialLeaseError::Unavailable)?;
         Ok(OAuth2CredentialLease {
             store: builder.build(),
             provider: self.provider,
@@ -465,4 +463,37 @@ pub(super) fn refresh_due_at(pool_id: &str, expires_at: SystemTime) -> SystemTim
     expires_at
         .checked_sub(REFRESH_SAFETY_WINDOW.saturating_add(jitter))
         .unwrap_or(UNIX_EPOCH)
+}
+
+/// Inserts the Provider-owned OAuth material variant derived from the validated bundle.
+fn insert_oauth_member(
+    builder: &mut CredentialStoreBuilder,
+    pool_id: &str,
+    member_id: &str,
+    bundle: &ValidatedOAuth2Bundle,
+    metadata: CredentialMetadata,
+) -> Result<(), CredentialStoreError> {
+    // Copy the access token into a lease-owned secret beside its Provider context variant.
+    let access_token = SecretString::from(bundle.access_token.expose_secret().to_owned());
+    match &bundle.context {
+        super::super::document::OAuth2AccountContext::ChatGpt {
+            account_id,
+            is_fedramp_account,
+        } => builder.insert_chatgpt_oauth_member(
+            pool_id.to_owned(),
+            member_id.to_owned(),
+            access_token,
+            SecretString::from(account_id.expose_secret().to_owned()),
+            *is_fedramp_account,
+            metadata,
+        ),
+        super::super::document::OAuth2AccountContext::Grok { subject, .. } => builder
+            .insert_grok_oauth_member(
+                pool_id.to_owned(),
+                member_id.to_owned(),
+                access_token,
+                subject,
+                metadata,
+            ),
+    }
 }

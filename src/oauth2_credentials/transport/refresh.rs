@@ -1,6 +1,6 @@
-//! Fixed ChatGPT refresh-grant transport and response classification.
+//! Fixed OAuth2 refresh-grant transport and response classification.
 //!
-//! The adapter sends only to the compile-time token endpoint and never exposes response bodies.
+//! The adapter sends only to a compile-time token endpoint and never exposes response bodies.
 //! It distinguishes confirmed pre-response throttling/server failures, terminal OAuth codes, and
 //! outcomes that may have consumed a rotating refresh token.
 
@@ -13,10 +13,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Deserializer, de::Error as _};
 use zeroize::Zeroizing;
 
-use crate::providers::chatgpt::oauth::ChatGptOAuthRegistration;
-
 const MAX_RESPONSE_BODY_BYTES: usize = 64 * 1024;
-const REFRESH_SCOPE: &str = "openid profile email";
 
 /// Successful refresh fields, with optional rotated identity and refresh tokens.
 pub(crate) struct RefreshTokenResponse {
@@ -40,8 +37,21 @@ impl RefreshTokenResponse {
     }
 }
 
+/// Compile-time refresh-grant parameters owned by one managed OAuth2 Provider.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OAuth2RefreshParameters {
+    /// OAuth token endpoint that accepts the refresh grant.
+    pub(crate) token_endpoint: &'static str,
+    /// Public client identifier bound to the refresh grant.
+    pub(crate) client_id: &'static str,
+    /// Optional form scope parameter; absent when the authority refreshes without scope.
+    pub(crate) scope: Option<&'static str>,
+    /// Timeout applied independently to each HTTPS request.
+    pub(crate) request_timeout: Duration,
+}
+
 /// Transport abstraction for deterministic refresh lifecycle tests.
-pub(crate) trait ChatGptRefreshTransport: Send + Sync {
+pub(crate) trait OAuth2RefreshTransport: Send + Sync {
     /// Exchanges one purpose-bound refresh token through the fixed Provider registration.
     fn refresh(
         &self,
@@ -49,47 +59,45 @@ pub(crate) trait ChatGptRefreshTransport: Send + Sync {
     ) -> impl Future<Output = Result<RefreshTokenResponse, RefreshTransportError>> + Send;
 }
 
-/// Reqwest transport restricted to the compile-time ChatGPT OAuth registration.
-pub(crate) struct ReqwestChatGptRefreshTransport {
+/// Reqwest transport restricted to one compile-time OAuth2 refresh registration.
+pub(crate) struct ReqwestOAuth2RefreshTransport {
     client: Client,
-    registration: &'static ChatGptOAuthRegistration,
+    parameters: OAuth2RefreshParameters,
 }
 
-impl ReqwestChatGptRefreshTransport {
+impl ReqwestOAuth2RefreshTransport {
     /// Builds a no-redirect client with the Provider-specific request timeout.
-    pub(crate) fn new(
-        registration: &'static ChatGptOAuthRegistration,
-    ) -> Result<Self, RefreshTransportError> {
+    pub(crate) fn new(parameters: OAuth2RefreshParameters) -> Result<Self, RefreshTransportError> {
         let client = Client::builder()
             .redirect(Policy::none())
-            .timeout(registration.request_timeout)
+            .timeout(parameters.request_timeout)
             .build()
             .map_err(|_| RefreshTransportError::Transient { retry_after: None })?;
-        Ok(Self {
-            client,
-            registration,
-        })
+        Ok(Self { client, parameters })
     }
 }
 
-impl ChatGptRefreshTransport for ReqwestChatGptRefreshTransport {
+impl OAuth2RefreshTransport for ReqwestOAuth2RefreshTransport {
     async fn refresh(
         &self,
         refresh_token: &SecretString,
     ) -> Result<RefreshTokenResponse, RefreshTransportError> {
-        // Form-encode the fixed public client, grant, scope, and purpose-bound refresh token.
+        // Form-encode the fixed public client, grant, and purpose-bound refresh token; include
+        // scope only when the Provider registration requires it.
         let body = Zeroizing::new({
             let mut serializer = url::form_urlencoded::Serializer::new(String::new());
             serializer
                 .append_pair("grant_type", "refresh_token")
                 .append_pair("refresh_token", refresh_token.expose_secret())
-                .append_pair("client_id", self.registration.client_id)
-                .append_pair("scope", REFRESH_SCOPE);
+                .append_pair("client_id", self.parameters.client_id);
+            if let Some(scope) = self.parameters.scope {
+                serializer.append_pair("scope", scope);
+            }
             serializer.finish()
         });
         let response = self
             .client
-            .post(self.registration.token_endpoint)
+            .post(self.parameters.token_endpoint)
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .header(header::ACCEPT, "application/json")
             .body(body.to_string())

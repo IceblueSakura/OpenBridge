@@ -11,7 +11,10 @@ mod manager;
 mod storage;
 mod transport;
 
-pub use login::{ChatGptDevicePrompt, OAuth2LoginError, OAuth2LoginOutcome, login_chatgpt};
+pub use login::{
+    ChatGptDevicePrompt, GrokDevicePrompt, OAuth2LoginError, OAuth2LoginOutcome, login_chatgpt,
+    login_grok,
+};
 pub use manager::{
     OAuth2Credential, OAuth2CredentialManager, OAuth2CredentialManagerError,
     OAuth2CredentialStatus, OAuth2RefreshOutcome,
@@ -20,3 +23,4 @@ pub use storage::OAuth2LoginTarget;
 
 pub(crate) use manager::OAuth2CredentialLease;
 pub(crate) use manager::OAuth2CredentialManagerBuilder;
+pub(crate) use transport::refresh::OAuth2RefreshParameters;

@@ -8,6 +8,7 @@ pub(crate) mod openai_compatible;
 pub mod bailian;
 pub mod chatgpt;
 pub mod deepseek;
+pub mod grok;
 pub mod kimi_cn;
 pub mod longcat;
 pub mod mimo;

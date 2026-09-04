@@ -7,7 +7,7 @@ use secrecy::ExposeSecret;
 use super::super::{
     document::{parse_auth_document, serialize_auth_document, validate_refreshed_tokens},
     storage::{OAuth2StorageError, version_for_document},
-    transport::refresh::ChatGptRefreshTransport,
+    transport::refresh::OAuth2RefreshTransport,
 };
 use super::credential::{ManagedOAuth2Credential, OAuth2RefreshOutcome, refresh_due_at};
 
@@ -18,7 +18,7 @@ pub(super) async fn refresh_provider_with<T>(
     now: SystemTime,
 ) -> OAuth2RefreshOutcome
 where
-    T: ChatGptRefreshTransport,
+    T: OAuth2RefreshTransport,
 {
     refresh_provider_with_trigger(credential, transport, now, RefreshTrigger::Scheduled).await
 }
@@ -31,7 +31,7 @@ pub(super) async fn recover_after_unauthorized_with<T>(
     rejected_generation: u64,
 ) -> OAuth2RefreshOutcome
 where
-    T: ChatGptRefreshTransport,
+    T: OAuth2RefreshTransport,
 {
     refresh_provider_with_trigger(
         credential,
@@ -52,7 +52,7 @@ async fn refresh_provider_with_trigger<T>(
     trigger: RefreshTrigger,
 ) -> OAuth2RefreshOutcome
 where
-    T: ChatGptRefreshTransport,
+    T: OAuth2RefreshTransport,
 {
     // Merge concurrent callers for the same credential before acquiring the file lock.
     let _refresh_gate = credential.refresh_gate.lock().await;
@@ -82,7 +82,7 @@ where
         Ok(Ok(source)) => source,
         Ok(Err(_)) | Err(_) => return credential.record_storage_failure(now),
     };
-    let persisted = match parse_auth_document(&document, false) {
+    let persisted = match parse_auth_document(credential.provider, &document, false) {
         Ok(bundle) => bundle,
         Err(_) => return credential.record_reauth_required(),
     };
