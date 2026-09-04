@@ -96,7 +96,7 @@ literal retrieval 是 addressability control，不能单独代表有效推理长
 
 ## 7. 当前未覆盖
 
-本流程没有实现通用 network/live runner、完整 capability parameter differential/enforcement matrix、Chat↔Responses canonical IR round-trip 报告、模型生成失败时的 strict retry、live web-search dataset、effective-length 自动曲线/85% threshold、排行榜或生产指标聚合。需要这些能力时必须建立新的获准切片、固定来源与运行边界；不能从 0.8.0 的 reference traces 或 synthetic pass/fail 推断。
+本流程没有实现通用 network/live runner、完整 capability parameter differential/enforcement matrix、Chat↔Responses canonical IR round-trip 报告、模型生成失败时的 strict retry、live web-search dataset、effective-length 自动曲线/85% threshold、排行榜或生产指标聚合。需要这些能力时必须建立新的获准切片、固定来源与运行边界；不能从 0.9.0 的 reference traces 或 synthetic pass/fail 推断。
 
 ## 8. 新增 case
 

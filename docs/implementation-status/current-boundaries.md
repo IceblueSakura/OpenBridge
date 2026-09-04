@@ -115,4 +115,10 @@
 - semantic reference trace、synthetic context byte/position sweep 或 strict JSON oracle 不证明真实 model 的 context limit、tokenizer、推理质量、Provider 原生 enforcement 或 OpenBridge production path 已执行；
 - 外部来源未来保持相同行为。
 
+尚未实施的测试切片（目录驱动回放之外的已知缺口）：
+
+- 缓存管理没有独立 corpus case：`prompt_cache_key` 仅有候选投影/省略测试（`forwarding_contract/resilience.rs`）与 usage 解析测试（`observability_contract.rs`），没有 wire-level cache hint case，也没有登记对应 `sources/` 条目；
+- 14 个 `semantic-cases/` 没有 OpenBridge production runner：回放契约不消费它们，4 方向 × semantic case 的 normalized trace 判定尚未实施；
+- 3 个 stream-violation case 的 proposed oracle（合成终态注入）与生产终止行为的裁决仍开放，见上一条边界。
+
 corpus 中未固定 source ref、pending license 与 `reviewed` case 必须继续显式暴露，不能改写为完成状态。实际执行过的外部证据以[evidence 索引](evidence/README.md)为准。
