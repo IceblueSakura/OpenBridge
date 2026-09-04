@@ -478,7 +478,7 @@ impl UpstreamTransport for ChatGptModelListTransport {
             );
 
             // Return the ChatGPT manifest envelope only for the registered fixed endpoint.
-            if request.method() != Method::GET || relative_uri != "/models?client_version=0.146.0" {
+            if request.method() != Method::GET || relative_uri != "/models?client_version=0.153.2" {
                 return Ok(UpstreamResponse::new(
                     StatusCode::NOT_FOUND,
                     HeaderMap::new(),
@@ -1150,7 +1150,7 @@ async fn chatgpt_probe_uses_oauth2_lease_for_model_manifest() {
     assert_eq!(list_models.model_ids, ["gpt-5.6-sol"]);
     assert_eq!(
         transport.requests.lock().unwrap().as_slice(),
-        ["/models?client_version=0.146.0"]
+        ["/models?client_version=0.153.2"]
     );
     let authorizations = transport.authorizations.lock().unwrap();
     assert_eq!(authorizations.len(), 1);

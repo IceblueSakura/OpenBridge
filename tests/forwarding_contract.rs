@@ -525,7 +525,7 @@ impl UpstreamTransport for ChatGptOAuthTransport {
                 .get("originator")
                 .is_some_and(|value| value == "codex_cli_rs"),
             user_agent_matches: headers.get(USER_AGENT).is_some_and(|value| {
-                value == "codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown"
+                value == "codex_cli_rs/0.153.2 (Linux unknown; x86_64) unknown"
             }),
             accepts_sse: headers
                 .get(ACCEPT)

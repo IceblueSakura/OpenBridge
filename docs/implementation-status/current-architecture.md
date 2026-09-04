@@ -226,7 +226,7 @@ tool choice、strict 与 parallel 差分，不执行工具或 continuation。rep
 转换脚本。`UpstreamClient` 只接受已解析 Target 和 adapter 生成的相对 URI，禁止 redirect，并应用 target timeout。
 
 ChatGPT 是固定 Responses-only Codex backend profile：adapter 固定 `Accept: text/event-stream`、
-`originator: codex_cli_rs` 和 headless Linux UA `codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown`，不读取宿主
+`originator: codex_cli_rs` 和 headless Linux UA `codex_cli_rs/0.153.2 (Linux unknown; x86_64) unknown`，不读取宿主
 OS、terminal identity 或本机 Codex auth。它要求上游 stream，并允许经过验证的缺失 success Content-Type 作为 SSE；其他
 Provider 不继承该例外。
 
