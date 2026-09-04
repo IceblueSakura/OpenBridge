@@ -1,6 +1,6 @@
 event: response.created
-data: {"type":"response.created","response":{"id":"resp_incomplete_1","object":"response","model":"public-model","status":"in_progress","output":[]}}
+data: {"type":"response.created","response":{"id":"resp_incomplete_1","object":"response","model":"upstream-model","status":"in_progress","output":[]}}
 
 event: response.incomplete
-data: {"type":"response.incomplete","response":{"id":"resp_incomplete_1","object":"response","model":"public-model","status":"incomplete","output":[],"incomplete_details":{"reason":"max_output_tokens"}}}
+data: {"type":"response.incomplete","response":{"id":"resp_incomplete_1","object":"response","model":"upstream-model","status":"incomplete","output":[],"incomplete_details":{"reason":"max_output_tokens"}}}
 

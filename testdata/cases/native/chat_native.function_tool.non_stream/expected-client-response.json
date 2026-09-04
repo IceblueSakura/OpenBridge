@@ -21,6 +21,6 @@
   ],
   "created": 0,
   "id": "chatcmpl_native_tool",
-  "model": "public-model",
+  "model": "upstream-model",
   "object": "chat.completion"
 }

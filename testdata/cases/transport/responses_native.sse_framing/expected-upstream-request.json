@@ -1,5 +1,7 @@
 {
   "input": "Hello",
+  "instructions": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.",
   "model": "upstream-model",
+  "store": false,
   "stream": true
 }

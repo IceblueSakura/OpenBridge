@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+pub mod catalog_replay;
 mod fixtures;
 pub mod metrics;
 pub mod process_replay;

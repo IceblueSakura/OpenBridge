@@ -49,7 +49,7 @@ uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata lint
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.8.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.9.0.zip
 ```
 
 `generate`、`report`、`pack` 的 `--output` 受限于 `generated/`、`reports/`、`dist/`。scenario、plan、ready state 和 observation

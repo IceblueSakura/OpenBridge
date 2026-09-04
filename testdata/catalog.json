@@ -52,7 +52,7 @@
     "responses_to_chat.unknown_tool_result.reject",
     "responses_to_chat.unsupported_hosted_tool.reject"
   ],
-  "corpus_version": "0.8.0",
+  "corpus_version": "0.9.0",
   "default_generation_seed": 20260726,
   "required_core_features": [
     "text",

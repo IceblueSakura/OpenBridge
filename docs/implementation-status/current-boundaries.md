@@ -104,11 +104,11 @@
 
 ## 6. 测试资产边界
 
-当前确定性测试和 corpus 能证明 registry、routing、wire、Generation Static/Event IR lifecycle、SSE fragmentation、retry/fallback/cooldown、取消和有限 replay，但不证明：
+当前确定性测试和 corpus 能证明 registry、routing、wire、Generation Static/Event IR lifecycle、SSE fragmentation、retry/fallback/cooldown、取消，以及全部 51 个 canonical wire case 经过 production Router 的目录驱动回放（`tests/catalog_replay_contract.rs`），但不证明：
 
 - 完整 Model/Provider inventory、retired ID 黑名单、完整 candidate 数量/顺序或每个 catalog capability fact；
 - 每个 Provider/model 组合都重复经过 Native/Bridge production Router，或 OTLP metrics exporter 拥有独立进程级集成覆盖；
-- 全部 canonical case 都经过 production Router；
+- 3 个 stream-violation case（`event_type_conflict`、`terminal_violation`、`incomplete_arguments`）的 proposed oracle——回放当前锁定生产终止行为，合成终态注入仍待产品裁决；
 - canonical oracle 等于完整 OpenAI API；
 - hosted/custom tool、continuation、媒体和 Provider 私有扩展可转换；
 - 真实 SDK、Agent、Provider、TLS/HTTP2、并发背压、负载或真实 packet boundary 兼容；

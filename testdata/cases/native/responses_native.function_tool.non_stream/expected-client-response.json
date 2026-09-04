@@ -1,7 +1,7 @@
 {
   "created_at": 0,
   "id": "resp_native_tool",
-  "model": "public-model",
+  "model": "upstream-model",
   "object": "response",
   "output": [
     {

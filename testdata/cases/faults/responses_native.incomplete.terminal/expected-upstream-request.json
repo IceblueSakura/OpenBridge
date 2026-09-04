@@ -1,6 +1,8 @@
 {
   "input": "Stop at limit.",
+  "instructions": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.",
   "max_output_tokens": 1,
   "model": "upstream-model",
+  "store": false,
   "stream": true
 }

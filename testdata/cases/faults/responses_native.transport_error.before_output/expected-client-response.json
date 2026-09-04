@@ -1,7 +1,7 @@
 {
   "error": {
     "code": "upstream_unavailable",
-    "message": "upstream unavailable before response output",
+    "message": "candidate unavailable",
     "param": null,
     "type": "server_error"
   }

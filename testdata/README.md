@@ -3,10 +3,11 @@
 `testdata/` 是一个可独立发布、可复现的协议测试语料。它固定 Chat Completions、Responses、SSE、function tool 和 HTTP/transport
 失败的输入、上游 wire 与预期输出；它不启动 OpenBridge，也不依赖 Rust crate、服务配置、API key 或真实 Provider。
 
-当前 release 为 **0.8.0**：51 个人工审查的 canonical wire cases（26 `accepted`、25 `reviewed`）、14 个协议无关 semantic
-cases（6 `accepted`、8 `reviewed`），以及默认 seed 下 342 个可重建的 SSE 分片变体。该版本向后兼容保留 function-tool
-case，新增 synthetic context length/position、strict structured output、`semantic-plan` schema 和零网络 plan compiler；既有 wire case
-和 runtime document 的 `schema_version` 仍为 `0.1`。项目语义测试流程见 [semantic-testing.md](semantic-testing.md)。
+当前 release 为 **0.9.0**：51 个人工审查的 canonical wire cases（26 `accepted`、25 `reviewed`）、14 个协议无关 semantic
+cases（6 `accepted`、8 `reviewed`），以及默认 seed 下 342 个可重建的 SSE 分片变体。该版本按生产 Router 的实测行为校准
+artifact：native 成功路径的 `expected-client-*` 改为逐字节透传上游响应（`model` 保持上游值、不注入合成 event），
+`expected-upstream-request.json` 重新生成以包含生产的 `instructions` 与 `store` 归一化，transport 失败消息与
+SSE framing artifact 对齐实测字节；`schema_version` 仍为 `0.1`。项目语义测试流程见 [semantic-testing.md](semantic-testing.md)。
 
 配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)
 。当前已验证状态和集成边界见[当前实现](../docs/implementation-status/current-state.md)和
@@ -41,7 +42,7 @@ uv run --project tools/corpus pytest tools/corpus/tests
 ```powershell
 uv run --project tools/corpus corpus --root testdata generate --seed 20260726
 uv run --project tools/corpus corpus --root testdata report --output testdata/reports/coverage.json
-uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.8.0.zip
+uv run --project tools/corpus corpus --root testdata pack --output testdata/dist/openbridge-protocol-corpus-0.9.0.zip
 ```
 
 `lint` 与测试不要求网络、服务端或 credential。`generate`、`report`、`pack` 的输出只能位于对应的派生目录，避免覆盖 canonical

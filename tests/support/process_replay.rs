@@ -59,10 +59,10 @@ pub struct ReplayObservation {
     pub provider_metrics: Vec<ProviderMetricSnapshot>,
 }
 
-struct GatewayHarness {
-    address: SocketAddr,
-    task: JoinHandle<()>,
-    metrics: TestMetrics,
+pub(crate) struct GatewayHarness {
+    pub(crate) address: SocketAddr,
+    pub(crate) task: JoinHandle<()>,
+    pub(crate) metrics: TestMetrics,
 }
 
 struct LoopbackReplayTransport {
@@ -104,8 +104,12 @@ impl UpstreamTransport for LoopbackReplayTransport {
 }
 
 /// Starts the production Router against one test-owned loopback upstream origin.
-async fn start_gateway(upstream_address: SocketAddr) -> GatewayHarness {
-    // Build the fixed registry, synthetic credentials, and observed test transport.
+pub(super) async fn start_gateway(upstream_address: SocketAddr) -> GatewayHarness {
+    start_gateway_with_definition(upstream_address, default_replay_definition()).await
+}
+
+/// Builds the standard replay registry with Responses streaming enabled.
+fn default_replay_definition() -> openbridge::registry::RegistryConfig {
     let mut definition = super::definition("process-replay", "public-model", "upstream-model");
     if let openbridge::registry::UpstreamApiCapabilities::Responses(capabilities) =
         &mut definition.upstream_targets[0].upstream_apis[1].capabilities
@@ -113,6 +117,15 @@ async fn start_gateway(upstream_address: SocketAddr) -> GatewayHarness {
         capabilities.streaming = true;
         capabilities.terminal_usage = true;
     }
+    definition
+}
+
+/// Starts the production Router with an explicit registry definition for one replay harness.
+pub(crate) async fn start_gateway_with_definition(
+    upstream_address: SocketAddr,
+    definition: openbridge::registry::RegistryConfig,
+) -> GatewayHarness {
+    // Build the fixed registry, synthetic credentials, and observed test transport.
     let registry =
         openbridge::registry::build_registry(super::bootstrap(super::BOOTSTRAP), definition)
             .expect("replay registry must be valid");
@@ -144,13 +157,13 @@ async fn start_gateway(upstream_address: SocketAddr) -> GatewayHarness {
     }
 }
 
-fn read_json(path: std::path::PathBuf) -> Value {
+pub(crate) fn read_json(path: std::path::PathBuf) -> Value {
     // Read and parse the canonical JSON artifact, binding errors directly to the test fixture.
     let bytes = std::fs::read(path).expect("canonical JSON artifact must be readable");
     serde_json::from_slice(&bytes).expect("canonical JSON artifact must be valid")
 }
 
-fn spawn_server(listener: TcpListener, router: Router) -> JoinHandle<()> {
+pub(crate) fn spawn_server(listener: TcpListener, router: Router) -> JoinHandle<()> {
     // Run the loopback server in an independent task and explicitly abort it on test completion.
     tokio::spawn(async move {
         axum::serve(listener, router)

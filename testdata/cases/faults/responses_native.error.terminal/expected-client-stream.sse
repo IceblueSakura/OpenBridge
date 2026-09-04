@@ -1,5 +1,5 @@
 event: response.created
-data: {"type":"response.created","response":{"id":"resp_error_1","object":"response","model":"public-model","status":"in_progress","output":[]}}
+data: {"type":"response.created","response":{"id":"resp_error_1","object":"response","model":"upstream-model","status":"in_progress","output":[]}}
 
 event: error
 data: {"type":"error","code":"server_error","message":"stream error","param":null}

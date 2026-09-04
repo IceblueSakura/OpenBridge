@@ -10,7 +10,7 @@
 | Bootstrap、用户、上游凭证与静态注册 | 已实现 | `src/config/`、`src/identity.rs`、`src/upstream_credentials/`、`src/credential/`、`src/models/`、`src/providers/`、`src/registry/` | `tests/config_contract.rs`、`tests/example_config.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs` |
 | OAuth 登录与运行时刷新 | 已实现 | `src/oauth2_credentials/` | `tests/oauth2_login_cli.rs` |
 | Models API 与请求预检 | 已实现 | `src/pipeline/generation/`、`src/pipeline/embeddings/`、`src/registry/public_model/` | `tests/forwarding_contract.rs`、`tests/ingress_contract.rs`、`tests/provider_boundary_contract.rs` |
-| Generation Native 与 Protocol Bridge（Static/Event IR） | 已实现 | `src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/provider/`、`src/transport/` | `tests/generation_ir_*_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/process_replay_contract.rs` |
+| Generation Native 与 Protocol Bridge（Static/Event IR） | 已实现 | `src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/provider/`、`src/transport/` | `tests/generation_ir_*_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/process_replay_contract.rs`、`tests/catalog_replay_contract.rs` |
 | Retry、fallback、cooldown 与取消 | 已实现 | `src/ingress/forwarding/`、`src/execution/`、`src/ingress/health.rs`、`src/ingress/streaming/` | `tests/forwarding_contract/resilience.rs`、`tests/process_replay_contract.rs` |
 | Embeddings | 已实现（单 Route Native） | `src/pipeline/embeddings/` | `tests/embedding_forwarding_contract.rs` |
 | Native 图片/文件/音频输入 | 已实现（按 provider 页收窄） | `src/providers/*/`、`src/pipeline/generation/` | `tests/forwarding_contract.rs`、`tests/forwarding_contract/file_input.rs` |
