@@ -21,6 +21,7 @@ commit 为准；目录索引只负责导航和维护规则，不用较新的索�
 | LiteLLM | [LiteLLM 调研索引](litellm/README.md) | Proxy、转换、observability、retry 与 OAuth |
 | new-api | [new-api 调研索引](new-api/README.md) | 多协议转换、渠道路由、计费与运维机制 |
 | cc-switch | [Chat/Responses tool conversion](cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)、[retry/failover](cc-switch/cc-switch-retry-failover-analysis.md) | 桌面客户端 bridge 与 Provider failover |
+| sub2api | [Antigravity 订阅 OAuth](providers/antigravity-oauth.md)、[Grok 订阅 OAuth](providers/grok-oauth.md)、[ChatGPT 订阅 OAuth](providers/openai-chatgpt-oauth.md) | 订阅 entitlement OAuth 登录路径、协议对抗时间线与逆向信息来源链 |
 | CLIProxyAPI | [stateful bridge](cliproxyapi/cliproxyapi-stateful-bridge-analysis.md)、[credential retry](cliproxyapi/cliproxyapi-credential-pool-retry-analysis.md)、[OAuth scheduler](cliproxyapi/cliproxyapi-codex-oauth-refresh-analysis.md) | 订阅账号代理的 state、cooldown 与 OAuth lifecycle |
 | 跨项目综合 | [综合调研索引](cross-project/README.md) | 只汇总已经存在项目级前置文档的比较 |
 | 语义评测方法 | [Semantic evaluation methods](semantic-testing-methods.md) | 长上下文、function-tool 与 structured-output 方法和采用边界 |
@@ -75,6 +76,7 @@ commit。真实观察还应说明账户、网络、payload 与敏感数据边界
 | new-api | [GNU AGPL v3](https://github.com/QuantumNous/new-api/blob/2d8e50bf36e94200b809dfb39e73624ec48b1e23/LICENSE) | `main` @ `2d8e50bf36e94200b809dfb39e73624ec48b1e23` | 请求主链、converter registry、渠道路由、计费与后台任务 |
 | cc-switch | [MIT](https://github.com/farion1231/cc-switch/blob/main/LICENSE) | `main` @ `ebbf141fc71547a99f669df1be8e345130d1d890` | bridge state、history、retry/failover |
 | CLIProxyAPI | [MIT](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) | `main` @ `bc71c77f5cc42f3fbe1bf040cf14d4f166894835` | stateful translator、credential retry、OAuth scheduler |
+| sub2api | [LGPL-3.0](https://github.com/Wei-Shaw/sub2api/blob/main/LICENSE) | `main` @ `5097b31457e6dc9f49e5f5c9c72b925ce79543b3` | Antigravity、Grok 与 ChatGPT 订阅 OAuth 登录路径与信息来源链 |
 
 ## 5. 维护检查
 

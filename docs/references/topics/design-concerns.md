@@ -45,6 +45,7 @@
 | 关注点 | 导航入口 | 该组文档覆盖什么 |
 |---|---|---|
 | 上游 OAuth device / refresh | [OAuth 综合](../cross-project/upstream-oauth-device-code-token-refresh-analysis.md)、[Codex 设备登录与刷新](../codex/codex-device-auth-token-refresh-analysis.md)、[Codex 浏览器 OAuth](../codex/codex-oauth-and-tool-call-analysis.md)、[Hermes credential lifecycle](../hermes/hermes-codex-oauth-refresh-analysis.md)、[LiteLLM ChatGPT authenticator](../litellm/litellm-chatgpt-oauth-refresh-analysis.md)、[CLIProxyAPI OAuth scheduler](../cliproxyapi/cliproxyapi-codex-oauth-refresh-analysis.md) | 设备码流程、refresh grant、rotation 风险、401 recovery |
+| 订阅 entitlement OAuth（非开放 API） | [Antigravity 订阅 OAuth](../providers/antigravity-oauth.md)、[Grok 订阅 OAuth](../providers/grok-oauth.md)、[ChatGPT 订阅 OAuth](../providers/openai-chatgpt-oauth.md) | 官方客户端 client 复用、v1internal/backend-api 信封、指纹对抗时间线、逆向信息来源链 |
 | Consumer 消费合同与插件面 | [Hermes 上游请求合同](../hermes/hermes-chat-responses-analysis.md)、[Hermes provider 插件](../hermes/hermes-provider-plugin-capabilities.md)、[Hermes 网关插件面](../hermes/hermes-gateway-plugin-capabilities.md)、[Codex SSE 消费](../codex/codex-sse-and-tool-lifecycle-analysis.md)、[SDK streaming consumer](../openai/openai-sdk-stream-test-assets-analysis.md) | 宽松 fallback、字段消费、插件默认值、accumulator 需求 |
 | MCP transport 与远程认证 | [MCP Rust 生态索引](../mcp/README.md)、[远程访问模式](../mcp/remote-access-modes.md)、[rmcp 官方 SDK](../mcp/rmcp-official-sdk.md) | Streamable HTTP、OAuth 2.1、无状态化、部署模式 |
 

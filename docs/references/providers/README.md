@@ -7,12 +7,15 @@
 | Provider | 协议与专项资料 |
 |---|---|
 | Alibaba Cloud Model Studio | [API](bailian-api.md) |
+| Antigravity（Google 订阅） | [订阅 OAuth 登录路径与信息来源](antigravity-oauth.md) |
 | DeepSeek | [API](deepseek-api.md) |
 | Kimi | [API](kimi-api.md) |
 | LongCat | [API 与 reasoning wire](longcat-api.md) |
 | NVIDIA API Catalog / NIM | [API](nvidia-api.md) |
 | OpenRouter | [API 与路由语义](openrouter-api.md) |
 | Xiaomi MiMo | [API](xiaomi-api.md)、[图片 wire](xiaomi-image.md)、[音频 wire](xiaomi-audio.md) |
+| Grok（xAI 订阅） | [订阅 OAuth 登录路径与信息来源](grok-oauth.md) |
+| OpenAI ChatGPT（订阅/Codex） | [订阅 OAuth 登录路径与信息来源](openai-chatgpt-oauth.md) |
 | Zhipu AI China / Z.AI | [API](zhipu-api.md) |
 
 OpenBridge 当前 Model、Provider Target 与 Public Model 的关系由[实施状态映射](../../implementation-status/model-provider-mapping.md)唯一维护。
