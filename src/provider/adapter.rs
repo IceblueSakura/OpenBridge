@@ -491,7 +491,7 @@ mod tests {
             outbound
                 .get(USER_AGENT)
                 .and_then(|value| value.to_str().ok()),
-            Some("codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown")
+            Some("codex_cli_rs/0.153.2 (Linux unknown; x86_64) unknown")
         );
         assert_eq!(
             outbound

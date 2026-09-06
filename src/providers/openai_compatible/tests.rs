@@ -183,7 +183,7 @@ fn provider_model_list_profiles_bind_paths_and_response_envelopes() {
             .unwrap()
             .relative_uri()
             .to_string(),
-        "/models?client_version=0.146.0"
+        "/models?client_version=0.153.2"
     );
     assert_eq!(
         chatgpt.model_list_ids(&json!({

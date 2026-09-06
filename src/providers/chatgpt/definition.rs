@@ -26,8 +26,8 @@ const CHATGPT_IDENTITY_HEADERS: &[StaticRequestHeader] = &[
     StaticRequestHeader::new("accept", "text/event-stream"),
     StaticRequestHeader::new("originator", "codex_cli_rs"),
 ];
-/// Fixed headless Linux profile derived from the Codex CLI `rust-v0.146.0` User-Agent format.
-const CODEX_CLI_LINUX_USER_AGENT: &str = "codex_cli_rs/0.146.0 (Linux unknown; x86_64) unknown";
+/// Fixed headless Linux profile derived from the Codex CLI `rust-v0.153.2` User-Agent format.
+const CODEX_CLI_LINUX_USER_AGENT: &str = "codex_cli_rs/0.153.2 (Linux unknown; x86_64) unknown";
 const CHATGPT_REQUEST_HEADERS: ProviderRequestHeaders = ProviderRequestHeaders::new()
     .with_user_agent(CODEX_CLI_LINUX_USER_AGENT)
     .with_headers(CHATGPT_IDENTITY_HEADERS);
@@ -72,7 +72,7 @@ const API_SURFACE: OpenAiCompatibleApiSurface = OpenAiCompatibleApiSurface::new(
 const ADAPTER: OpenAiCompatibleAdapter = OpenAiCompatibleAdapter::new(
     ProviderKind::ChatGpt,
     API_SURFACE,
-    "/models?client_version=0.146.0",
+    "/models?client_version=0.153.2",
     transform_request_headers,
 )
 .with_authentication_context_hook(authentication_context)
