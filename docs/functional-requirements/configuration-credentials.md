@@ -146,7 +146,7 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
 
 ### 3. ChatGPT 本地状态隔离
 
-- 五个 ChatGPT Responses-native Target 使用同一个独立 `OAuth2BearerAccessToken` pool。Spark、GPT-5.5、Luna 与
+- 六个 ChatGPT Responses-native Target 使用同一个独立 `OAuth2BearerAccessToken` pool。Astra、Spark、GPT-5.5、Luna 与
   Terra 分别只为一个 ChatGPT-only Public Model 提供 source；Sol Target 则是还包含 OpenAI 后备 source 的
   `gpt-5.6-sol` Public Model 的 ChatGPT source。通用 API-key probe 不借用 OAuth manager credential，ChatGPT
   probe 只能显式借用所选 Target 的 manager lease；
@@ -258,8 +258,8 @@ OpenBridge 不搜索或导入 Codex 用户目录，不调用 Codex executable/ap
 1. ChatGPT 是独立 `ProviderKind` 与 Provider instance，不能复用 `OpenAI` API-key Provider instance 或 credential pool。
 2. BaseURL、operation path 与 credential kind 来自受信 Rust 注册；业务请求和 credential 文件不能覆盖上游 URL、model path 或
    任意 header。
-3. `gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra` 与 `gpt-5.6-sol` 各自拥有一个
-   固定 Responses-native ChatGPT Target。前四个 Target 分别是四个 ChatGPT-only Public Model 的唯一 source；Sol
+3. `gpt-6-astra`、`gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra` 与 `gpt-5.6-sol` 各自拥有一个
+   固定 Responses-native ChatGPT Target。前五个 Target 分别是五个 ChatGPT-only Public Model 的唯一 source；Sol
    Target 是还包含 OpenAI 后备 source 的 `gpt-5.6-sol` Public Model 的 ChatGPT source。通用 API-key probe 不借用
    OAuth manager credential。
 4. private upstream credential TOML 可为 ChatGPT OAuth2 binding 显式配置一个 OpenBridge-owned `auth_json_file`；不得默认、
@@ -424,7 +424,7 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 | ID       | 行为                                                                                                                                                      |
 |----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | OAUTH-01 | ChatGPT 使用独立 ProviderKind/Provider instance、OAuth bearer credential kind、固定受信 BaseURL 与 Responses-only adapter；OpenAI API-key Provider 行为不变。 |
-| OAUTH-02 | 五个固定 ChatGPT Target 都是 Responses-native；Spark/GPT-5.5/Luna/Terra 分别属于四个 ChatGPT-only Public Model，Sol Target 属于还包含 OpenAI source 的 `gpt-5.6-sol`；Provider-qualified identity 只保留在内部，通用 API-key probe 不借用 OAuth manager credential。 |
+| OAUTH-02 | 六个固定 ChatGPT Target 都是 Responses-native；Astra/Spark/GPT-5.5/Luna/Terra 分别属于五个 ChatGPT-only Public Model，Sol Target 属于还包含 OpenAI source 的 `gpt-5.6-sol`；Provider-qualified identity 只保留在内部，通用 API-key probe 不借用 OAuth manager credential。 |
 | OAUTH-03 | ChatGPT OAuth 文件只由 private upstream credential TOML 显式定位并由 OpenBridge 拥有；不得搜索、导入或回退到本机 Codex state。 |
 | OAUTH-04 | 生产代码不从 terminal、部署主机 OS、architecture、environment 或 Codex state 推导 client identity；ChatGPT 只发送编译期固定、按已记录 Codex CLI release 源码格式生成的 headless Linux x86_64 兼容 UA/header，不提供运行时 override 或 Codex auth/executable probe selector。 |
 | OAUTH-05 | login CLI 可以从 missing version 事务性创建完整 `auth_json_file`；主服务启动要求文件已存在且完整校验 OAuth2 bundle，再构建内部 guarded、对外 snapshot 化且脱敏的 `OAuth2CredentialManager`；缺失、空白或损坏文件阻止启动，过期完整 bundle 可立即 refresh。 |
@@ -463,7 +463,7 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 | CFG-10 | 私有 upstream credential TOML 出现未知或重复 pool、空白/重复 secret 或不能解析时，会在 listener 绑定前阻止服务启动；缺失或为空的已注册 pool 会让其引用 Target 在本次启动中不可执行。 |
 | CFG-11 | 同 Provider 的 Target 可引用共享 API-key pool；激活 pool 必须满足 Provider/kind 与 member 约束，未激活 pool 不要求 secret。                                               |
 | CFG-12 | 多 member pool 不得用于启用 `TargetBoundContinuation` 的 Responses API；普通 Target-bound、无 continuation 的 API 不因此失去 credential rotation。                         |
-| CFG-13 | 五个 ChatGPT Responses-native Target 共用独立 OAuth pool；四个分别属于 ChatGPT-only Public Model，Sol Target 属于还含 OpenAI source 的 `gpt-5.6-sol`；请求和 probe 不接受本机 Codex auth/environment/terminal/executable selector。 |
+| CFG-13 | 六个 ChatGPT Responses-native Target 共用独立 OAuth pool；五个分别属于 ChatGPT-only Public Model，Sol Target 属于还含 OpenAI source 的 `gpt-5.6-sol`；请求和 probe 不接受本机 Codex auth/environment/terminal/executable selector。 |
 | CFG-14 | Provider 实例唯一拥有一个受信 BaseURL；Target 必须引用已注册实例，不同 URL/区域使用不同实例，业务请求不能覆盖实例或 URL。                                            |
 | CFG-15 | 每个 Target 对每个 `OperationKind` 最多注册一个 Upstream API；Route、probe、telemetry 与 continuation issuer 使用 typed upstream operation，不依赖 API 字符串 ID。 |
 | CFG-16 | Upstream API 的 operation 只由 capabilities variant 决定；当前 transport 由 operation 固定，注册表不保留独立 operation、transport 或无执行语义的 endpoint profile。 |

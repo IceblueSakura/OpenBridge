@@ -61,10 +61,10 @@ Agent 或 OpenAI-compatible SDK 通过稳定的 loopback HTTP 地址和 Public M
   首个预提交 `401` recovery 按固定账户边界 guarded reload/rotation，不能修改 registry、Route、账户 binding
   或 auth-file locator。
 
-ChatGPT subscription 集成固定注册五个 Responses-native Target。`gpt-5.3-codex-spark`、`gpt-5.5`、
-`gpt-5.6-luna` 与 `gpt-5.6-terra` 是四个 ChatGPT-only Public Model；第五个 ChatGPT Target 是
-`gpt-5.6-sol` 多 source Public Model 的 ChatGPT source，该 Public Model 还包含 OpenAI 后备 source。五者不能被
-简写成“四个 target”或“五个 ChatGPT-only Public Model”。
+ChatGPT subscription 集成固定注册六个 Responses-native Target。`gpt-6-astra`、`gpt-5.3-codex-spark`、`gpt-5.5`、
+`gpt-5.6-luna` 与 `gpt-5.6-terra` 是五个 ChatGPT-only Public Model；第六个 ChatGPT Target 是
+`gpt-5.6-sol` 多 source Public Model 的 ChatGPT source，该 Public Model 还包含 OpenAI 后备 source。它们不能被
+简写成“五个 target”或“六个 ChatGPT-only Public Model”。
 
 ### 4. 部署、凭证与观测边界
 

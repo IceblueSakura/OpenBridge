@@ -10,6 +10,15 @@ use crate::registry::ReasoningLevelPolicy;
 pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
     &[
         PublicModelRegistration {
+            public_name: "gpt-6-astra",
+            routing_strategy: PublicModelRoutingStrategy::SourceFirst,
+            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
+            providers: &[ProviderRouteRegistration {
+                upstream_target: "chatgpt/gpt-6-astra",
+                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
+            }],
+        },
+        PublicModelRegistration {
             public_name: "gpt-5.6-sol",
             routing_strategy: PublicModelRoutingStrategy::SourceFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,

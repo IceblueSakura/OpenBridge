@@ -8,6 +8,7 @@
 
 | Public Model | Canonical Model | Provider | Target ID |
 |---|---|---|---|
+| `gpt-6-astra` | `chatgpt/gpt-6-astra` | ChatGPT | `chatgpt/gpt-6-astra` |
 | `gpt-5.6-sol` | `chatgpt/gpt-5.6-sol` | ChatGPT | `chatgpt/gpt-5-6-sol` |
 | `gpt-5.6-terra` | `chatgpt/gpt-5.6-terra` | ChatGPT | `chatgpt/gpt-5-6-terra` |
 | `gpt-5.6-luna` | `chatgpt/gpt-5.6-luna` | ChatGPT | `chatgpt/gpt-5-6-luna` |

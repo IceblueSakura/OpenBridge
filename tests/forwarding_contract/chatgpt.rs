@@ -3,7 +3,7 @@
 use super::*;
 
 #[tokio::test]
-async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
+async fn chatgpt_oauth_routes_forward_six_models_with_account_bound_headers() {
     let directory = SyntheticAuthDirectory::new();
     let (document, access_token) = synthetic_chatgpt_document(1);
     fs::write(directory.auth_file(), document).unwrap();
@@ -18,6 +18,7 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
 
     // Send one minimal streaming Responses request through each fixed ChatGPT Public Model.
     for public_model in [
+        "gpt-6-astra",
         "gpt-5.3-codex-spark",
         "gpt-5.5",
         "gpt-5.6-luna",
@@ -51,8 +52,9 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
 
     // Verify fixed endpoint/model rewriting and the complete non-FedRAMP OAuth request identity.
     let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 5);
+    assert_eq!(requests.len(), 6);
     for (request, upstream_model) in requests.iter().zip([
+        "gpt-6-astra",
         "gpt-5.3-codex-spark",
         "gpt-5.5",
         "gpt-5.6-luna",

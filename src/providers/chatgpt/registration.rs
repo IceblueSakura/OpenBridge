@@ -61,6 +61,13 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             true,
         ),
         upstream_target(
+            "chatgpt/gpt-6-astra",
+            chatgpt::gpt_6_astra::ID,
+            "gpt-6-astra",
+            true,
+            true,
+        ),
+        upstream_target(
             "chatgpt/gpt-5-6-sol",
             chatgpt::gpt_5_6_sol::ID,
             "gpt-5.6-sol",
