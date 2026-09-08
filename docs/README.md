@@ -1,113 +1,66 @@
-# OpenBridge 文档索引
+# OpenBridge 文档
 
-本文只负责文档分类、阅读入口和维护规则。当前 checkout、源码、确定性测试和明确记录的实际验证是实现事实的依据；需求、计划或外部
-参考不能自动证明代码已经支持某项能力。
+按阅读任务选择入口。产品契约说明“应当怎样工作”；源码与测试说明当前实现；带日期的执行证据说明“在什么范围内实际验证过”。三者有分歧时先核对，不自动相互覆盖。
 
-## 1. 按目标选择入口
+## 从这里开始
 
-| 目标 | 从这里开始 | 继续阅读 |
+| 你的目标 | 阅读入口 |
+|---|---|
+| 安装、配置和调用 | [使用手册](../README.md)、[Provider 探测指南](guides/provider-probing.md) |
+| 理解产品行为与失败语义 | [功能需求](functional-requirements/README.md) |
+| 理解模块职责与请求数据流 | [当前架构](architecture.md) |
+| 修改代码并选择验证方式 | [开发指南](development.md) |
+| 判断当前实现与验收差距 | [实施现状](implementation-status/README.md) |
+| 定位模型注册和 Provider 接入边界 | [映射](implementation-status/model-provider-mapping.md)、[Provider 状态](implementation-status/providers/README.md) |
+| 核对一次外部验证 | [验证证据](implementation-status/evidence/README.md) |
+| 核对外部协议、SDK 或参考项目 | [参考资料](references/README.md) |
+| 查看当前获准工作范围的记录 | [当前工作范围](implementation-plans/README.md)与[当前开发焦点](implementation-plans/current-focus.md) |
+| 设计或运行语义测试 | [Semantic testing](../testdata/semantic-testing.md) |
+
+## 文档职责
+
+| 位置 | 维护的事实 | 不应混入 |
 |---|---|---|
-| 安装、配置和调用 | [根 README](../README.md) | 配置模板、OpenAPI、常见问题 |
-| 判断产品应保持什么行为 | [功能需求](functional-requirements/README.md) | 对应功能域的合同、失败语义与非目标 |
-| 判断当前代码已实现什么 | [实施现状](implementation-status/README.md) | 当前实现、架构、映射、边界与 evidence |
-| 查看当前保留的实施优先级 | [实施计划入口](implementation-plans/README.md) | [当前开发焦点](implementation-plans/current-focus.md)及对应需求、测试和状态页 |
-| 核验外部协议或 Provider 事实 | [参考资料](references/README.md) | 固定 source snapshot 与重新核验边界 |
-| 查看当前实现与源码 owner | [当前实现](implementation-status/current-state.md) | [当前代码架构](implementation-status/current-architecture.md) |
-| 查看 Model 与 Provider 的当前映射 | [Model 与 Provider 映射](implementation-status/model-provider-mapping.md) | Provider Target 与 Public Model 注册 |
-| 查看某个 Provider 的接入进度与未证明边界 | [Provider 接入进度](implementation-status/providers/README.md) | 对应 provider 分页与 evidence |
-| 查看未实现与未验证范围 | [当前状态边界](implementation-status/current-boundaries.md) | 带日期的外部 evidence |
-| 设计或运行项目语义测试 | [Semantic testing](../testdata/semantic-testing.md) | [评测方法证据](references/semantic-testing-methods.md)与 corpus/testkit |
+| 根 `README.md`、`guides/` | 配置、调用、操作与排障说明 | 完整架构、完成日志 |
+| `functional-requirements/` | 当前有效的行为、安全与资源约束、非目标、验收要求 | 当前模型接线、测试通过记录 |
+| `architecture.md` | 稳定职责、依赖方向、关键数据流和跨模块选择理由 | 内部算法、版本常量、库存表 |
+| `development.md` | 变更流程、测试职责、验证命令与交付条件 | 当前任务进度、产品契约正文 |
+| `implementation-status/` | 当前实现范围、差距、注册关系、Provider 特有边界和证据指针 | 产品规则副本、完成流水账 |
+| `implementation-status/evidence/` | 有独立价值的实际验收与差异观察及其固定边界 | 当前能力保证、未经执行的推论 |
+| `implementation-plans/current-focus.md` | 用户已经批准的短周期行为范围及验证边界 | 自动授权、候选路线图、完成历史 |
+| `references/` | 外部来源的固定协议、SDK、Provider 与参考项目事实 | OpenBridge 实现状态或实施授权 |
+| 根 `AGENTS.md` | Agent 授权、安全、工作纪律和按需阅读入口 | 另一套产品说明或模块地图 |
 
-## 2. 文档类别与唯一职责
+实现细节与局部理由由源码 `//!`/`///` 注释和测试维护。这里呈现收敛后的当前设计，不维护推测性路线图或 ADR 决策演进历史。
 
-| 类别 | 只回答什么 | 不应包含什么 |
-|---|---|---|
-| `functional-requirements/` | 产品行为、客户端结果、安全边界、非目标和验收约束 | 当前测试结果、实现日志、候选设计 |
-| `implementation-status/` | 实现进度、模型/Provider 关系、未证明边界、Provider 接入进度与带日期证据 | 实现细节（由代码与注释拥有）、未获准路线图、外部协议全文 |
-| `implementation-plans/` | 当前保留的开发焦点与优先级 | 第二份路线图、完成历史、状态快照 |
-| `references/` | 外部协议、SDK、Provider、客户端和参考项目事实 | OpenBridge 当前实现、产品承诺或实施步骤 |
+## 内容与可读性
 
-本地实现理由优先写在模块/API 文档中；只有形成跨模块产品合同或实施事实时，才进入上述文档。
+- 一个详细事实有一个明确维护位置；其他页面可用短摘要和链接，不复制长规则、精确清单或状态表。
+- 标题按问题域命名，开头简述范围。表格用于导航和对照，不强制每页套用空章节。
+- 区分“必须/不得”的产品约束、“已实现”的代码事实与“已验证”的执行结果。
+- 产品永久非目标归需求；范围内缺口与未验证项归状态。状态不是未来实施计划。
+- 保持既有验收 ID 和技术标识；索引不维护文档数量、模型数量、测试数量或“最新”快照。
+- 代码注册关系可以维护为实现映射；单模型 capability metadata、价格和外部全量目录不复制到文档。能力事实由代码、扩展 Models API 或外部官方来源拥有。扩展 Models API 不公开私有执行拓扑，不能替代维护者的注册源码入口。
+- 大合同域按独立职责拆叶子；只在确有导航价值时增加目录 README，不按文件长度机械拆分。
 
-文档不维护单模型 context、模态、tokenizer、reasoning、参数或价格副本。对于可直接从 official website 或 OpenRouter 获取的信息，优先记录来源 URL、来源身份、最后复核日期和重新核验条件，不复制完整 payload 或能力表。当前映射只记录 Model、Provider Target 与 Public Model 关系；模型能力由代码和运行中的扩展 Models API 自描述，外部动态事实由官方文档描述。
+## 证据与来源
 
-只有已执行测试与所引用的 official/OpenRouter 声明不一致时，才新增带日期 evidence；记录必须只描述来源声明与实际观察的差异，并保留 endpoint、model ID、payload、账户/地域/网络边界和“不证明什么”。目录之间的字段差异、缺失字段或未经请求验证的推论不能写成已验证差异。实现细节不写入本目录：模块行为与收窄理由由源码注释与测试拥有，implementation-status 只保留进度、关系、边界与证据指针。
+实际执行的接入验收与实测差异，只有具有独立、持续参考价值时才进入 [evidence](implementation-status/evidence/README.md)；不要求每次成功探测生成文档。差异记录必须保留准确来源声明与观察差异。目录字段分歧或未经请求验证的推论不能写成已验证行为差异。
 
-## 3. 运行时契约资产
+证据按当时日期、checkout、工具版本及账号/区域/网络/payload 范围解释，不承诺当前可达或长期兼容。不保存凭据、Cookie、账号标识、私人正文、Provider request ID 或完整敏感请求响应。后续实现改变时更新状态解释，不把历史记录改写成当前结论。
 
-[openapi.yaml](openapi.yaml)和 [swagger-ui.html](swagger-ui.html)会由服务编译并分别通过 `/openapi.yaml` 与 `/swagger-ui/` 交付。
-它们不是生成后的附属文件：接口行为变化时必须与源码、serialization、错误、示例和测试原子更新。
+外部资料必须记录来源 URL/身份、source snapshot、last reverified、阅读范围、证据边界和 recheck trigger，具体规则见 [references](references/README.md)。本地整理或链接检查不刷新外部复核日期。采用动态协议、SDK 或 Provider 事实前重新核验。
 
-OpenAPI 描述当前 system 与 OpenAI-compatible HTTP surface，不包含 MCP dual-era transport；MCP 由
-[网关 API 合同](functional-requirements/gateway-api.md)及对应 transport tests 拥有。OpenAPI 也不表示每个 Public Model 支持所有
-可选字段；具体模型能力以运行中的 `/openbridge/v1/models` 固定接口契约为准。
+静态检查、确定性 Rust、Python/loopback、外部 SDK、Agent、真实 Provider、负载/长期运行分别报告，低层不替代高层。完整验证流程见[开发指南](development.md)。
 
-## 4. 功能专题入口
+## 运行时契约资产
 
-| 问题域 | 需求 | 当前实现或证据 |
-|---|---|---|
-| 产品范围与部署边界 | [产品范围](functional-requirements/product-scope.md) | [当前实现](implementation-status/current-state.md) |
-| 网关 endpoint、认证、JSON/SSE、MCP | [网关 API](functional-requirements/gateway-api.md) | [当前实现](implementation-status/current-state.md) |
-| Public Model、Models API、能力预检 | [模型能力](functional-requirements/model-capability.md) | [当前实现](implementation-status/current-state.md) |
-| Bootstrap、用户、API key 与 OAuth | [配置与凭证](functional-requirements/configuration-credentials.md) | [当前实现](implementation-status/current-state.md) |
-| Route ordering、retry/fallback、cooldown | [路由与韧性](functional-requirements/routing-resilience.md) | [当前实现](implementation-status/current-state.md) |
-| Embeddings、图片、文件与音频 | [扩展能力](functional-requirements/extended-capabilities.md) | [当前状态边界](implementation-status/current-boundaries.md) |
-| 本地内容日志与 OpenTelemetry | [观测需求](functional-requirements/observability.md) | [当前实现](implementation-status/current-state.md) |
-| Provider 当前接入 | 对应产品/能力需求 | [Provider 接入进度](implementation-status/providers/README.md) |
-| 外部 OpenAI/Provider/项目事实 | 不构成需求 | [参考资料](references/README.md) |
+[openapi.yaml](openapi.yaml) 与 [swagger-ui.html](swagger-ui.html) 由服务编译交付；不是可任意移动的普通说明文件。接口变化时与实现、serialization、示例、fixture 和测试同步更新。
 
-## 5. 变更工作流
+OpenAPI 描述 system 与 OpenAI-compatible HTTP surface，不包含 MCP dual-era transport；MCP 由[网关 API 合同](functional-requirements/gateway-api.md)与对应测试维护。OpenAPI 不表示所有 Public Model 支持每个可选字段，具体模型接口由运行中的 `/openbridge/v1/models` 描述。
 
-行为变更开始前：
+## 修改文档时
 
-1. 从当前源码、工作树、功能需求和实施状态建立基线；
-2. 明确用户可观察结果、失败语义、安全/资源边界和不做项；
-3. 在[当前开发焦点](implementation-plans/current-focus.md)中记录获准范围；
-4. 先建立失败测试、fixture 或最小客户端复现，再做最小实现；
-5. 先运行 focused validation，再运行与改动相称的仓库基线；
-6. 把确认事实与实际命令写入实施状态或 evidence，更新所有受影响的单一事实 owner。
+先判断改的是产品承诺、当前事实、外部证据还是操作说明，再修改对应维护位置。移动文件时检查仓库内引用、相对链接与锚点，保留必要入口和独立证据，不创建旧路径兼容副本。
 
-未发布原型可以在获准焦点内直接修正 API、Bootstrap、fixture 或内部模块，但不得因此读取、重写或提交私有配置，也不得保留无意义的
-legacy alias、双实现、猜测式迁移或兼容垫片。
-
-## 6. 证据表达
-
-必须分别标明以下层次：
-
-1. 静态源码或 schema 检查；
-2. 确定性 Rust test / fixture；
-3. Python corpus/testkit 或独立 loopback；
-4. 外部 SDK 或独立 curl/Python 客户端；
-5. 目标 Agent runtime；
-6. 真实 Provider；
-7. 负载、长时间运行或生产环境。
-
-低层证据不能替代高层验收，真实 Provider 一次成功也不能替代可重复回归。每份 evidence 应记录时间及时区、checkout、工作树状态、
-工具版本、脱敏配置形状、实际范围、结果和“不证明什么”，不得保存 credential、Cookie、私人正文或 Provider request ID。
-
-新 endpoint 可以先使用仅存在于 test/fixture 的 synthetic Provider、loopback upstream 或 resource/session simulator 建立 fake contract；
-它必须经过真实下游 router、认证、limit、analysis、planning、transport、renderer、错误和终态观测路径。fake 成功只证明相应 wire 或
-state-machine，不得进入 production `/v1/models`，也不证明真实 Provider、模型质量、费用、保留策略或负载能力。
-
-## 7. 参考资料元数据
-
-每份 reference 应能独立说明：
-
-- source 与 source snapshot；
-- last reverified；
-- 阅读范围与证据边界；
-- 重新核验触发条件。
-
-动态 endpoint、SDK、模型、价格、beta 和 deprecation 事实必须按快照理解；真正实施前重新核验。综合文档必须链接其项目级前置证据。
-
-## 8. 文档验证
-
-纯文档变更至少检查：
-
-- Markdown 相对文件链接与本地锚点；
-- 每个文档和非 Markdown 快照是否有可达 owner；
-- requirements 是否混入实施事实，status 是否混入候选计划，references 是否混入本地当前状态；
-- 模型数量、测试数量、Provider 清单和“最近证据”是否只有一个 owner；
-- `git diff --check`。
-
-只有文档调整涉及运行时资产、serialization、OpenAPI 交付路径或产品行为时，才追加对应 Rust focused tests 和完整基线。
+完成时检查内容与示例一致、链接和资产归属可达、旧路径已清理，并执行 `git diff --check`。纯文档维护不制造行为焦点；涉及产品或运行时资产变化时按[开发指南](development.md)追加验证。

@@ -1,5 +1,5 @@
 # Endpoint、出站与启动生命周期
-### 1. Endpoint 与出站边界
+## Endpoint 与出站边界
 
 Endpoint 只来自代码注册的 Provider 实例。每个实例只有一个 BaseURL；Provider adapter 对每个受支持 operation 只提供一条静态相对
 path，因此一个实例对每个 operation 至多形成一份上游 URL。Registry builder 必须拒绝：
@@ -12,7 +12,7 @@ path，因此一个实例对每个 operation 至多形成一份上游 URL。Regi
 
 共享 transport 只能把 Provider adapter 生成的相对 path 追加到已校验 endpoint base，且禁用 redirect。业务请求、adapter 和
 credential 均不能替换 endpoint origin。
-### 1. 启动装配顺序
+## 启动装配顺序
 
 ```text
 read bootstrap.toml
@@ -40,7 +40,7 @@ read bootstrap.toml
 auth-file locator 会先参与 active-pool 筛选，但主服务必须在输出表格前读取并校验完整 bundle，缺失、空白或损坏文件会阻止启动。
 该表不证明当前 credential lease、网络、配额、远端模型或协议能力实际可用；真实探测只能由管理员显式运行独立 probe。
 
-### 2. 冻结 wiring 与可变 OAuth generation
+## 冻结 wiring 与可变 OAuth generation
 
 `RuntimeRegistry`、`UserRegistry`、API-key `CredentialStore`、OAuth manager 实例及其 binding/locator/wiring 在启动后
 保持不变。服务没有用户、Route、Provider、API-key pool 或 auth-file locator 的文件监听、`ArcSwap` 或部分更新语义；

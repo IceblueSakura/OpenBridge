@@ -81,10 +81,9 @@
 
 ## 3. ChatGPT 本地状态隔离
 
-- 五个 ChatGPT Responses-native Target 使用同一个独立 `OAuth2BearerAccessToken` pool。Spark、GPT-5.5、Luna 与
-  Terra 分别只为一个 ChatGPT-only Public Model 提供 source；Sol Target 则是还包含 OpenAI 后备 source 的
-  `gpt-5.6-sol` Public Model 的 ChatGPT source。通用 API-key probe 不借用 OAuth manager credential，ChatGPT
-  probe 只能显式借用所选 Target 的 manager lease；
+- ChatGPT Responses-native Targets 使用同一个独立 `OAuth2BearerAccessToken` pool；当前 Public Model
+  接线由[注册映射](../../implementation-status/model-provider-mapping.md)维护。通用 API-key probe 不借用 OAuth manager credential，ChatGPT probe
+  只能显式借用所选 Target 的 manager lease；
 - OpenBridge 不搜索 `$CODEX_HOME`、Codex auth cache 或其他本机 Agent 状态，不接受 probe 专用 Codex auth file 或 executable selector；
 - OpenBridge 不读取 terminal 相关环境变量，不根据本机 OS、architecture 或 terminal 构造 Codex-compatible 请求身份，也不启动 Codex
   CLI 或 app-server；

@@ -41,7 +41,7 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
 ## 2. 代码注册表要求
 
 本节约束逻辑所有权和受信装配结果，不把当前 Rust 文件名、目录层级或 facade 形式固化为产品契约。当前物理模块边界见
-[当前代码架构](../../implementation-status/current-architecture.md)，维护规则见仓库 `AGENTS.md`。
+[当前代码架构](../../architecture.md)，维护规则见仓库 `AGENTS.md`。
 
 - 每个具体 Provider family 必须有唯一、闭合的静态 definition owner；同一 wire family 的协议机制可以由受信编译期代码共享；
 - 静态 Provider definition 不自动构成运行链路；只有显式加入 compiled target、Route 与 Public Model 后才可被请求选择；

@@ -1,6 +1,6 @@
 # Model 与 Provider 映射
 
-本文只记录当前 checkout 中由代码注册的 Model、Provider Target 与 Public Model 关系，不复制模型能力、上下文、模态、tokenizer、reasoning、参数或价格。能力事实以 `src/models/`、`src/providers/`、运行中的扩展 Models API 和外部官方文档为准。
+本文只记录当前 checkout 中由代码注册的 Model、Provider Target 与 Public Model 关系，不复制模型能力、上下文、模态、tokenizer、reasoning、参数或价格。`Canonical Model` 值必须与 `src/models/` 的 canonical ID 一致；Provider Target 与 Public Model 关系分别以 `src/providers/*/registration.rs` 和 `src/providers/catalog/` 为准。
 
 ## Public Model 映射
 
@@ -74,5 +74,5 @@
 
 - Public Model 与候选顺序：`src/providers/catalog/`。
 - Provider Target 与上游 model ID：`src/providers/*/registration.rs`。
-- Canonical Model 能力：`src/models/`。
+- Canonical Model ID：`src/models/`，由 Target registration 引用。
 - 本页只在上述注册关系变化时更新；不得复制模型能力或动态 Provider 全量目录。

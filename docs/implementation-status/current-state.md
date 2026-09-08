@@ -1,38 +1,43 @@
 # 当前实现
 
-本文只记录当前 checkout 的**实现进度、源码 owner 与确定性证据入口**。实现细节由代码与模块注释拥有，跨模块数据流与模块地图见[当前架构](current-architecture.md)；未实现与未验证范围见[当前状态边界](current-boundaries.md)；Provider 接入进度与未证明边界见[providers/](providers/README.md)；带日期的真实 Provider、SDK 或 Agent 记录见[evidence](evidence/README.md)。
+本文只记录当前 checkout 的 executable scope、源码 owner、确定性测试入口和外部验收入口。实现细节由代码与模块注释拥有，跨模块数据流与模块地图见[当前架构](../architecture.md)；实现限制和未验证边界见[当前状态边界](current-boundaries.md)；Provider 特有边界见[Provider 接入进度](providers/README.md)；固定日期的外部观察见[evidence](evidence/README.md)。
 
-## 实现进度
+## 1. 当前实现范围
 
-| 功能域 | 状态 | 主要 owner | 确定性入口 |
-|---|---|---|---|
-| 网关入口与认证（含 MCP dual-era） | 已实现 | `src/ingress/`、`src/registry/public_model/` | `tests/ingress_contract.rs`、`tests/downstream_auth_contract.rs`、`tests/mcp_contract.rs`、`tests/mcp_dual_era.rs` |
-| Bootstrap、用户、上游凭证与静态注册 | 已实现 | `src/config/`、`src/identity.rs`、`src/upstream_credentials/`、`src/credential/`、`src/models/`、`src/providers/`、`src/registry/` | `tests/config_contract.rs`、`tests/example_config.rs`、`tests/upstream_credential_config.rs`、`tests/startup_contract.rs` |
-| OAuth 登录与运行时刷新 | 已实现 | `src/oauth2_credentials/` | `tests/oauth2_login_cli.rs` |
-| Models API 与请求预检 | 已实现 | `src/pipeline/generation/`、`src/pipeline/embeddings/`、`src/registry/public_model/` | `tests/forwarding_contract.rs`、`tests/ingress_contract.rs`、`tests/provider_boundary_contract.rs` |
-| Generation Native 与 Protocol Bridge（Static/Event IR） | 已实现 | `src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/provider/`、`src/transport/` | `tests/generation_ir_*_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/forwarding_contract.rs`、`tests/sse_contract.rs`、`tests/process_replay_contract.rs`、`tests/catalog_replay_contract.rs` |
-| Retry、fallback、cooldown 与取消 | 已实现 | `src/ingress/forwarding/`、`src/execution/`、`src/ingress/health.rs`、`src/ingress/streaming/` | `tests/forwarding_contract/resilience.rs`、`tests/process_replay_contract.rs` |
-| Embeddings | 已实现（单 Route Native） | `src/pipeline/embeddings/` | `tests/embedding_forwarding_contract.rs` |
-| Native 图片/文件/音频输入 | 已实现（按 provider 页收窄） | `src/providers/*/`、`src/pipeline/generation/` | `tests/forwarding_contract.rs`、`tests/forwarding_contract/file_input.rs` |
-| Images Generations | 已实现（单 attempt） | `src/pipeline/images/`、`src/ingress/forwarding/images.rs` | `tests/images_forwarding_contract.rs` |
-| 管理员 probe | 已实现（单 case） | `src/probe.rs`、`src/probe/`、`src/bin/openbridge-probe.rs` | `src/probe/tests.rs` |
-| 观测与测试资产 | 已实现 | `src/observability/`、`testdata/`、`tools/corpus/` | `tests/observability_contract.rs`、`tests/otlp_trace_contract.rs`、`tools/corpus/tests/` |
+| 功能域 | 当前范围 | 主要 owner |
+|---|---|---|
+| 网关入口、Bearer 认证与 MCP dual-era | Chat Completions、Responses、Models、扩展 Models、Embeddings、Images Generations 和本地 `hello` MCP 入口 | `src/ingress/`、`src/registry/public_model/`、`src/mcp/` |
+| Bootstrap、用户、上游凭证与静态注册 | 严格启动解析、用户认证、API-key/OAuth binding、canonical Model、Provider Target、Route 与 Public Model 编译 | `src/config/`、`src/identity.rs`、`src/credential/`、`src/upstream_credentials/`、`src/oauth2_credentials/`、`src/models/`、`src/providers/`、`src/registry/` |
+| Generation | Chat/Responses Native、封闭集合 Protocol Bridge、Static/Event IR、工具与 structured-output 的固定预检 | `src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/provider/`、`src/transport/` |
+| resilience 与 body lifecycle | 固定 Route 顺序、有限 retry/fallback、credential rotation、单进程 cooldown、取消、SSE 终态与有界 body 处理 | `src/ingress/forwarding/`、`src/execution/`、`src/ingress/health.rs`、`src/ingress/streaming/` |
+| Embeddings | 单 Route Native execution，含输入、encoding、dimension 和 batch limit 预检 | `src/pipeline/embeddings/` |
+| 图片、文件和音频 | 按 Provider/任务注册的 Native surface；Images Generations 仅同步单 attempt JSON URL | `src/providers/*/`、`src/pipeline/images/`、`src/ingress/forwarding/images.rs` |
+| OAuth 与观测 | ChatGPT/Grok 订阅 OAuth 生命周期；本地 JSONL content snapshot 与 OTLP/HTTP traces/metrics | `src/oauth2_credentials/`、`src/observability/` |
 
-## 模型与 Provider 接入
+当前 Model、Provider Target、候选顺序和 Public Model 关系只见[映射](model-provider-mapping.md)。静态映射和 `/v1/models` 都不表示
+credential 有效、账号 entitlement、Provider 可达、配额或真实模型质量。
 
-当前 Model、Provider Target、候选顺序和 Public Model 关系见[Model 与 Provider 映射](model-provider-mapping.md)；各 Provider 的接入进度与未证明边界见[providers/](providers/README.md)。运行时可见性受 active credential pool 收窄；静态映射不表示实时可达、账号 entitlement 或真实 Provider 验收。
+## 2. 确定性测试入口
 
-## 最近确定性验证
+这些是验证当前实现机制的入口，不是本页对最近一次运行结果的声明；结果应以实际命令输出、CI 或带日期 evidence 为准。
 
-- 2026-09-08 精简 Router 语义回归接入 `tests/semantic_router_contract.rs`：选择性复用 canonical 工具历史、并行参数与结构化输出数据，独立 wire 投影经过真实 loopback Router；五个场景在共享观察扰动与方向维度的有界消融中均有独立贡献。实际通过新增 focused test（含 `--nocapture` 消融报告）、`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked --all-targets -- -D warnings`、`uv lock --check --project tools/corpus`、Python corpus tests、corpus lint 与 `git diff --check`。方法和未覆盖范围见 [semantic testing](../../testdata/semantic-testing.md)；这不是生产源码 mutation coverage、完整模型任务执行、SDK 或真实 Provider 验收。
+| 边界 | 入口 |
+|---|---|
+| ingress、认证、MCP、启动与配置 | `tests/ingress_contract.rs`、`tests/downstream_auth_contract.rs`、`tests/mcp_contract.rs`、`tests/mcp_dual_era.rs`、`tests/config_contract.rs`、`tests/example_config.rs`、`tests/startup_contract.rs` |
+| registry、Models API、能力预检与 Provider contract | `tests/provider_boundary_contract.rs`、`tests/provider_contract.rs`、`tests/forwarding_contract.rs` |
+| Generation IR、Bridge、JSON/SSE 与 replay | `tests/generation_ir_*_contract.rs`、`tests/bridge_conversion_contract.rs`、`tests/sse_contract.rs`、`tests/process_replay_contract.rs`、`tests/catalog_replay_contract.rs` |
+| retry/fallback/cooldown、取消与资源边界 | `tests/forwarding_contract/resilience.rs`、`tests/process_replay_contract.rs` |
+| Embeddings、Images 和媒体输入 | `tests/embedding_forwarding_contract.rs`、`tests/images_forwarding_contract.rs`、`tests/forwarding_contract/file_input.rs` |
+| 管理员 probe unit cases | `src/probe/tests.rs`、`src/probe/`、`src/bin/openbridge-probe.rs` |
+| OAuth、观测、OTLP 与 corpus | `tests/oauth2_login_cli.rs`、`tests/upstream_credential_config.rs`、`tests/observability_contract.rs`、`tests/otlp_trace_contract.rs`、`tools/corpus/tests/` |
+| semantic Router 回归 | `tests/semantic_router_contract.rs`；方法和刻意收窄范围见 [`testdata/semantic-testing.md`](../../testdata/semantic-testing.md) |
 
-- 2026-08-31 当前 checkout 通过 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings`、`git diff --check`、Python corpus tests 与 corpus lint。
-- 2026-08-31 有界管理员 probe 覆盖 DeepSeek、MiMo 与 GLM Chat，以及 Bailian DeepSeek V4 Flash 与 Zhipu GLM-5.3 Responses JSON/SSE；synthetic-user production Router 覆盖四家 Chat JSON/SSE。
-- 2026-09-01 nullable Chat usage detail 修复、无状态 function-tool probe 扩展（28 个独立首轮请求）与 probe unit-case + 固定 inline PNG case 均通过完整基线与静态扫描。
-- 2026-09-01 MiMo-V2.5 Chat JSON Object 完成管理员 probe 与真实下游 Gateway JSON/SSE 验收（64-token 上限）。
-- 2026-09-02 probe 接受管理员自定义 `--prompt`（≤ 4 KiB，非 tool case）与 `--schema`/`--schema-name`（≤ 8 KiB JSON object，仅 JSON Schema case）两个有界覆盖维度：自定义 `--schema` 的 case 恒为 `inconclusive`，报告记录覆盖内容指纹（SHA-256 前 16 位）而不保留原文；无覆盖时全部 canonical case 保持不变。
-- 2026-09-02 probe 以 Responses 协议为基准新增三个 Responses-only 单字段差分 case：`reasoning-summary`（`summary:"auto"` + 非空 summary 观测）、`include-encrypted-content`、`prompt-cache-key`；Generation case 总数 22，完整基线与静态扫描通过。
-- 2026-09-02 `tools/probe/matrix.py` 编排 4 Target × 双协议 × 双交付 × 22 case 共 328 次真实探测（deepseek-v4-flash-vision-exp、mimo-v2.5、glm-5.3-flash、qwen3.8-max），结果与差异记录见 [evidence](evidence/2026-09-02-dual-protocol-capability-matrix.md)；原始报告在 `testdata/runtime/probe-2026-09-02/`（gitignored，不入库）。
-- 2026-09-03 `oauth2_credentials` 按 `ProviderKind` 泛化（ChatGPT 全部既有测试原样通过），新增 `ProviderKind::Grok` 订阅 Provider：标准 RFC 8628 device 登录（pending/slow_down/denied/expired、budget、超时、事务写盘均有 fake 测试）、`auth_mode:"grok"` 信封与订阅档位持久化/继承、订阅 CLI proxy Responses-only adapter 与编译期身份头；`grok/grok-4-6` 作为 `grok-4.6` Public Model 的第二 source。完整基线通过；真实账号登录与订阅 proxy 推理未验证。
+验证命令与分层规则见[开发指南](../development.md)。确定性测试不证明真实 Provider、外部 SDK/Agent、负载、长期运行或生产兼容。
 
-以上记录的证据层不同：synthetic Router 只证明固定 loopback 路径，真实探测只证明对应账号/模型与 payload；均不替代全面 live Bridge、外部 SDK/Agent、负载或长期运行验证。真实外部记录以 [evidence](evidence/README.md) 为准。
+## 3. 外部验收入口
+
+外部记录固定于当时的 checkout、账号、区域、网络、endpoint、model ID 和 payload；它们不承担当前能力所有权。
+
+具体记录及其覆盖范围由[evidence 索引](evidence/README.md)维护；各 Provider 页只解释与当前接入相关的证据和未验证边界，本页不复制记录清单。
+
+管理员 probe 的普通执行结果不自动生成独立记录；只有具有独立接入验收价值或观察到与引用来源不一致的差异时，才进入[evidence 索引](evidence/README.md)。

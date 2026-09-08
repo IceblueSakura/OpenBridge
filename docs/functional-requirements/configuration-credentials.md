@@ -1,6 +1,6 @@
 # 配置与凭证合同
 
-本文集中定义 Bootstrap、私有用户、上游 credential、静态注册、endpoint/egress 和 ChatGPT OAuth 生命周期。
+本文集中定义 Bootstrap、私有用户、上游 credential、静态注册、endpoint/egress 以及 ChatGPT 与 Grok OAuth 生命周期。
 
 Provider contract、Model、Target、Upstream API、Route、Public Model、endpoint、能力与 wire mapping 由受信 Rust
 代码显式注册；运行时配置不提供 Provider DSL 或 Route hot reload。Registry、用户、API-key store 与 OAuth manager

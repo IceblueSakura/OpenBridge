@@ -3,9 +3,9 @@
 本目录只保存外部协议、SDK、目标客户端、Provider 和参考项目的固定调研。外部事实以各叶文档记录的 URL、日期、版本或
 commit 为准；目录索引只负责导航和维护规则，不用较新的索引日期覆盖原始快照。
 
-本目录不记录 OpenBridge 当前实现、源码结构、已执行测试或实施方案。产品合同、当前事实和唯一获准计划分别由
+本目录不记录 OpenBridge 当前实现、源码结构、已执行测试或实施方案。产品合同、当前事实和用户已授权范围的记录分别由
 [functional requirements](../functional-requirements/README.md)、[implementation status](../implementation-status/README.md)
-和 [current focus](../implementation-plans/current-focus.md) 维护。
+和 [current focus](../implementation-plans/current-focus.md) 维护；参考资料和计划文件都不独立授予实施权限。
 
 ## 1. 分类入口
 
@@ -57,7 +57,7 @@ commit。真实观察还应说明账户、网络、payload 与敏感数据边界
 6. [topics/](topics/design-concerns.md) 是按关注点查阅的纯指针导航层：只链接已有事实，不引入新事实或结论；比较性结论属于 [cross-project](cross-project/README.md)。
 7. 吸收外部调研的固定流程：先在对应来源目录新建或更新叶文档并补齐元数据合同，再在 [设计关注点矩阵](topics/design-concerns.md) 登记入口；外部测试资产同时登记进 [测试资产登记表](topics/test-assets-registry.md)，采用决定落地后更新其状态与去向记录。
 8. 对 official website 或 OpenRouter 可直接取得的模型信息，只记录来源 URL、来源身份、`Last reverified` 与 `Recheck trigger`；不保存完整 capability metadata、字段表、价格表、Provider 全量 Models 响应或原始 payload。
-9. 当前 Model↔Provider 关系由 implementation status 维护，能力字段回到代码、运行中的扩展 Models API 或外部官方文档。只有执行测试与引用来源矛盾时，才由 implementation evidence 单独记录来源声明和观察差异；来源之间的静态字段差异本身不构成测试证据。
+9. 当前 Model↔Provider 关系由 implementation status 维护，能力字段回到代码、运行中的扩展 Models API 或外部官方文档。有独立价值的实际接入验收由 [implementation evidence](../implementation-status/evidence/README.md) 保存；其中差异记录必须基于执行测试与引用来源的矛盾。来源之间的静态字段差异本身不构成已验证行为差异。
 
 ## 4. 固定项目基线
 

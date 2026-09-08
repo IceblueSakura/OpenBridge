@@ -21,10 +21,7 @@ OpenBridge 不搜索或导入 Codex 用户目录，不调用 Codex executable/ap
 1. ChatGPT 是独立 `ProviderKind` 与 Provider instance，不能复用 `OpenAI` API-key Provider instance 或 credential pool。
 2. BaseURL、operation path 与 credential kind 来自受信 Rust 注册；业务请求和 credential 文件不能覆盖上游 URL、model path 或
    任意 header。
-3. `gpt-5.3-codex-spark`、`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-terra` 与 `gpt-5.6-sol` 各自拥有一个
-   固定 Responses-native ChatGPT Target。前四个 Target 分别是四个 ChatGPT-only Public Model 的唯一 source；Sol
-   Target 是还包含 OpenAI 后备 source 的 `gpt-5.6-sol` Public Model 的 ChatGPT source。通用 API-key probe 不借用
-   OAuth manager credential。
+3. ChatGPT Targets 使用固定 Responses-native 接口，当前模型和 Public Model 接线由[注册映射](../../implementation-status/model-provider-mapping.md)维护。通用 API-key probe 不借用 OAuth manager credential。
 4. private upstream credential TOML 可为 ChatGPT OAuth2 binding 显式配置一个 OpenBridge-owned `auth_json_file`；不得默认、
    搜索、导入或回退到 `$CODEX_HOME/auth.json`。
 5. 启动 loader 要求 auth 文件已存在，并校验完整 id/access/refresh token bundle、账户绑定与 access-token expiry，
@@ -187,7 +184,7 @@ due_at = expires_at - provider_safety_window - bounded_jitter
 | ID       | 行为                                                                                                                                                      |
 |----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | OAUTH-01 | ChatGPT 使用独立 ProviderKind/Provider instance、OAuth bearer credential kind、固定受信 BaseURL 与 Responses-only adapter；OpenAI API-key Provider 行为不变。 |
-| OAUTH-02 | 五个固定 ChatGPT Target 都是 Responses-native；Spark/GPT-5.5/Luna/Terra 分别属于四个 ChatGPT-only Public Model，Sol Target 属于还包含 OpenAI source 的 `gpt-5.6-sol`；Provider-qualified identity 只保留在内部，通用 API-key probe 不借用 OAuth manager credential。 |
+| OAUTH-02 | ChatGPT Targets 使用固定 Responses-native 接口；Provider-qualified identity 只保留在内部，通用 API-key probe 不借用 OAuth manager credential。 |
 | OAUTH-03 | ChatGPT OAuth 文件只由 private upstream credential TOML 显式定位并由 OpenBridge 拥有；不得搜索、导入或回退到本机 Codex state。 |
 | OAUTH-04 | 生产代码不从 terminal、部署主机 OS、architecture、environment 或 Codex state 推导 client identity；ChatGPT 只发送编译期固定、按已记录 Codex CLI release 源码格式生成的 headless Linux x86_64 兼容 UA/header，不提供运行时 override 或 Codex auth/executable probe selector。 |
 | OAUTH-05 | login CLI 可以从 missing version 事务性创建完整 `auth_json_file`；主服务启动要求文件已存在且完整校验 OAuth2 bundle，再构建内部 guarded、对外 snapshot 化且脱敏的 `OAuth2CredentialManager`；缺失、空白或损坏文件阻止启动，过期完整 bundle 可立即 refresh。 |

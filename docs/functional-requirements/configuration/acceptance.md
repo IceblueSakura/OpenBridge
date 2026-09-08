@@ -14,7 +14,7 @@
 | CFG-10 | 私有 upstream credential TOML 出现未知或重复 pool、空白/重复 secret 或不能解析时，会在 listener 绑定前阻止服务启动；缺失或为空的已注册 pool 会让其引用 Target 在本次启动中不可执行。 |
 | CFG-11 | 同 Provider 的 Target 可引用共享 API-key pool；激活 pool 必须满足 Provider/kind 与 member 约束，未激活 pool 不要求 secret。                                               |
 | CFG-12 | 多 member pool 不得用于启用 `TargetBoundContinuation` 的 Responses API；普通 Target-bound、无 continuation 的 API 不因此失去 credential rotation。                         |
-| CFG-13 | 五个 ChatGPT Responses-native Target 共用独立 OAuth pool；四个分别属于 ChatGPT-only Public Model，Sol Target 属于还含 OpenAI source 的 `gpt-5.6-sol`；请求和 probe 不接受本机 Codex auth/environment/terminal/executable selector。 |
+| CFG-13 | ChatGPT Responses-native Targets 共用独立 OAuth pool；请求和 probe 不接受本机 Codex auth/environment/terminal/executable selector。 |
 | CFG-14 | Provider 实例唯一拥有一个受信 BaseURL；Target 必须引用已注册实例，不同 URL/区域使用不同实例，业务请求不能覆盖实例或 URL。                                            |
 | CFG-15 | 每个 Target 对每个 `OperationKind` 最多注册一个 Upstream API；Route、probe、telemetry 与 continuation issuer 使用 typed upstream operation，不依赖 API 字符串 ID。 |
 | CFG-16 | Upstream API 的 operation 只由 capabilities variant 决定；当前 transport 由 operation 固定，注册表不保留独立 operation、transport 或无执行语义的 endpoint profile。 |

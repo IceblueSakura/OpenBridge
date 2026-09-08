@@ -26,10 +26,8 @@
 
 ## 2. 非目标
 
-- GUI、Web 控制台或客户端安装/注册/配置管理；
-- Realtime、Responses WebSocket、Files、Images、Videos、Conversations、response resource 或管理 API；
-- response storage、background job、查询、删除、翻译、跨 Provider/Target state migration 或 continuation ledger；
+- Responses WebSocket、Realtime、Files、Images edit/variation、Videos、Conversations、response resource 或管理 API；
+  `POST /v1/images/generations` 的 create 合同由[扩展能力](../extended-capabilities.md)及其功能页拥有；
 - 让 Chat/Responses、任意 tool 或 Provider 私有扩展自动无损互转；
 - 代表下游 Agent 执行 function tool、shell、computer 或网页操作；
 - 在 MCP endpoint 执行 `hello` 之外的 tool、桥接 Provider、产生外部 side effect 或提供 browser Origin allowlist；
-- 用 API token 建立多用户权限、配额、账单或审计系统。
