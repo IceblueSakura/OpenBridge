@@ -24,6 +24,8 @@
 
 ## 最近确定性验证
 
+- 2026-09-08 精简 Router 语义回归接入 `tests/semantic_router_contract.rs`：选择性复用 canonical 工具历史、并行参数与结构化输出数据，独立 wire 投影经过真实 loopback Router；五个场景在共享观察扰动与方向维度的有界消融中均有独立贡献。实际通过新增 focused test（含 `--nocapture` 消融报告）、`cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked --all-targets -- -D warnings`、`uv lock --check --project tools/corpus`、Python corpus tests、corpus lint 与 `git diff --check`。方法和未覆盖范围见 [semantic testing](../../testdata/semantic-testing.md)；这不是生产源码 mutation coverage、完整模型任务执行、SDK 或真实 Provider 验收。
+
 - 2026-08-31 当前 checkout 通过 `cargo fmt -- --check`、`cargo test --locked`、`cargo clippy --locked -- -D warnings`、`git diff --check`、Python corpus tests 与 corpus lint。
 - 2026-08-31 有界管理员 probe 覆盖 DeepSeek、MiMo 与 GLM Chat，以及 Bailian DeepSeek V4 Flash 与 Zhipu GLM-5.3 Responses JSON/SSE；synthetic-user production Router 覆盖四家 Chat JSON/SSE。
 - 2026-09-01 nullable Chat usage detail 修复、无状态 function-tool probe 扩展（28 个独立首轮请求）与 probe unit-case + 固定 inline PNG case 均通过完整基线与静态扫描。
@@ -33,4 +35,4 @@
 - 2026-09-02 `tools/probe/matrix.py` 编排 4 Target × 双协议 × 双交付 × 22 case 共 328 次真实探测（deepseek-v4-flash-vision-exp、mimo-v2.5、glm-5.3-flash、qwen3.8-max），结果与差异记录见 [evidence](evidence/2026-09-02-dual-protocol-capability-matrix.md)；原始报告在 `testdata/runtime/probe-2026-09-02/`（gitignored，不入库）。
 - 2026-09-03 `oauth2_credentials` 按 `ProviderKind` 泛化（ChatGPT 全部既有测试原样通过），新增 `ProviderKind::Grok` 订阅 Provider：标准 RFC 8628 device 登录（pending/slow_down/denied/expired、budget、超时、事务写盘均有 fake 测试）、`auth_mode:"grok"` 信封与订阅档位持久化/继承、订阅 CLI proxy Responses-only adapter 与编译期身份头；`grok/grok-4-6` 作为 `grok-4.6` Public Model 的第二 source。完整基线通过；真实账号登录与订阅 proxy 推理未验证。
 
-以上只覆盖单一账号/模型与固定 payload，不替代 live Bridge、外部 SDK/Agent、Responses production Router、负载或长期运行验证；真实外部记录以 [evidence](evidence/README.md) 为准。
+以上记录的证据层不同：synthetic Router 只证明固定 loopback 路径，真实探测只证明对应账号/模型与 payload；均不替代全面 live Bridge、外部 SDK/Agent、负载或长期运行验证。真实外部记录以 [evidence](evidence/README.md) 为准。

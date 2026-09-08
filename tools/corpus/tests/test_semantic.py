@@ -51,35 +51,6 @@ def _copy_corpus(destination: Path) -> Path:
     return target
 
 
-def test_repository_semantic_cases_are_complete_and_protocol_neutral() -> None:
-    """Verify the semantic corpus covers tools, context use, and structured output."""
-    cases = discover_semantic_cases(CORPUS_ROOT)
-    assert len(cases) == 14
-    assert {case.case_id for case in cases} == {
-        "context.associative_retrieval",
-        "context.conflict_resolution",
-        "context.literal_retrieval",
-        "context.multi_fact_integration",
-        "function.ambiguous_selection",
-        "function.forced_tool",
-        "function.missing_argument_clarification",
-        "function.no_tool_needed",
-        "function.parallel_independent",
-        "function.result_grounding",
-        "function.single_tool_arguments",
-        "function.tool_choice_none",
-        "function.tool_choice_required",
-        "structured.strict_nested_json",
-    }
-    required_targets = {
-        "chat_native",
-        "responses_native",
-        "chat_to_responses",
-        "responses_to_chat",
-    }
-    assert all(set(case.data["applies_to"]) == required_targets for case in cases)
-
-
 @pytest.mark.parametrize("placement", ["start", "middle", "end"])
 def test_context_semantic_plan_is_deterministic_and_exact_size(
     placement: str,

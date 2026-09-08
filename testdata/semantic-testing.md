@@ -84,6 +84,34 @@ literal retrieval 是 addressability control，不能单独代表有效推理长
 
 ## 5. Gateway semantic matrix
 
+### 测试目标分层
+
+`semantic-cases/` 的 task/oracle 原本面向模型任务结果，不能直接当作网关不变量。例如 `tool_choice:required` 的转换测试应证明选择约束到达上游，不应要求网关强制模型生成 tool call；context 检索与澄清措辞也不是转换算法的验收。
+
+网关默认回归按独立转换机制选择 synthetic 场景，只复用任务中的固定数据，不运行模型评测或全部 case × direction × stream 的笛卡尔矩阵。请求投影与响应解析不得调用 production codec 生成 expected，也不得把当前错误输出改成正确 oracle。
+
+### 精简与消融规则
+
+- 用共享缺陷操作描述身份、参数、结果关联、输出内容、工具声明、结构化约束和终态丢失，不为每个 case 人造专属 mutant。
+- 对实际观察结果执行适用扰动，并记录检出矩阵与 leave-one-out 损失。方向可作为独立维度，因为两套转换编码器不共享全部故障路径；不得按 Model/Provider 复制同一机制。
+- 对有界缺陷集合求最小覆盖只证明该实验内的冗余，不证明完整产品覆盖或生产源码 mutation coverage。未观察到损失的场景应删除、合并，或提出可执行的额外独立见证。
+- 等价表示必须有通过控制，例如并行调用顺序变化不应失败；重复调用不能被集合去重掩盖。
+- catalog、schema 与资源限制由 corpus lint/tooling tests 保护；不在测试中再次写死完整 case 清单和数量。
+
+### 执行精简 Router 回归
+
+```powershell
+cargo test --locked --test semantic_router_contract -- --nocapture
+```
+
+该入口复用 production Router 的 loopback harness，只读取 canonical case 的固定工具、历史和结构化数据。覆盖双向 tool-result history JSON、双向 parallel arguments SSE 和 Chat→Responses structured JSON；独立投影比较调用身份/参数、结果关联/值、工具声明、完整 structured format 与下游输出。它不执行工具，也不运行完整 semantic task 或 Python semantic verifier。
+
+测试同时输出共享观察扰动的检出矩阵、逐项消融损失及有界方向最小覆盖；SSE 额外从实际 wire 删除终态，核验 parser 不接受缺失终态。并行调用换序是正控制。归一化后扰动不验证 parser 对所有 wire 变异的敏感性，也不等于修改生产源码后的 mutation testing。
+
+该集合是机制核心，不是全面语义验收：没有新增 Native、reasoning、工具选择控制、普通用户/instruction 文本、usage 或媒体矩阵。既有 Rust contract 继续拥有这些边界，不能因该入口通过而宣布全部分支语义稳定。
+
+### 证据 owner
+
 - capability acceptance/enforcement：使用 admin probe、差分值和非法值，不由 semantic oracle 推断；
 - Chat/Responses wire 与 streaming：Rust contract tests + wire corpus；
 - function/structured/context 结果：normalized semantic trace；
