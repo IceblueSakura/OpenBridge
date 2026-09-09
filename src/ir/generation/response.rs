@@ -116,9 +116,9 @@ bounded_identity! {
 /// Validation failure for one canonical response value.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum ResponseValidationError {
-    /// A message output contains no content.
-    #[error("response message must contain at least one content part")]
-    EmptyMessage,
+    /// A completed response contains an explicitly unfinished function argument fragment.
+    #[error("completed response contains incomplete tool arguments")]
+    IncompleteSuccess,
     /// A reasoning output contains no parts.
     #[error("reasoning output must contain at least one part")]
     EmptyReasoning,
@@ -180,9 +180,6 @@ impl ResponseMessage {
         content: Vec<ContentPart>,
         wire_identity: Option<WireIdentity>,
     ) -> Result<Self, ResponseValidationError> {
-        if content.is_empty() {
-            return Err(ResponseValidationError::EmptyMessage);
-        }
         Ok(Self {
             id,
             content,
@@ -668,6 +665,7 @@ pub struct GenerationResponse {
     status: ResponseStatus,
     usage: Option<Usage>,
     extensions: Vec<ProviderExtension>,
+    failure: Option<TextValue>,
 }
 
 impl GenerationResponse {
@@ -681,6 +679,11 @@ impl GenerationResponse {
     ) -> Result<Self, ResponseValidationError> {
         let mut ids = BTreeSet::new();
         for candidate in &candidates {
+            if status == ResponseStatus::Completed && candidate.output().iter().any(|item| {
+                matches!(item, OutputItem::ToolCall(call) if matches!(call.input(), ToolInput::IncompleteFunction(_)))
+            }) {
+                return Err(ResponseValidationError::IncompleteSuccess);
+            }
             if !ids.insert(candidate.id().clone()) {
                 return Err(ResponseValidationError::DuplicateCandidateId {
                     id: candidate.id().clone(),
@@ -693,7 +696,13 @@ impl GenerationResponse {
             status,
             usage,
             extensions,
+            failure: None,
         })
+    }
+
+    pub(crate) fn with_failure(mut self, failure: Option<TextValue>) -> Self {
+        self.failure = failure;
+        self
     }
 
     /// Returns ordered response candidates.
@@ -719,5 +728,10 @@ impl GenerationResponse {
     /// Returns bounded Provider extensions.
     pub fn extensions(&self) -> &[ProviderExtension] {
         &self.extensions
+    }
+
+    /// Returns the bounded Provider failure detail, when one was reported.
+    pub fn failure(&self) -> Option<&TextValue> {
+        self.failure.as_ref()
     }
 }

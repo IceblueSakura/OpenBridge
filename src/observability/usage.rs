@@ -159,12 +159,16 @@ pub(super) fn is_generation_output(value: &Value) -> bool {
         })
 }
 
-/// Returns whether a complete JSON response declares failure or lacks a complete terminal state.
+/// Identifies actual JSON or SSE failure outcomes without treating opaque metadata as a terminal.
 pub(super) fn is_failed_terminal(value: &Value) -> bool {
-    value
-        .get("status")
-        .and_then(Value::as_str)
-        .is_some_and(|status| matches!(status, "failed" | "incomplete"))
+    match value.get("type").and_then(Value::as_str) {
+        Some("response.failed" | "response.incomplete" | "response.cancelled" | "error") => true,
+        Some(_) => false,
+        None => value
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(|status| matches!(status, "failed" | "incomplete" | "cancelled")),
+    }
 }
 
 /// Extracts explicit usage from Chat or Responses JSON shapes.

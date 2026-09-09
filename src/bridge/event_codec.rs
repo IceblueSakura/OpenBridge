@@ -18,6 +18,7 @@ use crate::{
 };
 
 mod chat;
+mod native;
 mod responses;
 mod shared;
 
@@ -72,6 +73,7 @@ impl WireDecoder {
 }
 
 enum WireEncoder {
+    Native(ApiProtocol),
     Chat(ChatEventEncoder),
     Responses(ResponsesEventEncoder),
 }
@@ -79,6 +81,7 @@ enum WireEncoder {
 impl WireEncoder {
     fn encode(&mut self, event: &GenerationEvent) -> Result<Bytes, StaticEventCodecError> {
         match self {
+            Self::Native(_) => Ok(Bytes::new()),
             Self::Chat(encoder) => encoder.encode(event),
             Self::Responses(encoder) => encoder.encode(event),
         }
@@ -86,6 +89,7 @@ impl WireEncoder {
 
     fn finish(&self) -> Result<(), StaticEventCodecError> {
         match self {
+            Self::Native(_) => Ok(()),
             Self::Chat(encoder) => encoder.finish(),
             Self::Responses(encoder) => encoder.finish(),
         }
@@ -100,7 +104,6 @@ pub struct StaticEventBridge {
     limits: EventLimits,
     encoded_bytes: usize,
     changes: Vec<SemanticChange>,
-    preserve_source: bool,
     finished: bool,
 }
 
@@ -118,23 +121,30 @@ impl StaticEventBridge {
             return Err(StaticEventCodecError::InvalidLifecycle);
         }
         let preserve_source = upstream_protocol == downstream_protocol;
+        let native = upstream_protocol == downstream_protocol;
         let decoder = match upstream_protocol {
             ApiProtocol::ChatCompletions => WireDecoder::Chat(ChatEventDecoder::new(
                 limits,
                 reasoning_output,
                 preserve_source,
             )),
-            ApiProtocol::Responses => WireDecoder::Responses(ResponsesEventDecoder::new(limits)),
-        };
-        let encoder = match downstream_protocol {
-            ApiProtocol::ChatCompletions => WireEncoder::Chat(ChatEventEncoder::new(
-                limits,
-                public_model,
-                include_chat_usage,
-                reasoning_output,
-            )),
             ApiProtocol::Responses => {
-                WireEncoder::Responses(ResponsesEventEncoder::new(limits, public_model))
+                WireDecoder::Responses(ResponsesEventDecoder::new(limits, native))
+            }
+        };
+        let encoder = if native {
+            WireEncoder::Native(downstream_protocol)
+        } else {
+            match downstream_protocol {
+                ApiProtocol::ChatCompletions => WireEncoder::Chat(ChatEventEncoder::new(
+                    limits,
+                    public_model,
+                    include_chat_usage,
+                    reasoning_output,
+                )),
+                ApiProtocol::Responses => {
+                    WireEncoder::Responses(ResponsesEventEncoder::new(limits, public_model))
+                }
             }
         };
         let changes = if upstream_protocol == downstream_protocol {
@@ -154,7 +164,6 @@ impl StaticEventBridge {
             limits,
             encoded_bytes: 0,
             changes,
-            preserve_source,
             finished: false,
         })
     }
@@ -187,11 +196,10 @@ impl StaticEventBridge {
                 .take()
                 .ok_or(StaticEventCodecError::InvalidLifecycle)?;
             self.state = Some(reduce(state, EventInput::Event(Box::new(envelope)))?);
-            let encoded = if self.preserve_source {
-                Bytes::new()
-            } else {
-                self.encoder.encode(&canonical)?
-            };
+            // Native streams take the same validated encode path as cross-protocol streams.  The
+            // source envelope is retained by the decoder only for semantics that have no portable
+            // representation; it must never bypass framing or the reducer.
+            let encoded = self.encoder.encode(&canonical)?;
             let next = self
                 .encoded_bytes
                 .checked_add(encoded.len())
@@ -202,6 +210,21 @@ impl StaticEventBridge {
             self.encoded_bytes = next;
             if let Some(change) = opaque_change {
                 self.changes.push(change);
+            }
+            output.extend_from_slice(&encoded);
+        }
+        if let WireEncoder::Native(protocol) = &self.encoder {
+            let state = self
+                .state
+                .as_ref()
+                .ok_or(StaticEventCodecError::InvalidLifecycle)?;
+            let encoded = native::encode(*protocol, &event, state, self.limits)?;
+            self.encoded_bytes = self
+                .encoded_bytes
+                .checked_add(encoded.len())
+                .ok_or(StaticEventCodecError::LimitExceeded)?;
+            if self.encoded_bytes > self.limits.max_turn_bytes() {
+                return Err(StaticEventCodecError::LimitExceeded);
             }
             output.extend_from_slice(&encoded);
         }
@@ -219,10 +242,8 @@ impl StaticEventBridge {
             .take()
             .ok_or(StaticEventCodecError::InvalidLifecycle)?;
         let state = reduce(state, EventInput::Eof)?;
-        if !self.preserve_source {
-            materialize(&state)?;
-            self.encoder.finish()?;
-        }
+        materialize(&state)?;
+        self.encoder.finish()?;
         self.state = Some(state);
         self.finished = true;
         Ok(Bytes::new())

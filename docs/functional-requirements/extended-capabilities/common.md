@@ -34,7 +34,7 @@ Native 转发必须保持请求 part/item 顺序、类型、source data、格式
 model/path/auth/header 改写及 Public Model response projection 外，不得下载并替换媒体、转换 embedding、把媒体
 转成文本、丢弃字段或改变编码。
 
-Native保真不能绕过canonical request/response decode或SSE lifecycle validation；只有同协议、capability check通过且无需跨origin重解释时，才可在验证后保留request语义与Provider私有字段，并原样保留response与SSE bytes。未知可移植语义、非法identity/lifecycle、越界body/event和terminal前EOF继续fail closed。
+Native 保真不能绕过 canonical request/response decode 或 SSE lifecycle validation；同协议且固定能力检查通过时，由 encoder 保留请求/响应语义、媒体负载及有界 Provider 扩展。SSE framing 可按[流式合同](../gateway-api/native-and-streaming.md#有界规范化)做有界规范化，不要求逐字节相同；这不授权媒体转码或跨 origin 重解释。非法 identity/lifecycle、越界 body/event 和 terminal 前 EOF 继续 fail closed。
 
 Chat-to-Responses 与 Responses-to-Chat Bridge 对媒体请求保持 fail closed；只有对应功能需求定义了逐字段、逐事件
 的完整转换契约后，才可开放某个具体方向。

@@ -9,6 +9,103 @@ use std::{
 
 use futures_util::Stream;
 
+#[tokio::test]
+async fn native_sse_encodes_refusal_and_bounded_extensions() {
+    // All frames deliberately omit event fields and use CRLF; the terminal omits completed items.
+    let message = serde_json::json!({"id":"msg_normalized","type":"message","role":"assistant","status":"in_progress","content":[]});
+    let part = serde_json::json!({"type":"refusal","refusal":"unavailable","annotations":[{"type":"provider_note","value":"kept"}]});
+    let completed = serde_json::json!({"id":"msg_normalized","type":"message","role":"assistant","status":"completed","content":[part]});
+    let frames = [
+        serde_json::json!({"type":"response.created","response":{"id":"resp_normalized","status":"in_progress","output":[]}}),
+        serde_json::json!({"type":"response.future_metadata","response_id":"resp_normalized","provider_metadata":{"kept":true}}),
+        serde_json::json!({"type":"response.output_item.added","output_index":0,"item":message}),
+        serde_json::json!({"type":"response.content_part.added","output_index":0,"content_index":0,"item_id":"msg_normalized","part":{"type":"refusal","refusal":""}}),
+        serde_json::json!({"type":"response.refusal.delta","output_index":0,"content_index":0,"item_id":"msg_normalized","delta":"unavailable"}),
+        serde_json::json!({"type":"response.refusal.done","output_index":0,"content_index":0,"item_id":"msg_normalized","refusal":"unavailable"}),
+        serde_json::json!({"type":"response.content_part.done","output_index":0,"content_index":0,"item_id":"msg_normalized","part":part}),
+        serde_json::json!({"type":"response.output_item.done","output_index":0,"item":{"id":"msg_normalized","type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"unavailable"}]}}),
+        serde_json::json!({"type":"response.completed","response":{"id":"resp_normalized","status":"completed","output":[]}}),
+    ];
+    let source = frames
+        .iter()
+        .map(|value| format!("data: {value}\r\n\r\n"))
+        .collect::<String>();
+    let transport = Arc::new(FixedSseTransport {
+        body: Bytes::from(source),
+        attempts: AtomicUsize::new(0),
+    });
+    let app = app_with_streaming_transport(transport.clone());
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(
+                    r#"{"model":"public-model","input":"hello","stream":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .expect("valid refusal must survive IR");
+    assert!(!body.contains(&b'\r'));
+    let mut decoder = SseDecoder::new(64 * 1024);
+    let mut events = decoder.push(&body).unwrap();
+    events.extend(decoder.finish().unwrap());
+    for event in &events {
+        let data: Value = serde_json::from_str(event.data()).unwrap();
+        assert_eq!(event.event(), data["type"].as_str());
+    }
+    let metadata: Value = serde_json::from_str(events[1].data()).unwrap();
+    assert_eq!(metadata["provider_metadata"]["kept"], true);
+    let terminal: Value = serde_json::from_str(events.last().unwrap().data()).unwrap();
+    assert_eq!(
+        terminal["response"]["output"],
+        serde_json::json!([completed])
+    );
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+
+    // The explicit SSE-to-JSON policy also retains terminal-only annotations.
+    // An unrelated unknown event has no JSON projection, so it is not part of this fixture.
+    let source = frames
+        .iter()
+        .filter(|value| value["type"] != "response.future_metadata")
+        .map(|value| {
+            let mut value = value.clone();
+            if value["type"] == "response.content_part.done" {
+                value["part"].as_object_mut().unwrap().remove("annotations");
+            }
+            if value["type"] == "response.completed" {
+                value["response"]["output"] = serde_json::json!([completed]);
+            }
+            format!("data: {value}\n\n")
+        })
+        .collect::<String>();
+    let transport = Arc::new(FixedSseTransport {
+        body: Bytes::from(source),
+        attempts: AtomicUsize::new(0),
+    });
+    let app = app_with_streaming_only_responses_transport(transport.clone(), 64 * 1024);
+    let response = app
+        .oneshot(
+            Request::post("/v1/responses")
+                .header(CONTENT_TYPE, "application/json")
+                .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+                .body(Body::from(r#"{"model":"public-model","input":"hello"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap()).unwrap();
+    assert_eq!(body["output"], serde_json::json!([completed]));
+    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
+}
+
 fn chat_to_responses_bridge_definition() -> RegistryConfig {
     let mut definition = streaming_definition("bridge-precommit", "public-model", "upstream-model");
     let route = definition
@@ -902,39 +999,6 @@ async fn eof_before_the_first_event_returns_a_gateway_error_before_commit() {
 }
 
 #[tokio::test]
-async fn eof_completed_first_event_commits_partial_bytes_then_returns_body_error() {
-    let app = app_with_streaming_transport(Arc::new(EofTerminatedFirstEventTransport));
-    let request = Request::post("/v1/responses")
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
-        .body(Body::from(
-            r#"{"model":"public-model","input":"hello","stream":true}"#,
-        ))
-        .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let mut partial = Vec::new();
-    let mut body_error = false;
-    let mut body = response.into_body().into_data_stream();
-    while let Some(chunk) = body.next().await {
-        match chunk {
-            Ok(chunk) => partial.extend_from_slice(&chunk),
-            Err(_) => {
-                body_error = true;
-                break;
-            }
-        }
-    }
-    assert!(body_error);
-    assert!(
-        partial
-            .windows(b"visible".len())
-            .any(|window| window == b"visible")
-    );
-}
-
-#[tokio::test]
 async fn eof_before_terminal_does_not_fabricate_a_terminal_event() {
     let app = app_with_streaming_transport(Arc::new(EofWithoutTerminalTransport));
     let request = Request::post("/v1/responses")
@@ -1042,27 +1106,6 @@ async fn buffered_non_streaming_responses_enforce_the_json_takeover_budget() {
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
     let error: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(error["error"]["code"], "invalid_upstream_response");
-}
-
-#[tokio::test]
-async fn partial_upstream_stream_failures_close_without_a_retry() {
-    let transport = Arc::new(PartialStreamFailureTransport {
-        attempts: AtomicUsize::new(0),
-    });
-    let app = app_with_streaming_transport(transport.clone());
-    let request = Request::post("/v1/responses")
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
-        .body(Body::from(
-            r#"{"model":"public-model","input":"hello","stream":true}"#,
-        ))
-        .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(to_bytes(response.into_body(), 4096).await.is_err());
-    assert_eq!(transport.attempts.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

@@ -8,7 +8,7 @@
 |---|---|---|
 | 网关入口、Bearer 认证与 MCP dual-era | Chat Completions、Responses、Models、扩展 Models、Embeddings、Images Generations 和本地 `hello` MCP 入口 | `src/ingress/`、`src/registry/public_model/`、`src/mcp/` |
 | Bootstrap、用户、上游凭证与静态注册 | 严格启动解析、用户认证、API-key/OAuth binding、canonical Model、Provider Target、Route 与 Public Model 编译 | `src/config/`、`src/identity.rs`、`src/credential/`、`src/upstream_credentials/`、`src/oauth2_credentials/`、`src/models/`、`src/providers/`、`src/registry/` |
-| Generation | Chat/Responses Native、封闭集合 Protocol Bridge、Static/Event IR、工具与 structured-output 的固定预检 | `src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/provider/`、`src/transport/` |
+| Generation | 统一 Static/Event IR decode/encode；Native 结果完整性、有界 SSE 规范化、封闭集合 Bridge、工具与 structured-output 固定预检 | `src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/provider/`、`src/transport/` |
 | resilience 与 body lifecycle | 固定 Route 顺序、有限 retry/fallback、credential rotation、单进程 cooldown、取消、SSE 终态与有界 body 处理 | `src/ingress/forwarding/`、`src/execution/`、`src/ingress/health.rs`、`src/ingress/streaming/` |
 | Embeddings | 单 Route Native execution，含输入、encoding、dimension 和 batch limit 预检 | `src/pipeline/embeddings/` |
 | 图片、文件和音频 | 按 Provider/任务注册的 Native surface；Images Generations 仅同步单 attempt JSON URL | `src/providers/*/`、`src/pipeline/images/`、`src/ingress/forwarding/images.rs` |

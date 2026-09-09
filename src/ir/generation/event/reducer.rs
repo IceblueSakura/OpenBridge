@@ -99,6 +99,7 @@ fn apply_event(state: &mut EventState, event: GenerationEvent) -> Result<(), Red
             finish_candidate(state, candidate, finish)
         }
         GenerationEvent::UsageSnapshot { usage } => update_usage(state, usage),
+        GenerationEvent::Extension { extension } => add_extension(state, extension),
         GenerationEvent::Terminal { terminal } => finish_turn(state, terminal),
     }
 }
@@ -111,6 +112,7 @@ fn start_response(state: &mut EventState, response: ResponseIdentity) -> Result<
     {
         return Err(ReduceError::InvalidLifecycle);
     }
+    reserve_turn(state, response.id().as_str().len())?;
     state.response = Some(response);
     Ok(())
 }
@@ -127,6 +129,7 @@ fn start_candidate(
     {
         return Err(ReduceError::DuplicateIdentity);
     }
+    reserve_turn(state, candidate.id().as_str().len())?;
     state
         .candidate_indexes
         .insert(candidate.index(), candidate.id().clone());
@@ -150,7 +153,7 @@ fn start_item(
 ) -> Result<(), ReduceError> {
     let candidate_builder = state
         .candidates
-        .get_mut(candidate.id())
+        .get(candidate.id())
         .ok_or(ReduceError::UnknownReference)?;
     if candidate_builder.finished {
         return Err(ReduceError::UnknownReference);
@@ -158,6 +161,13 @@ fn start_item(
     if state.items.contains_key(item.id()) || candidate_builder.items.contains_key(&item.index()) {
         return Err(ReduceError::DuplicateIdentity);
     }
+    let identity_bytes = item
+        .id()
+        .as_str()
+        .len()
+        .saturating_add(item.wire_identity().map_or(0, wire_identity_len));
+    reserve_turn(state, identity_bytes)?;
+    let candidate_builder = state.candidates.get_mut(candidate.id()).unwrap();
     candidate_builder
         .items
         .insert(item.index(), item.id().clone());
@@ -182,7 +192,7 @@ fn start_part(
 ) -> Result<(), ReduceError> {
     let item_builder = state
         .items
-        .get_mut(item.id())
+        .get(item.id())
         .ok_or(ReduceError::UnknownReference)?;
     if item_builder.finished {
         return Err(ReduceError::UnknownReference);
@@ -193,6 +203,8 @@ fn start_part(
     if state.parts.contains_key(part.id()) || item_builder.parts.contains_key(&part.index()) {
         return Err(ReduceError::DuplicateIdentity);
     }
+    reserve_turn(state, part.id().as_str().len())?;
+    let item_builder = state.items.get_mut(item.id()).unwrap();
     item_builder.parts.insert(part.index(), part.id().clone());
     state.parts.insert(
         part.id().clone(),
@@ -212,12 +224,13 @@ fn start_part(
 fn header_accepts_part(header: &ItemHeader, kind: PartKind) -> bool {
     matches!(
         (header, kind),
-        (ItemHeader::Message { .. }, PartKind::Text)
-            | (
-                ItemHeader::Reasoning,
-                PartKind::ReasoningText | PartKind::ReasoningSummary | PartKind::Opaque
-            )
-            | (ItemHeader::ToolCall { .. }, PartKind::ToolArguments)
+        (
+            ItemHeader::Message { .. },
+            PartKind::Text | PartKind::Refusal
+        ) | (
+            ItemHeader::Reasoning,
+            PartKind::ReasoningText | PartKind::ReasoningSummary | PartKind::Opaque
+        ) | (ItemHeader::ToolCall { .. }, PartKind::ToolArguments)
     )
 }
 
@@ -277,7 +290,7 @@ fn finish_part(state: &mut EventState, part: PartRef) -> Result<(), ReduceError>
     if builder.finished {
         return Err(ReduceError::UnknownReference);
     }
-    if builder.value.is_empty() && builder.opaque.is_none() {
+    if builder.value.is_empty() && builder.opaque.is_none() && builder.kind != PartKind::Text {
         return Err(ReduceError::InvalidItemShape);
     }
     if builder.kind == PartKind::ToolArguments {
@@ -301,6 +314,15 @@ fn finish_item(state: &mut EventState, item: ItemRef) -> Result<(), ReduceError>
         return Err(ReduceError::UnknownReference);
     }
     if builder.parts.is_empty() {
+        if matches!(
+            &builder.header,
+            ItemHeader::Message {
+                role: MessageRole::Assistant
+            }
+        ) {
+            state.items.get_mut(item.id()).unwrap().finished = true;
+            return Ok(());
+        }
         return Err(ReduceError::InvalidItemShape);
     }
     let parts = builder
@@ -314,7 +336,9 @@ fn finish_item(state: &mut EventState, item: ItemRef) -> Result<(), ReduceError>
     match &builder.header {
         ItemHeader::Message { role } => {
             if *role != MessageRole::Assistant
-                || parts.iter().any(|part| part.kind != PartKind::Text)
+                || parts
+                    .iter()
+                    .any(|part| !matches!(part.kind, PartKind::Text | PartKind::Refusal))
             {
                 return Err(ReduceError::InvalidItemShape);
             }
@@ -354,13 +378,22 @@ fn finish_candidate(
     if builder.finished {
         return Err(ReduceError::UnknownReference);
     }
-    if builder.items.is_empty() && finish != crate::ir::generation::FinishReason::Stop {
+    let interrupted = matches!(
+        finish,
+        crate::ir::generation::FinishReason::Length
+            | crate::ir::generation::FinishReason::ContentFilter
+    );
+    if builder.items.is_empty()
+        && finish != crate::ir::generation::FinishReason::Stop
+        && !interrupted
+    {
         return Err(ReduceError::InvalidItemShape);
     }
-    if builder
-        .items
-        .values()
-        .any(|id| state.items.get(id).is_none_or(|item| !item.finished))
+    if !interrupted
+        && builder
+            .items
+            .values()
+            .any(|id| state.items.get(id).is_none_or(|item| !item.finished))
     {
         return Err(ReduceError::IncompleteChildren);
     }
@@ -385,6 +418,44 @@ fn update_usage(state: &mut EventState, usage: Usage) -> Result<(), ReduceError>
     Ok(())
 }
 
+fn add_extension(
+    state: &mut EventState,
+    extension: crate::ir::generation::ProviderExtension,
+) -> Result<(), ReduceError> {
+    if state.response.is_none() {
+        return Err(ReduceError::InvalidLifecycle);
+    }
+    let extension_len = extension.encoded_len();
+    if extension_len > state.limits.max_event_bytes() {
+        return Err(ReduceError::EventLimitExceeded);
+    }
+    reserve_turn(state, extension_len)?;
+    state.extensions.push(extension);
+    Ok(())
+}
+
+fn reserve_turn(state: &mut EventState, bytes: usize) -> Result<(), ReduceError> {
+    let next = state
+        .turn_bytes
+        .checked_add(bytes)
+        .ok_or(ReduceError::TurnLimitExceeded)?;
+    if next > state.limits.max_turn_bytes() {
+        return Err(ReduceError::TurnLimitExceeded);
+    }
+    state.turn_bytes = next;
+    Ok(())
+}
+
+fn wire_identity_len(identity: &crate::ir::generation::WireIdentity) -> usize {
+    identity
+        .namespace()
+        .as_str()
+        .len()
+        .saturating_add(identity.value().len())
+        .saturating_add(identity.origin().namespace().as_str().len())
+        .saturating_add(identity.origin().value().len())
+}
+
 fn usage_progresses(previous: &Usage, next: &Usage) -> bool {
     counter_progresses(previous.input_tokens(), next.input_tokens())
         && counter_progresses(previous.output_tokens(), next.output_tokens())
@@ -405,6 +476,19 @@ fn finish_turn(state: &mut EventState, terminal: TurnTerminal) -> Result<(), Red
         return Err(ReduceError::InvalidLifecycle);
     }
     if terminal.status() == TerminalStatus::Completed
+        && state.candidates.values().any(|candidate| {
+            matches!(
+                candidate.finish,
+                Some(
+                    crate::ir::generation::FinishReason::Length
+                        | crate::ir::generation::FinishReason::ContentFilter
+                )
+            )
+        })
+    {
+        return Err(ReduceError::InvalidLifecycle);
+    }
+    if terminal.status() == TerminalStatus::Completed
         && (state.candidates.is_empty()
             || state
                 .candidates
@@ -414,6 +498,9 @@ fn finish_turn(state: &mut EventState, terminal: TurnTerminal) -> Result<(), Red
             || state.parts.values().any(|part| !part.finished))
     {
         return Err(ReduceError::IncompleteChildren);
+    }
+    if let Some(failure) = terminal.failure() {
+        reserve_turn(state, failure.as_str().len())?;
     }
     state.terminal = Some(terminal);
     Ok(())

@@ -616,11 +616,6 @@ fn cross_protocol_request_rejects_unrepresented_nested_fields() {
             "audio",
             json!({"id": "audio_previous"}),
         ),
-        (
-            json!({"role": "assistant", "content": null, "refusal": "declined"}),
-            "refusal",
-            json!("declined"),
-        ),
     ];
     for (message, field, expected) in chat_cases {
         let chat = json!({"model": "public-model", "messages": [message]});
@@ -866,6 +861,222 @@ fn chat_bridge_rejects_empty_assistant_history_instead_of_dropping_it() {
             .is_err()
         );
     }
+}
+
+#[test]
+fn static_codecs_preserve_typed_refusal_history_across_protocols() {
+    let (_, responses_request) = StaticBridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        body(json!({
+            "model": "public-model",
+            "messages": [{"role": "assistant", "content": null, "refusal": "not allowed"}]
+        })),
+        limits(),
+    )
+    .expect("assistant refusal history is representable in Responses");
+    let responses_request: Value = serde_json::from_slice(responses_request.body()).unwrap();
+    assert_eq!(
+        responses_request["input"][0]["content"][0],
+        json!({"refusal": "not allowed", "type": "refusal"})
+    );
+    assert_ne!(
+        responses_request["input"][0]["content"][0]["type"],
+        "input_text"
+    );
+
+    let (_, chat_request) = StaticBridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        body(json!({
+            "model": "public-model",
+            "input": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "refusal", "refusal": "not allowed"}]
+            }]
+        })),
+        limits(),
+    )
+    .expect("Responses refusal history is representable in Chat");
+    let chat_request: Value = serde_json::from_slice(chat_request.body()).unwrap();
+    assert_eq!(
+        chat_request["messages"][0],
+        json!({"content": null, "refusal": "not allowed", "role": "assistant"})
+    );
+}
+
+#[test]
+fn static_response_codec_keeps_empty_status_and_refusal_results_on_the_ir_path() {
+    let fixtures = [
+        json!({
+            "id": "resp-empty",
+            "object": "response",
+            "status": "completed",
+            "output": [],
+            "provider_unknown": {"keep": true}
+        }),
+        json!({
+            "id": "resp-incomplete",
+            "object": "response",
+            "status": "incomplete",
+            "output": [{
+                "id": "msg-partial",
+                "type": "message",
+                "role": "assistant",
+                "status": "incomplete",
+                "content": [{"type": "output_text", "text": "part", "annotations": [{"type":"url_citation","url":"https://example.com","title":"Synthetic","start_index":0,"end_index":4}]}]
+            }, {
+                "id":"call-partial", "type":"function_call", "name":"lookup", "call_id":"call-1",
+                "status":"incomplete", "arguments":"{\"city\":"
+            }],
+            "incomplete_details": {"reason": "max_output_tokens"}
+        }),
+        json!({
+            "id": "resp-failed",
+            "object": "response",
+            "status": "failed",
+            "output": [],
+            "error": {"code": "server_error", "message": "synthetic"}
+        }),
+        json!({
+            "id": "resp-cancelled",
+            "object": "response",
+            "status": "cancelled",
+            "output": [],
+            "incomplete_details": {"reason": "cancelled"}
+        }),
+        json!({
+            "id": "resp-refusal",
+            "object": "response",
+            "status": "completed",
+            "output": [{
+                "id": "msg-refusal",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "refusal", "refusal": "not allowed"}]
+            }]
+        }),
+    ];
+    let (plan, _) = StaticBridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        body(json!({"model": "public-model", "input": "hello"})),
+        limits(),
+    )
+    .unwrap();
+    for fixture in fixtures {
+        let expected = fixture.clone();
+        let rendered = plan
+            .render_non_stream(body(fixture))
+            .expect("valid Responses result must decode and re-encode through IR");
+        let actual: Value = serde_json::from_slice(rendered.body()).unwrap();
+        assert_eq!(actual, expected);
+        if expected["status"] == "incomplete" {
+            assert!(
+                rendered
+                    .semantic()
+                    .extensions()
+                    .iter()
+                    .any(|extension| extension.kind().as_str() == "response.annotations")
+            );
+            let openbridge::ir::generation::OutputItem::ToolCall(call) =
+                &rendered.semantic().candidates()[0].output()[1]
+            else {
+                panic!("partial call must remain typed");
+            };
+            assert!(matches!(
+                call.input(),
+                openbridge::ir::generation::ToolInput::IncompleteFunction(_)
+            ));
+        }
+    }
+}
+
+#[test]
+fn cross_protocol_refusal_is_typed_instead_of_text() {
+    let (_, request) = StaticBridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        body(json!({
+            "model": "public-model",
+            "messages": [{"role": "assistant", "content": null, "refusal": "not allowed"}]
+        })),
+        limits(),
+    )
+    .expect("typed refusal is representable in Responses input");
+    let request: Value = serde_json::from_slice(request.body()).unwrap();
+    assert_eq!(
+        request["input"][0]["content"][0],
+        json!({
+            "refusal": "not allowed",
+            "type": "refusal"
+        })
+    );
+
+    let (responses_plan, _) = StaticBridgePlan::prepare(
+        ApiProtocol::Responses,
+        ApiProtocol::ChatCompletions,
+        "public-model",
+        "upstream-model",
+        body(json!({"model": "public-model", "input": "hello"})),
+        limits(),
+    )
+    .unwrap();
+    let responses = responses_plan
+        .render_non_stream(body(json!({
+            "id": "chatcmpl-refusal",
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": null, "refusal": "not allowed"},
+                "finish_reason": "stop"
+            }]
+        })))
+        .expect("Chat refusal maps to a typed Responses refusal part");
+    let responses: Value = serde_json::from_slice(responses.body()).unwrap();
+    assert_eq!(
+        responses["output"][0]["content"][0],
+        json!({"refusal": "not allowed", "type": "refusal"})
+    );
+
+    let (chat_plan, _) = StaticBridgePlan::prepare(
+        ApiProtocol::ChatCompletions,
+        ApiProtocol::Responses,
+        "public-model",
+        "upstream-model",
+        body(json!({"model": "public-model", "messages": [{"role": "user", "content": "hello"}]})),
+        limits(),
+    )
+    .unwrap();
+    let chat = chat_plan
+        .render_non_stream(body(json!({
+            "id": "resp-refusal",
+            "object": "response",
+            "status": "completed",
+            "output": [{
+                "id": "msg-refusal",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "refusal", "refusal": "not allowed"}]
+            }]
+        })))
+        .expect("Responses refusal maps to Chat refusal field");
+    let chat: Value = serde_json::from_slice(chat.body()).unwrap();
+    assert_eq!(
+        chat["choices"][0]["message"],
+        json!({"content": null, "refusal": "not allowed", "role": "assistant"})
+    );
 }
 
 #[test]

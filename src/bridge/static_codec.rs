@@ -27,6 +27,39 @@ use super::event_codec::{StaticEventBridge, StaticEventCodecError};
 mod request;
 mod response;
 
+/// Retains bounded annotation metadata as a codec-owned extension.
+pub(crate) fn snapshot_annotations(
+    item: &Value,
+    max_bytes: usize,
+) -> Result<Vec<crate::ir::generation::ProviderExtension>, StaticCodecError> {
+    response::decode_annotation_extensions(item, max_bytes)
+}
+
+/// Projects observed canonical items into a sparse Native terminal without inventing content.
+pub(crate) fn terminal_output_snapshot(
+    value: &GenerationResponse,
+) -> Result<Value, StaticCodecError> {
+    let semantic = GenerationResponse::new(
+        value.id().clone(),
+        value.candidates().to_vec(),
+        value.status(),
+        value.usage().copied(),
+        Vec::new(),
+    )
+    .map_err(StaticCodecError::from_validation)?;
+    let response = WireResponse {
+        source_id: value.id().as_str().to_owned(),
+        semantic,
+    };
+    let encoded = response::encode_responses_response(&response, "", ReasoningOutput::PlainText)?;
+    let mut output = encoded
+        .get("output")
+        .cloned()
+        .ok_or(StaticCodecError::InvalidShape)?;
+    response::apply_response_annotations(&mut output, value.extensions())?;
+    Ok(output)
+}
+
 /// A decoded request plus protocol delivery fields that are not model-interaction semantics.
 #[derive(Clone, Debug)]
 struct WireRequest {
@@ -384,7 +417,6 @@ impl StaticBridgePlan {
         if body.len() > self.limits.response_body {
             return Err(StaticCodecError::LimitExceeded);
         }
-        let original = body.clone();
         let source = parse_object(&body)?;
         let decoded = response::decode_response(
             self.target_protocol,
@@ -394,8 +426,18 @@ impl StaticBridgePlan {
         )?;
         let semantic = decoded.semantic.clone();
         if self.source_protocol == self.target_protocol {
+            let rendered = response::encode_native_response(
+                &decoded,
+                &source,
+                self.target_protocol,
+                &self.public_model,
+                self.reasoning_output,
+            )?;
+            if rendered.len() > self.limits.response_body {
+                return Err(StaticCodecError::LimitExceeded);
+            }
             return Ok(StaticRenderedResponse {
-                body: original,
+                body: rendered,
                 changes: Vec::new(),
                 semantic,
             });
@@ -405,6 +447,7 @@ impl StaticBridgePlan {
             &decoded,
             &self.public_model,
             self.reasoning_output,
+            false,
         )?;
         let (rendered, changes) = rendered.into_parts();
         let rendered = response::encode_response(rendered)?;
@@ -432,6 +475,7 @@ impl StaticBridgePlan {
             &decoded,
             &self.public_model,
             self.reasoning_output,
+            self.source_protocol == self.target_protocol,
         )?;
         let (rendered, _) = rendered.into_parts();
         let rendered = response::encode_response(rendered)?;

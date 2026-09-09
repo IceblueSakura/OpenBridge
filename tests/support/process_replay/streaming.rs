@@ -20,6 +20,7 @@ use http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
 use serde_json::Value;
 use tokio::net::TcpListener;
 
+use super::super::sse;
 use super::{GatewayHarness, ReplayObservation, read_json, spawn_server, start_gateway};
 
 struct CanonicalStreamAbortCase {
@@ -84,7 +85,7 @@ impl Drop for PendingEventStream {
 
 /// Replays one canonical Responses stream that aborts after visible output.
 pub async fn replay_transport_error_after_output_case(case_id: &str) -> ReplayObservation {
-    // Load the canonical request, partial SSE body, and downstream byte oracle.
+    // Load the canonical request, partial SSE body, and semantic downstream oracle.
     let CanonicalStreamAbortCase {
         client_request,
         expected_upstream_request,
@@ -161,7 +162,7 @@ pub async fn replay_transport_error_after_output_case(case_id: &str) -> ReplayOb
     .await
     .expect("canonical downstream abort must complete within the test timeout");
 
-    // Stop listeners and return only byte comparisons, counters, and safe response metadata.
+    // Stop listeners and return semantic stream comparisons, counters, and safe response metadata.
     gateway_task.abort();
     upstream_task.abort();
     let upstream_request_matches = observations
@@ -177,9 +178,11 @@ pub async fn replay_transport_error_after_output_case(case_id: &str) -> ReplayOb
         rate_limit_remaining_requests: None,
         upstream_attempts: upstream_request_matches.len(),
         upstream_request_matches,
-        downstream_body_matches: downstream_body.as_slice() == expected_client_stream.as_ref(),
-        downstream_stream_matches_upstream: downstream_body.as_slice()
-            == expected_transparent_stream.as_ref(),
+        downstream_body_matches: sse::equivalent(&downstream_body, &expected_client_stream),
+        downstream_stream_matches_upstream: sse::equivalent(
+            &downstream_body,
+            &expected_transparent_stream,
+        ),
         downstream_transport_error,
         upstream_cancelled: false,
         gateway_metrics,
@@ -244,7 +247,7 @@ pub async fn replay_cancel_after_output_case(case_id: &str) -> ReplayObservation
     let mut downstream_body = Vec::new();
     let mut downstream_stream = response.bytes_stream();
     tokio::time::timeout(Duration::from_secs(5), async {
-        while downstream_body.len() < upstream_stream.len() {
+        while !sse::equivalent(&downstream_body, &upstream_stream) {
             let chunk = downstream_stream
                 .next()
                 .await
@@ -262,7 +265,7 @@ pub async fn replay_cancel_after_output_case(case_id: &str) -> ReplayObservation
         .await
         .expect("downstream cancellation must drop the upstream body within the test timeout");
 
-    // Stop listeners and return only byte comparisons, counters, and safe response metadata.
+    // Stop listeners and return semantic stream comparisons, counters, and safe response metadata.
     gateway_task.abort();
     upstream_task.abort();
     let upstream_request_matches = observations
@@ -279,7 +282,7 @@ pub async fn replay_cancel_after_output_case(case_id: &str) -> ReplayObservation
         upstream_attempts: upstream_request_matches.len(),
         upstream_request_matches,
         downstream_body_matches: false,
-        downstream_stream_matches_upstream: downstream_body.as_slice() == upstream_stream.as_ref(),
+        downstream_stream_matches_upstream: sse::equivalent(&downstream_body, &upstream_stream),
         downstream_transport_error: false,
         upstream_cancelled: true,
         gateway_metrics,
@@ -357,7 +360,7 @@ pub async fn replay_eof_before_terminal_case(case_id: &str) -> ReplayObservation
     .await
     .expect("canonical EOF body failure must arrive within the test timeout");
 
-    // Stop listeners and return only byte comparisons, counters, and safe response metadata.
+    // Stop listeners and return semantic stream comparisons, counters, and safe response metadata.
     gateway_task.abort();
     upstream_task.abort();
     let upstream_request_matches = observations
@@ -373,9 +376,11 @@ pub async fn replay_eof_before_terminal_case(case_id: &str) -> ReplayObservation
         rate_limit_remaining_requests: None,
         upstream_attempts: upstream_request_matches.len(),
         upstream_request_matches,
-        downstream_body_matches: downstream_body.as_slice() == expected_client_stream.as_ref(),
-        downstream_stream_matches_upstream: downstream_body.as_slice()
-            == expected_transparent_stream.as_ref(),
+        downstream_body_matches: sse::equivalent(&downstream_body, &expected_client_stream),
+        downstream_stream_matches_upstream: sse::equivalent(
+            &downstream_body,
+            &expected_transparent_stream,
+        ),
         downstream_transport_error,
         upstream_cancelled: false,
         gateway_metrics,

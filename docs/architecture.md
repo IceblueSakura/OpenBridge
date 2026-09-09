@@ -151,6 +151,7 @@ JSON admission
   → ProviderAdapter prepares a routed request
   → bounded attempt loop + UpstreamTransport
   → decode/validate canonical JSON or Event IR response
+  → encode Native preservation or cross-protocol projection
   → downstream response commit and observations
 ```
 
@@ -170,7 +171,7 @@ Registry 只保存 credential pool 的非敏感 identity、Provider kind 和 cre
 
 ### IR 与 Bridge
 
-Generation IR 只表达已验证的 semantic request/response values 和 Event lifecycle。它不携带 registry entity、Route、credential 或上游 endpoint 定位信息，也不直接访问 body、clock、task 或 observation。Bridge 使用固定 plan 消费 IR；Provider adapter 和 transport 负责把它变成受信 wire request。
+Generation IR 表达支持范围内的语义并集，包括文本、refusal、工具、非完成结果及有界命名空间扩展，不以任一 Provider 或协议的能力交集裁剪核心类型。Provider/request/response 差异归 decode/encode；固定 Public Model 能力交集仍属于 registry/preflight。它不携带 registry entity、Route、credential 或上游 endpoint 定位信息，也不直接访问 body、clock、task 或 observation。Bridge 使用固定 plan 消费 IR；Provider adapter 和 transport 负责把它变成受信 wire request。
 
 ### Retry、fallback 与 cooldown
 
@@ -180,7 +181,7 @@ Generation IR 只表达已验证的 semantic request/response values 和 Event l
 
 ### Commit 与终态
 
-下游 commit 是不可逆边界：在首个可见业务输出前，响应仍可因受信的 retryable failure 进行有界 retry/fallback；commit 后不能拼接另一个 upstream 响应。Native SSE 透明转发其已验证 framing，Bridge SSE 增量渲染 Event IR；terminal 前 EOF、body error、非法 framing 或超限都以失败关闭，不伪造 terminal。下游取消会取消对应 upstream body。
+下游 commit 是不可逆边界：在首个可见业务输出前，响应仍可因受信的 retryable failure 进行有界 retry/fallback；commit 后不能拼接另一个 upstream 响应。Native 与 Bridge SSE 都经 Event IR 校验并编码，Native 可保留源字段与扩展；允许为确定的协议规范化做有界缓冲，一旦有合法输出即发送，不固定等待或默认缓存整条流。terminal 前 EOF、body error、非法 framing 或超限都以失败关闭，不伪造 terminal。下游取消会取消对应 upstream body。
 
 ### Observation
 

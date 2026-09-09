@@ -2,11 +2,11 @@
 
 use openbridge::ir::generation::{
     BoundedBytes, CandidateId, ContentPart, EventEnvelope, EventInput, EventLimits, EventState,
-    FinishReason, GenerationEvent, ItemHeader, ItemId, ItemIdentity, ItemRef, JsonObject,
-    MaterializeError, MessageRole, OpaqueExposure, OpaqueKind, OutputIndex, OutputItem, PartDelta,
-    PartId, PartIdentity, PartKind, PartRef, ReasoningPart, ReduceError, ResponseId,
-    ResponseIdentity, Sequence, TerminalStatus, TextValue, ToolInput, ToolName, TurnTerminal,
-    Usage, materialize, reduce,
+    FinishReason, GenerationEvent, ItemHeader, ItemId, ItemIdentity, ItemRef, JsonObject, Message,
+    MessageRole, OpaqueExposure, OpaqueKind, OutputIndex, OutputItem, PartDelta, PartId,
+    PartIdentity, PartKind, PartRef, ReasoningPart, ReduceError, ResponseId, ResponseIdentity,
+    Sequence, TerminalStatus, TextValue, ToolInput, ToolName, TurnTerminal, Usage, materialize,
+    reduce,
 };
 use serde_json::json;
 
@@ -394,7 +394,7 @@ fn sequence_identity_terminal_eof_and_bounds_fail_closed() {
     let candidate = candidate_id("candidate-bound");
     let item = item_id("item-bound");
     let part = part_id("part-bound");
-    let mut bounded = EventState::new(EventLimits::new(8, 5, 8).unwrap());
+    let mut bounded = EventState::new(EventLimits::new(8, 5, 64).unwrap());
     for input in [
         event(
             0,
@@ -448,7 +448,7 @@ fn sequence_identity_terminal_eof_and_bounds_fail_closed() {
 }
 
 #[test]
-fn non_completed_terminal_cannot_materialize_a_success_response() {
+fn non_completed_terminal_materializes_without_fabricating_success() {
     let mut state = EventState::new(EventLimits::new(64, 256, 1024).unwrap());
     state = reduce(
         state,
@@ -471,9 +471,14 @@ fn non_completed_terminal_cannot_materialize_a_success_response() {
     )
     .unwrap();
 
+    let response = materialize(&state).expect("non-completed turn must materialize");
     assert_eq!(
-        materialize(&state),
-        Err(MaterializeError::NonCompletedTerminal)
+        response.status(),
+        openbridge::ir::generation::ResponseStatus::Failed
+    );
+    assert_eq!(
+        response.failure().map(TextValue::as_str),
+        Some("provider failed")
     );
 }
 
@@ -560,30 +565,6 @@ fn candidate_item_part_identity_and_parent_lifecycle_fail_closed() {
             ),
         ),
         Err(ReduceError::UnknownReference)
-    );
-    state = reduce(
-        state,
-        event(
-            3,
-            GenerationEvent::PartStarted {
-                item: ItemRef::new(item),
-                part: PartIdentity::new(part.clone(), OutputIndex::new(0)),
-                kind: PartKind::Text,
-            },
-        ),
-    )
-    .unwrap();
-    assert_eq!(
-        reduce(
-            state,
-            event(
-                4,
-                GenerationEvent::PartFinished {
-                    part: PartRef::new(part),
-                },
-            ),
-        ),
-        Err(ReduceError::InvalidItemShape)
     );
 }
 
@@ -683,7 +664,7 @@ fn event_and_turn_limits_are_independent() {
         (state, part)
     }
 
-    let (state, part) = open_part(EventLimits::new(5, 20, 20).unwrap());
+    let (state, part) = open_part(EventLimits::new(5, 20, 60).unwrap());
     assert_eq!(
         reduce(
             state,
@@ -698,7 +679,16 @@ fn event_and_turn_limits_are_independent() {
         Err(ReduceError::EventLimitExceeded)
     );
 
-    let (mut state, part) = open_part(EventLimits::new(4, 20, 5).unwrap());
+    let identity_bytes = [
+        "response-limits",
+        "candidate-limits",
+        "item-limits",
+        "part-limits",
+    ]
+    .iter()
+    .map(|value| value.len())
+    .sum::<usize>();
+    let (mut state, part) = open_part(EventLimits::new(4, 20, identity_bytes + 5).unwrap());
     state = reduce(
         state,
         event(
@@ -849,4 +839,246 @@ fn multiple_candidates_materialize_by_output_index_not_start_order() {
 
     assert_eq!(response.candidates()[0].id().as_str(), "candidate-first");
     assert_eq!(response.candidates()[1].id().as_str(), "candidate-second");
+}
+
+#[test]
+fn refusal_and_empty_assistant_messages_are_valid_completed_output() {
+    let candidate = candidate_id("candidate-refusal");
+    let empty_item = item_id("message-empty");
+    let refusal_item = item_id("message-refusal");
+    let refusal_part = part_id("refusal-part");
+    let inputs = [
+        event(
+            0,
+            GenerationEvent::ResponseStarted {
+                response: ResponseIdentity::new(response_id("response-refusal")),
+            },
+        ),
+        event(
+            1,
+            GenerationEvent::CandidateStarted {
+                candidate: openbridge::ir::generation::CandidateIdentity::new(
+                    candidate.clone(),
+                    OutputIndex::new(0),
+                ),
+            },
+        ),
+        event(
+            2,
+            GenerationEvent::ItemStarted {
+                candidate: openbridge::ir::generation::CandidateRef::new(candidate.clone()),
+                item: ItemIdentity::new(empty_item.clone(), OutputIndex::new(0), None),
+                header: ItemHeader::Message {
+                    role: MessageRole::Assistant,
+                },
+            },
+        ),
+        event(
+            3,
+            GenerationEvent::ItemFinished {
+                item: ItemRef::new(empty_item),
+            },
+        ),
+        event(
+            4,
+            GenerationEvent::ItemStarted {
+                candidate: openbridge::ir::generation::CandidateRef::new(candidate.clone()),
+                item: ItemIdentity::new(refusal_item.clone(), OutputIndex::new(1), None),
+                header: ItemHeader::Message {
+                    role: MessageRole::Assistant,
+                },
+            },
+        ),
+        event(
+            5,
+            GenerationEvent::PartStarted {
+                item: ItemRef::new(refusal_item.clone()),
+                part: PartIdentity::new(refusal_part.clone(), OutputIndex::new(0)),
+                kind: PartKind::Refusal,
+            },
+        ),
+        event(
+            6,
+            GenerationEvent::PartDelta {
+                part: PartRef::new(refusal_part.clone()),
+                delta: PartDelta::Refusal(text("not allowed")),
+            },
+        ),
+        event(
+            7,
+            GenerationEvent::PartFinished {
+                part: PartRef::new(refusal_part),
+            },
+        ),
+        event(
+            8,
+            GenerationEvent::ItemFinished {
+                item: ItemRef::new(refusal_item),
+            },
+        ),
+        event(
+            9,
+            GenerationEvent::CandidateFinished {
+                candidate: openbridge::ir::generation::CandidateRef::new(candidate),
+                finish: FinishReason::Stop,
+            },
+        ),
+        event(
+            10,
+            GenerationEvent::Terminal {
+                terminal: TurnTerminal::new(TerminalStatus::Completed, None),
+            },
+        ),
+        EventInput::Eof,
+    ];
+    let mut state = EventState::new(EventLimits::new(64, 256, 1024).unwrap());
+    for input in inputs {
+        state = reduce(state, input).expect("refusal and empty output must reduce");
+    }
+
+    let response = materialize(&state).expect("valid completed refusal response");
+    let output = &response.candidates()[0].output();
+    let OutputItem::Message(empty) = &output[0] else {
+        panic!("first output must be an assistant message");
+    };
+    assert!(empty.content().is_empty());
+    let OutputItem::Message(refusal) = &output[1] else {
+        panic!("second output must be an assistant message");
+    };
+    assert!(
+        matches!(refusal.content(), [ContentPart::Refusal(value)] if value.as_str() == "not allowed")
+    );
+}
+
+#[test]
+fn non_completed_materialization_preserves_partial_text_and_tool_arguments() {
+    let candidate = candidate_id("candidate-partial");
+    let message = item_id("message-partial");
+    let message_part = part_id("message-part");
+    let tool = item_id("tool-partial");
+    let tool_part = part_id("tool-part");
+    let call = openbridge::ir::generation::CallId::new("call-partial", LIMIT).unwrap();
+    let mut state = EventState::new(EventLimits::new(64, 256, 1024).unwrap());
+    for input in [
+        event(
+            0,
+            GenerationEvent::ResponseStarted {
+                response: ResponseIdentity::new(response_id("response-partial")),
+            },
+        ),
+        event(
+            1,
+            GenerationEvent::CandidateStarted {
+                candidate: openbridge::ir::generation::CandidateIdentity::new(
+                    candidate.clone(),
+                    OutputIndex::new(0),
+                ),
+            },
+        ),
+        event(
+            2,
+            GenerationEvent::ItemStarted {
+                candidate: openbridge::ir::generation::CandidateRef::new(candidate.clone()),
+                item: ItemIdentity::new(message.clone(), OutputIndex::new(0), None),
+                header: ItemHeader::Message {
+                    role: MessageRole::Assistant,
+                },
+            },
+        ),
+        event(
+            3,
+            GenerationEvent::PartStarted {
+                item: ItemRef::new(message),
+                part: PartIdentity::new(message_part.clone(), OutputIndex::new(0)),
+                kind: PartKind::Text,
+            },
+        ),
+        event(
+            4,
+            GenerationEvent::PartDelta {
+                part: PartRef::new(message_part),
+                delta: PartDelta::Text(text("partial text")),
+            },
+        ),
+        event(
+            5,
+            GenerationEvent::ItemStarted {
+                candidate: openbridge::ir::generation::CandidateRef::new(candidate.clone()),
+                item: ItemIdentity::new(tool.clone(), OutputIndex::new(1), None),
+                header: ItemHeader::ToolCall {
+                    call,
+                    tool: ToolName::new("lookup", LIMIT).unwrap(),
+                },
+            },
+        ),
+        event(
+            6,
+            GenerationEvent::PartStarted {
+                item: ItemRef::new(tool),
+                part: PartIdentity::new(tool_part.clone(), OutputIndex::new(0)),
+                kind: PartKind::ToolArguments,
+            },
+        ),
+        event(
+            7,
+            GenerationEvent::PartDelta {
+                part: PartRef::new(tool_part),
+                delta: PartDelta::ToolArguments(text("{\"city\":")),
+            },
+        ),
+        event(
+            8,
+            GenerationEvent::Terminal {
+                terminal: TurnTerminal::new(TerminalStatus::Failed, Some(text("upstream failed"))),
+            },
+        ),
+        EventInput::Eof,
+    ] {
+        state = reduce(state, input).expect("partial non-completed state must reduce");
+    }
+
+    let response = materialize(&state).expect("non-completed state must materialize");
+    assert_eq!(
+        response.status(),
+        openbridge::ir::generation::ResponseStatus::Failed
+    );
+    let output = response.candidates()[0].output();
+    let OutputItem::Message(message) = &output[0] else {
+        panic!("partial message must be retained");
+    };
+    assert!(
+        matches!(message.content(), [ContentPart::Text(content)] if content.text().as_str() == "partial text")
+    );
+    let OutputItem::ToolCall(tool) = &output[1] else {
+        panic!("partial tool call must be retained");
+    };
+    let ToolInput::IncompleteFunction(Some(arguments)) = tool.input() else {
+        panic!("partial tool arguments must remain incomplete");
+    };
+    assert_eq!(arguments.as_str(), "{\"city\":");
+    assert!(
+        openbridge::ir::generation::GenerationResponse::new(
+            response.id().clone(),
+            response.candidates().to_vec(),
+            openbridge::ir::generation::ResponseStatus::Completed,
+            response.usage().copied(),
+            Vec::new(),
+        )
+        .is_err()
+    );
+    assert_eq!(
+        response.failure().map(TextValue::as_str),
+        Some("upstream failed")
+    );
+}
+
+#[test]
+fn user_messages_reject_refusal_parts() {
+    assert!(
+        Message::new(
+            MessageRole::User,
+            vec![ContentPart::Refusal(text("not allowed"))],
+        )
+        .is_err()
+    );
 }

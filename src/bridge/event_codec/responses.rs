@@ -7,10 +7,11 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     ir::generation::{
-        BoundedBytes, CandidateIdentity, CandidateRef, EventEnvelope, EventLimits, FinishReason,
-        GenerationEvent, ItemHeader, ItemId, ItemIdentity, ItemRef, MessageRole, OutputIndex,
-        PartDelta, PartId, PartIdentity, PartKind, PartRef, ResponseIdentity, TerminalStatus,
-        TurnTerminal, Usage,
+        BoundedBytes, BoundedOpaqueJson, CandidateIdentity, CandidateRef, EventEnvelope,
+        EventLimits, ExtensionKind, FinishReason, GenerationEvent, ItemHeader, ItemId,
+        ItemIdentity, ItemRef, MessageRole, OpaquePayload, OutputIndex, PartDelta, PartId,
+        PartIdentity, PartKind, PartRef, ProviderExtension, ProviderNamespace, ResponseIdentity,
+        TerminalStatus, TurnTerminal, Usage,
     },
     transport::sse::SseEvent,
 };
@@ -46,6 +47,7 @@ struct ResponsesWireItem {
 /// Stateful Responses decoder that emits only canonical Event IR values.
 pub(super) struct ResponsesEventDecoder {
     limits: EventLimits,
+    native: bool,
     sequence: u64,
     response_id: Option<crate::ir::generation::ResponseId>,
     candidate: Option<crate::ir::generation::CandidateId>,
@@ -56,9 +58,10 @@ pub(super) struct ResponsesEventDecoder {
 }
 
 impl ResponsesEventDecoder {
-    pub(super) fn new(limits: EventLimits) -> Self {
+    pub(super) fn new(limits: EventLimits, native: bool) -> Self {
         Self {
             limits,
+            native,
             sequence: 0,
             response_id: None,
             candidate: None,
@@ -76,21 +79,40 @@ impl ResponsesEventDecoder {
         if self.terminal {
             return Err(StaticEventCodecError::InvalidLifecycle);
         }
-        let value = parse_object(event.data(), self.limits)?;
-        let kind = required_string(&value, "type")?;
-        if event.event().is_some_and(|name| name != kind) {
-            return Err(StaticEventCodecError::IdentityConflict);
+        let mut value = parse_object(event.data(), self.limits)?;
+        if value
+            .get("type")
+            .is_some_and(|value| value.as_str().is_none_or(str::is_empty))
+        {
+            return Err(StaticEventCodecError::InvalidJson);
+        }
+        let kind = match (
+            event.event().filter(|name| !name.is_empty()),
+            value.get("type").and_then(Value::as_str),
+        ) {
+            (Some(event_kind), Some(data_kind)) if event_kind != data_kind => {
+                return Err(StaticEventCodecError::IdentityConflict);
+            }
+            (Some(event_kind), _) => event_kind.to_owned(),
+            (None, Some(data_kind)) => data_kind.to_owned(),
+            (None, None) => return Err(StaticEventCodecError::InvalidJson),
+        };
+        if value.get("type").is_none() {
+            value.insert("type".to_owned(), Value::String(kind.clone()));
         }
         match kind.as_str() {
             "response.created" => self.created(&value),
             "response.in_progress" => self.in_progress(&value),
             "response.output_item.added" => self.item_added(&value),
-            "response.content_part.added" | "response.content_part.done" => {
-                self.validate_content_part(&value).map(|()| Vec::new())
-            }
+            "response.content_part.added" => self.content_part(&value, false),
+            "response.content_part.done" => self.content_part(&value, true),
             "response.output_text.delta" => self.delta(&value, PartKind::Text, "delta"),
             "response.output_text.done" => self
                 .validate_done(&value, PartKind::Text, "text")
+                .map(|()| Vec::new()),
+            "response.refusal.delta" => self.delta(&value, PartKind::Refusal, "delta"),
+            "response.refusal.done" => self
+                .validate_done(&value, PartKind::Refusal, "refusal")
                 .map(|()| Vec::new()),
             "response.reasoning_summary_part.added" => self.reasoning_part(&value, false),
             "response.reasoning_summary_part.done" => self.reasoning_part(&value, true),
@@ -116,7 +138,7 @@ impl ResponsesEventDecoder {
             "response.incomplete" => self.non_completed(&value, TerminalStatus::Incomplete),
             "response.cancelled" => self.non_completed(&value, TerminalStatus::Cancelled),
             "error" => self.error_terminal(),
-            _ => Err(StaticEventCodecError::UnsupportedSemantics),
+            _ => self.extension(&kind, value),
         }
     }
 
@@ -238,7 +260,7 @@ impl ResponsesEventDecoder {
                 ItemHeader::Message {
                     role: MessageRole::Assistant,
                 },
-                Some(PartKind::Text),
+                None,
                 None,
                 None,
             ),
@@ -321,6 +343,7 @@ impl ResponsesEventDecoder {
         }
         let suffix = match kind {
             PartKind::Text => "text",
+            PartKind::Refusal => "refusal",
             PartKind::ReasoningText => "reasoning",
             PartKind::ReasoningSummary => "summary",
             PartKind::ToolArguments => "arguments",
@@ -366,6 +389,7 @@ impl ResponsesEventDecoder {
                 part: PartRef::new(part),
                 delta: match kind {
                     PartKind::Text => PartDelta::Text(text(&delta, self.limits)?),
+                    PartKind::Refusal => PartDelta::Refusal(text(&delta, self.limits)?),
                     PartKind::ReasoningText => PartDelta::ReasoningText(text(&delta, self.limits)?),
                     PartKind::ReasoningSummary => {
                         PartDelta::ReasoningSummary(text(&delta, self.limits)?)
@@ -445,29 +469,65 @@ impl ResponsesEventDecoder {
         Ok(events)
     }
 
-    fn validate_content_part(
-        &self,
+    fn content_part(
+        &mut self,
         value: &Map<String, Value>,
-    ) -> Result<(), StaticEventCodecError> {
-        let item = self.bound_item(value)?;
-        if item.kind != ResponsesItemKind::Message || required_u64(value, "content_index")? != 0 {
+        done: bool,
+    ) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
+        let index = required_u64(value, "output_index")?;
+        let item_id = required_string(value, "item_id")?;
+        if required_u64(value, "content_index")? != 0 {
             return Err(StaticEventCodecError::IdentityConflict);
         }
         let part = value
             .get("part")
             .and_then(Value::as_object)
             .ok_or(StaticEventCodecError::InvalidJson)?;
-        if part.get("type").and_then(Value::as_str) != Some("output_text") {
-            return Err(StaticEventCodecError::UnsupportedSemantics);
-        }
+        let (kind, field) = match part.get("type").and_then(Value::as_str) {
+            Some("output_text") => (PartKind::Text, "text"),
+            Some("refusal") => (PartKind::Refusal, "refusal"),
+            _ => return Err(StaticEventCodecError::UnsupportedSemantics),
+        };
         let snapshot = part
-            .get("text")
+            .get(field)
             .and_then(Value::as_str)
             .ok_or(StaticEventCodecError::InvalidJson)?;
-        if !snapshot.is_empty() && snapshot != item.value {
+        let mut item = self
+            .items
+            .remove(&index)
+            .ok_or(StaticEventCodecError::IdentityConflict)?;
+        if item.item.as_str() != item_id || item.kind != ResponsesItemKind::Message || item.finished
+        {
+            self.items.insert(index, item);
             return Err(StaticEventCodecError::IdentityConflict);
         }
-        Ok(())
+        if item.part_kind.is_some_and(|existing| existing != kind) {
+            self.items.insert(index, item);
+            return Err(StaticEventCodecError::IdentityConflict);
+        }
+        let mut events = self.start_part(&mut item, kind)?;
+        if done {
+            if snapshot != item.value {
+                self.items.insert(index, item);
+                return Err(StaticEventCodecError::IdentityConflict);
+            }
+            events.extend(self.annotation_events(&json!({"id": item_id, "content": [part]}))?);
+        } else if !snapshot.is_empty() {
+            item.value.push_str(snapshot);
+            events.push(envelope(
+                &mut self.sequence,
+                GenerationEvent::PartDelta {
+                    part: PartRef::new(item.part.clone().unwrap()),
+                    delta: match kind {
+                        PartKind::Text => PartDelta::Text(text(snapshot, self.limits)?),
+                        PartKind::Refusal => PartDelta::Refusal(text(snapshot, self.limits)?),
+                        _ => return Err(StaticEventCodecError::InvalidLifecycle),
+                    },
+                },
+            )?);
+        }
+        self.items.insert(index, item);
+        Ok(events)
     }
 
     fn item_done(
@@ -502,6 +562,7 @@ impl ResponsesEventDecoder {
         validate_item_snapshot(&item, snapshot)?;
         item.finished = true;
         let mut events = Vec::new();
+        events.extend(self.annotation_events(&Value::Object(snapshot.clone()))?);
         let next_part_index = if let Some(part) = item.part.clone() {
             events.push(envelope(
                 &mut self.sequence,
@@ -546,7 +607,7 @@ impl ResponsesEventDecoder {
                 },
             )?);
         }
-        if item.part.is_none() && events.is_empty() {
+        if item.part.is_none() && events.is_empty() && item.kind != ResponsesItemKind::Message {
             return Err(StaticEventCodecError::InvalidLifecycle);
         }
         events.push(envelope(
@@ -568,6 +629,12 @@ impl ResponsesEventDecoder {
             .and_then(Value::as_object)
             .ok_or(StaticEventCodecError::InvalidJson)?;
         if response.get("status").and_then(Value::as_str) != Some("completed") {
+            return Err(StaticEventCodecError::InvalidLifecycle);
+        }
+        if ["error", "incomplete_details"]
+            .iter()
+            .any(|field| response.get(*field).is_some_and(|value| !value.is_null()))
+        {
             return Err(StaticEventCodecError::InvalidLifecycle);
         }
         let mut events = Vec::new();
@@ -601,7 +668,6 @@ impl ResponsesEventDecoder {
         }
         let output = response
             .get("output")
-            .filter(|value| !value.is_null())
             .map(|value| value.as_array().ok_or(StaticEventCodecError::InvalidJson))
             .transpose()?;
         if let Some(output) = output.filter(|output| !output.is_empty()) {
@@ -625,6 +691,7 @@ impl ResponsesEventDecoder {
                     return Err(StaticEventCodecError::IdentityConflict);
                 }
                 validate_item_snapshot(item, snapshot)?;
+                events.extend(self.annotation_events(&Value::Object(snapshot.clone()))?);
             }
         }
         let has_tools = self
@@ -670,23 +737,97 @@ impl ResponsesEventDecoder {
         value: &Map<String, Value>,
         status: TerminalStatus,
     ) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
-        self.ensure_started()?;
         let response = value
             .get("response")
             .and_then(Value::as_object)
             .ok_or(StaticEventCodecError::InvalidJson)?;
+        let expected_status = match status {
+            TerminalStatus::Incomplete => "incomplete",
+            TerminalStatus::Failed => "failed",
+            TerminalStatus::Cancelled => "cancelled",
+            _ => return Err(StaticEventCodecError::InvalidLifecycle),
+        };
+        if response.get("status").and_then(Value::as_str) != Some(expected_status) {
+            return Err(StaticEventCodecError::IdentityConflict);
+        }
+        if let Some(output) = response.get("output") {
+            let output = output
+                .as_array()
+                .ok_or(StaticEventCodecError::InvalidJson)?;
+            if !output.is_empty() {
+                if output.len() != self.items.len() {
+                    return Err(StaticEventCodecError::IdentityConflict);
+                }
+                for (index, snapshot) in output.iter().enumerate() {
+                    let item = self
+                        .items
+                        .get(&(index as u64))
+                        .ok_or(StaticEventCodecError::IdentityConflict)?;
+                    let snapshot = snapshot
+                        .as_object()
+                        .ok_or(StaticEventCodecError::InvalidJson)?;
+                    if snapshot.get("id").and_then(Value::as_str) != Some(item.item.as_str()) {
+                        return Err(StaticEventCodecError::IdentityConflict);
+                    }
+                    validate_item_snapshot(item, snapshot)?;
+                }
+            }
+        }
+        let mut events = Vec::new();
+        if self.response_id.is_none() {
+            let id = required_string(response, "id")?;
+            events.extend(
+                self.created(
+                    &json!({"response":{"id":id,"status":"in_progress","output":[]}})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                )?,
+            );
+        }
         if response.get("id").and_then(Value::as_str)
             != self.response_id.as_ref().map(|id| id.as_str())
         {
             return Err(StaticEventCodecError::IdentityConflict);
         }
+        // Terminal metadata is retained as bounded IR extensions, not converted into readable text.
+        for field in ["error", "incomplete_details"] {
+            if let Some(details) = response.get(field).filter(|value| !value.is_null()) {
+                if !details.is_object() {
+                    return Err(StaticEventCodecError::InvalidJson);
+                }
+                let namespace = ProviderNamespace::new("openai.responses", 64)
+                    .map_err(|_| StaticEventCodecError::LimitExceeded)?;
+                let kind = ExtensionKind::new(format!("response.{field}"), 64)
+                    .map_err(|_| StaticEventCodecError::LimitExceeded)?;
+                let payload =
+                    BoundedOpaqueJson::new(details.clone(), self.limits.max_event_bytes())
+                        .map_err(|_| StaticEventCodecError::LimitExceeded)?;
+                let extension =
+                    ProviderExtension::new(namespace, kind, OpaquePayload::Json(payload), None)
+                        .map_err(|_| StaticEventCodecError::InvalidJson)?;
+                events.push(envelope(
+                    &mut self.sequence,
+                    GenerationEvent::Extension { extension },
+                )?);
+            }
+        }
+        if let Some(usage) = response.get("usage").and_then(Value::as_object) {
+            events.push(envelope(
+                &mut self.sequence,
+                GenerationEvent::UsageSnapshot {
+                    usage: usage_from_responses(usage)?,
+                },
+            )?);
+        }
         self.terminal = true;
-        Ok(vec![envelope(
+        events.push(envelope(
             &mut self.sequence,
             GenerationEvent::Terminal {
                 terminal: TurnTerminal::new(status, None),
             },
-        )?])
+        )?);
+        Ok(events)
     }
 
     fn error_terminal(&mut self) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
@@ -697,6 +838,51 @@ impl ResponsesEventDecoder {
             GenerationEvent::Terminal {
                 terminal: TurnTerminal::new(TerminalStatus::Error, None),
             },
+        )?])
+    }
+
+    fn annotation_events(
+        &mut self,
+        item: &Value,
+    ) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
+        let annotations =
+            crate::bridge::static_codec::snapshot_annotations(item, self.limits.max_event_bytes())
+                .map_err(|_| StaticEventCodecError::InvalidJson)?;
+        if !self.native && !annotations.is_empty() {
+            return Err(StaticEventCodecError::UnsupportedSemantics);
+        }
+        annotations
+            .into_iter()
+            .map(|extension| envelope(&mut self.sequence, GenerationEvent::Extension { extension }))
+            .collect()
+    }
+
+    fn extension(
+        &mut self,
+        kind: &str,
+        value: Map<String, Value>,
+    ) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
+        if !self.native {
+            return Err(StaticEventCodecError::UnsupportedSemantics);
+        }
+        self.ensure_started()?;
+        let namespace = ProviderNamespace::new("openai.responses", self.limits.max_event_bytes())
+            .map_err(|_| StaticEventCodecError::LimitExceeded)?;
+        let extension_kind =
+            ExtensionKind::new(format!("event.{kind}"), self.limits.max_event_bytes())
+                .map_err(|_| StaticEventCodecError::LimitExceeded)?;
+        let payload = BoundedOpaqueJson::new(Value::Object(value), self.limits.max_event_bytes())
+            .map_err(|_| StaticEventCodecError::LimitExceeded)?;
+        let extension = ProviderExtension::new(
+            namespace,
+            extension_kind,
+            OpaquePayload::Json(payload),
+            None,
+        )
+        .map_err(|_| StaticEventCodecError::LimitExceeded)?;
+        Ok(vec![envelope(
+            &mut self.sequence,
+            GenerationEvent::Extension { extension },
         )?])
     }
 
@@ -736,7 +922,7 @@ fn validate_child_index(
     kind: PartKind,
 ) -> Result<(), StaticEventCodecError> {
     let field = match kind {
-        PartKind::Text | PartKind::ReasoningText => "content_index",
+        PartKind::Text | PartKind::Refusal | PartKind::ReasoningText => "content_index",
         PartKind::ReasoningSummary => "summary_index",
         PartKind::ToolArguments => return Ok(()),
         PartKind::Opaque => return Err(StaticEventCodecError::UnsupportedSemantics),
@@ -753,9 +939,25 @@ fn validate_item_snapshot(
 ) -> Result<(), StaticEventCodecError> {
     match item.kind {
         ResponsesItemKind::Message => {
+            if item.part_kind.is_none()
+                && snapshot
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty)
+            {
+                return if snapshot.get("type").and_then(Value::as_str) == Some("message")
+                    && snapshot.get("role").and_then(Value::as_str) == Some("assistant")
+                {
+                    Ok(())
+                } else {
+                    Err(StaticEventCodecError::IdentityConflict)
+                };
+            }
+            let (kind, value) = snapshot_message(snapshot)?;
             if snapshot.get("type").and_then(Value::as_str) != Some("message")
                 || snapshot.get("role").and_then(Value::as_str) != Some("assistant")
-                || snapshot_text(snapshot, "content", "output_text")? != item.value
+                || item.part_kind != Some(kind)
+                || value != item.value
             {
                 return Err(StaticEventCodecError::IdentityConflict);
             }
@@ -793,6 +995,38 @@ fn validate_item_snapshot(
         }
     }
     Ok(())
+}
+
+fn snapshot_message(
+    snapshot: &Map<String, Value>,
+) -> Result<(PartKind, String), StaticEventCodecError> {
+    let parts = snapshot
+        .get("content")
+        .and_then(Value::as_array)
+        .ok_or(StaticEventCodecError::InvalidJson)?;
+    if parts.len() != 1 {
+        return Err(StaticEventCodecError::IdentityConflict);
+    }
+    let part = parts[0]
+        .as_object()
+        .ok_or(StaticEventCodecError::InvalidJson)?;
+    match part.get("type").and_then(Value::as_str) {
+        Some("output_text") => Ok((
+            PartKind::Text,
+            part.get("text")
+                .and_then(Value::as_str)
+                .ok_or(StaticEventCodecError::InvalidJson)?
+                .to_owned(),
+        )),
+        Some("refusal") => Ok((
+            PartKind::Refusal,
+            part.get("refusal")
+                .and_then(Value::as_str)
+                .ok_or(StaticEventCodecError::InvalidJson)?
+                .to_owned(),
+        )),
+        _ => Err(StaticEventCodecError::UnsupportedSemantics),
+    }
 }
 
 fn snapshot_text(
@@ -900,6 +1134,7 @@ impl ResponsesEventEncoder {
                 self.usage = Some(*usage);
                 Ok(Bytes::new())
             }
+            GenerationEvent::Extension { .. } => Err(StaticEventCodecError::UnsupportedSemantics),
             GenerationEvent::Terminal { terminal } => self.terminal(terminal),
         }
     }
@@ -1006,6 +1241,7 @@ impl ResponsesEventEncoder {
             .ok_or(StaticEventCodecError::IdentityConflict)?;
         let (event, value) = match delta {
             PartDelta::Text(value) => ("response.output_text.delta", value),
+            PartDelta::Refusal(value) => ("response.refusal.delta", value),
             PartDelta::ReasoningText(value) => ("response.reasoning_text.delta", value),
             PartDelta::ReasoningSummary(value) => ("response.reasoning_summary_text.delta", value),
             PartDelta::ToolArguments(value) => ("response.function_call_arguments.delta", value),
@@ -1019,6 +1255,11 @@ impl ResponsesEventEncoder {
         let value = if matches!(delta, PartDelta::ToolArguments(_)) {
             json!({
                 "delta": value.as_str(), "item_id": item_value,
+                "output_index": output_index, "type": event
+            })
+        } else if matches!(delta, PartDelta::Refusal(_)) {
+            json!({
+                "content_index": 0, "delta": value.as_str(), "item_id": item_value,
                 "output_index": output_index, "type": event
             })
         } else if matches!(delta, PartDelta::ReasoningSummary(_)) {
@@ -1044,6 +1285,14 @@ impl ResponsesEventEncoder {
         let item = self.items.get(&item_id).unwrap();
         match item.part_kind {
             Some(PartKind::Text) => Ok(Bytes::new()),
+            Some(PartKind::Refusal) => self.responses_event(
+                "response.refusal.done",
+                json!({
+                    "content_index": 0, "item_id": item.item.as_str(),
+                    "output_index": item.index, "refusal": item.value,
+                    "type": "response.refusal.done"
+                }),
+            ),
             Some(PartKind::ReasoningText) => self.responses_event(
                 "response.reasoning_text.done",
                 json!({
@@ -1085,9 +1334,12 @@ impl ResponsesEventEncoder {
     }
 
     fn terminal(&mut self, terminal: &TurnTerminal) -> Result<Bytes, StaticEventCodecError> {
-        if terminal.status() != TerminalStatus::Completed || self.terminal || self.items.is_empty()
-        {
+        if self.terminal {
             return Err(StaticEventCodecError::InvalidLifecycle);
+        }
+        // Non-completed outcomes remain Native-only until a lossless Bridge contract is declared.
+        if terminal.status() != TerminalStatus::Completed {
+            return Err(StaticEventCodecError::UnsupportedSemantics);
         }
         if !matches!(
             self.finish,
@@ -1138,10 +1390,23 @@ fn encoded_item(
         "in_progress"
     };
     Ok(match &item.header {
-        ItemHeader::Message { .. } => json!({
-            "content": [{"annotations": [], "text": item.value, "type": "output_text"}],
-            "id": item.item.as_str(), "role": "assistant", "status": status, "type": "message"
-        }),
+        ItemHeader::Message { .. } => {
+            let (part_type, field) = match item.part_kind {
+                Some(PartKind::Text) => ("output_text", "text"),
+                Some(PartKind::Refusal) => ("refusal", "refusal"),
+                _ => return Err(StaticEventCodecError::InvalidLifecycle),
+            };
+            let mut content = Map::new();
+            content.insert("type".to_owned(), Value::String(part_type.to_owned()));
+            content.insert(field.to_owned(), Value::String(item.value.clone()));
+            if part_type == "output_text" {
+                content.insert("annotations".to_owned(), json!([]));
+            }
+            json!({
+                "content": [Value::Object(content)],
+                "id": item.item.as_str(), "role": "assistant", "status": status, "type": "message"
+            })
+        }
         ItemHeader::Reasoning => {
             let (content, summary) = match item.part_kind {
                 Some(PartKind::ReasoningText) => (

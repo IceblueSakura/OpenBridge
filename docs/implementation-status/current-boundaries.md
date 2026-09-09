@@ -15,6 +15,9 @@
 
 ### Generation 与 Bridge
 
+- Native JSON 与 SSE 都先进入核心 IR 再编码，已覆盖空输出、refusal 和非完成结果；中断工具参数不会伪装为完整 JSON 参数。Native 合法源字段、annotation 和未知非终态事件以有界 codec envelope/扩展保留，跨协议不猜测其含义。
+- SSE 规范化覆盖分片、CRLF、data-only typed event、可确定的 event/type 补齐，以及由已验证 items 补齐稀疏 completed terminal。它不承诺恢复任意缺失身份、乱序或丢失的消息边界；矛盾 type/event、非法 JSON、超限和无 terminal 仍拒绝。未执行真实 Provider 或负载兼容性复测。
+
 - Bridge 不支持图片、音频、文件、hosted/custom tool、background/state、opaque continuation 或 Provider 私有语义的通用跨协议转换。
 - ToolPlan 的 immutable Inject/Strip 与 Provider-native lowering API 已存在，但 production planner 尚未调用；bounded Gateway web-search loop 仅在 `#[cfg(test)]` 下编译。当前没有 production Gateway tool loop 或普通 function-tool executor。
 - 已提交 partial SSE 发生 EOF、body error、timeout 或取消时，网关只能终止当前 body 并记录失败，不能安全改写 HTTP status、注入第二条 stream 或伪造 terminal。
@@ -82,7 +85,7 @@
 
 - 完整 Model/Provider inventory、retired ID 黑名单、完整 candidate 数量/顺序或每个 catalog capability fact；
 - 每个 Provider/model 组合都重复经过 Native/Bridge production Router，或 OTLP metrics exporter 拥有独立进程级集成覆盖；
-- stream-violation case（`event_type_conflict`、`terminal_violation`、`incomplete_arguments`）的 proposed oracle——回放当前锁定生产终止行为，合成终态注入仍待产品裁决；
+- stream-violation fixture 的 proposed oracle：当前首帧 event/type 冲突在 commit 前返回 502，已提交后的非法 lifecycle/arguments 终止 body；保留有效前缀，不合成替代终态。fixture 的其他 proposed 行为不构成待实施授权；
 - canonical oracle 等于完整 OpenAI API；
 - hosted/custom tool、continuation、媒体和 Provider 私有扩展可转换；
 - 真实 SDK、Agent、Provider、TLS/HTTP2、并发背压、负载或真实 packet boundary 兼容；

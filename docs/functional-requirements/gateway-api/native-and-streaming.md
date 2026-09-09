@@ -1,8 +1,7 @@
 ## 1. Native Path 基线
 
 当下游与上游协议一致且请求已通过 Public Model 固定契约预检与输入归一化时，Native Path 是兼容性基线：它只做受信路由、模型、认证、显式
-reasoning level wire 映射和已验证的普通生成提示忽略，保留其他已知且被接口接受的请求 JSON，并保持上游响应中的未知合法 JSON
-字段/SSE event，不经过通用 IR 重渲染。level 映射必须属于选定 Upstream API 的代码注册规则，映射源必须已由 canonical Model
+reasoning level wire 映射和已验证的普通生成提示忽略。Native 与 Bridge 统一经 decode → 核心 IR → encode；保留其他已知且被接口接受的请求语义、合法响应字段与有界扩展，不能因目标协议不同而缩小核心 IR 的结果表达范围。Native encoder 可以保留源字段，但不得绕过解码、生命周期与资源验证。level 映射必须属于选定 Upstream API 的代码注册规则，映射源必须已由 canonical Model
 声明，目标必须是安全 wire 值；不得由业务请求提供映射或用映射扩大 Public Model 支持的下游 level 集合。canonical reasoning
 level vocabulary 为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；每个 Model 仍须显式声明实际支持的子集。`none` 是调用方显式要求禁用
 reasoning，不等同于缺少 reasoning 字段。
@@ -40,18 +39,20 @@ terminal usage 缺失或非法，不得发送 finish、usage-only 或 `[DONE]`�
 `include_usage` 和非流式组合必须在 Provider egress 前拒绝；Responses interface 继续把该 Chat-only 顶层字段视为未知参数。
 - 上游 Chat JSON/SSE usage 的 `completion_tokens_details` 与 `prompt_tokens_details` 省略或显式 `null` 都表示对应 detail absent；对象时只读取已建模 token 字段，其他值继续 fail closed。Native 验证后仍保留原始 response bytes，不把 `null` 改写为空对象。
 
+合法空 assistant 输出、refusal、空 output 和非完成的 Responses 终态是结果语义，不等于非法 JSON 或 transport failure。拒绝内容必须作为 refusal 表达，不拼接成普通 assistant text；incomplete、failed、cancelled 及其真实原因不得伪装成 completed。跨协议 encoder 只输出准确可表达的结果，对无法表达的状态或扩展显式拒绝。
+
 ## 2. 流式语义
 
 流式请求必须满足：
 
-- 原样保持协议的 SSE framing、event/data 负载与输出顺序；不得注入 OpenBridge 自定义 SSE event。
+- 保持内容、身份关联、顺序与终态语义，经 encoder 生成标准 SSE framing；不要求保留原始网络分片、空白、CRLF 或 heartbeat 注释，也不得注入 OpenBridge 自定义 SSE event。
 - Chat 以其自身终态（包括 `[DONE]`）处理；Responses 区分 item/content lifecycle 与 `response.completed`、
   `response.incomplete`、`response.failed`、`response.cancelled` 或顶层 `error` 等 response terminal。
 - `output_item.done`、tool input delta、metadata/header 到达或任意首字节都不等于请求成功。已写出首个业务 body byte 后，不得
   retry、fallback 或将其他 Upstream Target 的内容拼入当前 stream。
 - 成功 headers 后、第一个完整合法且下游可见的 SSE event 前仍未 commit。first-event timeout 或 body transport failure 可按既有有限 attempt policy
   retry/fallback；首 frame invalid 或 terminal 前 clean EOF 必须在零 downstream event 时返回安全 502，且不得伪装成可重放 transport failure。
-- 第一个合法且下游可见的 event 到达后才 commit 200/SSE；Native 首先下发该已验证的原始 event，Bridge 首先下发其确定性转换输出。commit 后 transport error 或 terminal 前 clean EOF 必须
+- 第一个合法且下游可见的 event 到达后才 commit 200/SSE；Native 与 Bridge 都首先下发该事件经 IR 验证后的编码输出，并继续使用同一 codec 状态。commit 后 transport error 或 terminal 前 clean EOF 必须
   保留已发送 bytes、以 body error 结束，禁止 retry/fallback、拼接第二条流或合成 `completed`/`failed`/`[DONE]`。
 - 下游取消、连接中断、deadline 和错误终态应停止相应上游工作；合法 terminal 后的普通 close 不得反转已确认终态。
 - 上游非流式响应的 total deadline 与 SSE 生命周期必须分开表达。SSE 必须分别约束等待 response headers、等待首个有效 event、
@@ -74,6 +75,12 @@ terminal usage 缺失或非法，不得发送 finish、usage-only 或 `[DONE]`�
 成功响应不是 SSE、非法 UTF-8/framing、body 超限、缺少 terminal、独立 error 或 Bridge 不可表示时必须在下游 body 提交前返回安全的
 `invalid_upstream_response`。该开关属于受信 Upstream API 配置，客户端不得覆盖。当前转换只适用于 Responses SSE，不得把 Chat 的
 data-only SSE chunks 猜测性聚合为 JSON。
+
+### 有界规范化
+
+允许缓冲不完整字节、UTF-8、SSE field 和语义片段，直到能确定一个合法下游事件；达到该条件就发送，不增加固定 sleep。`data.type` 与 `event` 只有一侧存在时，可以在语义明确的协议 codec 中补齐；两侧冲突必须拒绝。未知但合法的 Native 非终态事件使用带协议命名空间的有界 IR 扩展，不得作为成功或失败终态的替代。
+
+缓冲使用既有单 event、part 和 turn/body 上限。需要等待完整响应的转换只能由明确的 Responses buffering 策略启用；不能默认缓存整条流、凭空补正文或为缺失 terminal 伪造 completed/failed。无法确定恢复的结构、身份冲突和超限按现有错误/commit 边界失败。
 
 ## 3. 遥测计时边界
 

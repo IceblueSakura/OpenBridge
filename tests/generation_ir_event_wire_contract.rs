@@ -42,7 +42,7 @@ fn event_bridge_bounds_cross_protocol_output_expansion() {
         "public-model",
         ReasoningOutput::Unsupported,
         false,
-        EventLimits::new(256, 256, 1).unwrap(),
+        EventLimits::new(256, 256, 64).unwrap(),
     )
     .unwrap();
 
@@ -333,12 +333,10 @@ data: {"type":"response.completed","response":{"id":"resp_equivalent","status":"
         EventLimits::new(256 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
     )
     .expect("Native Responses events must pass through canonical Event IR");
-    let mut encoded = Vec::new();
     for event in decode(stream) {
-        encoded.extend_from_slice(&native.render(event).unwrap());
+        native.render(event).unwrap();
     }
     native.finish().unwrap();
-    assert!(encoded.is_empty());
     assert_eq!(
         native.materialized_response().unwrap(),
         *non_stream.semantic()
@@ -520,7 +518,10 @@ fn native_chat_stream_accepts_standard_incomplete_finish_reasons() {
                 .expect("Native Chat must retain a standard incomplete finish reason");
         }
         bridge.finish().unwrap();
-        assert!(bridge.materialized_response().is_err());
+        assert_eq!(
+            bridge.materialized_response().unwrap().status(),
+            openbridge::ir::generation::ResponseStatus::Incomplete
+        );
     }
 }
 
@@ -543,19 +544,53 @@ fn native_chat_stream_preserves_multiple_unknown_reasoning_deltas() {
 }
 
 #[test]
-fn native_responses_accepts_a_sparse_terminal_only_completed_lifecycle() {
-    let stream = b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_success\",\"status\":\"completed\"}}\n\n";
-    let mut bridge = StaticEventBridge::new(
-        ApiProtocol::Responses,
-        ApiProtocol::Responses,
-        "public-model",
-        ReasoningOutput::Unsupported,
-        false,
-        EventLimits::new(64 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
-    )
-    .unwrap();
-    for event in decode(stream) {
-        bridge.render(event).unwrap();
+fn native_terminal_outcomes_remain_typed_and_reject_invalid_envelopes() {
+    use openbridge::ir::generation::ResponseStatus;
+    let make = || {
+        StaticEventBridge::new(
+            ApiProtocol::Responses,
+            ApiProtocol::Responses,
+            "public-model",
+            ReasoningOutput::Unsupported,
+            false,
+            EventLimits::new(4096, 4096, 16384).unwrap(),
+        )
+        .unwrap()
+    };
+    for (status, expected) in [
+        ("completed", ResponseStatus::Completed),
+        ("incomplete", ResponseStatus::Incomplete),
+        ("failed", ResponseStatus::Failed),
+        ("cancelled", ResponseStatus::Cancelled),
+    ] {
+        let kind = format!("response.{status}");
+        let mut value =
+            json!({"type":kind,"response":{"id":"resp_outcome","status":status,"output":[]}});
+        let wire = format!("data: {value}\n\n");
+        let mut codec = make();
+        let output = codec.render(decode(wire.as_bytes()).remove(0)).unwrap();
+        assert_eq!(decode(&output)[0].event(), Some(kind.as_str()));
+        codec.finish().unwrap();
+        assert_eq!(codec.materialized_response().unwrap().status(), expected);
+
+        // Do not treat malformed fields as missing fields that normalization may repair.
+        value["response"]["output"] = json!("not-an-array");
+        let wire = format!("data: {value}\n\n");
+        assert!(make().render(decode(wire.as_bytes()).remove(0)).is_err());
+        value["response"]["output"] = serde_json::Value::Null;
+        let mut started = make();
+        let start = json!({"type":"response.created","response":{"id":"resp_outcome","status":"in_progress","output":[]}});
+        started
+            .render(decode(format!("data: {start}\n\n").as_bytes()).remove(0))
+            .unwrap();
+        let wire = format!("data: {value}\n\n");
+        assert!(
+            started.render(decode(wire.as_bytes()).remove(0)).is_err(),
+            "null output must not complete an existing turn"
+        );
+        value["response"]["output"] = json!([]);
+        value["type"] = json!(42);
+        let wire = format!("event: {kind}\ndata: {value}\n\n");
+        assert!(make().render(decode(wire.as_bytes()).remove(0)).is_err());
     }
-    bridge.finish().unwrap();
 }

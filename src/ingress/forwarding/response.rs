@@ -22,7 +22,7 @@ use super::super::{
     response::{api_error, filtered_upstream_headers},
     streaming::{
         SsePrecommitError, bridge_sse_body, buffer_responses_sse_body, enforce_sse_liveness,
-        precommit_sse_body, validate_sse_body,
+        precommit_sse_body,
     },
 };
 
@@ -80,7 +80,6 @@ pub(super) async fn upstream_response(
         status_is_success: status.is_success(),
         downstream_streaming: validate_sse,
         recognized_sse: is_sse,
-        preserve_source: generation_plan.preserves_source(),
         stream_response_conversion,
     });
     if response_mode == GenerationResponseMode::RejectInvalidMedia {
@@ -101,30 +100,19 @@ pub(super) async fn upstream_response(
     // Add transparent success observation or timeout-only error observation without changing downstream bytes.
     let stream_timeout_policy = upstream.stream_timeout_policy();
     let upstream_body = upstream.into_body();
-    let precommit_mode = matches!(
-        response_mode,
-        GenerationResponseMode::BridgeSse | GenerationResponseMode::ValidateNativeSse
-    );
+    let precommit_mode = matches!(response_mode, GenerationResponseMode::EncodeSse);
     let upstream_body = if precommit_mode {
         match precommit_sse_body(
             upstream_body,
             max_sse_event_bytes,
             stream_timeout_policy,
             adapter,
-            (!generation_plan.preserves_source()).then_some(&generation_plan),
+            &generation_plan,
             &observation,
         )
         .await
         {
-            Ok(body) => match response_mode {
-                GenerationResponseMode::BridgeSse => {
-                    body.into_bridge_liveness_body(max_sse_event_bytes, observation.clone())
-                }
-                GenerationResponseMode::ValidateNativeSse => {
-                    body.into_native_liveness_body(max_sse_event_bytes, observation.clone())
-                }
-                _ => unreachable!("precommit mode is limited to streaming response modes"),
-            },
+            Ok(body) => body.into_encoded_liveness_body(max_sse_event_bytes, observation.clone()),
             Err(SsePrecommitError::Timeout) => {
                 return UpstreamResponseOutcome::PrecommitFailure(TransportError::Timeout);
             }
@@ -169,7 +157,7 @@ pub(super) async fn upstream_response(
             stream_timeout_policy,
             observation.clone(),
         )
-    } else if status.is_success() {
+    } else if status.is_success() && !is_sse {
         observation.observe_upstream_json_body(upstream_body, max_json_body_bytes)
     } else {
         observation.observe_upstream_timeout_body(upstream_body)
@@ -213,7 +201,7 @@ pub(super) async fn upstream_response(
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
             axum::body::Body::from(downstream_body)
         }
-        GenerationResponseMode::BridgeSse => {
+        GenerationResponseMode::EncodeSse => {
             if precommit_mode {
                 upstream_body
             } else {
@@ -225,13 +213,6 @@ pub(super) async fn upstream_response(
                 )
             }
         }
-        GenerationResponseMode::ValidateNativeSse => validate_sse_body(
-            upstream_body,
-            adapter,
-            Some(generation_plan.stream_renderer()),
-            max_sse_event_bytes,
-            observation,
-        ),
         GenerationResponseMode::RenderJson => {
             let upstream_body = match to_bytes(upstream_body, max_json_body_bytes).await {
                 Ok(body) => body,

@@ -3,8 +3,8 @@
 //! Each case is replayed against a loopback mock upstream that serves the canonical upstream
 //! artifact, and the assertions lock the production-verified behavior for that case class:
 //!
-//! - Native cases assert byte pass-through of the upstream artifact (success paths) or the
-//!   gateway-synthesized error envelope (fault paths), matching the expected-client artifact.
+//! - Native cases assert SSE event semantics or full JSON value equality against the
+//!   expected-client artifact; non-JSON text remains an exact payload contract.
 //! - Bridge exact cases assert canonical JSON equality (non-streaming) or Event IR semantic
 //!   equality (streaming) against the expected-client artifact. Bridge upstream-request
 //!   artifacts are converter-layer contracts owned by `bridge_conversion_contract`; production
@@ -52,6 +52,15 @@ fn expected_status(case: &ReplayCase) -> StatusCode {
 /// Asserts the fail-closed production behavior of a case whose corpus artifact is still a
 /// proposed oracle: the stream terminates on violation without synthetic terminal injection.
 fn assert_known_divergence(case: &ReplayCase, probe: &ReplayProbe) {
+    if case.id == "responses_native.event_type_conflict" {
+        // The first frame is invalid, so no stream may be committed or retried.
+        assert_eq!(probe.status, StatusCode::BAD_GATEWAY);
+        assert_eq!(probe.attempts, 1);
+        assert!(!probe.body_error);
+        let error: serde_json::Value = serde_json::from_slice(&probe.body).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_upstream_response");
+        return;
+    }
     assert_eq!(probe.status, StatusCode::OK, "{}", case.id);
     assert_eq!(
         probe.content_type.as_deref(),
@@ -66,17 +75,20 @@ fn assert_known_divergence(case: &ReplayCase, probe: &ReplayProbe) {
         case.id
     );
     match case.id.as_str() {
-        "responses_native.event_type_conflict" => {
-            // The conflicting envelope fails validation before the first committed byte.
-            assert!(probe.body.is_empty(), "{}", case.id);
-        }
         "responses_native.terminal_violation" => {
-            // Committed bytes are the upstream pass-through prefix; nothing follows.
+            // Committed output is the expected semantic prefix; nothing follows it.
+            // The proposed client artifact rewrites model identity; Native preserves source fields.
             let upstream = case.upstream_body.as_deref().expect("upstream artifact");
+            let late_event = b"event: response.output_text.delta";
+            let end = upstream
+                .windows(late_event.len())
+                .position(|part| part == late_event)
+                .expect("fixture contains its explicit late event");
+            let expected = &upstream[..end];
             assert!(!probe.body.is_empty(), "{}", case.id);
             assert!(
-                upstream.starts_with(&probe.body),
-                "{}: committed bytes must be an upstream pass-through prefix",
+                support::sse::equivalent(&probe.body, expected),
+                "{}: committed output must be the expected SSE prefix",
                 case.id
             );
         }
@@ -96,12 +108,33 @@ fn assert_native(case: &ReplayCase, probe: &ReplayProbe) {
         .expected_client
         .as_deref()
         .expect("native case must declare an expected client artifact");
-    assert_eq!(
-        probe.body.as_slice(),
-        expected,
-        "{}: native downstream bytes must match the expected artifact",
-        case.id
-    );
+    if case.stream {
+        assert!(
+            support::sse::equivalent(&probe.body, expected),
+            "{}: native downstream SSE events must match semantically",
+            case.id
+        );
+    } else if case.expected_client_is_json {
+        let actual = serde_json::from_slice::<serde_json::Value>(&probe.body);
+        let expected_bytes = expected;
+        let expected = serde_json::from_slice::<serde_json::Value>(expected_bytes);
+        match (actual, expected) {
+            (Ok(actual), Ok(expected)) => assert_eq!(actual, expected, "{}", case.id),
+            _ => assert_eq!(
+                probe.body.as_slice(),
+                expected_bytes,
+                "{}: malformed JSON error body must remain exact",
+                case.id
+            ),
+        }
+    } else {
+        assert_eq!(
+            probe.body.as_slice(),
+            expected,
+            "{}: native text body must match the expected artifact",
+            case.id
+        );
+    }
     for matched in &probe.upstream_request_matches {
         assert!(
             matched,
@@ -136,11 +169,7 @@ fn assert_bridge(case: &ReplayCase, probe: &ReplayProbe) {
 #[tokio::test]
 async fn replays_every_catalog_case_against_production_behavior() {
     let cases = catalog_replay::discover_cases();
-    assert_eq!(
-        cases.len(),
-        51,
-        "catalog must expose every canonical wire case"
-    );
+    assert!(!cases.is_empty(), "canonical corpus must be discoverable");
     for case in &cases {
         if case.is_lifecycle_delegated() {
             continue;

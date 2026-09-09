@@ -218,7 +218,13 @@ fn validate_chat_bridge_source(source: &Map<String, Value>) -> Result<(), Static
         let role = required_string(message, "role")?;
         let allowed = match role.as_str() {
             "system" | "developer" | "user" => &["role", "content"][..],
-            "assistant" => &["role", "content", "reasoning_content", "tool_calls"][..],
+            "assistant" => &[
+                "role",
+                "content",
+                "refusal",
+                "reasoning_content",
+                "tool_calls",
+            ][..],
             "tool" => &["role", "content", "tool_call_id"][..],
             _ => return Err(StaticCodecError::UnsupportedSemantics),
         };
@@ -233,11 +239,23 @@ fn validate_chat_bridge_source(source: &Map<String, Value>) -> Result<(), Static
                 Value::Array(parts) => !parts.is_empty(),
                 _ => false,
             });
+            let has_refusal = message
+                .get("refusal")
+                .filter(|value| !value.is_null())
+                .is_some_and(|value| value.as_str().is_some_and(|text| !text.is_empty()));
             let has_tool_calls = message
                 .get("tool_calls")
                 .and_then(Value::as_array)
                 .is_some_and(|calls| !calls.is_empty());
-            if !has_reasoning && !has_content && !has_tool_calls {
+            if message.get("refusal").is_some_and(|value| {
+                !value.is_null() && (value.as_str().is_none() || value.as_str() == Some(""))
+            }) {
+                return Err(StaticCodecError::InvalidShape);
+            }
+            if has_refusal && (has_content || has_tool_calls) {
+                return Err(StaticCodecError::InvalidShape);
+            }
+            if !has_reasoning && !has_content && !has_tool_calls && !has_refusal {
                 return Err(StaticCodecError::InvalidShape);
             }
         }
@@ -303,11 +321,13 @@ fn validate_responses_bridge_source(source: &Map<String, Value>) -> Result<(), S
         match item.get("type").and_then(Value::as_str) {
             None => {
                 ensure_only_fields(item, &["role", "content"])?;
-                validate_responses_content(item.get("content"))
+                let role = required_string(item, "role")?;
+                validate_responses_content(item.get("content"), role == "assistant")
             }
             Some("message") => {
                 ensure_only_fields(item, &["type", "role", "content"])?;
-                validate_responses_content(item.get("content"))
+                let role = required_string(item, "role")?;
+                validate_responses_content(item.get("content"), role == "assistant")
             }
             Some("input_file") => ensure_only_fields(item, &["type", "file_url", "file_data"]),
             Some("input_image") => ensure_only_fields(item, &["type", "image_url", "detail"]),
@@ -339,7 +359,10 @@ fn validate_responses_bridge_source(source: &Map<String, Value>) -> Result<(), S
     Ok(())
 }
 
-fn validate_responses_content(value: Option<&Value>) -> Result<(), StaticCodecError> {
+fn validate_responses_content(
+    value: Option<&Value>,
+    assistant_role: bool,
+) -> Result<(), StaticCodecError> {
     let Some(Value::Array(parts)) = value else {
         return Ok(());
     };
@@ -349,6 +372,8 @@ fn validate_responses_content(value: Option<&Value>) -> Result<(), StaticCodecEr
             Some("input_text") => ensure_only_fields(part, &["type", "text"]),
             Some("input_image") => ensure_only_fields(part, &["type", "image_url", "detail"]),
             Some("input_file") => ensure_only_fields(part, &["type", "file_url", "file_data"]),
+            Some("refusal") if assistant_role => ensure_only_fields(part, &["type", "refusal"]),
+            Some("refusal") => Err(StaticCodecError::UnsupportedSemantics),
             _ => Err(StaticCodecError::UnsupportedSemantics),
         }?;
     }
@@ -469,9 +494,10 @@ fn decode_chat_input(
                             max_bytes,
                         )?));
                     }
-                } else if let Some(content) = message.get("content")
-                    && !content.is_null()
-                    && content.as_str() != Some("")
+                } else if message.get("refusal").is_some_and(|value| !value.is_null())
+                    || message
+                        .get("content")
+                        .is_some_and(|content| !content.is_null() && content.as_str() != Some(""))
                 {
                     input.push(InputItem::Message(decode_chat_message(
                         MessageRole::Assistant,
@@ -526,19 +552,32 @@ fn decode_chat_message(
     message: &Map<String, Value>,
     max_bytes: usize,
 ) -> Result<Message, StaticCodecError> {
-    let content = message
-        .get("content")
-        .ok_or(StaticCodecError::InvalidShape)?;
-    let parts = match content {
-        Value::String(text) if !text.is_empty() => {
+    let mut parts = match message.get("content") {
+        Some(Value::String(text)) if !text.is_empty() => {
             vec![ContentPart::text(text_value(text.clone(), max_bytes)?)]
         }
-        Value::Array(parts) => parts
+        Some(Value::Array(parts)) => parts
             .iter()
             .map(|part| decode_chat_part(part, max_bytes))
             .collect::<Result<Vec<_>, _>>()?,
+        Some(Value::Null) | None => Vec::new(),
         _ => return Err(StaticCodecError::InvalidShape),
     };
+    if role == MessageRole::Assistant
+        && let Some(refusal) = message.get("refusal").filter(|value| !value.is_null())
+    {
+        let refusal = refusal
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .ok_or(StaticCodecError::InvalidShape)?;
+        if !parts.is_empty() {
+            return Err(StaticCodecError::InvalidShape);
+        }
+        parts.push(ContentPart::Refusal(text_value(
+            refusal.to_owned(),
+            max_bytes,
+        )?));
+    }
     Message::new(role, parts).map_err(StaticCodecError::from_validation)
 }
 
@@ -607,6 +646,10 @@ fn decode_responses_part(value: &Value, max_bytes: usize) -> Result<ContentPart,
                 None,
             ))))
         }
+        Some("refusal") => Ok(ContentPart::Refusal(text_value(
+            required_string(part, "refusal")?,
+            max_bytes,
+        )?)),
         _ => Err(StaticCodecError::UnsupportedSemantics),
     }
 }
@@ -751,15 +794,22 @@ fn decode_responses_message(
     max_bytes: usize,
 ) -> Result<InputItem, StaticCodecError> {
     let role = required_string(item, "role")?;
-    let content = item.get("content").ok_or(StaticCodecError::InvalidShape)?;
-    let parts = match content {
-        Value::String(text) => vec![ContentPart::text(text_value(text.clone(), max_bytes)?)],
-        Value::Array(parts) => parts
+    let parts = match item.get("content") {
+        Some(Value::String(text)) => vec![ContentPart::text(text_value(text.clone(), max_bytes)?)],
+        Some(Value::Array(parts)) => parts
             .iter()
             .map(|part| decode_responses_part(part, max_bytes))
             .collect::<Result<Vec<_>, _>>()?,
+        Some(Value::Null) | None => Vec::new(),
         _ => return Err(StaticCodecError::InvalidShape),
     };
+    if role != "assistant"
+        && parts
+            .iter()
+            .any(|part| matches!(part, ContentPart::Refusal(_)))
+    {
+        return Err(StaticCodecError::UnsupportedSemantics);
+    }
     match role.as_str() {
         "system" | "developer" => {
             let text = flatten_text(&parts)?;
@@ -1089,13 +1139,18 @@ fn encode_chat_input(input: &[InputItem]) -> Result<Vec<Value>, StaticCodecError
             }
             InputItem::Message(message) => {
                 flush_calls(&mut messages, &mut pending_calls, &mut pending_reasoning);
+                let (text, refusal) = flatten_text_and_refusal(message.content())?;
                 let mut value = json!({
-                    "content": flatten_text(message.content())?,
+                    "content": if text.is_empty() { Value::Null } else { Value::String(text) },
                     "role": match message.role() {
                         MessageRole::User => "user",
                         MessageRole::Assistant => "assistant",
                     }
                 });
+                if let Some(refusal) = refusal {
+                    value["content"] = Value::Null;
+                    value["refusal"] = Value::String(refusal);
+                }
                 if !pending_reasoning.is_empty() && message.role() == MessageRole::Assistant {
                     value["reasoning_content"] =
                         Value::String(std::mem::take(&mut pending_reasoning));
@@ -1186,8 +1241,10 @@ fn encode_responses_input(
                 "type": "message"
             })),
             InputItem::Message(message) => {
-                let text = flatten_text(message.content())?;
-                let content = if no_tools {
+                let (text, refusal) = flatten_text_and_refusal(message.content())?;
+                let content = if let Some(refusal) = refusal {
+                    json!([{"refusal": refusal, "type": "refusal"}])
+                } else if no_tools {
                     json!([{"text": text, "type": "input_text"}])
                 } else {
                     Value::String(text)
@@ -1452,11 +1509,32 @@ fn encode_reasoning(
     Ok(())
 }
 
+fn flatten_text_and_refusal(
+    content: &[ContentPart],
+) -> Result<(String, Option<String>), StaticCodecError> {
+    let mut text = String::new();
+    let mut refusal = None;
+    for part in content {
+        match part {
+            ContentPart::Text(value) => text.push_str(value.text().as_str()),
+            ContentPart::Refusal(value) => {
+                if !text.is_empty() || refusal.is_some() {
+                    return Err(StaticCodecError::InvalidShape);
+                }
+                refusal = Some(value.as_str().to_owned());
+            }
+            ContentPart::Resource(_) => return Err(StaticCodecError::UnsupportedSemantics),
+        }
+    }
+    Ok((text, refusal))
+}
+
 fn flatten_text(content: &[ContentPart]) -> Result<String, StaticCodecError> {
     let mut text = String::new();
     for part in content {
         match part {
             ContentPart::Text(value) => text.push_str(value.text().as_str()),
+            ContentPart::Refusal(_) => return Err(StaticCodecError::UnsupportedSemantics),
             ContentPart::Resource(_) => return Err(StaticCodecError::UnsupportedSemantics),
         }
     }
@@ -1485,7 +1563,7 @@ impl FunctionInput for ToolInput {
     fn as_function(&self) -> Result<&JsonObject, StaticCodecError> {
         match self {
             ToolInput::Function(value) => Ok(value),
-            ToolInput::Server(_) | ToolInput::Extension(_) => {
+            ToolInput::Server(_) | ToolInput::Extension(_) | ToolInput::IncompleteFunction(_) => {
                 Err(StaticCodecError::UnsupportedSemantics)
             }
         }

@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use super::super::{
     BoundedBytes, CallId, CandidateId, FinishReason, IdentityValidationError, ItemId, JsonObject,
-    MessageRole, ResponseId, TextValue, ToolName, Usage, WireIdentity,
+    MessageRole, ProviderExtension, ResponseId, TextValue, ToolName, Usage, WireIdentity,
 };
 
 /// Validation failure for fixed Event IR limits.
@@ -286,6 +286,8 @@ pub enum ItemHeader {
 pub enum PartKind {
     /// Visible assistant text.
     Text,
+    /// Model refusal text.
+    Refusal,
     /// Readable reasoning text.
     ReasoningText,
     /// Readable reasoning summary.
@@ -301,6 +303,8 @@ pub enum PartKind {
 pub enum PartDelta {
     /// Visible assistant text.
     Text(TextValue),
+    /// Model refusal text.
+    Refusal(TextValue),
     /// Readable reasoning text.
     ReasoningText(TextValue),
     /// Readable reasoning summary.
@@ -315,6 +319,7 @@ impl PartDelta {
     pub(super) fn encoded_len(&self) -> usize {
         match self {
             Self::Text(value)
+            | Self::Refusal(value)
             | Self::ReasoningText(value)
             | Self::ReasoningSummary(value)
             | Self::ToolArguments(value) => value.as_str().len(),
@@ -326,6 +331,7 @@ impl PartDelta {
         matches!(
             (self, kind),
             (Self::Text(_), PartKind::Text)
+                | (Self::Refusal(_), PartKind::Refusal)
                 | (Self::ReasoningText(_), PartKind::ReasoningText)
                 | (Self::ReasoningSummary(_), PartKind::ReasoningSummary)
                 | (Self::ToolArguments(_), PartKind::ToolArguments)
@@ -336,6 +342,7 @@ impl PartDelta {
     pub(super) fn text(&self) -> Option<&str> {
         match self {
             Self::Text(value)
+            | Self::Refusal(value)
             | Self::ReasoningText(value)
             | Self::ReasoningSummary(value)
             | Self::ToolArguments(value) => Some(value.as_str()),
@@ -426,6 +433,9 @@ pub enum GenerationEvent {
     UsageSnapshot {
         usage: Usage,
     },
+    Extension {
+        extension: ProviderExtension,
+    },
     Terminal {
         terminal: TurnTerminal,
     },
@@ -514,6 +524,7 @@ pub struct EventState {
     pub(super) next_sequence: u64,
     pub(super) turn_bytes: usize,
     pub(super) usage: Option<Usage>,
+    pub(super) extensions: Vec<ProviderExtension>,
     pub(super) terminal: Option<TurnTerminal>,
     pub(super) eof: EofState,
 }
@@ -531,6 +542,7 @@ impl EventState {
             next_sequence: 0,
             turn_bytes: 0,
             usage: None,
+            extensions: Vec::new(),
             terminal: None,
             eof: EofState::Open,
         }
@@ -544,5 +556,10 @@ impl EventState {
     /// Returns the latest normalized usage snapshot.
     pub const fn usage(&self) -> Option<&Usage> {
         self.usage.as_ref()
+    }
+
+    /// Returns Provider extensions accepted before the terminal.
+    pub fn extensions(&self) -> &[ProviderExtension] {
+        &self.extensions
     }
 }

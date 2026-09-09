@@ -2124,7 +2124,7 @@ components:
     ResponsesResponse:
       type: object
       additionalProperties: true
-      description: Upstream Responses JSON response; specific output items depend on the current route and Provider capabilities.
+      description: Native Responses JSON decoded and encoded through Generation IR, including empty output, refusal, and explicit incomplete or failed outcomes. Native source fields remain preserved; Bridge conversion requires an accurate target representation.
       properties:
         id:
           type: string
@@ -2290,7 +2290,7 @@ components:
     ServerSentEvents:
       type: string
       format: binary
-      description: SSE stream preserving the target protocol's original event/data framing.
+      description: Standard target-protocol SSE encoded from validated Generation IR. Bounded buffering may normalize Provider framing; transport chunks and whitespace need not be preserved. Identity conflicts, invalid JSON, limits, and missing terminals still fail closed.
 
     ErrorResponse:
       type: object

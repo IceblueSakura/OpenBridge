@@ -150,15 +150,9 @@ struct FixedSseTransport {
     attempts: AtomicUsize,
 }
 
-struct EofTerminatedFirstEventTransport;
-
 struct SuccessfulJsonTransport;
 
 struct OversizedResponsesSseTransport;
-
-struct PartialStreamFailureTransport {
-    attempts: AtomicUsize,
-}
 
 struct PendingSseTransport {
     dropped: Arc<AtomicBool>,
@@ -792,27 +786,6 @@ impl UpstreamTransport for FixedSseTransport {
     }
 }
 
-impl UpstreamTransport for EofTerminatedFirstEventTransport {
-    fn send<'a>(
-        &'a self,
-        _target: &'a UpstreamTarget,
-        _request: PreparedUpstreamRequest,
-        _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        Box::pin(async {
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-            Ok(UpstreamResponse::new(
-                StatusCode::OK,
-                response_headers,
-                Body::from(Bytes::from_static(
-                    b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"visible\",\"logprobs\":[]}",
-                )),
-            ))
-        })
-    }
-}
-
 impl UpstreamTransport for SuccessfulJsonTransport {
     fn send<'a>(
         &'a self,
@@ -852,30 +825,6 @@ impl UpstreamTransport for OversizedResponsesSseTransport {
                 StatusCode::OK,
                 headers,
                 Body::from(body),
-            ))
-        })
-    }
-}
-
-impl UpstreamTransport for PartialStreamFailureTransport {
-    fn send<'a>(
-        &'a self,
-        _target: &'a UpstreamTarget,
-        _request: PreparedUpstreamRequest,
-        _headers: HeaderMap,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
-        self.attempts.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async {
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-            let event = b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"hi\",\"logprobs\":[]}\n\n";
-            Ok(UpstreamResponse::new(
-                StatusCode::OK,
-                response_headers,
-                Body::from_stream(stream::iter(vec![
-                    Ok::<_, std::io::Error>(Bytes::from_static(event)),
-                    Err(std::io::Error::other("upstream connection reset")),
-                ])),
             ))
         })
     }

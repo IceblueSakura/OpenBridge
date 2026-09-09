@@ -1,4 +1,4 @@
-//! Pure materialization from a completed Event IR state into Static Generation IR.
+//! Pure materialization from Event IR state into Static Generation IR.
 
 use thiserror::Error;
 
@@ -9,66 +9,81 @@ use crate::ir::generation::{
     ResponseStatus, TextValue, ToolCall, ToolInput,
 };
 
-/// Failure to construct one complete Static response from Event IR.
+/// Failure to construct one Static response from Event IR.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum MaterializeError {
     #[error("event state has no terminal")]
     MissingTerminal,
-    #[error("only a completed terminal can materialize a success response")]
-    NonCompletedTerminal,
     #[error("event state is incomplete or internally inconsistent")]
     InvalidState,
     #[error("event payload cannot enter the validated Static IR")]
     InvalidValue,
 }
 
-/// Materializes a successfully completed canonical turn without parsing wire JSON.
+/// Materializes the terminal turn while preserving real partial output for non-completed status.
 pub fn materialize(state: &EventState) -> Result<GenerationResponse, MaterializeError> {
     let terminal = state
         .terminal
         .as_ref()
         .ok_or(MaterializeError::MissingTerminal)?;
-    if terminal.status() != TerminalStatus::Completed {
-        return Err(MaterializeError::NonCompletedTerminal);
-    }
+    let status = match terminal.status() {
+        TerminalStatus::Completed => ResponseStatus::Completed,
+        TerminalStatus::Incomplete => ResponseStatus::Incomplete,
+        TerminalStatus::Failed | TerminalStatus::Error => ResponseStatus::Failed,
+        TerminalStatus::Cancelled => ResponseStatus::Cancelled,
+    };
+    let allow_partial = status != ResponseStatus::Completed;
     let response = state
         .response
         .as_ref()
         .ok_or(MaterializeError::InvalidState)?;
 
+    if !allow_partial
+        && (state.candidates.is_empty()
+            || state
+                .candidates
+                .values()
+                .any(|candidate| !candidate.finished)
+            || state.items.values().any(|item| !item.finished)
+            || state.parts.values().any(|part| !part.finished))
+    {
+        return Err(MaterializeError::InvalidState);
+    }
     let candidates = state
         .candidate_indexes
         .values()
-        .map(|candidate_id| materialize_candidate(state, candidate_id))
+        .map(|candidate_id| materialize_candidate(state, candidate_id, allow_partial))
         .collect::<Result<Vec<_>, _>>()?;
-    if candidates.is_empty() {
-        return Err(MaterializeError::InvalidState);
-    }
 
-    GenerationResponse::new(
+    Ok(GenerationResponse::new(
         response.id().clone(),
         candidates,
-        ResponseStatus::Completed,
+        status,
         state.usage,
-        Vec::new(),
+        state.extensions.clone(),
     )
-    .map_err(|_| MaterializeError::InvalidState)
+    .map_err(|_| MaterializeError::InvalidState)?
+    .with_failure(terminal.failure().cloned()))
 }
 
 fn materialize_candidate(
     state: &EventState,
     candidate_id: &crate::ir::generation::CandidateId,
+    allow_partial: bool,
 ) -> Result<Candidate, MaterializeError> {
     let candidate = state
         .candidates
         .get(candidate_id)
-        .filter(|candidate| candidate.finished)
+        .filter(|candidate| allow_partial || candidate.finished)
         .ok_or(MaterializeError::InvalidState)?;
     let output = candidate
         .items
         .values()
-        .map(|item_id| materialize_item(state, item_id))
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|item_id| materialize_item(state, item_id, allow_partial))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     Candidate::new(
         candidate.identity.id().clone(),
         output,
@@ -80,23 +95,27 @@ fn materialize_candidate(
 fn materialize_item(
     state: &EventState,
     item_id: &crate::ir::generation::ItemId,
-) -> Result<OutputItem, MaterializeError> {
+    allow_partial: bool,
+) -> Result<Option<OutputItem>, MaterializeError> {
     let item = state
         .items
         .get(item_id)
-        .filter(|item| item.finished)
+        .filter(|item| allow_partial || item.finished)
         .ok_or(MaterializeError::InvalidState)?;
     let parts = item
         .parts
         .values()
         .map(|part_id| {
-            state
+            let part = state
                 .parts
                 .get(part_id)
-                .filter(|part| part.finished)
-                .ok_or(MaterializeError::InvalidState)
+                .ok_or(MaterializeError::InvalidState)?;
+            if !allow_partial && !part.finished {
+                return Err(MaterializeError::InvalidState);
+            }
+            Ok(part)
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, MaterializeError>>()?;
 
     match &item.header {
         ItemHeader::Message {
@@ -104,11 +123,14 @@ fn materialize_item(
         } => {
             let content = parts
                 .iter()
+                .filter(|part| part.has_payload())
                 .map(|part| {
-                    if part.kind != PartKind::Text {
-                        return Err(MaterializeError::InvalidState);
+                    let text = bounded_text(part, state)?;
+                    match part.kind {
+                        PartKind::Text => Ok(ContentPart::text(text)),
+                        PartKind::Refusal => Ok(ContentPart::Refusal(text)),
+                        _ => Err(MaterializeError::InvalidState),
                     }
-                    bounded_text(part, state).map(ContentPart::text)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             ResponseMessage::new(
@@ -116,13 +138,14 @@ fn materialize_item(
                 content,
                 item.identity.wire_identity().cloned(),
             )
-            .map(OutputItem::Message)
+            .map(|message| Some(OutputItem::Message(message)))
             .map_err(|_| MaterializeError::InvalidValue)
         }
         ItemHeader::Message { .. } => Err(MaterializeError::InvalidState),
         ItemHeader::Reasoning => {
             let reasoning = parts
                 .iter()
+                .filter(|part| part.has_payload())
                 .map(|part| match part.kind {
                     PartKind::ReasoningText => {
                         bounded_text(part, state).map(ReasoningPart::Visible)
@@ -131,15 +154,20 @@ fn materialize_item(
                         bounded_text(part, state).map(ReasoningPart::Summary)
                     }
                     PartKind::Opaque => opaque_reasoning(part),
-                    PartKind::Text | PartKind::ToolArguments => Err(MaterializeError::InvalidState),
+                    PartKind::Text | PartKind::Refusal | PartKind::ToolArguments => {
+                        Err(MaterializeError::InvalidState)
+                    }
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+            if reasoning.is_empty() {
+                return Ok(None);
+            }
             ReasoningItem::new(
                 item.identity.id().clone(),
                 reasoning,
                 item.identity.wire_identity().cloned(),
             )
-            .map(OutputItem::Reasoning)
+            .map(|item| Some(OutputItem::Reasoning(item)))
             .map_err(|_| MaterializeError::InvalidValue)
         }
         ItemHeader::ToolCall { call, tool } => {
@@ -149,18 +177,29 @@ fn materialize_item(
             if part.kind != PartKind::ToolArguments {
                 return Err(MaterializeError::InvalidState);
             }
-            let arguments = part
-                .parsed_arguments
-                .clone()
-                .ok_or(MaterializeError::InvalidState)?;
-            Ok(OutputItem::ToolCall(ToolCall::new(
+            let input = match part.parsed_arguments.clone() {
+                Some(arguments) => ToolInput::Function(arguments),
+                None if allow_partial => ToolInput::IncompleteFunction(
+                    (!part.value.is_empty())
+                        .then(|| bounded_text(part, state))
+                        .transpose()?,
+                ),
+                None => return Err(MaterializeError::InvalidState),
+            };
+            Ok(Some(OutputItem::ToolCall(ToolCall::new(
                 item.identity.id().clone(),
                 call.clone(),
                 tool.clone(),
-                ToolInput::Function(arguments),
+                input,
                 item.identity.wire_identity().cloned(),
-            )))
+            ))))
         }
+    }
+}
+
+impl PartBuilder {
+    fn has_payload(&self) -> bool {
+        !self.value.is_empty() || self.opaque.is_some()
     }
 }
 
@@ -183,4 +222,61 @@ fn opaque_reasoning(part: &PartBuilder) -> Result<ReasoningPart, MaterializeErro
     )
     .map(ReasoningPart::Opaque)
     .map_err(|_| MaterializeError::InvalidValue)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::ir::generation::{
+        BoundedOpaqueJson, EventEnvelope, EventInput, EventLimits, ExtensionKind, GenerationEvent,
+        OpaquePayload, ProviderExtension, ResponseId, ResponseIdentity, Sequence, TerminalStatus,
+        TurnTerminal, reduce,
+    };
+
+    #[test]
+    fn extensions_materialize_and_consume_turn_budget() {
+        let namespace = ProviderNamespace::new("test.provider", 64).unwrap();
+        let kind = ExtensionKind::new("unknown-event", 64).unwrap();
+        let payload =
+            OpaquePayload::Json(BoundedOpaqueJson::new(json!({"answer": 42}), 128).unwrap());
+        let extension = ProviderExtension::new(namespace, kind, payload, None).unwrap();
+        let mut state = EventState::new(EventLimits::new(64, 256, 1024).unwrap());
+        state = reduce(
+            state,
+            EventInput::Event(Box::new(EventEnvelope::new(
+                Sequence::new(0),
+                GenerationEvent::ResponseStarted {
+                    response: ResponseIdentity::new(
+                        ResponseId::new("response-extension", 64).unwrap(),
+                    ),
+                },
+            ))),
+        )
+        .unwrap();
+        state = reduce(
+            state,
+            EventInput::Event(Box::new(EventEnvelope::new(
+                Sequence::new(1),
+                GenerationEvent::Extension {
+                    extension: extension.clone(),
+                },
+            ))),
+        )
+        .unwrap();
+        state = reduce(
+            state,
+            EventInput::Event(Box::new(EventEnvelope::new(
+                Sequence::new(2),
+                GenerationEvent::Terminal {
+                    terminal: TurnTerminal::new(TerminalStatus::Cancelled, None),
+                },
+            ))),
+        )
+        .unwrap();
+        let response = materialize(&state).unwrap();
+        assert_eq!(response.extensions(), &[extension]);
+        assert_eq!(response.status(), ResponseStatus::Cancelled);
+    }
 }

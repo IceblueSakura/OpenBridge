@@ -55,6 +55,9 @@ pub enum ValidationError {
     /// A message contains no semantic content.
     #[error("message must contain at least one content part")]
     EmptyMessage,
+    /// A refusal part was supplied in a user message.
+    #[error("refusal content is only valid for assistant messages")]
+    RefusalInUserMessage,
     /// Ordered history contains a duplicate canonical item identity.
     #[error("duplicate input item identity '{id}'")]
     DuplicateInputItemId {

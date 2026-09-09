@@ -8,9 +8,10 @@ use serde_json::{Map, Value, json};
 use crate::{
     core::ReasoningOutput,
     ir::generation::{
-        BoundedBytes, CandidateIdentity, CandidateRef, EventEnvelope, EventLimits, FinishReason,
-        GenerationEvent, ItemHeader, ItemId, ItemIdentity, ItemRef, MessageRole, OutputIndex,
-        PartDelta, PartId, PartIdentity, PartKind, PartRef, ResponseIdentity, TerminalStatus,
+        BoundedOpaqueJson, CandidateIdentity, CandidateRef, EventEnvelope, EventLimits,
+        ExtensionKind, FinishReason, GenerationEvent, ItemHeader, ItemId, ItemIdentity, ItemRef,
+        MessageRole, OpaquePayload, OutputIndex, PartDelta, PartId, PartIdentity, PartKind,
+        PartRef, ProviderExtension, ProviderNamespace, ResponseIdentity, TerminalStatus,
         TurnTerminal, Usage,
     },
     transport::sse::SseEvent,
@@ -41,9 +42,8 @@ pub(super) struct ChatEventDecoder {
     sequence: u64,
     upstream_id: Option<String>,
     candidate: Option<crate::ir::generation::CandidateId>,
-    message: Option<(ItemId, PartId)>,
+    message: Option<(ItemId, PartId, PartKind)>,
     reasoning: Option<(ItemId, PartId)>,
-    opaque_parts: u64,
     reasoning_seen: bool,
     tools: BTreeMap<u64, ChatTool>,
     finish: Option<FinishReason>,
@@ -66,7 +66,6 @@ impl ChatEventDecoder {
             candidate: None,
             message: None,
             reasoning: None,
-            opaque_parts: 0,
             reasoning_seen: false,
             tools: BTreeMap::new(),
             finish: None,
@@ -145,10 +144,23 @@ impl ChatEventDecoder {
                     events.extend(self.reasoning_delta(reasoning)?);
                 } else if self.preserve_source && self.reasoning_output == ReasoningOutput::Unknown
                 {
-                    events.extend(self.opaque_delta(&Value::String(reasoning.to_owned()))?);
+                    events.extend(self.private_delta(
+                        "reasoning.delta",
+                        json!({"reasoning_content": reasoning}),
+                    )?);
                 } else {
                     return Err(StaticEventCodecError::UnsupportedSemantics);
                 }
+            }
+        }
+        if let Some(refusal) = delta.get("refusal").filter(|value| !value.is_null()) {
+            let refusal = refusal.as_str().ok_or(StaticEventCodecError::InvalidJson)?;
+            if !refusal.is_empty() {
+                if !self.tools.is_empty() {
+                    return Err(StaticEventCodecError::UnsupportedSemantics);
+                }
+                events.extend(self.close_reasoning()?);
+                events.extend(self.message_delta(refusal, PartKind::Refusal)?);
             }
         }
         if let Some(content) = delta.get("content").filter(|value| !value.is_null()) {
@@ -158,14 +170,14 @@ impl ChatEventDecoder {
                     return Err(StaticEventCodecError::UnsupportedSemantics);
                 }
                 events.extend(self.close_reasoning()?);
-                events.extend(self.message_delta(content)?);
+                events.extend(self.message_delta(content, PartKind::Text)?);
             }
         }
         if let Some(audio) = delta.get("audio").filter(|value| !value.is_null()) {
-            if self.message.is_some() || !self.tools.is_empty() {
-                return Err(StaticEventCodecError::UnsupportedSemantics);
+            if !audio.is_object() {
+                return Err(StaticEventCodecError::InvalidJson);
             }
-            events.extend(self.opaque_delta(audio)?);
+            events.extend(self.private_delta("audio.delta", json!({"audio": audio}))?);
         }
         if let Some(tool_calls) = delta.get("tool_calls").filter(|value| !value.is_null()) {
             let tool_calls = tool_calls
@@ -185,15 +197,21 @@ impl ChatEventDecoder {
             let finish = match reason {
                 "stop" => FinishReason::Stop,
                 "tool_calls" => FinishReason::ToolCalls,
-                "length" if self.preserve_source => FinishReason::Length,
-                "content_filter" if self.preserve_source => FinishReason::ContentFilter,
+                "length" => FinishReason::Length,
+                "content_filter" => FinishReason::ContentFilter,
                 _ => return Err(StaticEventCodecError::UnsupportedSemantics),
             };
-            if (finish == FinishReason::ToolCalls) != !self.tools.is_empty() {
-                return Err(StaticEventCodecError::InvalidLifecycle);
+            let interrupted = matches!(finish, FinishReason::Length | FinishReason::ContentFilter);
+            if interrupted && !self.preserve_source {
+                return Err(StaticEventCodecError::UnsupportedSemantics);
             }
-            events.extend(self.close_reasoning()?);
-            events.extend(self.close_outputs()?);
+            if !interrupted {
+                if (finish == FinishReason::ToolCalls) != !self.tools.is_empty() {
+                    return Err(StaticEventCodecError::InvalidLifecycle);
+                }
+                events.extend(self.close_reasoning()?);
+                events.extend(self.close_outputs()?);
+            }
             let candidate = self.candidate()?.clone();
             events.push(envelope(
                 &mut self.sequence,
@@ -282,71 +300,40 @@ impl ChatEventDecoder {
         Ok(events)
     }
 
-    /// Retains one bounded Provider media delta as internal state for same-protocol source preservation.
-    fn opaque_delta(&mut self, value: &Value) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
-        let mut events = Vec::new();
-        let part_index = self.opaque_parts;
-        if self.reasoning.is_none() {
-            let suffix = self
-                .upstream_id
-                .as_deref()
-                .and_then(|id| id.strip_prefix("chatcmpl_"))
-                .unwrap_or(self.upstream_id.as_deref().unwrap_or("response"));
-            let item = item_id(format!("opaque_{suffix}"), self.limits)?;
-            let part = part_id(
-                format!("{}:opaque:{part_index}", item.as_str()),
-                self.limits,
-            )?;
-            events.extend(self.start_item(
-                item.clone(),
-                part.clone(),
-                OutputIndex::new(0),
-                ItemHeader::Reasoning,
-                PartKind::Opaque,
-            )?);
-            self.reasoning = Some((item, part));
-            self.reasoning_seen = true;
-        } else {
-            let (item, previous) = self.reasoning.as_ref().unwrap().clone();
-            events.push(envelope(
-                &mut self.sequence,
-                GenerationEvent::PartFinished {
-                    part: PartRef::new(previous),
-                },
-            )?);
-            let part = part_id(
-                format!("{}:opaque:{part_index}", item.as_str()),
-                self.limits,
-            )?;
-            events.push(envelope(
-                &mut self.sequence,
-                GenerationEvent::PartStarted {
-                    item: ItemRef::new(item.clone()),
-                    part: PartIdentity::new(part.clone(), OutputIndex::new(part_index)),
-                    kind: PartKind::Opaque,
-                },
-            )?);
-            self.reasoning = Some((item, part));
+    /// Retains private Native deltas without misclassifying audio as opaque reasoning.
+    fn private_delta(
+        &mut self,
+        kind: &str,
+        value: Value,
+    ) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
+        if !self.preserve_source {
+            return Err(StaticEventCodecError::UnsupportedSemantics);
         }
-        self.opaque_parts = self
-            .opaque_parts
-            .checked_add(1)
-            .ok_or(StaticEventCodecError::LimitExceeded)?;
-        let payload = serde_json::to_vec(value).map_err(|_| StaticEventCodecError::InvalidJson)?;
-        let payload = BoundedBytes::new(payload, self.limits.max_part_bytes())
+        let namespace = ProviderNamespace::new("openai.chat", 64)
             .map_err(|_| StaticEventCodecError::LimitExceeded)?;
-        events.push(envelope(
+        let kind =
+            ExtensionKind::new(kind, 64).map_err(|_| StaticEventCodecError::LimitExceeded)?;
+        let payload = BoundedOpaqueJson::new(value, self.limits.max_event_bytes())
+            .map_err(|_| StaticEventCodecError::LimitExceeded)?;
+        let extension = ProviderExtension::new(namespace, kind, OpaquePayload::Json(payload), None)
+            .map_err(|_| StaticEventCodecError::InvalidJson)?;
+        Ok(vec![envelope(
             &mut self.sequence,
-            GenerationEvent::PartDelta {
-                part: PartRef::new(self.reasoning.as_ref().unwrap().1.clone()),
-                delta: PartDelta::Opaque(payload),
-            },
-        )?);
-        Ok(events)
+            GenerationEvent::Extension { extension },
+        )?])
     }
 
-    fn message_delta(&mut self, delta: &str) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
+    fn message_delta(
+        &mut self,
+        delta: &str,
+        kind: PartKind,
+    ) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
         let mut events = Vec::new();
+        if let Some((_, _, existing)) = self.message.as_ref()
+            && *existing != kind
+        {
+            return Err(StaticEventCodecError::UnsupportedSemantics);
+        }
         if self.message.is_none() {
             let suffix = self
                 .upstream_id
@@ -354,7 +341,12 @@ impl ChatEventDecoder {
                 .and_then(|id| id.strip_prefix("chatcmpl_"))
                 .unwrap_or(self.upstream_id.as_deref().unwrap_or("response"));
             let item = item_id(format!("msg_{suffix}"), self.limits)?;
-            let part = part_id(format!("{}:text", item.as_str()), self.limits)?;
+            let suffix = match kind {
+                PartKind::Text => "text",
+                PartKind::Refusal => "refusal",
+                _ => return Err(StaticEventCodecError::InvalidLifecycle),
+            };
+            let part = part_id(format!("{}:{suffix}", item.as_str()), self.limits)?;
             let index = u64::from(self.reasoning_seen);
             events.extend(self.start_item(
                 item.clone(),
@@ -363,16 +355,21 @@ impl ChatEventDecoder {
                 ItemHeader::Message {
                     role: MessageRole::Assistant,
                 },
-                PartKind::Text,
+                kind,
             )?);
-            self.message = Some((item, part));
+            self.message = Some((item, part, kind));
         }
         let part = self.message.as_ref().unwrap().1.clone();
+        let delta = match kind {
+            PartKind::Text => PartDelta::Text(text(delta, self.limits)?),
+            PartKind::Refusal => PartDelta::Refusal(text(delta, self.limits)?),
+            _ => return Err(StaticEventCodecError::InvalidLifecycle),
+        };
         events.push(envelope(
             &mut self.sequence,
             GenerationEvent::PartDelta {
                 part: PartRef::new(part),
-                delta: PartDelta::Text(text(delta, self.limits)?),
+                delta,
             },
         )?);
         Ok(events)
@@ -501,7 +498,7 @@ impl ChatEventDecoder {
 
     fn close_outputs(&mut self) -> Result<Vec<EventEnvelope>, StaticEventCodecError> {
         let mut events = Vec::new();
-        if let Some((item, part)) = self.message.take() {
+        if let Some((item, part, _)) = self.message.take() {
             events.extend(self.close_item(item, part)?);
         }
         let tools = self.tools.values().cloned().collect::<Vec<_>>();
@@ -610,6 +607,7 @@ fn is_inert_finish_choice(
 #[derive(Clone, Debug)]
 enum ChatPartTarget {
     Text,
+    Refusal,
     Reasoning,
     Tool { chat_index: u64 },
     Opaque,
@@ -632,6 +630,7 @@ pub(super) struct ChatEventEncoder {
     parts: BTreeMap<PartId, ChatPartTarget>,
     next_tool_index: u64,
     has_text: bool,
+    has_refusal: bool,
     has_reasoning: bool,
     has_tools: bool,
     finish: Option<FinishReason>,
@@ -657,6 +656,7 @@ impl ChatEventEncoder {
             parts: BTreeMap::new(),
             next_tool_index: 0,
             has_text: false,
+            has_refusal: false,
             has_reasoning: false,
             has_tools: false,
             finish: None,
@@ -697,6 +697,7 @@ impl ChatEventEncoder {
                 self.usage = Some(*usage);
                 Ok(Bytes::new())
             }
+            GenerationEvent::Extension { .. } => Err(StaticEventCodecError::UnsupportedSemantics),
             GenerationEvent::Terminal { terminal } => self.terminal(terminal),
         }
     }
@@ -776,6 +777,7 @@ impl ChatEventEncoder {
             .ok_or(StaticEventCodecError::IdentityConflict)?;
         let target = match kind {
             PartKind::Text => ChatPartTarget::Text,
+            PartKind::Refusal => ChatPartTarget::Refusal,
             PartKind::ReasoningText | PartKind::ReasoningSummary => ChatPartTarget::Reasoning,
             PartKind::ToolArguments => ChatPartTarget::Tool {
                 chat_index: item_target
@@ -803,6 +805,13 @@ impl ChatEventEncoder {
                 self.has_text = true;
                 self.text_chunk("content", value.as_str())
             }
+            ChatPartTarget::Refusal => {
+                let PartDelta::Refusal(value) = delta else {
+                    return Err(StaticEventCodecError::IdentityConflict);
+                };
+                self.has_refusal = true;
+                self.text_chunk("refusal", value.as_str())
+            }
             ChatPartTarget::Reasoning => {
                 let value = match delta {
                     PartDelta::ReasoningText(value) | PartDelta::ReasoningSummary(value) => value,
@@ -823,12 +832,8 @@ impl ChatEventEncoder {
                     Value::Null,
                 )
             }
-            ChatPartTarget::Opaque => {
-                if !matches!(delta, PartDelta::Opaque(_)) {
-                    return Err(StaticEventCodecError::IdentityConflict);
-                }
-                Ok(Bytes::new())
-            }
+            // Completed Responses opaque reasoning is replay state, never readable Chat output.
+            ChatPartTarget::Opaque => Ok(Bytes::new()),
         }
     }
 
@@ -843,10 +848,7 @@ impl ChatEventEncoder {
     }
 
     fn terminal(&mut self, terminal: &TurnTerminal) -> Result<Bytes, StaticEventCodecError> {
-        if terminal.status() != TerminalStatus::Completed
-            || self.terminal
-            || (!self.has_text && !self.has_reasoning && !self.has_tools)
-        {
+        if terminal.status() != TerminalStatus::Completed || self.terminal {
             return Err(StaticEventCodecError::InvalidLifecycle);
         }
         let finish = match self.finish.as_ref() {

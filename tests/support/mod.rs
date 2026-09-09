@@ -6,6 +6,7 @@ pub mod catalog_replay;
 mod fixtures;
 pub mod metrics;
 pub mod process_replay;
+pub mod sse;
 
 #[allow(unused_imports)]
 pub use fixtures::{

@@ -48,7 +48,7 @@ pub struct ExtensionKind(String);
 impl ExtensionKind {
     /// Creates a bounded, non-empty extension kind label.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(in crate::ir::generation) fn new(
+    pub(crate) fn new(
         value: impl Into<String>,
         max_bytes: usize,
     ) -> Result<Self, SemanticValidationError> {
@@ -73,7 +73,7 @@ pub struct ProviderExtension {
 impl ProviderExtension {
     /// Creates an origin-aware Provider extension.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(in crate::ir::generation) fn new(
+    pub(crate) fn new(
         namespace: ProviderNamespace,
         kind: ExtensionKind,
         payload: OpaquePayload,
@@ -111,6 +111,29 @@ impl ProviderExtension {
     /// Returns the Provider origin, when the extension is origin-bound.
     pub fn origin(&self) -> Option<&ProviderOrigin> {
         self.origin.as_ref()
+    }
+
+    pub(crate) fn encoded_len(&self) -> usize {
+        let identity_len = self
+            .namespace
+            .as_str()
+            .len()
+            .saturating_add(self.kind.as_str().len())
+            .saturating_add(self.origin.as_ref().map_or(0, |origin| {
+                origin
+                    .namespace()
+                    .as_str()
+                    .len()
+                    .saturating_add(origin.value().len())
+            }));
+        let payload_len = match &self.payload {
+            OpaquePayload::Json(value) => {
+                crate::ir::generation::value::encoded_json_len(value.as_value(), usize::MAX)
+                    .unwrap_or(usize::MAX)
+            }
+            OpaquePayload::Bytes(value) => value.len(),
+        };
+        identity_len.saturating_add(payload_len)
     }
 }
 

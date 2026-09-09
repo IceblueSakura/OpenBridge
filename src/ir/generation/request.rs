@@ -80,6 +80,8 @@ pub enum MessageRole {
 pub enum ContentPart {
     /// Plain text content.
     Text(TextContent),
+    /// Model refusal text kept separate from ordinary assistant text.
+    Refusal(TextValue),
     /// Typed image, audio, or file input.
     Resource(Resource),
 }
@@ -103,6 +105,13 @@ impl Message {
     pub fn new(role: MessageRole, content: Vec<ContentPart>) -> Result<Self, ValidationError> {
         if content.is_empty() {
             return Err(ValidationError::EmptyMessage);
+        }
+        if role == MessageRole::User
+            && content
+                .iter()
+                .any(|part| matches!(part, ContentPart::Refusal(_)))
+        {
+            return Err(ValidationError::RefusalInUserMessage);
         }
         Ok(Self { role, content })
     }

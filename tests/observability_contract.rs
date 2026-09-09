@@ -141,7 +141,7 @@ impl UpstreamTransport for PendingStreamTransport {
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
             let body = Body::from_stream(stream::once(async {
                 Ok::<_, std::io::Error>(bytes::Bytes::from_static(
-                    b"data: {\"id\":\"chatcmpl-observed\",\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
+                    b"data: {\"id\":\"chatcmpl-observed\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}\n\n",
                 ))
             })
                 .chain(stream::pending()));
@@ -164,7 +164,7 @@ impl UpstreamTransport for EofWithoutTerminalTransport {
                 StatusCode::OK,
                 headers,
                 Body::from(
-                    "data: {\"id\":\"chatcmpl-observed\",\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
+                    "data: {\"id\":\"chatcmpl-observed\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}\n\n",
                 ),
             ))
         })

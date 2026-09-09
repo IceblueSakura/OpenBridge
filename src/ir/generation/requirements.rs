@@ -465,6 +465,7 @@ pub fn project_semantic_requirements(request: &GenerationRequest) -> SemanticReq
                 for part in message.content() {
                     match part {
                         ContentPart::Text(_) => requirements.input.text_parts += 1,
+                        ContentPart::Refusal(_) => requirements.input.text_parts += 1,
                         ContentPart::Resource(resource) => {
                             record_resource(&mut requirements.input, resource);
                         }
@@ -478,7 +479,7 @@ pub fn project_semantic_requirements(request: &GenerationRequest) -> SemanticReq
                         requirements.tools.server_history.insert(input.kind());
                     }
                     ToolInput::Extension(_) => requirements.extensions.tool_inputs += 1,
-                    ToolInput::Function(_) => {}
+                    ToolInput::Function(_) | ToolInput::IncompleteFunction(_) => {}
                 }
             }
             InputItem::ToolResult(result) => record_tool_result(&mut requirements, result),

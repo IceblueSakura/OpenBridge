@@ -3,19 +3,18 @@
 mod bridge;
 mod buffered_responses;
 mod liveness;
-mod native;
 mod precommit;
 
 use std::{error::Error, io, pin::Pin, time::Duration};
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use futures_util::{Stream, StreamExt, stream};
 use tokio::time::Instant;
 
 use crate::{
     bridge::{BridgePlan, BridgeStreamRenderer},
-    observability::{ErrorType, RequestObservation, TimeoutPhase},
-    provider::{GenerationProviderAdapter, StreamEventStatus},
+    observability::{RequestObservation, TimeoutPhase},
+    provider::GenerationProviderAdapter,
     registry::UpstreamTimeoutPolicy,
     transport::{
         is_timeout_error,
@@ -28,12 +27,9 @@ type SseBodyError = Box<dyn Error + Send + Sync>;
 pub(in crate::ingress) use bridge::bridge_sse_body;
 pub(in crate::ingress) use buffered_responses::buffer_responses_sse_body;
 pub(in crate::ingress) use liveness::enforce_sse_liveness;
-pub(in crate::ingress) use native::validate_sse_body;
 pub(in crate::ingress) use precommit::{SsePrecommitError, precommit_sse_body};
 
 use liveness::{SseLivenessDeadline, enforce_sse_liveness_with_state};
-#[cfg(test)]
-use precommit::{PrecommittedSseBody, PrecommittedSseKind};
 
 #[cfg(test)]
 mod liveness_tests {
@@ -48,9 +44,7 @@ mod liveness_tests {
         registry::UpstreamTimeoutPolicy,
     };
 
-    use super::{
-        PrecommittedSseBody, PrecommittedSseKind, SseLivenessDeadline, enforce_sse_liveness,
-    };
+    use super::{SseLivenessDeadline, enforce_sse_liveness, enforce_sse_liveness_with_state};
 
     fn paced_body(chunks: Vec<Bytes>, delay: Duration) -> Body {
         Body::from_stream(stream::iter(chunks).then(move |chunk| async move {
@@ -97,12 +91,7 @@ mod liveness_tests {
             SseLivenessDeadline::new(Some(UpstreamTimeoutPolicy::new(Duration::from_millis(80))));
         liveness.record_framed_event();
         tokio::time::sleep(Duration::from_millis(60)).await;
-        let guarded = PrecommittedSseBody {
-            body,
-            liveness,
-            kind: PrecommittedSseKind::Native,
-        }
-        .into_native_liveness_body(1024, observation());
+        let guarded = enforce_sse_liveness_with_state(body, 1024, liveness, true, observation());
         let mut source = guarded.into_data_stream();
 
         source

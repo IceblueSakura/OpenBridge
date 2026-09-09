@@ -9,9 +9,10 @@ use serde_json::{Map, Value, json};
 use crate::{
     core::{ApiProtocol, ReasoningOutput},
     ir::generation::{
-        AudioResource, BoundedBytes, Candidate, CandidateId, ChangeAuthorization, ChangeKind,
-        ChangeReason, ContentPart, FinishReason, GenerationResponse, InlineResource, ItemId,
-        JsonObject, OpaqueExposure, OpaqueKind, OpaqueState, OutputItem, ProviderNamespace,
+        AudioResource, BoundedBytes, BoundedOpaqueJson, Candidate, CandidateId,
+        ChangeAuthorization, ChangeKind, ChangeReason, ContentPart, ExtensionKind, FinishReason,
+        GenerationResponse, InlineResource, ItemId, JsonObject, OpaqueExposure, OpaqueKind,
+        OpaquePayload, OpaqueState, OutputItem, ProviderExtension, ProviderNamespace,
         ReasoningItem, ReasoningPart, Resource, ResourceSource, ResponseId, ResponseMessage,
         ResponseStatus, SemanticChange, SemanticPath, TextValue, ToolCall, ToolInput, ToolName,
         Transform, Usage,
@@ -45,8 +46,11 @@ pub(super) fn lower_response(
     response: &WireResponse,
     public_model: &str,
     reasoning_output: ReasoningOutput,
+    allow_non_completed: bool,
 ) -> Result<Transform<TargetResponse>, StaticCodecError> {
-    if response.semantic.status() != ResponseStatus::Completed
+    if (!allow_non_completed
+        && (response.semantic.status() != ResponseStatus::Completed
+            || !response.semantic.extensions().is_empty()))
         || response.semantic.candidates().len() != 1
     {
         return Err(StaticCodecError::UnsupportedSemantics);
@@ -85,6 +89,24 @@ pub(super) fn lower_response(
             ChangeAuthorization::default(),
         )],
     ))
+}
+
+/// Re-encodes a validated native response while retaining legal source-envelope fields.
+pub(super) fn encode_native_response(
+    response: &WireResponse,
+    source: &Map<String, Value>,
+    _protocol: ApiProtocol,
+    _public_model: &str,
+    _reasoning_output: ReasoningOutput,
+) -> Result<Bytes, StaticCodecError> {
+    // The source envelope is a codec sidecar bound to this decoded IR response. Native encoding
+    // must not require the narrower cross-protocol projection (for example for audio output).
+    if source.get("id").and_then(Value::as_str) != Some(response.source_id.as_str()) {
+        return Err(StaticCodecError::InvalidShape);
+    }
+    serde_json::to_vec(&Value::Object(source.clone()))
+        .map(Bytes::from)
+        .map_err(|_| StaticCodecError::InvalidShape)
 }
 
 /// Encodes a lowered private response DTO into compact JSON bytes.
@@ -152,6 +174,23 @@ fn decode_chat_response(
             )?));
         }
     }
+    let refusal = match message.get("refusal").filter(|value| !value.is_null()) {
+        None => None,
+        Some(value) => Some(text_value(
+            value
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .ok_or(StaticCodecError::InvalidShape)?
+                .to_owned(),
+            max_bytes,
+        )?),
+    };
+    if let Some(refusal) = refusal {
+        if !message_content.is_empty() {
+            return Err(StaticCodecError::InvalidShape);
+        }
+        message_content.push(ContentPart::Refusal(refusal));
+    }
     if let Some(audio) = message.get("audio").filter(|value| !value.is_null()) {
         let audio = audio.as_object().ok_or(StaticCodecError::InvalidShape)?;
         let data = required_string(audio, "data")?;
@@ -167,7 +206,11 @@ fn decode_chat_response(
             None,
         ))));
     }
-    if !message_content.is_empty() {
+    let has_tool_calls = message
+        .get("tool_calls")
+        .filter(|value| !value.is_null())
+        .is_some();
+    if !message_content.is_empty() || !has_tool_calls {
         output.push(OutputItem::Message(
             ResponseMessage::new(
                 item_id(format!("msg_{suffix}"), max_bytes)?,
@@ -200,9 +243,11 @@ fn decode_chat_response(
             )?));
         }
     }
-    if output.is_empty() {
-        return Err(StaticCodecError::InvalidShape);
-    }
+    let status = if matches!(finish, FinishReason::Length | FinishReason::ContentFilter) {
+        ResponseStatus::Incomplete
+    } else {
+        ResponseStatus::Completed
+    };
     let candidate = Candidate::new(
         candidate_id("candidate_0", max_bytes)?,
         output,
@@ -212,7 +257,7 @@ fn decode_chat_response(
     let response = GenerationResponse::new(
         response_id(format!("response_{suffix}"), max_bytes)?,
         vec![candidate],
-        ResponseStatus::Completed,
+        status,
         decode_chat_usage(source.get("usage"))?,
         Vec::new(),
     )
@@ -228,29 +273,34 @@ fn decode_responses_response(
     reasoning_output: ReasoningOutput,
     max_bytes: usize,
 ) -> Result<WireResponse, StaticCodecError> {
-    if source.get("object").and_then(Value::as_str) != Some("response")
-        || source.get("status").and_then(Value::as_str) != Some("completed")
-    {
+    if source.get("object").and_then(Value::as_str) != Some("response") {
         return Err(StaticCodecError::InvalidShape);
     }
+    let status = decode_response_status(source)?;
     let source_id = required_string(source, "id")?;
-    let items = source
-        .get("output")
-        .and_then(Value::as_array)
-        .ok_or(StaticCodecError::InvalidShape)?;
+    let items = match source.get("output") {
+        Some(Value::Array(items)) => items.as_slice(),
+        None if status != ResponseStatus::Completed => &[],
+        _ => return Err(StaticCodecError::InvalidShape),
+    };
     let mut output = Vec::new();
     let mut has_tool_call = false;
     for item in items {
         let item = item.as_object().ok_or(StaticCodecError::InvalidShape)?;
-        let status = item.get("status").filter(|value| !value.is_null());
-        if status.is_some_and(|value| value.as_str() != Some("completed")) {
+        let item_status = item
+            .get("status")
+            .filter(|value| !value.is_null())
+            .map(|value| value.as_str().ok_or(StaticCodecError::InvalidShape))
+            .transpose()?;
+        if !valid_response_item_status(
+            status,
+            item.get("type").and_then(Value::as_str),
+            item_status,
+        )? {
             return Err(StaticCodecError::InvalidShape);
         }
         match item.get("type").and_then(Value::as_str) {
             Some("message") => {
-                if status.is_none() {
-                    return Err(StaticCodecError::InvalidShape);
-                }
                 let id = required_string(item, "id")?;
                 let content = decode_responses_message_content(item, max_bytes)?;
                 output.push(OutputItem::Message(
@@ -297,42 +347,193 @@ fn decode_responses_response(
             }
             Some("function_call") => {
                 has_tool_call = true;
-                output.push(OutputItem::ToolCall(tool_call(
-                    required_string(item, "id")?,
-                    required_string(item, "call_id")?,
-                    required_string(item, "name")?,
-                    required_string(item, "arguments")?,
-                    max_bytes,
-                )?));
+                let arguments = item
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .ok_or(StaticCodecError::InvalidShape)?;
+                let allow_partial =
+                    status != ResponseStatus::Completed && item_status != Some("completed");
+                let input = match serde_json::from_str::<Value>(arguments)
+                    .ok()
+                    .and_then(|value| JsonObject::new(value, max_bytes).ok())
+                {
+                    Some(value) => ToolInput::Function(value),
+                    None if allow_partial => {
+                        ToolInput::IncompleteFunction(if arguments.is_empty() {
+                            None
+                        } else {
+                            Some(text_value(arguments.to_owned(), max_bytes)?)
+                        })
+                    }
+                    None => return Err(StaticCodecError::InvalidToolArguments),
+                };
+                output.push(OutputItem::ToolCall(ToolCall::new(
+                    item_id(required_string(item, "id")?, max_bytes)?,
+                    crate::ir::generation::CallId::new(
+                        required_string(item, "call_id")?,
+                        max_bytes,
+                    )
+                    .map_err(StaticCodecError::from_validation)?,
+                    ToolName::new(required_string(item, "name")?, max_bytes)
+                        .map_err(StaticCodecError::from_validation)?,
+                    input,
+                    None,
+                )));
             }
             _ => return Err(StaticCodecError::UnsupportedSemantics),
         }
     }
-    if output.is_empty() {
-        return Err(StaticCodecError::InvalidShape);
-    }
-    let candidate = Candidate::new(
-        candidate_id("candidate_0", max_bytes)?,
-        output,
-        Some(if has_tool_call {
-            FinishReason::ToolCalls
-        } else {
-            FinishReason::Stop
-        }),
-    )
-    .map_err(|_| StaticCodecError::InvalidShape)?;
+    let finish = (status == ResponseStatus::Completed).then_some(if has_tool_call {
+        FinishReason::ToolCalls
+    } else {
+        FinishReason::Stop
+    });
+    let candidate = Candidate::new(candidate_id("candidate_0", max_bytes)?, output, finish)
+        .map_err(|_| StaticCodecError::InvalidShape)?;
     let response = GenerationResponse::new(
         response_id(source_id.clone(), max_bytes)?,
         vec![candidate],
-        ResponseStatus::Completed,
+        status,
         decode_responses_usage(source.get("usage"))?,
-        Vec::new(),
+        decode_response_extensions(source, status, max_bytes)?,
     )
     .map_err(|_| StaticCodecError::InvalidShape)?;
     Ok(WireResponse {
         semantic: response,
         source_id,
     })
+}
+
+fn decode_response_status(source: &Map<String, Value>) -> Result<ResponseStatus, StaticCodecError> {
+    let status = required_string(source, "status")?;
+    let status = match status.as_str() {
+        "completed" => ResponseStatus::Completed,
+        "incomplete" => ResponseStatus::Incomplete,
+        "failed" => ResponseStatus::Failed,
+        "cancelled" => ResponseStatus::Cancelled,
+        _ => return Err(StaticCodecError::UnsupportedSemantics),
+    };
+    let error = source.get("error").filter(|value| !value.is_null());
+    let incomplete_details = source
+        .get("incomplete_details")
+        .filter(|value| !value.is_null());
+    if error.is_some_and(|value| !value.is_object())
+        || incomplete_details.is_some_and(|value| !value.is_object())
+    {
+        return Err(StaticCodecError::InvalidShape);
+    }
+    Ok(status)
+}
+
+fn valid_response_item_status(
+    response_status: ResponseStatus,
+    item_type: Option<&str>,
+    item_status: Option<&str>,
+) -> Result<bool, StaticCodecError> {
+    match response_status {
+        ResponseStatus::Completed => Ok(match item_status {
+            Some(status) => status == "completed",
+            None => matches!(item_type, Some("reasoning" | "function_call")),
+        }),
+        ResponseStatus::Incomplete | ResponseStatus::Failed | ResponseStatus::Cancelled => {
+            Ok(item_status
+                .is_none()
+                .then_some(matches!(item_type, Some("reasoning" | "function_call")))
+                .unwrap_or_else(|| {
+                    item_status.is_some_and(|status| {
+                        matches!(status, "completed" | "in_progress" | "incomplete")
+                    })
+                }))
+        }
+    }
+}
+
+fn response_status_name(status: ResponseStatus) -> &'static str {
+    match status {
+        ResponseStatus::Completed => "completed",
+        ResponseStatus::Incomplete => "incomplete",
+        ResponseStatus::Failed => "failed",
+        ResponseStatus::Cancelled => "cancelled",
+    }
+}
+
+/// Decodes Native annotation metadata without pretending it is portable text.
+pub(super) fn decode_annotation_extensions(
+    item: &Value,
+    max_bytes: usize,
+) -> Result<Vec<ProviderExtension>, StaticCodecError> {
+    let mut extensions = Vec::new();
+    if let Some(parts) = item.get("content").and_then(Value::as_array) {
+        for (index, part) in parts.iter().enumerate() {
+            if let Some(value) = part.get("annotations") {
+                let annotations = value.as_array().ok_or(StaticCodecError::InvalidShape)?;
+                if annotations.iter().any(|value| !value.is_object()) {
+                    return Err(StaticCodecError::InvalidShape);
+                }
+                if annotations.is_empty() {
+                    continue;
+                }
+                let payload = BoundedOpaqueJson::new(json!({
+                            "item_id": item.get("id"), "content_index": index, "annotations": annotations
+                        }), max_bytes).map_err(StaticCodecError::from_validation)?;
+                extensions.push(
+                    ProviderExtension::new(
+                        ProviderNamespace::new("openai.responses", max_bytes)
+                            .map_err(StaticCodecError::from_validation)?,
+                        ExtensionKind::new("response.annotations", max_bytes)
+                            .map_err(StaticCodecError::from_validation)?,
+                        OpaquePayload::Json(payload),
+                        None,
+                    )
+                    .map_err(StaticCodecError::from_validation)?,
+                );
+            }
+        }
+    }
+    Ok(extensions)
+}
+
+fn decode_response_extensions(
+    source: &Map<String, Value>,
+    status: ResponseStatus,
+    max_bytes: usize,
+) -> Result<Vec<ProviderExtension>, StaticCodecError> {
+    let mut extensions = Vec::new();
+    for (field, kind) in [
+        ("error", "response.error"),
+        ("incomplete_details", "response.incomplete_details"),
+    ] {
+        let Some(value) = source.get(field).filter(|value| !value.is_null()) else {
+            continue;
+        };
+        let value = value.as_object().ok_or(StaticCodecError::InvalidShape)?;
+        let namespace = ProviderNamespace::new("openai.responses", max_bytes)
+            .map_err(StaticCodecError::from_validation)?;
+        let kind =
+            ExtensionKind::new(kind, max_bytes).map_err(StaticCodecError::from_validation)?;
+        let payload = OpaquePayload::Json(
+            BoundedOpaqueJson::new(Value::Object(value.clone()), max_bytes)
+                .map_err(StaticCodecError::from_validation)?,
+        );
+        extensions.push(
+            ProviderExtension::new(namespace, kind, payload, None)
+                .map_err(StaticCodecError::from_validation)?,
+        );
+    }
+    if let Some(items) = source.get("output").and_then(Value::as_array) {
+        for item in items {
+            extensions.extend(decode_annotation_extensions(item, max_bytes)?);
+        }
+    }
+    if status == ResponseStatus::Completed
+        && extensions.iter().any(|extension| {
+            extension.kind().as_str() == "response.error"
+                || extension.kind().as_str() == "response.incomplete_details"
+        })
+    {
+        return Err(StaticCodecError::InvalidShape);
+    }
+    Ok(extensions)
 }
 
 fn encode_chat_response(
@@ -342,11 +543,19 @@ fn encode_chat_response(
 ) -> Result<Value, StaticCodecError> {
     let candidate = &response.semantic.candidates()[0];
     let mut text = String::new();
+    let mut refusal = None;
     let mut reasoning = String::new();
     let mut tool_calls = Vec::new();
     for item in candidate.output() {
         match item {
-            OutputItem::Message(message) => text.push_str(&flatten_text(message.content())?),
+            OutputItem::Message(message) => {
+                let (message_text, message_refusal) = message_text_and_refusal(message.content())?;
+                if message_refusal.is_some() && !text.is_empty() {
+                    return Err(StaticCodecError::InvalidShape);
+                }
+                text.push_str(&message_text);
+                refusal = message_refusal;
+            }
             OutputItem::Reasoning(item) => {
                 if !reasoning_output.is_readable() {
                     return Err(StaticCodecError::UnsupportedSemantics);
@@ -377,7 +586,8 @@ fn encode_chat_response(
     if !reasoning.is_empty() {
         message.insert("reasoning_content".to_owned(), Value::String(reasoning));
     }
-    let finish_reason = if tool_calls.is_empty() {
+    let has_tool_calls = !tool_calls.is_empty();
+    let finish_reason = if !has_tool_calls {
         message.insert(
             "content".to_owned(),
             if text.is_empty() {
@@ -399,6 +609,12 @@ fn encode_chat_response(
         message.insert("tool_calls".to_owned(), Value::Array(tool_calls));
         "tool_calls"
     };
+    if let Some(refusal) = refusal {
+        if has_tool_calls {
+            return Err(StaticCodecError::UnsupportedSemantics);
+        }
+        message.insert("refusal".to_owned(), Value::String(refusal));
+    }
     let mut result = json!({
         "choices": [{"finish_reason": finish_reason, "index": 0, "message": message}],
         "id": map_id(&response.source_id, "resp_", "chatcmpl_"),
@@ -423,26 +639,78 @@ fn encode_chat_response(
     Ok(result)
 }
 
-fn encode_responses_response(
+/// Restores codec-owned annotations at their validated item/content identity.
+pub(super) fn apply_response_annotations(
+    output: &mut Value,
+    extensions: &[ProviderExtension],
+) -> Result<(), StaticCodecError> {
+    for extension in extensions
+        .iter()
+        .filter(|extension| extension.kind().as_str() == "response.annotations")
+    {
+        let crate::ir::generation::OpaquePayload::Json(payload) = extension.payload() else {
+            return Err(StaticCodecError::InvalidShape);
+        };
+        let metadata = payload.as_value();
+        let item_id = metadata["item_id"]
+            .as_str()
+            .ok_or(StaticCodecError::InvalidShape)?;
+        let index = metadata["content_index"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+            .ok_or(StaticCodecError::InvalidShape)?;
+        let item = output
+            .as_array_mut()
+            .ok_or(StaticCodecError::InvalidShape)?
+            .iter_mut()
+            .find(|item| item["id"].as_str() == Some(item_id))
+            .ok_or(StaticCodecError::InvalidShape)?;
+        let part = item["content"]
+            .as_array_mut()
+            .and_then(|parts| parts.get_mut(index))
+            .ok_or(StaticCodecError::InvalidShape)?;
+        part["annotations"] = metadata["annotations"].clone();
+    }
+    Ok(())
+}
+
+pub(super) fn encode_responses_response(
     response: &WireResponse,
     public_model: &str,
     reasoning_output: ReasoningOutput,
 ) -> Result<Value, StaticCodecError> {
     let candidate = &response.semantic.candidates()[0];
+    let response_status = response_status_name(response.semantic.status());
+    let item_status = if response.semantic.status() == ResponseStatus::Completed {
+        "completed"
+    } else {
+        "incomplete"
+    };
     let mut output = Vec::new();
     for item in candidate.output() {
         match item {
-            OutputItem::Message(message) => output.push(json!({
-                "content": [{
-                    "annotations": [],
-                    "text": flatten_text(message.content())?,
-                    "type": "output_text"
-                }],
-                "id": message.id().as_str(),
-                "role": "assistant",
-                "status": "completed",
-                "type": "message"
-            })),
+            OutputItem::Message(message) => {
+                let (text, refusal) = message_text_and_refusal(message.content())?;
+                let content = match refusal {
+                    Some(refusal) => vec![json!({
+                        "refusal": refusal,
+                        "type": "refusal"
+                    })],
+                    None if text.is_empty() => Vec::new(),
+                    None => vec![json!({
+                        "annotations": [],
+                        "text": text,
+                        "type": "output_text"
+                    })],
+                };
+                output.push(json!({
+                    "content": content,
+                    "id": message.id().as_str(),
+                    "role": "assistant",
+                    "status": item_status,
+                    "type": "message"
+                }));
+            }
             OutputItem::Reasoning(item) => {
                 if !reasoning_output.is_readable() {
                     return Err(StaticCodecError::UnsupportedSemantics);
@@ -464,29 +732,54 @@ fn encode_responses_response(
                 output.push(json!({
                     "content": content,
                     "id": item.id().as_str(),
-                    "status": "completed",
+                    "status": item_status,
                     "summary": summary,
                     "type": "reasoning"
                 }));
             }
             OutputItem::ToolCall(call) => output.push(json!({
-                "arguments": function_arguments(call)?,
+                "arguments": match call.input() {
+                    ToolInput::IncompleteFunction(fragment) if response.semantic.status() != ResponseStatus::Completed => {
+                        fragment.as_ref().map(TextValue::as_str).unwrap_or("").to_owned()
+                    }
+                    _ => function_arguments(call)?,
+                },
                 "call_id": call.call_id().as_str(),
                 "id": call.id().as_str(),
                 "name": call.tool().as_str(),
-                "status": "completed",
+                "status": item_status,
                 "type": "function_call"
             })),
             _ => return Err(StaticCodecError::UnsupportedSemantics),
         }
     }
+    let mut output = Value::Array(output);
+    apply_response_annotations(&mut output, response.semantic.extensions())?;
     let mut result = json!({
         "id": map_id(&response.source_id, "chatcmpl_", "resp_"),
         "model": public_model,
         "object": "response",
         "output": output,
-        "status": "completed"
+        "status": response_status
     });
+    for extension in response.semantic.extensions() {
+        match extension.kind().as_str() {
+            "response.annotations" => {}
+            "response.error" => {
+                let OpaquePayload::Json(payload) = extension.payload() else {
+                    return Err(StaticCodecError::UnsupportedSemantics);
+                };
+                result["error"] = payload.as_value().clone();
+            }
+            "response.incomplete_details" => {
+                let OpaquePayload::Json(payload) = extension.payload() else {
+                    return Err(StaticCodecError::UnsupportedSemantics);
+                };
+                result["incomplete_details"] = payload.as_value().clone();
+            }
+            _ => return Err(StaticCodecError::UnsupportedSemantics),
+        }
+    }
     if let Some(usage) = response.semantic.usage() {
         let mut encoded_usage = json!({
             "input_tokens": usage.input_tokens(),
@@ -515,27 +808,35 @@ fn decode_responses_message_content(
         .get("content")
         .and_then(Value::as_array)
         .ok_or(StaticCodecError::InvalidShape)?;
-    parts
-        .iter()
-        .map(|part| {
-            let part = part.as_object().ok_or(StaticCodecError::InvalidShape)?;
-            if part.get("type").and_then(Value::as_str) != Some("output_text") {
-                return Err(StaticCodecError::UnsupportedSemantics);
-            }
-            if let Some(annotations) = part.get("annotations") {
-                let annotations = annotations
-                    .as_array()
+    let mut content = Vec::new();
+    for part in parts {
+        let part = part.as_object().ok_or(StaticCodecError::InvalidShape)?;
+        match part.get("type").and_then(Value::as_str) {
+            Some("output_text") => {
+                if let Some(annotations) = part.get("annotations") {
+                    let annotations = annotations
+                        .as_array()
+                        .ok_or(StaticCodecError::InvalidShape)?;
+                    if annotations.iter().any(|value| !value.is_object()) {
+                        return Err(StaticCodecError::InvalidShape);
+                    }
+                }
+                let text = part
+                    .get("text")
+                    .and_then(Value::as_str)
                     .ok_or(StaticCodecError::InvalidShape)?;
-                if !annotations.is_empty() {
-                    return Err(StaticCodecError::UnsupportedSemantics);
+                if !text.is_empty() {
+                    content.push(ContentPart::text(text_value(text.to_owned(), max_bytes)?));
                 }
             }
-            Ok(ContentPart::text(text_value(
-                required_string(part, "text")?,
+            Some("refusal") => content.push(ContentPart::Refusal(text_value(
+                required_string(part, "refusal")?,
                 max_bytes,
-            )?))
-        })
-        .collect()
+            )?)),
+            _ => return Err(StaticCodecError::UnsupportedSemantics),
+        }
+    }
+    Ok(content)
 }
 
 fn decode_reasoning_parts(
@@ -679,7 +980,7 @@ fn validate_usage_total(input: u64, output: u64, total: u64) -> Result<(), Stati
 fn function_arguments(call: &ToolCall) -> Result<String, StaticCodecError> {
     match call.input() {
         ToolInput::Function(arguments) => Ok(Value::Object(arguments.as_map().clone()).to_string()),
-        ToolInput::Server(_) | ToolInput::Extension(_) => {
+        ToolInput::Server(_) | ToolInput::Extension(_) | ToolInput::IncompleteFunction(_) => {
             Err(StaticCodecError::UnsupportedSemantics)
         }
     }
@@ -706,15 +1007,23 @@ fn tool_call(
     ))
 }
 
-fn flatten_text(content: &[ContentPart]) -> Result<String, StaticCodecError> {
+fn message_text_and_refusal(
+    content: &[ContentPart],
+) -> Result<(String, Option<String>), StaticCodecError> {
     let mut text = String::new();
+    let mut refusal = None;
     for part in content {
         match part {
             ContentPart::Text(value) => text.push_str(value.text().as_str()),
+            ContentPart::Refusal(value) => {
+                if refusal.replace(value.as_str().to_owned()).is_some() || !text.is_empty() {
+                    return Err(StaticCodecError::UnsupportedSemantics);
+                }
+            }
             ContentPart::Resource(_) => return Err(StaticCodecError::UnsupportedSemantics),
         }
     }
-    Ok(text)
+    Ok((text, refusal))
 }
 
 fn allocate_item_id(call_id: &str, ordinal: usize, used: &mut BTreeSet<String>) -> String {

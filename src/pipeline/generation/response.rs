@@ -9,10 +9,8 @@ pub(crate) enum GenerationResponseMode {
     RejectInvalidMedia,
     /// Buffer one complete Responses SSE lifecycle and return its terminal JSON response.
     BufferResponsesSse,
-    /// Convert upstream SSE events through the selected Generation Bridge.
-    BridgeSse,
-    /// Validate and transparently forward Native upstream SSE events.
-    ValidateNativeSse,
+    /// Decode, reduce, and encode upstream SSE through the fixed Generation plan.
+    EncodeSse,
     /// Decode and render one bounded successful JSON body through the canonical Generation plan.
     RenderJson,
     /// Forward one non-success upstream body without Generation decoding.
@@ -25,7 +23,6 @@ pub(crate) struct GenerationResponseFacts {
     pub(crate) status_is_success: bool,
     pub(crate) downstream_streaming: bool,
     pub(crate) recognized_sse: bool,
-    pub(crate) preserve_source: bool,
     pub(crate) stream_response_conversion: Option<StreamResponseConversion>,
 }
 
@@ -51,13 +48,9 @@ pub(crate) fn classify_generation_response(
         return GenerationResponseMode::BufferResponsesSse;
     }
 
-    // Downstream streaming selects either cross-protocol encoding or Native source validation.
+    // Native and cross-protocol streams share the same IR validation and encoding handoff.
     if facts.downstream_streaming && facts.recognized_sse {
-        return if facts.preserve_source {
-            GenerationResponseMode::ValidateNativeSse
-        } else {
-            GenerationResponseMode::BridgeSse
-        };
+        return GenerationResponseMode::EncodeSse;
     }
 
     // Every successful non-streaming body is decoded by the canonical Generation plan.
@@ -73,7 +66,6 @@ mod tests {
             status_is_success: true,
             downstream_streaming: false,
             recognized_sse: false,
-            preserve_source: false,
             stream_response_conversion: None,
         }
     }
@@ -110,26 +102,14 @@ mod tests {
     }
 
     #[test]
-    fn streaming_bridge_uses_event_conversion() {
+    fn streaming_success_uses_event_encoding() {
         let mode = classify_generation_response(GenerationResponseFacts {
             downstream_streaming: true,
             recognized_sse: true,
             ..success_facts()
         });
 
-        assert_eq!(mode, GenerationResponseMode::BridgeSse);
-    }
-
-    #[test]
-    fn streaming_native_uses_sse_validation() {
-        let mode = classify_generation_response(GenerationResponseFacts {
-            downstream_streaming: true,
-            recognized_sse: true,
-            preserve_source: true,
-            ..success_facts()
-        });
-
-        assert_eq!(mode, GenerationResponseMode::ValidateNativeSse);
+        assert_eq!(mode, GenerationResponseMode::EncodeSse);
     }
 
     #[test]

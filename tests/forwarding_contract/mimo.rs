@@ -93,7 +93,10 @@ async fn mimo_native_image_inputs_are_preserved_for_both_protocols() {
         if let Some(expected_stream) = expected_stream {
             assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
             let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
-            assert_eq!(body.as_ref(), *expected_stream);
+            assert!(
+                support::sse::equivalent(&body, expected_stream),
+                "Native SSE events must match semantically"
+            );
         } else {
             let response: Value =
                 serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap())
@@ -211,7 +214,10 @@ async fn mimo_v25_chat_audio_understanding_preserves_bounded_wav_data_url() {
         assert_eq!(response.status(), StatusCode::OK, "{body}");
         let response_body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         if streaming {
-            assert_eq!(response_body.as_ref(), MIMO_CHAT_AUDIO_UNDERSTANDING_STREAM);
+            assert!(
+                support::sse::equivalent(&response_body, MIMO_CHAT_AUDIO_UNDERSTANDING_STREAM),
+                "Native SSE events must match semantically"
+            );
         } else {
             let response: Value = serde_json::from_slice(&response_body).unwrap();
             assert_eq!(response["object"], "chat.completion");
@@ -463,7 +469,9 @@ async fn mimo_audio_models_are_chat_native_and_keep_task_specific_wire() {
         } else {
             GENERATED_JSON
         };
-        assert_eq!(response_body.as_ref(), expected.as_bytes(), "{model}");
+        let actual: Value = serde_json::from_slice(&response_body).unwrap();
+        let expected: Value = serde_json::from_str(expected).unwrap();
+        assert_eq!(actual, expected, "{model}");
     }
 
     {
@@ -597,7 +605,10 @@ async fn mimo_audio_models_are_chat_native_and_keep_task_specific_wire() {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
         let response_body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
-        assert_eq!(response_body.as_ref(), expected_response.as_bytes());
+        assert!(
+            support::sse::equivalent(&response_body, expected_response.as_bytes()),
+            "Native SSE events must match semantically"
+        );
     }
 
     // Confirm the transport received every SSE request unchanged and in configured order.

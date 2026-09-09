@@ -171,6 +171,8 @@ impl ServerToolInput {
 pub enum ToolInput {
     /// Completed function arguments parsed as a bounded JSON object.
     Function(JsonObject),
+    /// Function arguments retained after a non-completed turn stopped mid-fragment.
+    IncompleteFunction(Option<TextValue>),
     /// Typed server-tool input.
     Server(ServerToolInput),
     /// Provider-private input accepted only by an explicit target profile.
