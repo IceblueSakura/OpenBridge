@@ -69,10 +69,14 @@
 
 - 确定性配置测试不证明 credential 有效、Provider 可达、OAuth authority/refresh 长期稳定、collector/sink 可用或生产日志保留策略正确。
 - 当前没有 OTLP logs、内置 Prometheus、dashboard/告警、metrics 历史数据库或多进程聚合。
-- 本地 JSONL content snapshot 是受控开发能力；没有生产敏感流量、资源开销、磁盘故障、负载或长期运行验收。
+- 本地 JSONL writer 已有 Linux `/dev/full` 真实写入失败、后续 snapshot 丢弃和有界 shutdown 回归；Router smoke 验证 JSON/SSE 业务响应保持不变。它仍没有生产敏感流量、真实磁盘耗尽、资源开销、负载或长期运行验收。
 - 当前没有真实 Provider wire dump；普通 telemetry 不用于计费准确性、Provider SLA 或业务正文审计。
 
 ## 6. 测试资产边界
+
+- 独立 OpenAI SDK 的 Native Responses JSON/SSE 两轮工具回传已通过[固定版本 loopback 验收](evidence/2026-09-09-openai-responses-sdk-loopback.md)；真实 Provider、Bridge、并行工具及完整 Agent runtime 未由该 gate 验证。
+- `forwarding_contract/resilience.rs` 的受控 producer 验证 SSE Body 按下游需求拉取、恢复消费和 drop 释放；带后台预读的负向控制会失败。该应用层回归不证明 TCP/HTTP2 背压、RSS 峰值或生产并发稳定性。
+
 
 当前确定性测试和 corpus 的覆盖入口包括 registry、routing、wire、Generation Static/Event IR lifecycle、SSE fragmentation、retry/fallback/cooldown、取消，以及canonical wire case 经过 production Router 的目录驱动回放（`tests/catalog_replay_contract.rs`）；这些入口不等于当前运行结果，也不证明：
 

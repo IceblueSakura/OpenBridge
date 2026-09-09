@@ -7,7 +7,8 @@
 - V4 Pro、V4 Flash 和 V4 Flash Vision Exp 注册 Chat/Responses Native；Vision 的 inline executable profile 保守限制为累计 decoded 32 MiB。
 - Vision Files API/`file_id`、role/像素边界本地预检、600 图与 remote/mixed 64 MiB 极限、任意 remote host 可下载性、恶意图片、视觉质量和高阶多能力组合未证明。
 - Pro 记录官方 `low/high/max` 档位；普通 endpoint 不公开仅 `/beta` 保证的 function strict schema。
-- 2026-09-02 矩阵中 Vision Exp 仅接受 `tool_choice` auto/none，required/named/strict 与 `parallel_tool_calls` 显式控制全部 400；Chat json-schema 400、Responses json-schema 接受但不强制，与注册收窄一致。该 Target 的工具选择模式声明疑似过宽，待独立获准变更复核。
+- Vision 的 Chat/Responses tool choice 已按[独立复测](../evidence/2026-09-09-deepseek-vision-tool-choice.md)收窄为 auto/none；required/named 在本地预检拒绝。其他 Target 不随之收窄。
+- 旧矩阵的 strict/parallel case 同时发送 required，其 400 不构成独立 strict/parallel 结论。Responses JSON Schema 接受但不强制的历史观察仍按原证据边界理解，本次未调整 structured output。
 
 ## 验证与证据入口
 

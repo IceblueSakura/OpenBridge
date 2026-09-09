@@ -191,6 +191,18 @@ fn utc_date_string() -> String {
 mod tests {
     use super::*;
     use http::{HeaderMap, HeaderValue};
+    #[cfg(target_os = "linux")]
+    use std::os::unix::fs::symlink;
+
+    #[cfg(target_os = "linux")]
+    struct OwnedTempDirectory(PathBuf);
+
+    #[cfg(target_os = "linux")]
+    impl Drop for OwnedTempDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     fn temp_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
@@ -200,6 +212,11 @@ mod tests {
         ));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[cfg(target_os = "linux")]
+    fn owned_temp_dir() -> OwnedTempDirectory {
+        OwnedTempDirectory(temp_dir())
     }
 
     #[test]
@@ -241,5 +258,53 @@ mod tests {
         assert_eq!(rows[1]["kind"], "request_body");
         assert_eq!(rows[1]["body_text"], "line 1\nline 2");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn isolates_a_runtime_sink_write_failure_and_bounds_shutdown() {
+        assert!(Path::new("/dev/full").exists());
+        let directory = owned_temp_dir();
+        // Cover a UTC rollover during this bounded test without changing the production clock.
+        let now = time::OffsetDateTime::now_utc();
+        for date in [now.date(), (now + time::Duration::days(1)).date()] {
+            symlink("/dev/full", directory.0.join(format!("http-{date}.jsonl"))).unwrap();
+        }
+
+        let writer = HttpJsonlWriter::new_with_capacity(directory.0.clone(), 1).unwrap();
+        let unhealthy = Arc::clone(&writer.unhealthy);
+        assert!(writer.try_enqueue(JsonlRecord::request_body(
+            "request-full",
+            b"not persisted",
+            13,
+            true,
+            false,
+        )));
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !unhealthy.load(Ordering::Acquire) {
+            assert!(
+                Instant::now() < deadline,
+                "writer did not report /dev/full failure"
+            );
+            thread::yield_now();
+        }
+
+        assert!(!writer.try_enqueue(JsonlRecord::request_body(
+            "request-after-failure",
+            b"dropped",
+            7,
+            true,
+            false,
+        )));
+        // A FIFO shutdown must remain bounded even after real sink I/O has failed.
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let _ = done_tx.send(writer.shutdown());
+        });
+        let result = done_rx
+            .recv_timeout(SHUTDOWN_TIMEOUT * 3)
+            .expect("failed writer shutdown must not hang");
+        assert!(result.is_err());
     }
 }

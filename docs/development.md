@@ -54,6 +54,16 @@ uv run --project tools/corpus corpus --root testdata lint
 
 数据格式和发布规则见 [testdata README](../testdata/README.md)，语义测试流程与独立验收边界见 [semantic testing](../testdata/semantic-testing.md)。只修改这些目录中的说明文档时仍按文档验证处理，不因目录名称自动运行全部测试。
 
+### 独立 OpenAI SDK Responses 验收
+
+```sh
+uv run --no-project --with openai==3.10.0 cargo test --locked --test openai_responses_sdk_loopback -- --ignored --nocapture --test-threads=1
+```
+
+此 gate 默认 ignored，显式通过 uv 提供固定 SDK；Rust 测试直接启动该环境中的 Python，或使用 `OPENBRIDGE_SDK_PYTHON` 指定解释器。依赖下载在测试外完成，不加入 corpus 或 Cargo 的默认依赖。
+
+`tests/sdk/openai_responses_tool_loop.py` 通过 production Router 与 synthetic upstream 的 loopback socket 完成 JSON/SSE 两轮工具回传；独立上游 oracle 检查历史、call_id、工具结果和 wire，客户端检查 SDK 解析、delta、终态和 usage。缺失 call_id 与错误结果提供负向控制。SDK 禁用重试、环境代理和重定向，仅接受 literal loopback HTTP 地址；不读取私有配置，不调用真实 Provider，也不证明模型工具选择质量或完整 Agent 兼容。
+
 ### 文档与指引
 
 - 检查 Markdown 文件链接、本地锚点、移动后的旧路径和入口可达性。

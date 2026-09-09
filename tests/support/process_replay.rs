@@ -131,7 +131,10 @@ pub(crate) async fn start_gateway_with_definition(
             .expect("replay registry must be valid");
     let transport = LoopbackReplayTransport {
         base_url: format!("http://{upstream_address}"),
-        client: reqwest::Client::new(),
+        client: reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("loopback client must ignore environment proxies"),
     };
     let (users, credentials) = super::users_and_credentials(
         "downstream-token-0000000000000000",

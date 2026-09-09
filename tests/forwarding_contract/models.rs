@@ -3,6 +3,128 @@
 use super::*;
 
 #[tokio::test]
+async fn target_tool_choice_restriction_is_public_and_rejected_before_egress() {
+    // Exercise the observed direct-API restriction through production registration and preflight.
+    let transport = Arc::new(MimoImageTransport::default());
+    let bootstrap = support::bootstrap(support::BOOTSTRAP);
+    let registry = build_compiled_registry_with_active_pools(
+        bootstrap,
+        &std::collections::BTreeSet::from(["deepseek-primary".to_owned()]),
+    )
+    .unwrap();
+    let (users, credentials) = support::users_and_credentials(
+        "downstream-token-00000000000000000000000000000000",
+        &registry,
+        "upstream-token",
+    );
+    let app = build_router(GatewayState::new(
+        Arc::new(registry),
+        transport.clone(),
+        users,
+        credentials,
+    ));
+    let model = "deepseek-v4-flash-vision-exp";
+    let tool = serde_json::json!({
+        "name": "lookup", "parameters": {"type": "object", "properties": {}}
+    });
+    for (path, protocol) in [
+        ("/v1/chat/completions", "chat_completions"),
+        ("/v1/responses", "responses"),
+    ] {
+        let mut body = serde_json::json!({"model": model, "stream": false});
+        if protocol == "chat_completions" {
+            body["messages"] = serde_json::json!([{"role": "user", "content": "hello"}]);
+            body["tools"] = serde_json::json!([{"type": "function", "function": tool}]);
+        } else {
+            body["input"] = serde_json::json!("hello");
+            let mut response_tool = tool.clone();
+            response_tool["type"] = serde_json::json!("function");
+            body["tools"] = serde_json::json!([response_tool]);
+        }
+        let named = if protocol == "chat_completions" {
+            serde_json::json!({"type": "function", "function": {"name": "lookup"}})
+        } else {
+            serde_json::json!({"type": "function", "name": "lookup"})
+        };
+
+        // A rejected tool mode must not reach transport, regardless of advertised delivery.
+        for choice in [serde_json::json!("required"), named] {
+            for streaming in [false, true] {
+                body["tool_choice"] = choice.clone();
+                body["stream"] = serde_json::json!(streaming);
+                transport.requests.lock().unwrap().clear();
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::post(path)
+                            .header(
+                                AUTHORIZATION,
+                                "Bearer downstream-token-00000000000000000000000000000000",
+                            )
+                            .header(CONTENT_TYPE, "application/json")
+                            .body(Body::from(body.to_string()))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    StatusCode::BAD_REQUEST,
+                    "{protocol} {choice}"
+                );
+                let error: Value =
+                    serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap())
+                        .unwrap();
+                assert_eq!(error["error"]["param"], "tool_choice");
+                assert!(transport.requests.lock().unwrap().is_empty());
+            }
+        }
+
+        // Keep the actionable Models contract aligned without narrowing sibling targets.
+        let public =
+            compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{model}")).await;
+        assert_eq!(
+            public["interfaces"][protocol]["tools"]["tool_choice_modes"],
+            serde_json::json!(["none", "auto"])
+        );
+        let sibling =
+            compiled_authenticated_get(&app, "/openbridge/v1/models/deepseek-v4-flash").await;
+        assert!(
+            sibling["interfaces"][protocol]["tools"]["tool_choice_modes"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("required"))
+        );
+
+        // Accepted controls still reach the same Native wire unchanged.
+        body["stream"] = serde_json::json!(false);
+        for choice in ["auto", "none"] {
+            body["tool_choice"] = serde_json::json!(choice);
+            transport.requests.lock().unwrap().clear();
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post(path)
+                        .header(
+                            AUTHORIZATION,
+                            "Bearer downstream-token-00000000000000000000000000000000",
+                        )
+                        .header(CONTENT_TYPE, "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            to_bytes(response.into_body(), 65536).await.unwrap();
+            let recorded = transport.requests.lock().unwrap();
+            assert_eq!(recorded.len(), 1);
+            assert_eq!(recorded[0].body["tool_choice"], choice);
+        }
+    }
+}
+
+#[tokio::test]
 async fn models_endpoints_preserve_public_projection_and_hide_topology() {
     let app = app_with_transport(Arc::new(RecordingTransport::default()));
 

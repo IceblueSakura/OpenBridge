@@ -766,6 +766,87 @@ async fn bootstrap_switches_emit_complete_local_http_boundaries_with_sensitive_h
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
+async fn failing_jsonl_sink_preserves_json_and_sse_business_responses() {
+    // Own only the temporary directory; /dev/full provides a real write failure without disk exhaustion.
+    struct OwnedDirectory(std::path::PathBuf);
+    impl Drop for OwnedDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    for streaming in [false, true] {
+        let directory = OwnedDirectory(std::env::temp_dir().join(format!(
+            "openbridge-sink-failure-{}-{}",
+            std::process::id(),
+            time::OffsetDateTime::now_utc().unix_timestamp_nanos()
+        )));
+        std::fs::create_dir(&directory.0).unwrap();
+        // Link both dates so an ordinary UTC midnight does not bypass the failure sink.
+        let now = time::OffsetDateTime::now_utc();
+        for date in [now.date(), (now + time::Duration::days(1)).date()] {
+            std::os::unix::fs::symlink("/dev/full", directory.0.join(format!("http-{date}.jsonl")))
+                .unwrap();
+        }
+        let transport: Arc<dyn UpstreamTransport> = if streaming {
+            Arc::new(ProviderMetricsStreamingTransport)
+        } else {
+            Arc::new(ContentLoggingTransport)
+        };
+        let body = if streaming {
+            r#"{"model":"code-primary","messages":[{"role":"user","content":"synthetic"}],"stream":true}"#
+        } else {
+            r#"{"model":"code-primary","messages":[{"role":"user","content":"synthetic"}],"stream":false}"#
+        };
+        let (baseline, _) = app_with_transport(transport.clone());
+        let response = baseline.oneshot(request(body)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let expected_type = response.headers()[CONTENT_TYPE].clone();
+        let expected = to_bytes(response.into_body(), 4096).await.unwrap();
+        let bootstrap = format!(
+            "{}\n[logging]\nhttp_jsonl_directory = {:?}\nrequest_headers = true\nrequest_body = true\nresponse_headers = true\nresponse_body = true\n",
+            support::BOOTSTRAP,
+            directory.0
+        );
+        let (app, metrics, writer) = app_with_transport_and_bootstrap(transport, &bootstrap);
+
+        // The first request triggers real I/O failure; a drained shutdown acknowledges that failure.
+        for after_shutdown in [false, true] {
+            let response =
+                tokio::time::timeout(Duration::from_secs(2), app.clone().oneshot(request(body)))
+                    .await
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[CONTENT_TYPE], expected_type);
+            let actual =
+                tokio::time::timeout(Duration::from_secs(2), to_bytes(response.into_body(), 4096))
+                    .await
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(actual, expected);
+            if !after_shutdown {
+                let shutdown = writer.clone();
+                let result = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    tokio::task::spawn_blocking(move || shutdown.shutdown()),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                assert!(
+                    result.is_err(),
+                    "the test must actually hit the failing sink"
+                );
+            }
+        }
+        // Rejected snapshots do not alter downstream completion classification.
+        assert_eq!(metrics.snapshot().requests_completed, 2);
+        assert_eq!(metrics.snapshot().requests_failed, 0);
+    }
+}
+
+#[tokio::test]
 async fn local_http_logging_switches_do_not_enable_adjacent_dimensions() {
     let logs = LogBuffer::default();
     let subscriber = tracing_subscriber::fmt()

@@ -36,6 +36,9 @@ credential 有效、账号 entitlement、Provider 可达、配额或真实模型
 
 ## 3. 外部验收入口
 
+固定 OpenAI Python SDK 的 Native Responses JSON/SSE 工具续轮已有显式 loopback gate：`tests/openai_responses_sdk_loopback.rs`，默认 ignored；[执行证据](evidence/2026-09-09-openai-responses-sdk-loopback.md)只证明对应 SDK 与 synthetic Router 路径，不证明真实 Provider 工具质量。
+
+
 外部记录固定于当时的 checkout、账号、区域、网络、endpoint、model ID 和 payload；它们不承担当前能力所有权。
 
 具体记录及其覆盖范围由[evidence 索引](evidence/README.md)维护；各 Provider 页只解释与当前接入相关的证据和未验证边界，本页不复制记录清单。

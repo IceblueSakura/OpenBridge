@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    core::{ExecutableResponsesState, ResponsesAffinity, StorageSupport},
+    core::{ExecutableResponsesState, ResponsesAffinity, StorageSupport, ToolChoiceMode},
     models::deepseek,
     provider::ProviderKind,
     registry::{
@@ -58,16 +58,24 @@ fn target(
     credential_id: &str,
 ) -> UpstreamTargetConfig {
     // Resolve the Chat profile required by every DeepSeek target.
-    let image_input =
-        (canonical_model == deepseek::deepseek_v4_flash_vision_exp::ID).then_some(IMAGE_INPUT);
-    let chat_capabilities = DEFINITION
+    let is_vision = canonical_model == deepseek::deepseek_v4_flash_vision_exp::ID;
+    let image_input = is_vision.then_some(IMAGE_INPUT);
+    let mut chat_capabilities = DEFINITION
         .contract()
         .capabilities()
         .operation(crate::core::OperationKind::ChatCompletions)
         .and_then(crate::core::ProviderOperationCapabilities::chat_completions)
         .expect("DeepSeek targets require Chat Completions capabilities")
         .to_executable(crate::core::ChatMediaProfile::new(image_input, None, None));
-    let is_vision = canonical_model == deepseek::deepseek_v4_flash_vision_exp::ID;
+    // Narrow only this Target: direct JSON/SSE rejected forced choices in both protocols.
+    // Evidence: docs/implementation-status/evidence/2026-09-09-deepseek-vision-tool-choice.md.
+    if is_vision {
+        chat_capabilities
+            .function_tools
+            .as_mut()
+            .expect("DeepSeek generation profile supports function tools")
+            .choice_modes = &[ToolChoiceMode::None, ToolChoiceMode::Auto];
+    }
     let mut unsupported_parameters = vec!["include_reasoning"];
     // Pro/Flash canonical facts include these direct-API exclusions; Vision does not expose them,
     // so adding them to Vision model rules would violate registry validation as unknown parameters.
@@ -107,7 +115,7 @@ fn target(
         capabilities: UpstreamApiCapabilities::ChatCompletions(chat_capabilities),
         streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
     }];
-    let responses_capabilities = DEFINITION
+    let mut responses_capabilities = DEFINITION
         .contract()
         .capabilities()
         .operation(crate::core::OperationKind::Responses)
@@ -117,6 +125,14 @@ fn target(
             ExecutableResponsesState::new(StorageSupport::Unsupported, ResponsesAffinity::Unbound),
             crate::core::ResponsesMediaProfile::new(image_input, None),
         );
+    // Keep the Responses restriction aligned without changing the Provider-wide ceiling.
+    if is_vision {
+        responses_capabilities
+            .function_tools
+            .as_mut()
+            .expect("DeepSeek generation profile supports function tools")
+            .choice_modes = &[ToolChoiceMode::None, ToolChoiceMode::Auto];
+    }
     upstream_apis.push(UpstreamApiConfig {
         key: UpstreamApiKey::new(
             crate::core::OperationKind::Responses,

@@ -2,6 +2,13 @@
 
 use super::*;
 
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use futures_util::Stream;
+
 fn chat_to_responses_bridge_definition() -> RegistryConfig {
     let mut definition = streaming_definition("bridge-precommit", "public-model", "upstream-model");
     let route = definition
@@ -38,6 +45,90 @@ fn responses_stream_with_invisible_events(count: usize) -> Bytes {
          data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bridge\",\"status\":\"completed\"}}\n\n",
     );
     Bytes::from(stream)
+}
+
+struct DemandDrivenSseTransport {
+    polls: Arc<AtomicUsize>,
+    dropped: Arc<AtomicBool>,
+    release: Arc<AtomicBool>,
+    wake: Arc<futures_util::task::AtomicWaker>,
+}
+
+struct DemandDrivenSseBody {
+    polls: Arc<AtomicUsize>,
+    dropped: Arc<AtomicBool>,
+    release: Arc<AtomicBool>,
+    wake: Arc<futures_util::task::AtomicWaker>,
+    stage: u8,
+}
+
+impl Drop for DemandDrivenSseBody {
+    fn drop(&mut self) {
+        self.dropped.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Stream for DemandDrivenSseBody {
+    type Item = Result<Bytes, std::io::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.wake.register(cx.waker());
+        self.polls.fetch_add(1, Ordering::SeqCst);
+        let bytes = match self.stage {
+            0 => {
+                self.stage = 1;
+                Bytes::from_static(
+                    b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_demand\",\"status\":\"in_progress\"}}\n\n",
+                )
+            }
+            1 => {
+                if !self.release.load(Ordering::SeqCst) {
+                    return Poll::Pending;
+                }
+                self.stage = 2;
+                return Poll::Ready(Some(Ok(Bytes::from_static(
+                    b"event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_demand\",\"status\":\"in_progress\"}}\n\n",
+                ))));
+            }
+            2 => {
+                self.stage = 3;
+                Bytes::from_static(
+                    b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_demand\",\"status\":\"completed\"}}\n\n",
+                )
+            }
+            _ => return Poll::Ready(None),
+        };
+        Poll::Ready(Some(Ok(bytes)))
+    }
+}
+
+impl UpstreamTransport for DemandDrivenSseTransport {
+    fn send<'a>(
+        &'a self,
+        _target: &'a UpstreamTarget,
+        _request: PreparedUpstreamRequest,
+        _headers: HeaderMap,
+    ) -> BoxFuture<'a, Result<UpstreamResponse, TransportError>> {
+        let polls = Arc::clone(&self.polls);
+        let dropped = Arc::clone(&self.dropped);
+        let release = Arc::clone(&self.release);
+        let wake = Arc::clone(&self.wake);
+        Box::pin(async move {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            Ok(UpstreamResponse::new(
+                StatusCode::OK,
+                headers,
+                Body::from_stream(DemandDrivenSseBody {
+                    polls,
+                    dropped,
+                    release,
+                    wake,
+                    stage: 0,
+                }),
+            ))
+        })
+    }
 }
 
 #[tokio::test]
@@ -661,6 +752,75 @@ async fn dropping_the_downstream_stream_cancels_the_pending_upstream_stream() {
 
     assert_eq!(response.status(), StatusCode::OK);
     drop(response);
+    assert!(dropped.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn sse_body_pulls_only_on_downstream_demand_and_drops_the_source() {
+    let polls = Arc::new(AtomicUsize::new(0));
+    let dropped = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let wake = Arc::new(futures_util::task::AtomicWaker::new());
+    let app = app_with_streaming_transport(Arc::new(DemandDrivenSseTransport {
+        polls: polls.clone(),
+        dropped: dropped.clone(),
+        release: release.clone(),
+        wake: wake.clone(),
+    }));
+    let request = Request::post("/v1/responses")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, "Bearer downstream-token-0000000000000000")
+        .body(Body::from(
+            r#"{"model":"public-model","input":"hello","stream":true}"#,
+        ))
+        .unwrap();
+
+    let response = tokio::time::timeout(Duration::from_secs(1), app.oneshot(request))
+        .await
+        .expect("precommit must not pull a second SSE event")
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let precommit_polls = polls.load(Ordering::SeqCst);
+    assert!(precommit_polls > 0);
+
+    let mut body = response.into_body().into_data_stream();
+    let first = body
+        .next()
+        .await
+        .expect("precommitted SSE event")
+        .expect("precommitted SSE bytes");
+    assert!(
+        first
+            .windows(b"response.created".len())
+            .any(|window| { window == b"response.created" })
+    );
+    assert_eq!(polls.load(Ordering::SeqCst), precommit_polls);
+
+    // Make more data ready and wake any eager reader while withholding downstream demand.
+    release.store(true, Ordering::SeqCst);
+    wake.wake();
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
+    assert_eq!(polls.load(Ordering::SeqCst), precommit_polls);
+    let continued = body
+        .next()
+        .await
+        .expect("demanded SSE continuation")
+        .expect("demanded SSE bytes");
+    assert!(
+        continued
+            .windows(b"response.in_progress".len())
+            .any(|window| { window == b"response.in_progress" })
+    );
+    let consumed_polls = polls.load(Ordering::SeqCst);
+    assert!(consumed_polls > precommit_polls);
+    // The ready terminal must remain unpulled until another downstream demand.
+    wake.wake();
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
+    assert_eq!(polls.load(Ordering::SeqCst), consumed_polls);
+
+    drop(body);
     assert!(dropped.load(Ordering::SeqCst));
 }
 

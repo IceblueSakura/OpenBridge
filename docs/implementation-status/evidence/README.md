@@ -17,6 +17,8 @@
 
 | 日期 | 记录 | 覆盖范围 |
 |---|---|---|
+| 2026-09-09 | [OpenAI SDK Responses loopback](2026-09-09-openai-responses-sdk-loopback.md) | 固定官方 SDK 的 JSON/SSE 工具续轮、独立 wire oracle 与负向控制；无真实 Provider |
+| 2026-09-09 | [DeepSeek Vision tool choice](2026-09-09-deepseek-vision-tool-choice.md) | auto/none 对照与 required/named 拒绝的双协议 JSON/SSE 复测；Target 收窄依据 |
 | 2026-09-02 | [双协议能力探测记录](2026-09-02-dual-protocol-capability-matrix.md) | DeepSeek V4 Flash Vision、MiMo-V2.5、GLM-5.3-Flash、Qwen3.8-Max 的双协议 × 双交付固定 case；包含与注册声明的差异 |
 | 2026-08-29 | [Bailian DeepSeek V4 Pro Responses 接入验证](2026-08-29-bailian-deepseek-v4-pro-responses.md) | 官方北京 Responses 声明、Target 注册修复、管理员 JSON/SSE probe 与本地下游 OpenAI SDK 请求 |
 | 2026-08-29 | [OpenBridge Qwen3.7 Embeddings 与 Hindsight 兼容性验证](2026-08-29-openbridge-qwen37-embeddings-hindsight-compatibility.md) | 模型发现、float/维度、20/21 batch、归一化/稳定性、中英语义小样本，以及 Hindsight SDK Base64/user 阻断与本地修复边界 |
