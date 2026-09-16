@@ -12,7 +12,7 @@
 ## 验证与证据入口
 
 - [2026-09-02 双协议能力探测矩阵](../evidence/2026-09-02-dual-protocol-capability-matrix.md)
-- 2026-08-31 有界管理员 probe 覆盖 Chat；2026-09-01 的 MiMo-V2.5 JSON/SSE Gateway 验收保留在本页，未另建重复 probe 报告。
+- 2026-08-31 有界管理员 probe 覆盖 Chat；2026-09-01 的 MiMo-V2.5 JSON/SSE Gateway 验收见本页。
 - 官方模型事实来源见 [references/providers/xiaomi-api.md](../../references/providers/xiaomi-api.md)、[xiaomi-image.md](../../references/providers/xiaomi-image.md)、[xiaomi-audio.md](../../references/providers/xiaomi-audio.md)。
 
 ## 代码 owner

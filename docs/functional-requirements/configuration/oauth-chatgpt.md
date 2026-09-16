@@ -33,7 +33,7 @@ OpenBridge 不搜索或导入 Codex 用户目录，不调用 Codex executable/ap
    client identity 或 header override selector。
 7. ChatGPT adapter 只接受 `stream:true` 的 Responses 请求，将标准字符串 `input` 收窄为等价 user message 数组，保持
    `store:false`，并在 egress 前拒绝当前 backend 不接受的输出 token limit 字段。通用 planning 已在进入 adapter 前按客户端优先、
-   项目默认回落的统一规则写入 `instructions`；ChatGPT 不再拥有专属配置、context 或覆盖 hook。
+   项目默认回落的统一规则写入 `instructions`；ChatGPT 没有专属配置、context 或覆盖 hook。
 8. token、账户、locator、JWT payload 和完整 auth record 不进入 report、日志、metric、Debug 或错误。
 
 常驻服务的数据面只能取得 manager 发布的短生命周期、账户绑定 credential lease。它不能读取 auth locator 或完整 bundle，也不能把

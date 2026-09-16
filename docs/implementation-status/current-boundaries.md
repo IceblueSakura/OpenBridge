@@ -33,7 +33,7 @@
 ### Embeddings
 
 - 当前只有单 Route Native execution；没有跨 Route fallback、Bridge、数值向量转换、缓存、索引或检索。`bailian/qwen3-7-text-embedding` 的 target/API-scoped float32/Base64 wire re-encoding 只改变表示，不执行归一化、降维或模型转换。
-- Qwen Embeddings 与 Hindsight 的历史 Base64 阻断及修复边界见[Bailian 证据](evidence/2026-08-29-openbridge-qwen37-embeddings-hindsight-compatibility.md)。修复后的部署态、完整 Hindsight runtime、语义 benchmark、生产配额、负载和长期网络可用性仍未验证。
+- Qwen Embeddings 与 Hindsight 的 Base64 兼容边界见[Bailian 证据](evidence/2026-08-29-openbridge-qwen37-embeddings-hindsight-compatibility.md)。该证据未覆盖的部署态、完整 Hindsight runtime、语义 benchmark、生产配额、负载和长期网络可用性仍未验证。
 
 ### Native 图片、文件与音频
 

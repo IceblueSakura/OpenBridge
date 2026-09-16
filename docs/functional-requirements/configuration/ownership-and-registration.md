@@ -14,13 +14,13 @@
 schema v3 要求 `max_request_body`、`max_json_response_body`、`max_replay_body` 与
 `max_sse_event` 使用“正整数紧邻显式、大小写敏感 SI/IEC byte 单位”的字符串并解析为非零 byte 上限；`upstream_connect_timeout` 与
 `upstream_pool_idle_timeout` 使用带单位的 duration 字符串并解析为非零 `Duration`。配置应优先使用明确的 IEC 单位
-`KiB`、`MiB`、`GiB` 以及时间单位 `ms`、`s`、`m`、`h`，不得接受旧 `_bytes`/`_ms` 字段或 unitless 数字。
+`KiB`、`MiB`、`GiB` 以及时间单位 `ms`、`s`、`m`、`h`，不得接受 `_bytes`/`_ms` 字段名或 unitless 数字。
 Replay limit 不得大于 request limit；各字段职责独立，不互相提供缺省或回退。
 
 `default_instructions` 是项目级 Bootstrap 字符串；只要启动编译结果保留至少一个可执行的通用 Generation Chat/Responses
 interface，它就必须存在且不能是空字符串或纯空白。该值只在客户端没有有效指令来源时回落，并在候选展开前统一写入 canonical
 request；它不是 Provider-owned hook，也不要求 canonical Model 重复声明。只有 Embeddings 或专用 ASR/TTS/voice task 可执行时不制造
-该要求。旧 `chatgpt_instructions` 因严格 schema 直接拒绝，不提供 alias 或双写。
+该要求。`chatgpt_instructions` 不在 schema 内，严格解析直接拒绝，不提供 alias 或双写。
 
 当前只允许 `OPENBRIDGE_CONFIG` 改变 bootstrap 文件位置；两份私有 credential 文件位置由 bootstrap 固定。不存在
 `OPENBRIDGE_ROUTES_CONFIG`，CLI 也不能注入 Provider、URL、header、model id 或转换规则。
@@ -56,7 +56,7 @@ signal path 固定为 `/v1/traces` 或 `/v1/metrics`，exporter 不得成为 Pro
   pool，但不能跨 Provider 或 credential kind 复用；
 - Upstream Target 引用一个 Provider 实例，并绑定 Model、credential pool、timeout 和共享故障边界；
 - 每个 Upstream Target 对每个 `OperationKind` 最多注册一个 Upstream API；API 的 capabilities variant 是 operation 的唯一事实源，
-  transport 由 operation 固定，API 不再拥有字符串 ID 或 endpoint profile；
+  transport 由 operation 固定，API 不携带字符串 ID 或 endpoint profile；
 - Upstream API 独立声明一个 operation 的 upstream model、served limit、能力，以及可选的 canonical reasoning level 到安全上游
   wire 值的显式映射；Responses executable profile 以 `Unbound | TargetBound | TargetBoundContinuation` 判别联合拥有状态归属，
   其中 `TargetBoundContinuation` 仅供启动校验使用，不贡献任何公开能力（有状态 API 是永久非目标），

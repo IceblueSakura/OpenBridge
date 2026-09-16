@@ -86,7 +86,7 @@ literal retrieval 是 addressability control，不能单独代表有效推理长
 
 ### 测试目标分层
 
-`semantic-cases/` 的 task/oracle 原本面向模型任务结果，不能直接当作网关不变量。例如 `tool_choice:required` 的转换测试应证明选择约束到达上游，不应要求网关强制模型生成 tool call；context 检索与澄清措辞也不是转换算法的验收。
+`semantic-cases/` 的 task/oracle 面向模型任务结果，不直接构成网关不变量。例如 `tool_choice:required` 的转换测试应证明选择约束到达上游，不应要求网关强制模型生成 tool call；context 检索与澄清措辞也不是转换算法的验收。
 
 网关默认回归按独立转换机制选择 synthetic 场景，只复用任务中的固定数据，不运行模型评测或全部 case × direction × stream 的笛卡尔矩阵。请求投影与响应解析不得调用 production codec 生成 expected，也不得把当前错误输出改成正确 oracle。
 

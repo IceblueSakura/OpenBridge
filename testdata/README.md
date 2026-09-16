@@ -4,13 +4,13 @@
 失败的输入、上游 wire 与预期输出；它不启动 OpenBridge，也不依赖 Rust crate、服务配置、API key 或真实 Provider。
 
 当前 release 为 **0.9.0**：51 个人工审查的 canonical wire cases（26 `accepted`、25 `reviewed`）、14 个协议无关 semantic
-cases（6 `accepted`、8 `reviewed`），以及默认 seed 下 342 个可重建的 SSE 分片变体。该版本按生产 Router 的实测行为校准
-artifact：native 成功路径的 `expected-client-*` 改为逐字节透传上游响应（`model` 保持上游值、不注入合成 event），
-`expected-upstream-request.json` 重新生成以包含生产的 `instructions` 与 `store` 归一化，transport 失败消息与
-SSE framing artifact 对齐实测字节；`schema_version` 仍为 `0.1`。项目语义测试流程见 [semantic-testing.md](semantic-testing.md)。
+cases（6 `accepted`、8 `reviewed`），以及默认 seed 下 342 个可重建的 SSE 分片变体。native 成功路径的
+`expected-client-*` 与上游响应逐字节一致（`model` 保持上游值、不注入合成 event）；`expected-upstream-request.json`
+包含生产的 `instructions` 与 `store` 归一化；transport 失败消息与 SSE framing artifact 固定为实测字节。
+`schema_version` 为 `0.1`。项目语义测试流程见 [semantic-testing.md](semantic-testing.md)。
 
-配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)
-。当前已验证状态和集成边界见[当前实现](../docs/implementation-status/current-state.md)和
+配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)。当前已验证状态和集成边界见
+[当前实现](../docs/implementation-status/current-state.md)和
 [当前状态边界](../docs/implementation-status/current-boundaries.md#6-测试资产边界)。
 
 ## 何时使用

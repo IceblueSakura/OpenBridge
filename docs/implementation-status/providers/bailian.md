@@ -6,7 +6,7 @@
 
 - Qwen3.8 Max、Qwen3.8 27B、Qwen3.7 Max、Qwen3.7 Plus、DeepSeek V4 Pro 0813 与 DeepSeek V4 Flash 0731 注册为双 Native；Kimi K3 为 Chat-only，图片 Targets 为 Images Generations。
 - 2026-08-27 的北京 Responses 对比确认三模型基础 JSON/SSE、usage 和第一轮工具 wire；统一冲突提示下三模型均忽略 `text.format=json_object/json_schema`，且未执行 `parallel_tool_calls=false`。GLM-5.2 另有高 reasoning 400 与标准工具续轮 arguments 类型冲突，当前继续只走 Chat bridge。
-- Bailian Chat structured output 按官方模型范围公开；Responses structured output 继续收窄：仅 Qwen3.7 Plus 公开 JSON Object，其他 Responses Target 不公开。Qwen/DeepSeek Responses 的 `parallel_calls=false` 不是 serial-only 保证。
+- Bailian Chat structured output 按官方模型范围公开；Responses structured output 保持收窄：仅 Qwen3.7 Plus 公开 JSON Object，其他 Responses Target 不公开。Qwen/DeepSeek Responses 的 `parallel_calls=false` 不是 serial-only 保证。
 - Responses Session cache 只证明固定 header 进入受信 egress，不证明 cache hit、TTL、节省成本、Provider 保留策略或 429 下延迟改善。
 - LiveTranslate 没有下游 executable interface；Images I2I、async、stream、`b64_json` 未实现。其他账号/区域、质量、计费、负载和长期运行不在这些记录覆盖内。
 
