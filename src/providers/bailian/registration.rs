@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::{
     core::{
         EmbeddingEncodingPolicy, ExecutableResponsesState, JsonSchemaSupport, ReasoningOutput,
-        ResponsesAffinity, StorageSupport, StructuredOutputProfile,
+        ResponsesAffinity, StorageSupport, StructuredOutputProfile, ToolChoiceMode,
     },
     models::{deepseek, moonshotai, qwen, z_ai},
     provider::ProviderKind,
@@ -27,6 +27,11 @@ const CREDENTIAL_POOL_ID: &str = "bailian-primary";
 const JSON_OBJECT_STRUCTURED_OUTPUTS: StructuredOutputProfile = StructuredOutputProfile::JsonObject;
 const QWEN_MAX_STRUCTURED_OUTPUTS: StructuredOutputProfile =
     StructuredOutputProfile::JsonObjectAndJsonSchema(JsonSchemaSupport::StrictSupported);
+const GLM_CHAT_TOOL_CHOICE_MODES: &[ToolChoiceMode] = &[
+    ToolChoiceMode::None,
+    ToolChoiceMode::Auto,
+    ToolChoiceMode::Required,
+];
 
 /// Builds the trusted Model Studio Beijing deployment used by approved Targets.
 pub(crate) fn provider_instance() -> ProviderInstanceConfig {
@@ -46,13 +51,19 @@ pub(crate) fn native_provider_instance() -> ProviderInstanceConfig {
     }
 }
 
-/// Builds the fixed GLM-5.2, Qwen, Kimi, and DeepSeek V4 targets for Model Studio.
+/// Builds the fixed GLM-5.2/5.3, Qwen, Kimi, and DeepSeek V4 targets for Model Studio.
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         chat_target(
             "bailian/glm-5-2",
             z_ai::glm_5_2::ID,
             "glm-5.2",
+            ReasoningOutput::PlainText,
+        ),
+        chat_target(
+            "bailian/glm-5-3",
+            z_ai::glm_5_3::ID,
+            "glm-5.3",
             ReasoningOutput::PlainText,
         ),
         chat_target(
@@ -106,7 +117,7 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
         chat_target(
             "bailian/deepseek-v4-1-flash",
             deepseek::deepseek_v4_1_flash::ID,
-            "deepseek-v4-flash-0731",
+            "deepseek-v4.1-flash",
             ReasoningOutput::PlainText,
         ),
     ]
@@ -172,17 +183,25 @@ fn chat_target(
     chat_capabilities.function_tools = chat_capabilities.function_tools.map(|mut profile| {
         profile.parallel_calls = matches!(
             canonical_model,
-            z_ai::glm_5_2::ID | deepseek::deepseek_v4_1_flash::ID
+            z_ai::glm_5_2::ID | z_ai::glm_5_3::ID | deepseek::deepseek_v4_1_flash::ID
         );
         profile
     });
+    // GLM-5.3 silently ignores named tool selection on the Chat path (2026-09-16 probe).
+    if canonical_model == z_ai::glm_5_3::ID {
+        chat_capabilities
+            .function_tools
+            .as_mut()
+            .expect("Bailian GLM-5.3 target requires function tools")
+            .choice_modes = GLM_CHAT_TOOL_CHOICE_MODES;
+    }
     chat_capabilities.reasoning_output = reasoning_output;
     chat_capabilities.prompt_cache_key = matches!(
         canonical_model,
         z_ai::glm_5_2::ID | deepseek::deepseek_v4_pro::ID
     );
     chat_capabilities.structured_outputs = match canonical_model {
-        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_1_flash::ID => {
+        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_1_flash::ID | z_ai::glm_5_3::ID => {
             Some(JSON_OBJECT_STRUCTURED_OUTPUTS)
         }
         qwen::qwen3_7_plus::ID | qwen::qwen3_7_max::ID | qwen::qwen3_8_max::ID => {
@@ -192,12 +211,12 @@ fn chat_target(
     };
     if matches!(
         canonical_model,
-        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_1_flash::ID
+        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_1_flash::ID | z_ai::glm_5_3::ID
     ) {
         chat_capabilities
             .function_tools
             .as_mut()
-            .expect("Bailian DeepSeek Chat targets require function tools")
+            .expect("Bailian Chat targets require function tools")
             .strict_schema = false;
     }
     // Bind Chat for every target and Responses only for models confirmed on that endpoint.
@@ -335,7 +354,7 @@ fn image_target(id: &str, canonical_model: &str, upstream_model: &str) -> Upstre
 
 #[cfg(test)]
 mod tests {
-    use crate::core::OperationKind;
+    use crate::core::{OperationKind, ToolChoiceMode};
 
     use super::*;
 
@@ -364,7 +383,7 @@ mod tests {
         let targets = upstream_targets();
         for (target_id, upstream_model) in [
             ("bailian/deepseek-v4-pro", "deepseek-v4-pro-0813"),
-            ("bailian/deepseek-v4-1-flash", "deepseek-v4-flash-0731"),
+            ("bailian/deepseek-v4-1-flash", "deepseek-v4.1-flash"),
         ] {
             let target = targets
                 .iter()
@@ -414,5 +433,47 @@ mod tests {
             panic!("Bailian DeepSeek Flash must bind Responses capabilities");
         };
         assert!(!responses.function_tools.unwrap().strict_schema);
+    }
+
+    #[test]
+    fn confirmed_glm_5_3_chat_only_target_narrows_unproven_features() {
+        let targets = upstream_targets();
+        let glm = targets
+            .iter()
+            .find(|target| target.id == "bailian/glm-5-3")
+            .unwrap();
+
+        // Keep Responses closed: the 2026-09-16 probe found its tool semantics incomplete.
+        assert!(
+            glm.upstream_apis
+                .iter()
+                .all(|api| api.key.operation() != OperationKind::Responses)
+        );
+        let chat = glm
+            .upstream_apis
+            .iter()
+            .find(|api| api.key.operation() == OperationKind::ChatCompletions)
+            .unwrap();
+        assert_eq!(chat.upstream_model, "glm-5.3");
+        let UpstreamApiCapabilities::ChatCompletions(chat) = &chat.capabilities else {
+            panic!("Bailian GLM-5.3 target must bind Chat capabilities");
+        };
+        let tools = chat
+            .function_tools
+            .expect("GLM-5.3 Chat tools must stay enabled");
+        assert_eq!(
+            tools.choice_modes,
+            [
+                ToolChoiceMode::None,
+                ToolChoiceMode::Auto,
+                ToolChoiceMode::Required
+            ]
+        );
+        assert!(tools.parallel_calls);
+        assert!(!tools.strict_schema);
+        assert_eq!(
+            chat.structured_outputs,
+            Some(StructuredOutputProfile::JsonObject)
+        );
     }
 }

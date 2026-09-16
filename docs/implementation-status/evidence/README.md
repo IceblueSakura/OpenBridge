@@ -17,6 +17,7 @@
 
 | 日期 | 记录 | 覆盖范围 |
 |---|---|---|
+| 2026-09-16 | [Bailian GLM-5.3 接入前能力探测](2026-09-16-bailian-glm-5-3-capability-probe.md) | 固定 case 的 Chat/Responses 支撑面与工具/structured 行为；Chat-only 接入与能力收窄依据 |
 | 2026-09-09 | [OpenAI SDK Responses loopback](2026-09-09-openai-responses-sdk-loopback.md) | 固定官方 SDK 的 JSON/SSE 工具续轮、独立 wire oracle 与负向控制；无真实 Provider |
 | 2026-09-09 | [DeepSeek Vision tool choice](2026-09-09-deepseek-vision-tool-choice.md) | auto/none 对照与 required/named 拒绝的双协议 JSON/SSE 复测；Target 收窄依据 |
 | 2026-09-02 | [双协议能力探测记录](2026-09-02-dual-protocol-capability-matrix.md) | DeepSeek V4 Flash Vision、MiMo-V2.5、GLM-5.3-Flash、Qwen3.8-Max 的双协议 × 双交付固定 case；包含与注册声明的差异 |

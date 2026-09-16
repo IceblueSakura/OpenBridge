@@ -269,27 +269,47 @@ mod tests {
     }
 
     #[test]
-    fn glm_5_3_keeps_chat_capabilities_while_adding_native_responses() {
+    fn glm_5_3_prioritizes_bailian_chat_then_keeps_zhipu_responses_candidates() {
         let models = compile_generation_routing(generation_registrations());
         let glm = models
             .iter()
             .find(|model| model.id == "glm-5.3")
             .expect("GLM-5.3 must be published through the production routing catalog");
-        let operations = glm
+        let routes = glm
             .routes
             .iter()
-            .map(|route| (route.upstream_operation, route.downstream_operation))
+            .map(|route| {
+                (
+                    route.upstream_target.as_str(),
+                    route.upstream_operation,
+                    route.downstream_operation,
+                )
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(
-            operations,
+            routes,
             [
                 (
+                    "bailian/glm-5-3",
                     OperationKind::ChatCompletions,
                     OperationKind::ChatCompletions,
                 ),
-                (OperationKind::Responses, OperationKind::Responses),
-                (OperationKind::ChatCompletions, OperationKind::Responses),
+                (
+                    "zhipu-cn/glm-5-3",
+                    OperationKind::ChatCompletions,
+                    OperationKind::ChatCompletions,
+                ),
+                (
+                    "zhipu-cn/glm-5-3",
+                    OperationKind::Responses,
+                    OperationKind::Responses,
+                ),
+                (
+                    "zhipu-cn/glm-5-3",
+                    OperationKind::ChatCompletions,
+                    OperationKind::Responses,
+                ),
             ]
         );
     }

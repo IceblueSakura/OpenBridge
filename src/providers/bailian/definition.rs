@@ -318,7 +318,7 @@ fn transform_request_body(
     // Convert only DeepSeek's off level while preserving its multi-level effort vocabulary.
     let bailian_deepseek = matches!(
         document.get("model").and_then(serde_json::Value::as_str),
-        Some("deepseek-v4-pro-0813" | "deepseek-v4-flash-0731")
+        Some("deepseek-v4-pro-0813" | "deepseek-v4.1-flash")
     );
     if protocol == crate::core::ApiProtocol::ChatCompletions
         && bailian_deepseek

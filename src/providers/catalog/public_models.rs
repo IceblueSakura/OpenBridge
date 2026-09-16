@@ -133,10 +133,16 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             public_name: "glm-5.3",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
-            providers: &[ProviderRouteRegistration {
-                upstream_target: "zhipu-cn/glm-5-3",
-                surface: PublicModelSurface::DualProtocolWithResponsesBridge,
-            }],
+            providers: &[
+                ProviderRouteRegistration {
+                    upstream_target: "bailian/glm-5-3",
+                    surface: PublicModelSurface::ChatNativeOnly,
+                },
+                ProviderRouteRegistration {
+                    upstream_target: "zhipu-cn/glm-5-3",
+                    surface: PublicModelSurface::DualProtocolWithResponsesBridge,
+                },
+            ],
         },
         PublicModelRegistration {
             public_name: "glm-5.3-flash",

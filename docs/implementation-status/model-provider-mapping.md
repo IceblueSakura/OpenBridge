@@ -23,6 +23,7 @@
 | `gemini-3.8-flash` | `google/gemini-3.8-flash` | OpenRouter | `openrouter/gemini-3-8-flash` |
 | `grok-4.6` | `xai/grok-4.6` | OpenRouter | `openrouter/grok-4-6` |
 | `grok-4.6` | `xai/grok-4.6` | Grok | `grok/grok-4-6` |
+| `glm-5.3` | `z-ai/glm-5.3` | Alibaba Cloud Model Studio | `bailian/glm-5-3` |
 | `glm-5.3` | `z-ai/glm-5.3` | Zhipu AI China | `zhipu-cn/glm-5-3` |
 | `glm-5.3-flash` | `z-ai/glm-5.3-flash` | Zhipu AI China | `zhipu-cn/glm-5-3-flash` |
 | `glm-5.3-flash` | `z-ai/glm-5.3-flash` | OpenRouter | `openrouter/glm-5.3-flash` |
