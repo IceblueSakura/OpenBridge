@@ -30,8 +30,8 @@ impl HelloServer {
 
 #[rmcp::tool_handler]
 impl ServerHandler for HelloServer {
-    fn get_info(&self) -> rmcp::model::ServerInfo {
-        rmcp::model::ServerInfo::new(
+    fn get_info(&self) -> rmcp::model::ServerConfig {
+        rmcp::model::ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_tool_list_changed()

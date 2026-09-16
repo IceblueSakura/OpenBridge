@@ -14,7 +14,7 @@ use openbridge::{
 };
 use rmcp::{
     ClientLifecycleMode, ClientServiceExt, RoleClient,
-    model::{CallToolRequestParams, ClientInfo, ListToolsResult, ProtocolVersion},
+    model::{CallToolRequestParams, ClientConfig, ListToolsResult, ProtocolVersion},
     service::RunningService,
     transport::streamable_http_client::{
         StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
@@ -63,8 +63,8 @@ fn client_transport(url: &str) -> StreamableHttpClientTransport<reqwest::Client>
 async fn connect(
     url: &str,
     lifecycle: ClientLifecycleMode,
-) -> RunningService<RoleClient, ClientInfo> {
-    ClientInfo::default()
+) -> RunningService<RoleClient, ClientConfig> {
+    ClientConfig::default()
         .serve_with_lifecycle(client_transport(url), lifecycle)
         .await
         .expect("rmcp client should connect through the /mcp endpoint")
