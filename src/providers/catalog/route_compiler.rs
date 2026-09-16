@@ -210,13 +210,13 @@ mod tests {
     use crate::providers::catalog::public_models::generation_registrations;
 
     #[test]
-    fn muse_spark_uses_chat_native_and_responses_bridge() {
+    fn glm_5_2_uses_chat_native_and_responses_bridge() {
         let models = compile_generation_routing(generation_registrations());
-        let muse = models
+        let glm = models
             .iter()
-            .find(|model| model.id == "muse-spark-1.2-contributor")
-            .expect("Muse Spark must remain in the public model catalog");
-        let operations = muse
+            .find(|model| model.id == "glm-5.2")
+            .expect("GLM-5.2 must remain in the public model catalog");
+        let operations = glm
             .routes
             .iter()
             .map(|route| (route.upstream_operation, route.downstream_operation))
@@ -229,6 +229,11 @@ mod tests {
                     OperationKind::ChatCompletions,
                     OperationKind::ChatCompletions,
                 ),
+                (
+                    OperationKind::ChatCompletions,
+                    OperationKind::ChatCompletions,
+                ),
+                (OperationKind::ChatCompletions, OperationKind::Responses),
                 (OperationKind::ChatCompletions, OperationKind::Responses),
             ]
         );

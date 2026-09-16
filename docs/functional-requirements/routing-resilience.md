@@ -20,7 +20,7 @@ rotation 与状态亲和边界。已验证的实现范围只见[实施现状](..
   Bridge；显式声明的 Bridge surface 可以在其他 source 已有 Native 时保留。
 - 策略编译出的 Route Vec 就是 RoutePlan 的固定配置顺序。运行时不得再次比较 Native/Bridge，也不得按请求
   能力、价格、健康、Provider 名称或模型字符串重新打分、筛选或重排。
-- 多 source `gpt-5.6-sol` 以 `SourceFirst` 保持 ChatGPT、OpenAI 顺序；`deepseek-v4-flash` 以
+- 多 source `gpt-5.6-sol` 以 `SourceFirst` 保持 ChatGPT、OpenAI 顺序；`deepseek-v4.1-flash` 以
   `SourceFirst` 保持 DeepSeek、Bailian、OpenRouter 顺序。具体可执行候选只由启动注册和 active credential
   收窄，不改变上述 source priority。
 - Public Model 的固定能力计算与请求预检由[模型与能力契约](model-capability.md)拥有；本页不为

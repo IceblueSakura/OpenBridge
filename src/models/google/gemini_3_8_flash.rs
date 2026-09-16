@@ -1,4 +1,4 @@
-//! Complete canonical model facts for Gemini 3.7 Flash (`google/gemini-3.7-flash`).
+//! Complete canonical model facts for Gemini 3.8 Flash (`google/gemini-3.8-flash`).
 //!
 //! Facts follow the OpenRouter model and endpoint records plus direct protocol probes reverified on
 //! 2026-08-24.
@@ -8,14 +8,14 @@ use crate::registry::{
     OutputModality, ReasoningLevel, ReasoningProfile,
 };
 
-/// Stable OpenBridge catalog ID for Gemini 3.7 Flash.
-pub(crate) const ID: &str = "google/gemini-3.7-flash";
+/// Stable OpenBridge catalog ID for Gemini 3.8 Flash.
+pub(crate) const ID: &str = "google/gemini-3.8-flash";
 
-/// Builds the complete model facts confirmed for Gemini 3.7 Flash.
+/// Builds the complete model facts confirmed for Gemini 3.8 Flash.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
-        name: "Google Gemini 3.7 Flash".to_owned(),
+        name: "Google Gemini 3.8 Flash".to_owned(),
         description: Some(
             "Fast multimodal Gemini model for agentic workflows, coding, and multi-step reasoning."
                 .to_owned(),

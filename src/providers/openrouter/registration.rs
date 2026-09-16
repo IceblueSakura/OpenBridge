@@ -7,7 +7,7 @@ use crate::{
         ExecutableResponsesState, JsonSchemaSupport, ResponsesAffinity, StorageSupport,
         StructuredOutputProfile, ToolChoiceMode,
     },
-    models::{deepseek, google, meta, minimax, xai, z_ai},
+    models::{deepseek, google, minimax, xai, z_ai},
     provider::ProviderKind,
     registry::{
         CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
@@ -37,9 +37,9 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         dual_protocol_target(
-            "openrouter/deepseek-v4-flash",
-            deepseek::deepseek_v4_flash::ID,
-            "deepseek/deepseek-v4-flash",
+            "openrouter/deepseek-v4-1-flash",
+            deepseek::deepseek_v4_1_flash::ID,
+            "deepseek/deepseek-v4.1-flash",
         ),
         dual_protocol_target(
             "openrouter/minimax-m3",
@@ -47,21 +47,11 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "minimax/minimax-m3",
         ),
         dual_protocol_target(
-            "openrouter/gemma-4-31b-it",
-            google::gemma_4_31b_it::ID,
-            "google/gemma-4-31b-it:free",
-        ),
-        dual_protocol_target(
-            "openrouter/gemini-3-7-flash",
-            google::gemini_3_7_flash::ID,
-            "google/gemini-3.7-flash",
+            "openrouter/gemini-3-8-flash",
+            google::gemini_3_8_flash::ID,
+            "google/gemini-3.8-flash",
         ),
         dual_protocol_target("openrouter/grok-4-6", xai::grok_4_6::ID, "x-ai/grok-4.6"),
-        dual_protocol_target(
-            "openrouter/muse-spark-1.2-contributor",
-            meta::muse_spark_1_2_contributor::ID,
-            "meta/muse-spark-1.2-contributor",
-        ),
         dual_protocol_target(
             "openrouter/glm-5.3-flash",
             z_ai::glm_5_3_flash::ID,
@@ -79,7 +69,7 @@ fn dual_protocol_target(
     // Expose image input only for models covered by the model-specific Provider probe.
     let supports_image_input = matches!(
         canonical_model,
-        google::gemini_3_7_flash::ID | xai::grok_4_6::ID | z_ai::glm_5_3_flash::ID
+        google::gemini_3_8_flash::ID | xai::grok_4_6::ID | z_ai::glm_5_3_flash::ID
     );
     let chat_media =
         crate::core::ChatMediaProfile::new(supports_image_input.then_some(IMAGE_INPUT), None, None);
@@ -103,20 +93,6 @@ fn dual_protocol_target(
         );
     chat_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
     responses_capabilities.structured_outputs = Some(STRUCTURED_OUTPUTS);
-    // Gemma 4 31B keeps JSON-object output and does not guarantee strict schema.
-    if canonical_model == google::gemma_4_31b_it::ID {
-        chat_capabilities.structured_outputs = Some(JSON_OBJECT_STRUCTURED_OUTPUTS);
-        responses_capabilities.structured_outputs = Some(JSON_OBJECT_STRUCTURED_OUTPUTS);
-        for profile in [
-            chat_capabilities.function_tools.as_mut(),
-            responses_capabilities.function_tools.as_mut(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            profile.strict_schema = false;
-        }
-    }
     // GLM-5.3-Flash accepts automatic function-tool selection and JSON-object Chat output. Named
     // tool selection is rejected, and Responses JSON Schema/object output is not reliable enough
     // to publish as a downstream guarantee.

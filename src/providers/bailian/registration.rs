@@ -104,8 +104,8 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             ReasoningOutput::PlainText,
         ),
         chat_target(
-            "bailian/deepseek-v4-flash",
-            deepseek::deepseek_v4_flash::ID,
+            "bailian/deepseek-v4-1-flash",
+            deepseek::deepseek_v4_1_flash::ID,
             "deepseek-v4-flash-0731",
             ReasoningOutput::PlainText,
         ),
@@ -172,7 +172,7 @@ fn chat_target(
     chat_capabilities.function_tools = chat_capabilities.function_tools.map(|mut profile| {
         profile.parallel_calls = matches!(
             canonical_model,
-            z_ai::glm_5_2::ID | deepseek::deepseek_v4_flash::ID
+            z_ai::glm_5_2::ID | deepseek::deepseek_v4_1_flash::ID
         );
         profile
     });
@@ -182,7 +182,7 @@ fn chat_target(
         z_ai::glm_5_2::ID | deepseek::deepseek_v4_pro::ID
     );
     chat_capabilities.structured_outputs = match canonical_model {
-        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID => {
+        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_1_flash::ID => {
             Some(JSON_OBJECT_STRUCTURED_OUTPUTS)
         }
         qwen::qwen3_7_plus::ID | qwen::qwen3_7_max::ID | qwen::qwen3_8_max::ID => {
@@ -192,7 +192,7 @@ fn chat_target(
     };
     if matches!(
         canonical_model,
-        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID
+        deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_1_flash::ID
     ) {
         chat_capabilities
             .function_tools
@@ -214,7 +214,7 @@ fn chat_target(
     if matches!(
         canonical_model,
         deepseek::deepseek_v4_pro::ID
-            | deepseek::deepseek_v4_flash::ID
+            | deepseek::deepseek_v4_1_flash::ID
             | qwen::qwen3_8_max::ID
             | qwen::qwen3_8_27b::ID
             | qwen::qwen3_7_max::ID
@@ -238,7 +238,7 @@ fn chat_target(
                 profile.parallel_calls = false;
                 if matches!(
                     canonical_model,
-                    deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_flash::ID
+                    deepseek::deepseek_v4_pro::ID | deepseek::deepseek_v4_1_flash::ID
                 ) {
                     profile.strict_schema = false;
                 }
@@ -364,7 +364,7 @@ mod tests {
         let targets = upstream_targets();
         for (target_id, upstream_model) in [
             ("bailian/deepseek-v4-pro", "deepseek-v4-pro-0813"),
-            ("bailian/deepseek-v4-flash", "deepseek-v4-flash-0731"),
+            ("bailian/deepseek-v4-1-flash", "deepseek-v4-flash-0731"),
         ] {
             let target = targets
                 .iter()
@@ -403,7 +403,7 @@ mod tests {
 
         let flash = targets
             .iter()
-            .find(|target| target.id == "bailian/deepseek-v4-flash")
+            .find(|target| target.id == "bailian/deepseek-v4-1-flash")
             .unwrap();
         let responses = flash
             .upstream_apis

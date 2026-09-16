@@ -4,15 +4,13 @@
 
 ## 特有接线与例外
 
-- MiniMax 图片输入没有模型级真实 Provider 证据；Gemma 的 probe 只证明单张 PNG data URL，不能支撑共享 profile 的 JPEG、remote URL、4-part 与大小上限，因此两者 executable interface 保持 text-only。
-- Muse Spark 1.2 Contributor 的文本 Chat/Responses 与 Hermes `obc`/`obr` 已 probe；图片、音频、视频和文件输入未 probe，当前保持 text-only。
+- MiniMax 图片输入没有模型级真实 Provider 证据，executable interface 保持 text-only。
 - GLM-5.3-Flash 已验证 Chat/Responses streaming、non-streaming、PNG data URL、Auto function tool、parallel 请求开关与 Hermes `obc`/`obr`；named tool choice 与 Responses structured output 不公开。
-- GLM 的 file input、remote image/JPEG、video、更多图片数量/大小、长上下文未证明；Gemini/Grok file/audio/video、Grok 小图尺寸、DeepSeek fallback、Gemma reasoning、MiniMax/NVIDIA failover、Provider routing 偏好和长期运行也未形成统一验收。公开目录字段不自动成为 executable capability。
+- GLM 的 file input、remote image/JPEG、video、更多图片数量/大小、长上下文未证明；Gemini/Grok file/audio/video、Grok 小图尺寸、DeepSeek fallback、MiniMax/NVIDIA failover、Provider routing 偏好和长期运行也未形成统一验收。公开目录字段不自动成为 executable capability。
 
 ## 验证与证据入口
 
 - [2026-08-27 OpenRouter GLM-5.3-Flash 接入验证](../evidence/2026-08-27-openrouter-glm-5-3-flash-integration.md)
-- [2026-08-10 OpenRouter Gemma strict schema 差异](../evidence/2026-08-10-openrouter-gemma-strict-schema-mismatch.md)
 - 官方模型事实来源见 [references/providers/openrouter-api.md](../../references/providers/openrouter-api.md)。
 
 ## 代码 owner

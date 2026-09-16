@@ -4,12 +4,13 @@ use super::*;
 
 #[tokio::test]
 async fn target_tool_choice_restriction_is_public_and_rejected_before_egress() {
-    // Exercise the observed direct-API restriction through production registration and preflight.
+    // Exercise the verified OpenRouter GLM-5.3-Flash tool-selection narrowing through production
+    // registration and preflight.
     let transport = Arc::new(MimoImageTransport::default());
     let bootstrap = support::bootstrap(support::BOOTSTRAP);
     let registry = build_compiled_registry_with_active_pools(
         bootstrap,
-        &std::collections::BTreeSet::from(["deepseek-primary".to_owned()]),
+        &std::collections::BTreeSet::from(["openrouter-primary".to_owned()]),
     )
     .unwrap();
     let (users, credentials) = support::users_and_credentials(
@@ -23,7 +24,7 @@ async fn target_tool_choice_restriction_is_public_and_rejected_before_egress() {
         users,
         credentials,
     ));
-    let model = "deepseek-v4-flash-vision-exp";
+    let model = "glm-5.3-flash";
     let tool = serde_json::json!({
         "name": "lookup", "parameters": {"type": "object", "properties": {}}
     });
@@ -85,10 +86,10 @@ async fn target_tool_choice_restriction_is_public_and_rejected_before_egress() {
             compiled_authenticated_get(&app, &format!("/openbridge/v1/models/{model}")).await;
         assert_eq!(
             public["interfaces"][protocol]["tools"]["tool_choice_modes"],
-            serde_json::json!(["none", "auto"])
+            serde_json::json!(["auto"])
         );
         let sibling =
-            compiled_authenticated_get(&app, "/openbridge/v1/models/deepseek-v4-flash").await;
+            compiled_authenticated_get(&app, "/openbridge/v1/models/gemini-3.8-flash").await;
         assert!(
             sibling["interfaces"][protocol]["tools"]["tool_choice_modes"]
                 .as_array()
@@ -98,7 +99,7 @@ async fn target_tool_choice_restriction_is_public_and_rejected_before_egress() {
 
         // Accepted controls still reach the same Native wire unchanged.
         body["stream"] = serde_json::json!(false);
-        for choice in ["auto", "none"] {
+        for choice in ["auto"] {
             body["tool_choice"] = serde_json::json!(choice);
             transport.requests.lock().unwrap().clear();
             let response = app

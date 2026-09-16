@@ -37,20 +37,11 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             }],
         },
         PublicModelRegistration {
-            public_name: "gpt-5.5",
+            public_name: "gpt-6-astra",
             routing_strategy: PublicModelRoutingStrategy::SourceFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
-                upstream_target: "chatgpt/gpt-5-5",
-                surface: PublicModelSurface::ResponsesNativeWithChatBridge,
-            }],
-        },
-        PublicModelRegistration {
-            public_name: "gpt-5.3-codex-spark",
-            routing_strategy: PublicModelRoutingStrategy::SourceFirst,
-            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
-            providers: &[ProviderRouteRegistration {
-                upstream_target: "chatgpt/gpt-5-3-codex-spark",
+                upstream_target: "chatgpt/gpt-6-astra",
                 surface: PublicModelSurface::ResponsesNativeWithChatBridge,
             }],
         },
@@ -79,32 +70,23 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             ],
         },
         PublicModelRegistration {
-            public_name: "deepseek-v4-flash",
+            public_name: "deepseek-v4.1-flash",
             routing_strategy: PublicModelRoutingStrategy::SourceFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[
                 ProviderRouteRegistration {
-                    upstream_target: "bailian/deepseek-v4-flash",
+                    upstream_target: "bailian/deepseek-v4-1-flash",
                     surface: PublicModelSurface::DualProtocolNativeOnly,
                 },
                 ProviderRouteRegistration {
-                    upstream_target: "deepseek-v4-flash",
+                    upstream_target: "deepseek-v4-1-flash",
                     surface: PublicModelSurface::DualProtocolNativeOnly,
                 },
                 ProviderRouteRegistration {
-                    upstream_target: "openrouter/deepseek-v4-flash",
+                    upstream_target: "openrouter/deepseek-v4-1-flash",
                     surface: PublicModelSurface::DualProtocolNativeOnly,
                 },
             ],
-        },
-        PublicModelRegistration {
-            public_name: "deepseek-v4-flash-vision-exp",
-            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
-            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
-            providers: &[ProviderRouteRegistration {
-                upstream_target: "deepseek-v4-flash-vision-exp",
-                surface: PublicModelSurface::DualProtocolNativeOnly,
-            }],
         },
         PublicModelRegistration {
             public_name: "minimax-m3",
@@ -122,20 +104,11 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
             ],
         },
         PublicModelRegistration {
-            public_name: "gemma-4-31b-it",
+            public_name: "gemini-3.8-flash",
             routing_strategy: PublicModelRoutingStrategy::NativeFirst,
             reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
             providers: &[ProviderRouteRegistration {
-                upstream_target: "openrouter/gemma-4-31b-it",
-                surface: PublicModelSurface::DualProtocolNativeOnly,
-            }],
-        },
-        PublicModelRegistration {
-            public_name: "gemini-3.7-flash",
-            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
-            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
-            providers: &[ProviderRouteRegistration {
-                upstream_target: "openrouter/gemini-3-7-flash",
+                upstream_target: "openrouter/gemini-3-8-flash",
                 surface: PublicModelSurface::DualProtocolNativeOnly,
             }],
         },
@@ -155,17 +128,6 @@ pub(super) fn generation_registrations() -> &'static [PublicModelRegistration] {
                     surface: PublicModelSurface::ResponsesNativeWithChatBridge,
                 },
             ],
-        },
-        PublicModelRegistration {
-            public_name: "muse-spark-1.2-contributor",
-            routing_strategy: PublicModelRoutingStrategy::NativeFirst,
-            reasoning_level_policy: ReasoningLevelPolicy::ClampPositiveFloor,
-            providers: &[ProviderRouteRegistration {
-                upstream_target: "openrouter/muse-spark-1.2-contributor",
-                // Keep downstream Responses on the typed Chat bridge until native Responses
-                // first-event framing has a verified compatibility baseline for this model.
-                surface: PublicModelSurface::ChatNativeOnly,
-            }],
         },
         PublicModelRegistration {
             public_name: "glm-5.3",

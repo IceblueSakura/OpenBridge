@@ -4,35 +4,19 @@ use std::time::Duration;
 
 use crate::{
     core::{
-        ALL_TOOL_CHOICE_MODES, EmbeddingEncoding, EmbeddingInputForm, EmbeddingsCapabilities,
-        ExecutableResponsesState, FunctionToolCapabilities, ResponsesAffinity, StorageSupport,
+        ALL_TOOL_CHOICE_MODES, ExecutableResponsesState, FunctionToolCapabilities,
+        ResponsesAffinity, StorageSupport,
     },
     models::openai,
     provider::ProviderKind,
     providers::openai_compatible::native_upstream_apis,
-    registry::{
-        CanonicalTaskKind, ProviderInstanceConfig, UpstreamApiCapabilities, UpstreamApiConfig,
-        UpstreamApiKey, UpstreamApiModelRules, UpstreamTargetConfig,
-    },
+    registry::{CanonicalTaskKind, ProviderInstanceConfig, UpstreamTargetConfig},
 };
 
 use super::DEFINITION;
 
 const PROVIDER_INSTANCE_ID: &str = "openai";
 
-const EMBEDDING_INPUT_FORMS: &[EmbeddingInputForm] = &[
-    EmbeddingInputForm::String,
-    EmbeddingInputForm::StringArray,
-    EmbeddingInputForm::TokenArray,
-    EmbeddingInputForm::TokenArrayArray,
-];
-const EMBEDDING_ENCODINGS: &[EmbeddingEncoding] =
-    &[EmbeddingEncoding::Float, EmbeddingEncoding::Base64];
-const LOCALLY_COUNTED_EMBEDDING_FORMS: &[EmbeddingInputForm] = &[
-    EmbeddingInputForm::TokenArray,
-    EmbeddingInputForm::TokenArrayArray,
-];
-const EMBEDDING_PARAMETERS: &[&str] = &["encoding_format", "user"];
 const CONSERVATIVE_FUNCTION_TOOLS: FunctionToolCapabilities = FunctionToolCapabilities {
     choice_modes: ALL_TOOL_CHOICE_MODES,
     parallel_calls: false,
@@ -62,8 +46,6 @@ pub fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             openai::gpt_5_6_luna::ID,
             "gpt-5.6-luna",
         ),
-        generation_target("openai-gpt-5-5", openai::gpt_5_5::ID, "gpt-5.5"),
-        embedding_target(),
     ]
 }
 
@@ -116,46 +98,5 @@ fn generation_target(
             chat_capabilities,
             Some(responses_capabilities),
         ),
-    }
-}
-
-/// Builds the dedicated `text-embedding-3-small` target and its sole Native API.
-fn embedding_target() -> UpstreamTargetConfig {
-    UpstreamTargetConfig {
-        id: "openai-text-embedding-3-small".to_owned(),
-        provider_instance: PROVIDER_INSTANCE_ID.to_owned(),
-        canonical_model: openai::text_embedding_3_small::ID.to_owned(),
-        provider_model: ProviderKind::OpenAi.routing_model_id(openai::text_embedding_3_small::ID),
-        credential_pool: "openai-primary".to_owned(),
-        quota_scope: None,
-        fault_domain: None,
-        timeout_policy: crate::registry::UpstreamTimeoutPolicy::new(Duration::from_secs(120)),
-        enabled: true,
-        upstream_apis: vec![UpstreamApiConfig {
-            key: UpstreamApiKey::new(
-                crate::core::OperationKind::EmbeddingsCreate,
-                CanonicalTaskKind::Embedding,
-            ),
-            upstream_model: "text-embedding-3-small".to_owned(),
-            model_rules: UpstreamApiModelRules::default(),
-            capabilities: UpstreamApiCapabilities::Embeddings(text_embedding_3_small_capabilities()),
-            streaming_policy: crate::registry::UpstreamStreamingPolicy::Optional,
-        }],
-    }
-}
-
-/// Returns the checked-in OpenAI `text-embedding-3-small` execution contract.
-pub const fn text_embedding_3_small_capabilities() -> EmbeddingsCapabilities {
-    EmbeddingsCapabilities {
-        input_forms: EMBEDDING_INPUT_FORMS,
-        default_encoding: EmbeddingEncoding::Float,
-        allowed_encodings: Some(EMBEDDING_ENCODINGS),
-        default_dimensions: 1_536,
-        allowed_dimensions: None,
-        max_inputs: 2_048,
-        max_tokens_per_input: Some(8_192),
-        max_total_tokens: Some(300_000),
-        locally_counted_input_forms: LOCALLY_COUNTED_EMBEDDING_FORMS,
-        supported_parameters: EMBEDDING_PARAMETERS,
     }
 }

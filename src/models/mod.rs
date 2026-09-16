@@ -11,7 +11,6 @@ pub(crate) mod chatgpt;
 pub(crate) mod deepseek;
 pub(crate) mod google;
 pub mod meituan;
-pub(crate) mod meta;
 pub(crate) mod minimax;
 pub(crate) mod moonshotai;
 pub(crate) mod nvidia;

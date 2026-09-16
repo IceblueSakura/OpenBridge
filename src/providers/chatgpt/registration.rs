@@ -33,20 +33,6 @@ pub(crate) fn provider_instance() -> ProviderInstanceConfig {
 pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
     vec![
         upstream_target(
-            "chatgpt/gpt-5-3-codex-spark",
-            chatgpt::gpt_5_3_codex_spark::ID,
-            "gpt-5.3-codex-spark",
-            false,
-            false,
-        ),
-        upstream_target(
-            "chatgpt/gpt-5-5",
-            chatgpt::gpt_5_5::ID,
-            "gpt-5.5",
-            true,
-            true,
-        ),
-        upstream_target(
             "chatgpt/gpt-5-6-luna",
             chatgpt::gpt_5_6_luna::ID,
             "gpt-5.6-luna",
@@ -64,6 +50,13 @@ pub(crate) fn upstream_targets() -> Vec<UpstreamTargetConfig> {
             "chatgpt/gpt-5-6-sol",
             chatgpt::gpt_5_6_sol::ID,
             "gpt-5.6-sol",
+            true,
+            true,
+        ),
+        upstream_target(
+            "chatgpt/gpt-6-astra",
+            chatgpt::gpt_6_astra::ID,
+            "gpt-6-astra",
             true,
             true,
         ),

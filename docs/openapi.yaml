@@ -209,7 +209,7 @@ paths:
               nonStreaming:
                 summary: Non-streaming text request
                 value:
-                  model: deepseek-v4-flash
+                  model: deepseek-v4.1-flash
                   messages:
                     - role: user
                       content: hello
@@ -217,7 +217,7 @@ paths:
               streaming:
                 summary: Streaming text request
                 value:
-                  model: deepseek-v4-flash
+                  model: deepseek-v4.1-flash
                   messages:
                     - role: user
                       content: hello
@@ -293,7 +293,7 @@ paths:
               nonStreaming:
                 summary: Non-streaming text request
                 value:
-                  model: deepseek-v4-flash
+                  model: deepseek-v4.1-flash
                   input:
                     - role: user
                       content: hello
@@ -306,7 +306,7 @@ paths:
               streaming:
                 summary: Streaming text request
                 value:
-                  model: deepseek-v4-flash
+                  model: deepseek-v4.1-flash
                   input:
                     - role: user
                       content: hello

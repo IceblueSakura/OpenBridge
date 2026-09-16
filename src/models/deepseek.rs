@@ -2,15 +2,10 @@
 
 use crate::registry::ModelConfig;
 
-pub(crate) mod deepseek_v4_flash;
-pub(crate) mod deepseek_v4_flash_vision_exp;
+pub(crate) mod deepseek_v4_1_flash;
 pub(crate) mod deepseek_v4_pro;
 
 /// Returns all DeepSeek model facts compiled into the binary.
 pub(crate) fn configs() -> Vec<ModelConfig> {
-    vec![
-        deepseek_v4_pro::config(),
-        deepseek_v4_flash::config(),
-        deepseek_v4_flash_vision_exp::config(),
-    ]
+    vec![deepseek_v4_pro::config(), deepseek_v4_1_flash::config()]
 }

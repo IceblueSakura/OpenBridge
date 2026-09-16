@@ -221,11 +221,8 @@ upstream_pool_max_idle_per_host = 16
     assert!(stdout.contains("Public models (configuration only)"));
     assert_table_column(&stdout, "openai (", false);
     assert_table_column(&stdout, "gpt-5.6-sol (chat, responses)", true);
-    assert_table_column(
-        &stdout,
-        "text-embedding-3-small (no executable route after configuration)",
-        false,
-    );
+    assert_table_column(&stdout, "qwen3.7-text-embedding (embeddings)", true);
+    assert!(!stdout.contains("text-embedding-3-small"));
     assert!(!combined_output.contains("startup-downstream-key"));
     assert!(!combined_output.contains("synthetic-startup-key"));
     assert!(!combined_output.contains("synthetic-startup-refresh"));

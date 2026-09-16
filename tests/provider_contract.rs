@@ -204,14 +204,14 @@ fn deepseek_adapter_encodes_chat_and_responses() {
             ProviderKind::DeepSeek,
             protocol,
             &request,
-            "deepseek-v4-flash",
+            "deepseek-v4.1-flash",
         )
         .unwrap();
 
         assert_eq!(upstream.method(), Method::POST);
         assert_eq!(upstream.relative_uri().to_string(), expected_path);
         let body: serde_json::Value = serde_json::from_slice(upstream.body()).unwrap();
-        assert_eq!(body["model"], "deepseek-v4-flash");
+        assert_eq!(body["model"], "deepseek-v4.1-flash");
     }
 }
 

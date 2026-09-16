@@ -3,7 +3,7 @@
 use super::*;
 
 #[tokio::test]
-async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
+async fn chatgpt_oauth_routes_forward_four_models_with_account_bound_headers() {
     let directory = SyntheticAuthDirectory::new();
     let (document, access_token) = synthetic_chatgpt_document(1);
     fs::write(directory.auth_file(), document).unwrap();
@@ -18,11 +18,10 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
 
     // Send one minimal streaming Responses request through each fixed ChatGPT Public Model.
     for public_model in [
-        "gpt-5.3-codex-spark",
-        "gpt-5.5",
         "gpt-5.6-luna",
         "gpt-5.6-terra",
         "gpt-5.6-sol",
+        "gpt-6-astra",
     ] {
         let request = Request::post("/v1/responses")
             .header(CONTENT_TYPE, "application/json")
@@ -51,13 +50,12 @@ async fn chatgpt_oauth_routes_forward_five_models_with_account_bound_headers() {
 
     // Verify fixed endpoint/model rewriting and the complete non-FedRAMP OAuth request identity.
     let requests = transport.requests.lock().unwrap();
-    assert_eq!(requests.len(), 5);
+    assert_eq!(requests.len(), 4);
     for (request, upstream_model) in requests.iter().zip([
-        "gpt-5.3-codex-spark",
-        "gpt-5.5",
         "gpt-5.6-luna",
         "gpt-5.6-terra",
         "gpt-5.6-sol",
+        "gpt-6-astra",
     ]) {
         assert_eq!(request.path, "/responses");
         assert_eq!(request.model, upstream_model);
@@ -243,7 +241,7 @@ async fn chatgpt_chat_bridge_fulfills_hermes_stream_usage_contract() {
                 )
                 .body(Body::from(
                     serde_json::json!({
-                        "model": "gpt-5.3-codex-spark",
+                        "model": "gpt-6-astra",
                         "messages": [{"role": "user", "content": "hello"}],
                         "stream": true,
                         "stream_options": {"include_usage": true}
@@ -279,7 +277,7 @@ async fn chatgpt_chat_bridge_fulfills_hermes_stream_usage_contract() {
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].path, "/responses");
-    assert_eq!(requests[0].model, "gpt-5.3-codex-spark");
+    assert_eq!(requests[0].model, "gpt-6-astra");
     assert!(requests[0].stream_is_true);
     assert!(!requests[0].stream_options_present);
 }

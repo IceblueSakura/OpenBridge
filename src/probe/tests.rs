@@ -365,7 +365,7 @@ impl UpstreamTransport for FixtureTransport {
                         "total_tokens": 14
                     }
                 }),
-                "/v1/embeddings" => json!({
+                path if path.ends_with("/embeddings") => json!({
                     "object": "list",
                     "data": [{"object": "embedding", "embedding": [0.0], "index": 0}],
                     "model": body.get("model").and_then(Value::as_str).unwrap_or_default(),
@@ -1006,12 +1006,12 @@ async fn stateless_tool_cases_probe_one_first_turn_each_across_json_and_sse() {
 async fn probe_smokes_the_registered_embeddings_create_api() {
     let registry = registry();
     let transport = FixtureTransport::default();
-    let credentials = credentials_for_target(&registry, "openai-text-embedding-3-small");
+    let credentials = credentials_for_target(&registry, "nvidia-nemotron-3-embed-1b");
 
     // Run one bounded Embeddings request through its dedicated Target and adapter path.
     let report = probe_upstream_target(
         &registry,
-        "openai-text-embedding-3-small",
+        "nvidia-nemotron-3-embed-1b",
         &transport,
         &credentials,
         ProbeOptions {
@@ -1027,10 +1027,10 @@ async fn probe_smokes_the_registered_embeddings_create_api() {
     assert_eq!(requests.len(), 1);
     let (method, path, body) = &requests[0];
     assert_eq!(*method, Method::POST);
-    assert_eq!(path, "/v1/embeddings");
+    assert_eq!(path, "/embeddings");
     assert_eq!(
         body.get("model").and_then(Value::as_str),
-        Some("text-embedding-3-small")
+        Some("nvidia/nemotron-3-embed-1b")
     );
     assert_eq!(
         body.get("input").and_then(Value::as_str),
@@ -1043,11 +1043,11 @@ async fn probe_smokes_the_registered_embeddings_create_api() {
 async fn candidate_generation_cannot_borrow_a_non_generation_target() {
     let registry = registry();
     let transport = FixtureTransport::default();
-    let credentials = credentials_for_target(&registry, "openai-text-embedding-3-small");
+    let credentials = credentials_for_target(&registry, "nvidia-nemotron-3-embed-1b");
 
     let report = probe_upstream_target(
         &registry,
-        "openai-text-embedding-3-small",
+        "nvidia-nemotron-3-embed-1b",
         &transport,
         &credentials,
         ProbeOptions {
@@ -1084,11 +1084,11 @@ async fn candidate_model_can_probe_an_unregistered_protocol_within_generation() 
         StatusCode::OK,
         json!({"object": "response", "output": []}).to_string(),
     );
-    let credentials = credentials_for_target(&registry, "bailian/deepseek-v4-flash");
+    let credentials = credentials_for_target(&registry, "bailian/deepseek-v4-1-flash");
 
     let report = probe_upstream_target(
         &registry,
-        "bailian/deepseek-v4-flash",
+        "bailian/deepseek-v4-1-flash",
         &transport,
         &credentials,
         ProbeOptions {
@@ -1359,7 +1359,7 @@ fn provider_target_resolution_stays_within_enabled_generation_targets() {
     // One deployment resolves without an explicit target; another provider's target is rejected.
     let resolved = super::resolve_generation_probe_target(&registry, ProviderKind::OpenAi, None)
         .expect("single-deployment providers must resolve without --target");
-    assert_eq!(resolved, "openai-gpt-5-5");
+    assert_eq!(resolved, "openai-gpt-5-6-luna");
     assert_eq!(
         super::resolve_generation_probe_target(
             &registry,

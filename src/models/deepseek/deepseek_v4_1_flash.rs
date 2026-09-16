@@ -1,18 +1,18 @@
-//! Complete canonical model facts for DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`).
+//! Complete canonical model facts for DeepSeek V4.1 Flash (`deepseek/deepseek-v4.1-flash`).
 
 use crate::registry::{
     CanonicalModelTask, GenerationModelProfile, InputModality, ModelConfig, ModelContextLength,
     OutputModality, ReasoningLevel, ReasoningProfile,
 };
 
-/// Stable OpenBridge catalog ID for DeepSeek V4 Flash.
-pub(crate) const ID: &str = "deepseek/deepseek-v4-flash";
+/// Stable OpenBridge catalog ID for DeepSeek V4.1 Flash.
+pub(crate) const ID: &str = "deepseek/deepseek-v4.1-flash";
 
-/// Builds the context, parameter, and reasoning facts for DeepSeek V4 Flash.
+/// Builds the context, parameter, and reasoning facts for DeepSeek V4.1 Flash.
 pub(crate) fn config() -> ModelConfig {
     ModelConfig {
         id: ID.to_owned(),
-        name: "DeepSeek V4 Flash".to_owned(),
+        name: "DeepSeek V4.1 Flash".to_owned(),
         description: Some(
             "Efficiency-optimized Mixture-of-Experts model for fast reasoning, coding, and agents."
                 .to_owned(),

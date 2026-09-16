@@ -59,7 +59,7 @@ fn missing_or_empty_api_key_pools_are_inactive_without_exposing_provider_registr
     assert!(!registry.upstream_target("openai-main").unwrap().enabled());
     assert!(
         !registry
-            .upstream_target("openai-text-embedding-3-small")
+            .upstream_target("openai-gpt-5-6-luna")
             .unwrap()
             .enabled()
     );
