@@ -5,7 +5,8 @@ commit 为准；目录索引只负责导航和维护规则，不用较新的索�
 
 本目录不记录 OpenBridge 当前实现、源码结构、已执行测试或实施方案。产品合同、当前事实和用户已授权范围的记录分别由
 [functional requirements](../functional-requirements/README.md)、[implementation status](../implementation-status/README.md)
-和 [current focus](../implementation-plans/current-focus.md) 维护；参考资料和计划文件都不独立授予实施权限。
+和 [current focus](../implementation-plans/current-focus.md) 维护；架构决定与下一步方向由 [ADR](../decisions/README.md) 与
+[next-goal](../implementation-plans/next-goal.md) 维护，本目录叶文档需要时只保留指向它们的短指针。参考资料和计划文件都不独立授予实施权限。
 
 ## 1. 分类入口
 
@@ -80,10 +81,8 @@ commit。真实观察还应说明账户、网络、payload 与敏感数据边界
 
 ## 5. 维护检查
 
-- 相对链接、锚点和非 Markdown 资产 owner 可达；
-- topics/ 导航层的深链接锚点指向叶文档标题；调整被链接文档标题时同步更新；
-- source URL、snapshot date/commit、阅读范围与复核触发条件完整；
-- 观察事实、推论、未知项和采用边界分开；
+- 相对链接、锚点和非 Markdown 资产 owner 可达；topics/ 深链接锚点随被链接标题调整同步更新；
+- 叶文档元数据按 §2 合同完整；观察事实、推论、未知项和采用边界分开；
 - 综合文档链接全部项目级前置，不在综合页首次引入项目事实；
 - 动态官方事实在升级兼容结论前重新固定，不把目录、SDK 或一次请求提升为长期保证；
 - 不包含 credential、私有配置、敏感请求正文或未脱敏 transcript。

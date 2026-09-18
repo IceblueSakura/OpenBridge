@@ -11,4 +11,4 @@
 | [Native 图片输入](extended-capabilities/image-input.md) | image part、source、URL/Base64、detail | IMG-01..04 |
 | [Native 文件输入](extended-capabilities/file-input.md) | file part、source 规则、resource identity | FILE-01..04 |
 | [Native 音频](extended-capabilities/audio.md) | 五任务身份、mimo-v2.5 系列、audio output 预算 | AUD-01..09 |
-| [Images Generations](extended-capabilities/images-generations.md) | 下游契约、DashScope wire、响应验证 | GEN-01..05 |
+| [Images Generations](extended-capabilities/images-generations.md) | 下游契约、DashScope wire、响应验证 | IMG-GEN-01..05 |

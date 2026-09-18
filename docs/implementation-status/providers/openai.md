@@ -5,7 +5,7 @@
 ## 特有接线与例外
 
 - Generation Targets 当前没有下游 Public Model 引用，不能将它们写成当前 fallback；OpenAI 直连当前不公开任何 Public Model，完整关系见映射。
-- 没有成功的真实账号/Provider 验证；Models、Chat/Responses、图片、strict/parallel tool、structured output、state、配额、负载和长期运行都不能由静态 ceiling 推断。
+- 没有成功的真实账号/Provider 验证；任何协议 surface 能力都不能由静态 ceiling 推断。
 
 ## 验证与证据入口
 

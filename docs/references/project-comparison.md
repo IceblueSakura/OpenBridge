@@ -49,10 +49,8 @@ Stateful continuation、observability 与 Provider protocol 目前只有项目�
 
 ## 4. 研究维护规则
 
-1. 单项目观察先进入对应项目目录，并固定 source/date/commit。
-2. 综合文档只引用已经存在的项目级调研，不在综合文档首次引入项目事实。
-3. issue 必须记录触发条件、失败 transcript 和项目版本；不能只引用结论。
-4. “可借鉴”只表示研究价值，不改变该项目事实或形成实施承诺。
-5. 外部 tests 需要区分 schema smoke、client consumption、deterministic state contract 与 real Provider E2E。
-6. 动态模型、endpoint、SDK、policy 和 license 变化时重新复核，不用总览日期覆盖固定快照。
-7. 本仓库的需求、当前代码和验证结果不写入本目录。
+所有权、综合前置、快照固定与复核规则见[参考文档索引](README.md)，本页不重复。本目录附加约定：
+
+1. issue 必须记录触发条件、失败 transcript 和项目版本；不能只引用结论。
+2. “可借鉴”只表示研究价值，不改变该项目事实或形成实施承诺。
+3. 外部 tests 需要区分 schema smoke、client consumption、deterministic state contract 与 real Provider E2E。

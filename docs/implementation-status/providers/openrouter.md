@@ -6,7 +6,7 @@
 
 - MiniMax 图片输入没有模型级真实 Provider 证据，executable interface 保持 text-only。
 - GLM-5.3-Flash 已验证 Chat/Responses streaming、non-streaming、PNG data URL、Auto function tool、parallel 请求开关与 Hermes `obc`/`obr`；named tool choice 与 Responses structured output 不公开。
-- GLM 的 file input、remote image/JPEG、video、更多图片数量/大小、长上下文未证明；Gemini/Grok file/audio/video、Grok 小图尺寸、DeepSeek fallback、MiniMax/NVIDIA failover、Provider routing 偏好和长期运行也未形成统一验收。公开目录字段不自动成为 executable capability。
+- GLM 的 file input、remote image/JPEG、video、更多图片数量/大小、长上下文未证明；Gemini/Grok file/audio/video、Grok 小图尺寸、跨 Provider failover 与 routing 偏好也未形成统一验收。公开目录字段不自动成为 executable capability。
 
 ## 验证与证据入口
 

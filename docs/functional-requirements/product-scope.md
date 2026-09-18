@@ -27,6 +27,8 @@ Agent 或 OpenAI-compatible SDK 通过稳定的 loopback HTTP 地址和 Public M
 - 管理员显式运行的固定 Models 与基础 API probe。probe 不修改 registry，也不把一次探测提升为模型语义、
   客户端、负载或长期兼容结论。
 
+下一步以富语义 IR 统一驱动 Generation 的请求与响应编码，为之后的受信分析、工具注入和拦截提供处理位置；不要求任意请求都能跨 Provider 转换，也不在本轮实现 hook。该方向已接受、尚未完成，详见 [ADR-0001](../decisions/0001-generation-ir-authority.md)与[下一步目标](../implementation-plans/next-goal.md)。
+
 ## 2. Generation 状态契约
 
 OpenBridge 只支持无状态请求，客户端每次携带完整历史；`store` 省略或为 `false`，
@@ -99,7 +101,7 @@ OAuth token snapshot/generation 的受控刷新不能改变这些拓扑事实。
 - 内置 Prometheus exporter、metrics 查询/重置 API、历史数据库、dashboard 或分布式指标聚合；
 - hosted tool、MCP Tool Bridge、`hello` 之外的本地 MCP tool 或由 generation gateway 执行普通 function tool；
 
-以上条目不削弱前节的永久非目标。已有 ChatGPT/Grok OAuth 合同定义本地行为要求，不代表真实账号或长期运行已验收；外部验证边界见[Provider 状态](../implementation-status/providers/README.md)。
+以上条目不削弱前节的永久非目标。ChatGPT/Grok OAuth 合同只定义本地行为要求，不代表真实账号或长期运行已验收；外部验证边界见[Provider 状态](../implementation-status/providers/README.md)。
 
 ## 8. 术语
 
@@ -111,4 +113,4 @@ OAuth token snapshot/generation 的受控刷新不能改变这些拓扑事实。
 - **Upstream API**：Target 下由 `OperationKind` 唯一标识的一条原生供应及其能力。
 - **Route**：固定下游 operation、Target、typed upstream operation 和 `Native`/`Bridged` 模式的路径。
 - **Public Model**：下游稳定模型身份、每协议固定能力契约及私有有序 Routes。
-- **Native Path**：上下游协议一致时的最小改写转发路径。
+- **Native Path**：上下游协议一致时的转发路径；目标合同与 Bridge 一样经 decode → IR → encode（见[Native Path 与流式语义](gateway-api/native-and-streaming.md)），不表示绕过语义验证的原 JSON 透传。

@@ -1,10 +1,23 @@
 ## 1. Native Path 基线
 
 当下游与上游协议一致且请求已通过 Public Model 固定契约预检与输入归一化时，Native Path 是兼容性基线：它只做受信路由、模型、认证、显式
-reasoning level wire 映射和已验证的普通生成提示忽略。Native 与 Bridge 统一经 decode → 核心 IR → encode；保留其他已知且被接口接受的请求语义、合法响应字段与有界扩展，不能因目标协议不同而缩小核心 IR 的结果表达范围。Native encoder 可以保留源字段，但不得绕过解码、生命周期与资源验证。level 映射必须属于选定 Upstream API 的代码注册规则，映射源必须已由 canonical Model
+reasoning level wire 映射和已验证的普通生成提示忽略。Native 与 Bridge 统一经 decode → 核心 IR → encode；保留其他已知且被接口接受的请求语义、合法响应字段与有界扩展，不能因目标协议不同而缩小核心 IR 的结果表达范围。level 映射必须属于选定 Upstream API 的代码注册规则，映射源必须已由 canonical Model
 声明，目标必须是安全 wire 值；不得由业务请求提供映射或用映射扩大 Public Model 支持的下游 level 集合。canonical reasoning
 level vocabulary 为 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；每个 Model 仍须显式声明实际支持的子集。`none` 是调用方显式要求禁用
 reasoning，不等同于缺少 reasoning 字段。
+
+### IR 语义权威（设计目标，未完成）
+
+设计理由与边界见 [ADR-0001](../../decisions/0001-generation-ir-authority.md)，阶段计划见[下一步目标](../../implementation-plans/next-goal.md)。目标行为为：
+
+- Chat/Responses Generation 的请求与响应双向都经 decode → 富语义 IR → encode；同协议 Native 与跨协议 Bridge 使用同一语义边界，IR 是唯一语义权威。已建模字段的最终 wire 编码只由 IR 决定；被删除、归一化或拒绝的语义不得经保留的原始 JSON 旁路复活。
+- Native 保持已接受语义，跨协议只转换目标可表达的内容；受约束扩展不得覆盖已建模字段或未经许可跨 Provider 重放。不要求任意请求都可跨源，不得静默丢失语义。
+
+该目标尚未完成，具体实现差距由[当前状态边界](../../implementation-status/current-boundaries.md#generation-与-bridge与-ir-权威目标的差距)维护；工具注入、分析和拦截不属于本轮实现范围。
+
+### 现行编码与参数规则
+
+现行合同：Native encoder 可以保留源字段，但不得绕过解码、生命周期与资源验证；保留的源字段不得恢复预检、归一化或忽略规则已删除/改写的语义。
 
 每个 generation Public Model 必须静态选择 reasoning input policy。`strict` 只接受固定接口 `levels` 中的值；
 `clamp_positive_floor` 仅处理正向序列 `minimal < low < medium < high < xhigh < max`：选择不高于请求值的最高可执行档位，若请求值低于

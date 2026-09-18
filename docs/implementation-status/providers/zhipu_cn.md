@@ -6,7 +6,7 @@
 
 - GLM-5.3、GLM-5.2 与 GLM-5.3-Flash 注册 Chat Native JSON Object；Chat function tools 只公开 Auto choice，不公开请求级 parallel 或 strict schema。
 - 只有官方明确列出的 GLM-5.3 注册 `/api/v1/responses` text-only Native，并保留 Chat bridge 作为更高能力请求的回退。
-- 2026-08-31 有界 JSON/SSE Responses probe 成功，但不证明 reasoning、structured output、工具、state、文件、视频、其他账号/区域、负载或长期运行。
+- 2026-08-31 有界 JSON/SSE Responses probe 成功，但不证明 reasoning、structured output、工具、state 或文件/视频语义。
 - 2026-09-02 矩阵中 GLM-5.3-Flash 的 reasoning effort 只接受 `low/high/max`；`none/minimal/medium/xhigh` 被拒绝。Responses `reasoning-summary` 与 `include-encrypted-content` 被拒绝而 `prompt-cache-key` 被接受；该 effort 子集收窄未在注册中体现，待独立获准变更复核。
 
 ## 验证与证据入口

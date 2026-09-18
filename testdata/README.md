@@ -3,11 +3,11 @@
 `testdata/` 是一个可独立发布、可复现的协议测试语料。它固定 Chat Completions、Responses、SSE、function tool 和 HTTP/transport
 失败的输入、上游 wire 与预期输出；它不启动 OpenBridge，也不依赖 Rust crate、服务配置、API key 或真实 Provider。
 
-当前 release 为 **0.9.0**：51 个人工审查的 canonical wire cases（26 `accepted`、25 `reviewed`）、14 个协议无关 semantic
-cases（6 `accepted`、8 `reviewed`），以及默认 seed 下 342 个可重建的 SSE 分片变体。native 成功路径的
+当前 release 为 **0.9.0**，`schema_version` 为 `0.1`。case 数量、status 分布与变体统计以 `corpus report`
+输出为准，正文不维护计数快照。native 成功路径的
 `expected-client-*` 与上游响应逐字节一致（`model` 保持上游值、不注入合成 event）；`expected-upstream-request.json`
 包含生产的 `instructions` 与 `store` 归一化；transport 失败消息与 SSE framing artifact 固定为实测字节。
-`schema_version` 为 `0.1`。项目语义测试流程见 [semantic-testing.md](semantic-testing.md)。
+项目语义测试流程见 [semantic-testing.md](semantic-testing.md)。
 
 配套的校验、生成、打包和 HTTP/SSE mock 工具位于 [../tools/corpus/README.md](../tools/corpus/README.md)。当前已验证状态和集成边界见
 [当前实现](../docs/implementation-status/current-state.md)和
@@ -155,7 +155,7 @@ uv run --project tools/corpus corpus --root testdata verify-semantic-trace `
 - Chat ↔ Responses 双向 text 的 stream/non-stream；
 - 双向单/并行 function call、tool result、交错和只带 index 的 arguments fragment；
 - Native Chat 与 Native Responses 对称的 strict/forced 单 function call、结构化 tool result 与 parallel stream；
-- 14 个 semantic cases：9 个 function-tool、4 个 context retrieval/integration/conflict 和 1 个 strict nested JSON；
+- semantic cases 覆盖 function-tool、context retrieval/integration/conflict 与 strict nested JSON；
 - Responses `completed`/`failed`/`incomplete`/`error`、Chat `[DONE]`、EOF、duplicate terminal、terminal 后事件；
 - SSE comment、多行 `data:`、CRLF、UTF-8 跨分片、all-in-one、event-pairs 和 seeded chunking；
 - caller cancellation、首输出前/后 transport error；
@@ -233,5 +233,10 @@ uv run --project tools/corpus corpus --root testdata pack --output testdata/dist
 
 工具语义 runner 还需要把任一 Native/Bridge 输出转换为 `semantic-trace.schema.json` 的规范化 event，再调用 semantic verifier；该
 规范化步骤本身属于后续接入测试，不能由 reference trace 自证。
+
+下一步方向是 Generation 请求与响应以富语义 IR 为 encode 权威（[ADR-0001](../docs/decisions/0001-generation-ir-authority.md)、
+[下一步目标](../docs/implementation-plans/next-goal.md)）：接入验证的重点是无修改保真、IR 变更反映到 wire、删除不被 source
+恢复、受限扩展与 stream 事件/取消/终态。当前 native 逐字节一致期望固定的是既有契约；后续获准切片将其调整为语义保真时，
+canonical 数据与本文一并修订，native 源 JSON 克隆本身不是目标。
 
 本目录和 `tools/corpus/` 刻意不加载 OpenBridge 配置、不启动二进制，也不声明这些产品行为已经实现。

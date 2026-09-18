@@ -124,7 +124,7 @@ cargo test --locked --test semantic_router_contract -- --nocapture
 
 ## 7. 当前未覆盖
 
-本流程没有实现通用 network/live runner、完整 capability parameter differential/enforcement matrix、Chat↔Responses canonical IR round-trip 报告、模型生成失败时的 strict retry、live web-search dataset、effective-length 自动曲线/85% threshold、排行榜或生产指标聚合。需要这些能力时必须建立新的获准切片、固定来源与运行边界；不能从 0.9.0 的 reference traces 或 synthetic pass/fail 推断。
+本流程没有实现通用 network/live runner、完整 capability parameter differential/enforcement matrix、Chat↔Responses canonical IR round-trip 报告、模型生成失败时的 strict retry、live web-search dataset、effective-length 自动曲线/85% threshold、排行榜或生产指标聚合。需要这些能力时必须建立新的获准切片、固定来源与运行边界；不能从 0.9.0 的 reference traces 或 synthetic pass/fail 推断。IR 语义权威方向与验收原则见[下一步目标](../docs/implementation-plans/next-goal.md)与 [ADR-0001](../docs/decisions/0001-generation-ir-authority.md)；对应 runner 与 round-trip 报告按获准切片建立。
 
 ## 8. 新增 case
 

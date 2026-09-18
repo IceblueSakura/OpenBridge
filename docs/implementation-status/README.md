@@ -10,7 +10,7 @@
 | [Provider 接入进度](providers/README.md) | Provider family 的特有接线、例外、证据入口与未证明边界 |
 | [带日期的外部验证](evidence/README.md) | 固定日期、账号、网络、模型与 payload 下的外部观察和独立接入验收 |
 
-功能合同由[功能需求](../functional-requirements/README.md)拥有，模块关系见[当前架构](../architecture.md)。
+功能合同由[功能需求](../functional-requirements/README.md)拥有，模块关系见[当前架构](../architecture.md)。Generation IR 语义权威的目标设计由 [ADR-0001](../decisions/0001-generation-ir-authority.md) 拥有，阶段推进由[下一步目标](../implementation-plans/next-goal.md)拥有；本目录只记录当前实现与该目标的差距及验证边界。
 [当前开发焦点](../implementation-plans/current-focus.md)记录用户已授权的工作范围，不独立授予权限；外部协议事实由[references](../references/README.md)拥有。
 
 同一实施事实冲突时，以当前 checkout 和对应确定性测试为准。外部记录不能覆盖后续源码，也不能替代其他账号、SDK、Agent、

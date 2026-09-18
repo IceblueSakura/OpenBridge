@@ -19,7 +19,7 @@ Public Model 接线由[Model 与 Provider 映射](../model-provider-mapping.md)�
 
 ## 维护规则
 
-- Provider 页只保留该 family 的特有接线、例外和未证明边界；公共证据层、永久非目标和完整能力表由对应 owner 拥有。
+- Provider 页只保留该 family 的特有接线、例外和未证明边界；公共证据层（SDK/Agent、负载、长期运行、生产验收等分层限制）、永久非目标和完整能力表由对应 owner 拥有，不在每页逐层重复。
 - 映射关系只改 [model-provider-mapping.md](../model-provider-mapping.md)，不要在 Provider 页复制 Public Model、候选顺序或全量模型清单。
-- 一次 probe 不必单独写报告。只有独立接入验收或与引用的官方/OpenRouter 声明存在实测差异时，才新增带日期 evidence；普通结果可在本页保留指针或由当前状态概括。
-- Evidence 固定历史事实，不改写为当前能力；注册代码发生收窄/放宽时，在代码注释和当前 Provider 页保留日期化 evidence 指针。
+- evidence 的准入条件、分层规则与维护规则由[evidence README](../evidence/README.md)唯一维护，本页不重复；Provider 页只保留与当前接入相关的证据指针。
+- 注册代码发生收窄/放宽时，在代码注释和当前 Provider 页保留日期化 evidence 指针。

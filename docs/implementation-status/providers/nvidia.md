@@ -6,7 +6,7 @@
 
 - 已注册 Chat-only MiniMax Target：function tools 全 choice、parallel、strict schema、JSON Object、JSON Schema(strict) 与图片输入。
 - 能力来自 2026-08-10 有界 probe 与 OpenAI-compatible convention：单张 PNG data URL 实测，JPEG 按惯例声明；不等于 MiniMax-M3 的图片质量、structured output 或真实推理验收。
-- Nemotron 3 Embed 1B 已注册 Embeddings Native；语义质量、MiniMax fallback、其他账号/区域、配额、负载和长期运行未验证。
+- Nemotron 3 Embed 1B 已注册 Embeddings Native；语义质量与 MiniMax fallback 未验证。
 
 ## 验证与证据入口
 

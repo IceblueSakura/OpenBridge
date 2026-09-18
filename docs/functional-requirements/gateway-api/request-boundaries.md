@@ -11,7 +11,8 @@
   source 已有 Native coverage 时保留。两种策略都在启动期冻结，运行时不得因请求能力、价格、健康或 Provider 名称重新打分或重排。
 - 服务对上游只使用选中 route 的真实模型名、协议、endpoint 与 credential；下游不能通过 body、query 或 header 指定上游
   URL、模型、credential、provider family、route、转换脚本或 header 转换规则。Provider 的受信代码 hook 可以按编译期规则增添、替换、转换或删除普通
-  header，但认证、cookie、Host 与 proxy header 始终隔离。
+  header，但认证、cookie、Host 与 proxy header 始终隔离。Provider 对 request body 的受信 wire 变换属于
+  [IR 语义权威设计目标](native-and-streaming.md#ir-语义权威设计目标未完成)的收敛范围：同一语义不得在 IR 与后续 JSON hook 中各自独立决定，编码后变换不得使被删除或拒绝的字段复活。
 - 请求开始后，Public Model、RoutePlan、credential pool binding 与注册表版本保持固定；无状态 attempt 可按策略选择 pool
   member。
 

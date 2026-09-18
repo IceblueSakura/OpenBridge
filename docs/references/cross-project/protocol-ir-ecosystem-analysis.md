@@ -187,8 +187,10 @@ Protocol support不能替代semantic capability。Helicone按endpoint构造候�
 - OpenRouter账户默认plugin和server-tool真实执行；
 - Provider-native tool跨协议是否存在可证明的portable subset；
 - exact/equivalent/normalized边界和route policy；
-- Native wire-preservation与“所有路径Decode→IR→Encode”的最终关系；
 - Event IR terminal/commit与fallback的所有权；
 - Gateway tool executor是否属于Generation pipeline还是独立orchestrator。
+
+其中“Native wire-preservation与所有路径Decode→IR→Encode的最终关系”已不是开放问题：本地
+[ADR-0001](../../decisions/0001-generation-ir-authority.md) 已决定 IR 是 encode 权威，源保留只能作为受约束的保留元数据；本页不复制其内容，只保留指针。
 
 这些问题需要后续设计评审或明确授权的执行验证；本调研不直接生成Rust schema或迁移计划。

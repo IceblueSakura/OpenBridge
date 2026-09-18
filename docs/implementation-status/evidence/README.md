@@ -1,6 +1,6 @@
 # 验证证据目录
 
-本目录保存已经执行、带日期且边界明确的外部验证记录。记录按发生时间固定事实，不承担“当前实现”或“当前 Provider 能力”所有权；这些结论由[当前实现](../current-state.md)、[当前状态边界](../current-boundaries.md)和[Provider 分页](../providers/README.md)解释。
+本目录保存带日期、边界明确的执行记录，供具体接入决策与差异分析引用，不承担当前架构或能力说明。当前实现见[当前实现](../current-state.md)，限制见[当前状态边界](../current-boundaries.md)。历史证据不能替代对当前 checkout 的验证，也不能把局部结果提升为完整 IR 管线或生产兼容的证明。
 
 证据层必须分开表述：确定性 Rust/Python 测试、loopback 客户端、外部 SDK、目标 Agent、真实 Provider、负载和长期运行互不替代。真实 Provider 记录只证明当时 checkout、账号、网络、固定 endpoint、模型和 payload。
 

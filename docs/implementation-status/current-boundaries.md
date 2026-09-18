@@ -13,13 +13,15 @@
 
 以下区分已实现路径的限制、未接入机制和未验证场景。列出某个缺口不表示它在产品范围内，也不构成补齐承诺。
 
-### Generation 与 Bridge
+### Generation 与 Bridge：与 IR 权威目标的差距
 
-- Native JSON 与 SSE 都先进入核心 IR 再编码，已覆盖空输出、refusal 和非完成结果；中断工具参数不会伪装为完整 JSON 参数。Native 合法源字段、annotation 和未知非终态事件以有界 codec envelope/扩展保留，跨协议不猜测其含义。
+目标数据流（decode → 富语义 IR → encode，IR 是最终 wire 的唯一语义权威）由 [ADR-0001](../decisions/0001-generation-ir-authority.md) 拥有，阶段推进与验收见[下一步目标](../implementation-plans/next-goal.md)；本节只记录当前 checkout 与该目标的差距和既有路径的限制。
+
+- **decode 校验不等于 IR 权威。** Native 请求在 `StaticBridgePlan::prepare_with_reasoning_output` 的同协议分支复制源对象并替换 `model`；Native 静态响应的 `encode_native_response` 在此前 decode 校验后，检查源 ID 并重新序列化源 envelope。代码位置分别为 `src/bridge/static_codec.rs` 和 `src/bridge/static_codec/response.rs`。这些分支不足以保证任意 IR 修改或删除都反映到 wire；不能把跨协议 lowering 或已有 ToolPlan 转换的能力等同于全路径完成。
+- Native 合法源字段、annotation 和未知非终态事件当前以有界 codec envelope/扩展保留，跨协议不猜测其含义；该保留机制在 IR 权威目标下缺少明确的语义所有权与合并规则，是[下一步目标](../implementation-plans/next-goal.md)阶段 1 的收敛对象。
 - SSE 规范化覆盖分片、CRLF、data-only typed event、可确定的 event/type 补齐，以及由已验证 items 补齐稀疏 completed terminal。它不承诺恢复任意缺失身份、乱序或丢失的消息边界；矛盾 type/event、非法 JSON、超限和无 terminal 仍拒绝。未执行真实 Provider 或负载兼容性复测。
-
-- Bridge 不支持图片、音频、文件、hosted/custom tool、background/state、opaque continuation 或 Provider 私有语义的通用跨协议转换。
-- ToolPlan 的 immutable Inject/Strip 与 Provider-native lowering API 已存在，但 production planner 尚未调用；bounded Gateway web-search loop 仅在 `#[cfg(test)]` 下编译。当前没有 production Gateway tool loop 或普通 function-tool executor。
+- Bridge 不支持图片、音频、文件、hosted/custom tool、background/state、opaque continuation 或 Provider 私有语义的通用跨协议转换；目标也不承诺任意跨源转换（见 ADR-0001 范围）。
+- ToolPlan 的 immutable Inject/Strip 与 Provider-native lowering API 已存在，但 production planner 尚未调用；bounded Gateway web-search loop 仅在 `#[cfg(test)]` 下编译。当前没有 production Gateway tool loop 或普通 function-tool executor；未来 hook/拦截不在本轮实施范围。
 - 已提交 partial SSE 发生 EOF、body error、timeout 或取消时，网关只能终止当前 body 并记录失败，不能安全改写 HTTP status、注入第二条 stream 或伪造 terminal。
 - `prompt_cache_key` 只形成 accepted best-effort hint，可能按 candidate 删除；cache hit、成本、延迟、active retention、options 和 breakpoint 未实现或未证明。
 - serial-only Provider 的 `parallel_tool_calls:false` 安全省略合同尚未注册；当前 active true/false 都只在固定 interface 已证明可控制并行调用时接受。
@@ -77,25 +79,15 @@
 
 ## 6. 测试资产边界
 
-- 独立 OpenAI SDK 的 Native Responses JSON/SSE 两轮工具回传已通过[固定版本 loopback 验收](evidence/2026-09-09-openai-responses-sdk-loopback.md)；真实 Provider、Bridge、并行工具及完整 Agent runtime 未由该 gate 验证。
+- 独立 OpenAI SDK 的 Native Responses JSON/SSE 两轮工具回传 loopback 验收（范围见[当前实现](current-state.md#3-外部验收入口)）不覆盖真实 Provider、Bridge、并行工具及完整 Agent runtime。
 - `forwarding_contract/resilience.rs` 的受控 producer 验证 SSE Body 按下游需求拉取、恢复消费和 drop 释放；带后台预读的负向控制会失败。该应用层回归不证明 TCP/HTTP2 背压、RSS 峰值或生产并发稳定性。
 
+确定性测试与 corpus 的覆盖入口见[当前实现](current-state.md#2-确定性测试入口)。覆盖按独立机制组织，不要求完整 Model/Provider 库存、candidate 数量或重复逐模型矩阵。具体缺口与限制如下：
 
-当前确定性测试和 corpus 的覆盖入口包括 registry、routing、wire、Generation Static/Event IR lifecycle、SSE fragmentation、retry/fallback/cooldown、取消，以及canonical wire case 经过 production Router 的目录驱动回放（`tests/catalog_replay_contract.rs`）；这些入口不等于当前运行结果，也不证明：
-
-- 完整 Model/Provider inventory、retired ID 黑名单、完整 candidate 数量/顺序或每个 catalog capability fact；
-- 每个 Provider/model 组合都重复经过 Native/Bridge production Router，或 OTLP metrics exporter 拥有独立进程级集成覆盖；
-- stream-violation fixture 的 proposed oracle：当前首帧 event/type 冲突在 commit 前返回 502，已提交后的非法 lifecycle/arguments 终止 body；保留有效前缀，不合成替代终态。fixture 的其他 proposed 行为不构成待实施授权；
-- canonical oracle 等于完整 OpenAI API；
-- hosted/custom tool、continuation、媒体和 Provider 私有扩展可转换；
-- 真实 SDK、Agent、Provider、TLS/HTTP2、并发背压、负载或真实 packet boundary 兼容；
-- semantic reference trace、synthetic context byte/position sweep 或 strict JSON oracle 不证明真实 model 的 context limit、tokenizer、推理质量、Provider 原生 enforcement 或 OpenBridge production path 已执行；
-- 外部来源未来保持相同行为。
-
-尚未实施的测试切片（目录驱动回放之外的已知缺口）：
-
+- OTLP metrics exporter 没有独立进程级集成覆盖；
+- stream-violation fixture 只固定部分 oracle：当前首帧 event/type 冲突在 commit 前返回 502，已提交后的非法 lifecycle/arguments 终止 body，保留有效前缀、不合成替代终态。fixture 的其他 proposed 行为不构成待实施授权；
+- canonical oracle 不等于完整 OpenAI API，外部来源不保证未来行为一致；
 - 缓存管理没有独立 corpus case：`prompt_cache_key` 仅有候选投影/省略测试（`forwarding_contract/resilience.rs`）与 usage 解析测试（`observability_contract.rs`），没有 wire-level cache hint case，也没有登记对应 `sources/` 条目；
-- `tests/semantic_router_contract.rs` 选择性消费 tool-result history、parallel arguments 与 structured output 的 canonical 数据，经过 production Router 并使用独立 JSON/SSE 投影；没有通用 semantic network runner，也不将所有模型任务扩为四方向验收。Native、reasoning、工具选择控制、普通用户/instruction 文本、usage 与媒体等完整语义矩阵不由该精简套件证明，继续由各自合同测试及本页未验证边界说明；
-
+- `tests/semantic_router_contract.rs` 只选择性消费 tool-result history、parallel arguments 与 structured output 的 canonical 数据；没有通用 semantic network runner，完整语义矩阵继续由各自合同测试与本页未验证边界说明。
 
 corpus 中未固定 source ref、pending license 与 `reviewed` case 必须继续显式暴露，不能改写为完成状态。实际执行过的外部证据以[evidence 索引](evidence/README.md)为准。

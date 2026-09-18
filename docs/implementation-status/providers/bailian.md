@@ -9,7 +9,7 @@
 - GLM-5.3 按[2026-09-16 固定 case 探测](../evidence/2026-09-16-bailian-glm-5-3-capability-probe.md)注册为 Chat-only（`bailian/glm-5-3`）：Chat 收窄为 auto/none/required 工具选择、parallel、JSON Object；named/strict 与 JSON Schema 不执行。Responses 端点存在但 required/parallel 字段被拒、named/strict 与 structured output 不执行，不接入。
 - Bailian Chat structured output 按官方模型范围公开；Responses structured output 保持收窄：仅 Qwen3.7 Plus 公开 JSON Object，其他 Responses Target 不公开。Qwen/DeepSeek Responses 的 `parallel_calls=false` 不是 serial-only 保证。
 - Responses Session cache 只证明固定 header 进入受信 egress，不证明 cache hit、TTL、节省成本、Provider 保留策略或 429 下延迟改善。
-- LiveTranslate 没有下游 executable interface；Images I2I、async、stream、`b64_json` 未实现。其他账号/区域、质量、计费、负载和长期运行不在这些记录覆盖内。
+- LiveTranslate 没有下游 executable interface；Images I2I、async、stream、`b64_json` 未实现。
 
 ## 验证与证据入口
 

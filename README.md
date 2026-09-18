@@ -3,8 +3,10 @@
 OpenBridge 是一个面向本地或所有者控制环境的 headless、多 Provider、OpenAI-compatible 网关。它把代码中注册的
 Provider、Upstream Target、Route 和 Public Model 编译为固定下游接口，并使用私有用户表认证本地客户端。
 
-本 README 只负责安装、配置、启动、最小调用和常见排障。产品合同、当前实现、验证证据和外部协议资料分别见
-[文档总索引](docs/README.md)与[实施现状目录](docs/implementation-status/README.md)。
+本 README 负责安装、配置、启动、最小调用和常见排障。理解项目设计请按
+[当前架构](docs/architecture.md) → [ADR](docs/decisions/README.md) → [下一步目标](docs/implementation-plans/next-goal.md)阅读；细分合同和参考资料见[文档总索引](docs/README.md)。
+
+当前开发方向是让 Generation 请求与响应统一经过 **decode → 富语义 IR → encode**，以 IR 驱动最终输出，并为之后的工具注入、拦截和分析保留处理位置。已有 IR 与 codec 是基础，但 Native 源对象保留路径尚待收敛；这不是已完成声明，也不承诺任意请求都能跨 Provider 转换。
 
 > OpenBridge 仍是未发布的实验性原型。默认且只允许监听 loopback；不要直接把它作为公网多租户服务部署。
 
@@ -226,6 +228,8 @@ OpenAI-compatible HTTP surface，不描述 MCP dual-era transport；MCP 合同�
 - [文档总索引](docs/README.md)
 - [功能需求](docs/functional-requirements/README.md)
 - [当前架构](docs/architecture.md)
+- [架构决策（ADR）](docs/decisions/README.md)
+- [下一步目标：Generation IR](docs/implementation-plans/next-goal.md)
 - [开发指南](docs/development.md)
 - [实施现状](docs/implementation-status/README.md)
 - [当前开发焦点](docs/implementation-plans/current-focus.md)

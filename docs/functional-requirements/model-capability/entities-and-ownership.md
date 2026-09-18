@@ -38,7 +38,7 @@ Canonical profile identity 只用于区分不同的已核实模型事实，不�
 parameters 和 canonical reasoning 只能由所选 variant 拥有或派生。不得重新引入平铺 task 字段、多个 bool、空 payload 或第二套可独立
 修改的 task 状态。
 
-### 1. 身份、生命周期与可见性
+### 2. 身份、生命周期与可见性
 
 - `id` 是客户端请求和资源路径使用的稳定单段标识，格式为
   `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`；包含 `/` 的上游模型名不得直接成为 Public Model id。

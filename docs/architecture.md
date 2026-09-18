@@ -1,6 +1,18 @@
 # OpenBridge 架构
 
-本文描述当前 checkout 的源码责任、依赖方向、启动装配和主要请求/响应数据流。它不是 ADR、路线图或历史记录；实现进度、未验证边界和 Provider 接入证据分别见[当前实现](implementation-status/current-state.md)、[当前状态边界](implementation-status/current-boundaries.md)和[Provider 接入进度](implementation-status/providers/README.md)。
+本文描述当前 checkout 的模块职责、启动装配和请求/响应数据流，并明确与下一步设计的差距。设计理由由 [ADR](decisions/README.md)维护，下一步范围见[Generation IR 目标](implementation-plans/next-goal.md)。
+
+## 架构摘要
+
+| 方面 | 当前结构 | 下一步 |
+|---|---|---|
+| 控制与执行 | 启动编译 immutable registry；请求使用固定 Public Model 接口和候选 | 保持静态路由、凭据和受信出口边界 |
+| Generation 语义 | 已有 Static/Event IR 与 Chat/Responses codec；Native 仍有源对象保留路径 | 让所有 Generation 请求/响应的编码以 IR 为语义权威 |
+| Provider 差异 | adapter 绑定目标并执行部分 JSON 字段变换 | 明确协议编码与 Provider 语义映射的唯一所有权 |
+| 生命周期 | ingress/execution/transport 管理有界 body、attempt、取消与 commit | 不因统一 IR 而引入全流缓存或提交后重试 |
+| 扩展 | 有局部 ToolPlan 等基础，尚无生产通用 hook 管线 | 先建立语义处理位置，工具注入、拦截与分析策略另行实现 |
+
+**下一步的判断标准是修改 IR 是否真正改变最终 wire，而非是否调用过 decode。** 详见 [ADR-0001](decisions/0001-generation-ir-authority.md)。
 
 OpenBridge 是运行在所有者控制环境中的 headless、OpenAI-compatible、多 Provider 网关。受信 Rust catalog 将 Model、Provider、Upstream Target、Upstream API、Route 和 Public Model 编译为固定的下游接口；Bootstrap 与私有文件只提供进程策略、用户和 credential material。下游请求只能选择 Public Model，不能提交上游 URL、Provider、Target、Route、credential、认证 header 或转换规则。
 
@@ -76,7 +88,7 @@ bootstrap/private files
 | Registry 与 Public Model | `src/registry/` | 校验引用和 capability ceiling，编译 immutable runtime entities、固定 Route candidates、私有 execution interface，并投影 downstream-safe Models DTO |
 | 请求分析与规划 | `src/pipeline/` | Generation、Embeddings、Images 各自拥有 analyzer、preflight、planner 和 pure response policy；不执行 body I/O、credential、transport、observation 或 commit |
 | Generation semantic IR | `src/ir/generation/` | Provider-neutral Static/Event values、验证、reducer 和 materializer；不拥有 registry、routing、credential、网络 I/O 或 downstream commit |
-| Protocol Bridge | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | 在固定 Generation plan 上执行 Chat ↔ Responses 的纯 lowering/渲染；不选择 Provider，不管理 retry、liveness、取消或 commit |
+| Generation codec / Protocol Bridge | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | 在固定 plan 上执行 Native 保留编码与 Chat ↔ Responses lowering；不选择 Provider，不管理 retry、liveness、取消或 commit |
 | HTTP ingress | `src/ingress/` | Router、Bearer admission、body lifecycle、operation handlers、attempt/fallback、streaming response、错误映射和 downstream commit |
 | Attempt coordination | `src/execution.rs`、`src/execution/` | 只管理请求级 attempt/candidate state、硬预算和 backoff；不拥有 operation pipeline、Provider 分类、credential 选择或 commit policy |
 | Upstream transport | `src/transport/` | 共享 HTTP client、validated target、相对 URI、timeout、safe headers 和 SSE framing；不解释业务路由 |
@@ -128,7 +140,7 @@ RegistryConfig
 
 每个 Upstream API 保留 typed operation/task identity、effective model facts、capabilities、streaming policy 和必要的 wire narrowing。Public Model 从 private execution interface 投影出固定下游 contract；请求期只消费该 interface 和其固定 candidates，不通过反向解析 Models JSON 或临时能力筛选来改变 Route。
 
-Generation 的同协议路径是 Native；跨 Chat/Responses 的显式转换只能使用受限 Generation Bridge。Embeddings 和 Images 使用各自的 Native-only operation plan，不复用 Generation target 或 Bridge。
+Generation 的同协议路径称为 Native；跨 Chat/Responses 使用受限 Bridge。两者描述协议关系，不表示所有语义都能在任意 Provider 间转换。Embeddings 和 Images 使用各自的 Native-only operation plan，不复用 Generation target 或 Bridge。
 
 ## 6. 请求与响应主数据流
 
@@ -137,6 +149,8 @@ Generation 的同协议路径是 Native；跨 Chat/Responses 的显式转换只�
 Router 先设置 request ID、敏感 header 标记和 configured body limit，再执行 Bearer authentication。只有认证成功的请求进入 handler；随后建立 request observation，并在显式启用时对最终下游边界做有界、本地、脱敏的 content snapshot。响应 body wrapper 负责真实 EOF、body error 或取消时的 terminal，不按 SSE chunk 记录本地日志。
 
 ### 6.2 Generation
+
+以下是**当前调用顺序**，不是 ADR 的目标管线：
 
 ```text
 JSON admission
@@ -151,11 +165,13 @@ JSON admission
   → ProviderAdapter prepares a routed request
   → bounded attempt loop + UpstreamTransport
   → decode/validate canonical JSON or Event IR response
-  → encode Native preservation or cross-protocol projection
+  → encode Native source preservation or cross-protocol projection
   → downstream response commit and observations
 ```
 
-`analyze` 和 `plan` 是纯函数式边界：它们可以拒绝请求，但不读取 upstream body、不取 credential、不执行网络 I/O，也不提交下游 response。Native 路径保留目标协议语义；Bridge 路径在 canonical IR 上做协议转换，避免 Chat/Responses codec 之间形成隐式的 Provider 或 Route 选择。
+`analyze` 和 `plan` 可以拒绝请求，但不读取 upstream body、不取 credential、不执行网络 I/O，也不提交下游 response。Bridge 在 canonical IR 上做协议转换；Native decode 后仍有源对象保留分支：请求复制 source 并替换 model，静态响应重新序列化源 envelope。因此“已经过 IR 校验”不等于“最终编码完全由 IR 决定”。
+
+目标是先 decode 得到 Request IR，经语义处理位置、既定预检和路由后，再针对已选 Provider/API 编码；响应则 decode 为 Response/Event IR 后按下游协议编码。同协议也服从这个边界。迁移保留现有能力与生命周期，不以跨协议较窄子集裁剪 Native；完整决定见 [ADR-0001](decisions/0001-generation-ir-authority.md)。
 
 ### 6.3 Embeddings、Images 与 Models
 
@@ -171,7 +187,9 @@ Registry 只保存 credential pool 的非敏感 identity、Provider kind 和 cre
 
 ### IR 与 Bridge
 
-Generation IR 表达支持范围内的语义并集，包括文本、refusal、工具、非完成结果及有界命名空间扩展，不以任一 Provider 或协议的能力交集裁剪核心类型。Provider/request/response 差异归 decode/encode；固定 Public Model 能力交集仍属于 registry/preflight。它不携带 registry entity、Route、credential 或上游 endpoint 定位信息，也不直接访问 body、clock、task 或 observation。Bridge 使用固定 plan 消费 IR；Provider adapter 和 transport 负责把它变成受信 wire request。
+Generation IR 表达支持范围内的语义并集，包括文本、refusal、工具、非完成结果及有界命名空间扩展，不以任一 Provider 或协议的能力交集裁剪核心类型。固定 Public Model 能力交集仍属于 registry/preflight。IR 不携带 registry entity、Route、credential 或上游 endpoint 定位信息，也不直接访问 body、clock、task 或 observation。
+
+当前 Provider adapter 仍会对编码后的 JSON 执行目标相关字段变换。下一步需要收敛语义所有权：已建模内容由 IR 决定，codec 的保留元数据只保存不冲突且目标允许的协议信息，Provider 映射不形成第二套独立语义状态。尚未实现通用的注入、分析或拦截 hook。
 
 ### Retry、fallback 与 cooldown
 

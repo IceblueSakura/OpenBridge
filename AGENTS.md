@@ -7,7 +7,7 @@ These instructions apply to the repository and all subdirectories. More specific
 - OpenBridge is an experimental Rust/Axum, headless, OpenAI-compatible multi-provider gateway. Ground work in the live checkout, applicable contracts, source, and tests; history and summaries are navigation aids, not proof.
 - Inspect the branch, `git status`, and the target-file diff before editing. Preserve unrelated work; do not overwrite, revert, stage, or commit it. Stop on overlapping external edits.
 - Reviews, diagnosis, status, and planning are read-only. Implement explicitly requested changes without expanding scope. Commit, push, external publication, service/production changes, and paid Provider requests require explicit authorization for the relevant action and target.
-- `docs/implementation-plans/current-focus.md` records user-approved behavior scope; it does not grant authority. Requirements, gaps, references, historical plans, and agent-written entries never independently authorize work.
+- ADRs record accepted design decisions; `docs/implementation-plans/next-goal.md` records the agreed direction and `current-focus.md` records an explicitly approved implementation slice. None independently grants authority to change code or expand scope.
 
 ## Read the Relevant Context
 
@@ -16,7 +16,7 @@ Before non-trivial work, read the root [README](README.md) and [documentation in
 | Task | Required context |
 |---|---|
 | Product behavior or compatibility | Relevant `docs/functional-requirements/` leaves, affected source/tests, and current status boundaries |
-| Cross-module ownership or data flow | [Current architecture](docs/architecture.md), affected module docs and callers |
+| Cross-module ownership or data flow | [Current architecture](docs/architecture.md), relevant [ADRs](docs/decisions/README.md), affected module docs and callers |
 | Implementation, dependency, or test changes | [Development guide](docs/development.md), affected tests and manifests |
 | Provider onboarding or protocol changes | Relevant `docs/references/` source snapshots, registration code, Provider status and evidence |
 | Corpus or semantic testing | `testdata/README.md`, `testdata/semantic-testing.md`, and relevant `tools/corpus/` source/tests |
@@ -56,9 +56,9 @@ Read only relevant leaves, not every document. Product contracts state intended 
 
 ## Documentation and Completion
 
-- Follow [docs/README.md](docs/README.md) for fact ownership. Keep current architecture and necessary reasons, not speculative roadmaps or decision-history documents. Local implementation details belong in module/API docs and tests.
-- Do not duplicate full model metadata or dynamic Provider directories. Keep official source identity, URL, snapshot/recheck boundaries; registration relationships may remain in implementation status.
+- Follow [docs/README.md](docs/README.md) for fact ownership. Organize the main documentation around current architecture, concise ADRs, and the agreed next goal. Separate accepted decisions, existing implementation, and planned changes; do not turn ADRs into completion diaries. Local implementation details belong in module/API docs and tests.
+- Do not duplicate full model metadata, dynamic Provider directories, or repeated validation/source inventories. Keep essential source attribution in references and independently valuable execution records in evidence; link to these only when they explain a concrete constraint.
 - Preserve independently valuable external acceptance and observed discrepancies with dated evidence boundaries. Only executed contradictions support discrepancy claims; source-directory disagreements and untested inferences do not. Routine local test runs do not require historical documents.
-- Update affected current facts and evidence pointers, not completion diaries. Restore the current focus to empty after completing the approved behavior slice.
+- Update affected architecture, decisions, goals and concrete limitations, not completion diaries. Restore the current focus to empty after completing the approved behavior slice; update the next goal separately rather than erasing an unfinished direction.
 - Inspect the final diff and verify relative links/anchors and `git diff --check` for documentation changes. Runtime assets such as `docs/openapi.yaml` and `docs/swagger-ui.html` are not ordinary movable documentation.
 - Report what changed, the files involved, exact checks and outcomes, skipped external layers, and remaining acceptance gaps. Do not claim runtime success from documentation edits or improved agent behavior from static instruction review alone.

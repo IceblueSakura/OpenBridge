@@ -70,5 +70,6 @@ credential、认证 header、完整请求正文、生成正文或完整 upstream
 
 一次 `accepted` 或 capability oracle 的 `supported` 只证明该固定首轮请求当时取得相应 JSON/SSE 结果；它不证明 reasoning 参数实际生效、
 完整工具调用流程、工具执行/续轮、能力稳定，或 inline PNG 之外的 remote/detail/其他多模态能力，也不证明模型质量、SDK/Agent 兼容、
-retry/fallback、负载或长期稳定性。完整说明见
+retry/fallback、负载或长期稳定性。探测结果服务于 Provider 注册与接入边界，不是 IR 语义管线的验证手段；同协议保真、IR 变更生效与
+stream 终态由确定性合同测试按[下一步目标](../implementation-plans/next-goal.md)验收。完整说明见
 [当前状态边界](../implementation-status/current-boundaries.md)。

@@ -8,7 +8,7 @@
 |---|---|---|
 | 网关入口、Bearer 认证与 MCP dual-era | Chat Completions、Responses、Models、扩展 Models、Embeddings、Images Generations 和本地 `hello` MCP 入口 | `src/ingress/`、`src/registry/public_model/`、`src/mcp/` |
 | Bootstrap、用户、上游凭证与静态注册 | 严格启动解析、用户认证、API-key/OAuth binding、canonical Model、Provider Target、Route 与 Public Model 编译 | `src/config/`、`src/identity.rs`、`src/credential/`、`src/upstream_credentials/`、`src/oauth2_credentials/`、`src/models/`、`src/providers/`、`src/registry/` |
-| Generation | 统一 Static/Event IR decode/encode；Native 结果完整性、有界 SSE 规范化、封闭集合 Bridge、工具与 structured-output 固定预检 | `src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/provider/`、`src/transport/` |
+| Generation | 已有 Static/Event IR、Native 结果校验、有界 SSE 规范化、受限跨协议转换及工具/structured-output 预检；Native 仍有源 envelope 保留分支，尚未统一为 IR 驱动编码，见[具体差距](current-boundaries.md#generation-与-bridge与-ir-权威目标的差距) | `src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/provider/`、`src/transport/` |
 | resilience 与 body lifecycle | 固定 Route 顺序、有限 retry/fallback、credential rotation、单进程 cooldown、取消、SSE 终态与有界 body 处理 | `src/ingress/forwarding/`、`src/execution/`、`src/ingress/health.rs`、`src/ingress/streaming/` |
 | Embeddings | 单 Route Native execution，含输入、encoding、dimension 和 batch limit 预检 | `src/pipeline/embeddings/` |
 | 图片、文件和音频 | 按 Provider/任务注册的 Native surface；Images Generations 仅同步单 attempt JSON URL | `src/providers/*/`、`src/pipeline/images/`、`src/ingress/forwarding/images.rs` |
@@ -38,9 +38,4 @@ credential 有效、账号 entitlement、Provider 可达、配额或真实模型
 
 固定 OpenAI Python SDK 的 Native Responses JSON/SSE 工具续轮已有显式 loopback gate：`tests/openai_responses_sdk_loopback.rs`，默认 ignored；[执行证据](evidence/2026-09-09-openai-responses-sdk-loopback.md)只证明对应 SDK 与 synthetic Router 路径，不证明真实 Provider 工具质量。
 
-
-外部记录固定于当时的 checkout、账号、区域、网络、endpoint、model ID 和 payload；它们不承担当前能力所有权。
-
-具体记录及其覆盖范围由[evidence 索引](evidence/README.md)维护；各 Provider 页只解释与当前接入相关的证据和未验证边界，本页不复制记录清单。
-
-管理员 probe 的普通执行结果不自动生成独立记录；只有具有独立接入验收价值或观察到与引用来源不一致的差异时，才进入[evidence 索引](evidence/README.md)。
+外部记录的适用范围与准入条件由[evidence README](evidence/README.md)维护；各 Provider 页只解释与当前接入相关的证据和未验证边界，本页不复制记录清单。管理员 probe 的普通执行结果不自动生成独立记录；只有具有独立接入验收价值或观察到与引用来源不一致的差异时，才进入 evidence 索引。

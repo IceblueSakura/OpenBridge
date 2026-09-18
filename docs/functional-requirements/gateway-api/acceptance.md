@@ -1,4 +1,5 @@
-下列 ID 是网关 API 的稳定行为约束。实施证据由[实施现状](../../implementation-status/README.md)单独记录。
+下列 ID 是网关 API 的稳定行为约束，约束当前有效行为合同。IR 语义权威管线是设计目标（未完成），由
+[ADR-0001](../../decisions/0001-generation-ir-authority.md)与[Native Path 与流式语义](native-and-streaming.md)拥有，其落实进度见[下一步目标](../../implementation-plans/next-goal.md)；实施证据由[实施现状](../../implementation-status/README.md)单独记录。
 
 ## 1. 功能验收要求
 
