@@ -13,9 +13,24 @@
 
 以下区分已实现路径的限制、未接入机制和未验证场景。列出某个缺口不表示它在产品范围内，也不构成补齐承诺。
 
+### 任务 IR 表达与 codec 缺口
+
+[ADR-0002](../decisions/0002-task-ir-and-semantic-ownership.md)规定目标类型族；当前 `src/ir/` 仅有 Generation。下表区分类型表达、codec 映射和生产接线，不能以现有合同测试通过推断完整覆盖。
+
+| 边界 | 当前缺口 | 源码入口 |
+|---|---|---|
+| Embedding / Images | request 仍包裹 `Bytes`，analysis 只提取结构与预算 facts，没有独立完整语义 IR | `src/core/request.rs`、`src/pipeline/embeddings/`、`src/pipeline/images/` |
+| 媒体输入与专用 Speech | 音频输入 format、文件名及输出音频配置未完整进入 GenerationRequest；资源用途与专用语音任务仍依赖额外分析/wire | `src/bridge/static_codec/request.rs`、`src/ir/generation/semantic/resource.rs` |
+| 请求 presence / 投影 | codec 未将 Responses include 接入已有 OutputProjection；function strict 省略折叠为 false，需要明确协议默认值与保留规则 | `src/bridge/static_codec/request.rs`、`src/ir/generation/projection.rs` |
+| 流式媒体 | Event IR 没有专用媒体增量类型，Chat audio delta 以私有扩展保存 | `src/ir/generation/event/algebra.rs`、`src/bridge/event_codec/chat.rs` |
+| 候选闭合 | Static request codec 可表达 n 大于 1，但 Chat response decoder 只接受单个 choice；这不是对生产 Public Model 支持多候选的声明 | `src/bridge/static_codec/request/controls.rs`、`src/bridge/static_codec/response.rs` |
+| 严格解析 | Generation codec 拒绝重复 JSON key，Embedding analyzer 的 Value 解析不能区分重复 input；任务间规则尚未统一 | `src/bridge/strict_json.rs`、`src/pipeline/embeddings/analysis.rs` |
+
+这些是本地类型/codec 边界，不是实际 Provider 兼容结论。Native 源字段仍可保持相关 wire 内容；不能据此声称上述信息已由 IR 独立承载，也不能仅凭两种 wire 得到相同 IR 就推断所有折叠都不合法：等价规范化必须逐语义说明。
+
 ### Generation 与 Bridge：与 IR 权威目标的差距
 
-目标数据流（decode → 富语义 IR → encode，IR 是最终 wire 的唯一语义权威）由 [ADR-0001](../decisions/0001-generation-ir-authority.md) 拥有，阶段推进与验收见[下一步目标](../implementation-plans/next-goal.md)；本节只记录当前 checkout 与该目标的差距和既有路径的限制。
+Generation 的 IR 权威原则由 [ADR-0001](../decisions/0001-generation-ir-authority.md)拥有，任务识别与完整顺序见 [ADR-0002](../decisions/0002-task-ir-and-semantic-ownership.md)，阶段推进与验收见[下一步目标](../implementation-plans/next-goal.md)；本节只记录实现差距和既有路径限制。
 
 - **decode 校验不等于 IR 权威。** Native 普通采样控制已从 IR 编码，修改与删除不再被源值覆盖；其他请求字段仍依赖源保留。Native 静态响应的 `encode_native_response` 在 decode 校验后检查源 ID 并重新序列化源 envelope。代码入口为 `src/bridge/static_codec/request.rs` 和 `src/bridge/static_codec/response.rs`。这不足以保证任意 IR 修改或删除都反映到 wire；不能把局部字段迁移、跨协议 lowering 或已有 ToolPlan 转换等同于全路径完成。
 - Native 合法源字段、annotation 和未知非终态事件当前以有界 codec envelope/扩展保留，跨协议不猜测其含义；该保留机制在 IR 权威目标下缺少明确的语义所有权与合并规则，是[下一步目标](../implementation-plans/next-goal.md)阶段 1 的收敛对象。

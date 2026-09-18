@@ -229,7 +229,7 @@ OpenAI-compatible HTTP surface，不描述 MCP dual-era transport；MCP 合同�
 - [功能需求](docs/functional-requirements/README.md)
 - [当前架构](docs/architecture.md)
 - [架构决策（ADR）](docs/decisions/README.md)
-- [下一步目标：Generation IR](docs/implementation-plans/next-goal.md)
+- [下一步目标：多任务 IR 与离线 codec 验收](docs/implementation-plans/next-goal.md)
 - [开发指南](docs/development.md)
 - [实施现状](docs/implementation-status/README.md)
 - [当前开发焦点](docs/implementation-plans/current-focus.md)

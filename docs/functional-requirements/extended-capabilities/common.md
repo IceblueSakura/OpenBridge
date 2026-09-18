@@ -39,7 +39,7 @@ Native 保真不能绕过 canonical request/response decode 或 SSE lifecycle va
 Chat-to-Responses 与 Responses-to-Chat Bridge 对媒体请求保持 fail closed；只有对应功能需求定义了逐字段、逐事件
 的完整转换契约后，才可开放某个具体方向。
 
-Embeddings 与 Images Generations 不进入 Generation IR；Chat/Responses 内的图片、文件和音频内容仍属于其请求/响应语义，不能借统一管线之名丢弃或转成文本。各任务的固定能力、验证与资源边界继续适用，见 [ADR-0001](../../decisions/0001-generation-ir-authority.md)。
+Embeddings 与 Images Generations 不进入 Generation IR；已接受的目标设计为它们及专用 Speech 任务建立独立语义类型族，见 [ADR-0002](../../decisions/0002-task-ir-and-semantic-ownership.md)。当前使用 Chat/Responses 的媒体内容仍须保真，但其用途由固定任务决定，不能仅凭 wire 角色猜测为对话历史，也不能丢弃或转成文本。各任务现有能力、验证与资源边界不变；本段不表示类型族已经实现。
 
 ## 4. 资源与数据保护
 

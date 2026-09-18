@@ -8,7 +8,7 @@ reasoning，不等同于缺少 reasoning 字段。
 
 ### IR 语义权威（设计目标，未完成）
 
-设计理由与边界见 [ADR-0001](../../decisions/0001-generation-ir-authority.md)，阶段计划见[下一步目标](../../implementation-plans/next-goal.md)。目标行为为：
+Generation 原则见 [ADR-0001](../../decisions/0001-generation-ir-authority.md)，任务边界与 decode 顺序由 [ADR-0002](../../decisions/0002-task-ir-and-semantic-ownership.md)补充，阶段计划见[下一步目标](../../implementation-plans/next-goal.md)。目标行为为：
 
 - Chat/Responses Generation 的请求与响应双向都经 decode → 富语义 IR → encode；同协议 Native 与跨协议 Bridge 使用同一语义边界，IR 是唯一语义权威。已建模字段的最终 wire 编码只由 IR 决定；被删除、归一化或拒绝的语义不得经保留的原始 JSON 旁路复活。
 - Native 保持已接受语义，跨协议只转换目标可表达的内容；受约束扩展不得覆盖已建模字段或未经许可跨 Provider 重放。不要求任意请求都可跨源，不得静默丢失语义。

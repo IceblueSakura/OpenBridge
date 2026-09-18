@@ -10,8 +10,8 @@
 | Bootstrap、用户、上游凭证与静态注册 | 严格启动解析、用户认证、API-key/OAuth binding、canonical Model、Provider Target、Route 与 Public Model 编译 | `src/config/`、`src/identity.rs`、`src/credential/`、`src/upstream_credentials/`、`src/oauth2_credentials/`、`src/models/`、`src/providers/`、`src/registry/` |
 | Generation | 已有 Static/Event IR、Native 结果校验、有界 SSE 规范化、受限跨协议转换及工具/structured-output 预检；Native 普通采样控制由 IR 编码，其余源保留路径尚未完成迁移，见[具体差距](current-boundaries.md#generation-与-bridge与-ir-权威目标的差距) | `src/ir/generation/`、`src/bridge/`、`src/pipeline/generation/`、`src/provider/`、`src/transport/` |
 | resilience 与 body lifecycle | 固定 Route 顺序、有限 retry/fallback、credential rotation、单进程 cooldown、取消、SSE 终态与有界 body 处理 | `src/ingress/forwarding/`、`src/execution/`、`src/ingress/health.rs`、`src/ingress/streaming/` |
-| Embeddings | 单 Route Native execution，含输入、encoding、dimension 和 batch limit 预检 | `src/pipeline/embeddings/` |
-| 图片、文件和音频 | 按 Provider/任务注册的 Native surface；Images Generations 仅同步单 attempt JSON URL | `src/providers/*/`、`src/pipeline/images/`、`src/ingress/forwarding/images.rs` |
+| Embeddings | 单 Route Native execution，含输入、encoding、dimension 和 batch limit 预检；尚无完整任务语义 IR | `src/pipeline/embeddings/` |
+| 图片、文件和音频 | 按 Provider/任务注册的 Native surface；Images Generations 仅同步单 attempt JSON URL；Images 与专用 Speech 尚未形成独立完整 IR | `src/providers/*/`、`src/pipeline/images/`、`src/ingress/forwarding/images.rs` |
 | OAuth 与观测 | ChatGPT/Grok 订阅 OAuth 生命周期；本地 JSONL content snapshot 与 OTLP/HTTP traces/metrics | `src/oauth2_credentials/`、`src/observability/` |
 
 当前 Model、Provider Target、候选顺序和 Public Model 关系只见[映射](model-provider-mapping.md)。静态映射和 `/v1/models` 都不表示

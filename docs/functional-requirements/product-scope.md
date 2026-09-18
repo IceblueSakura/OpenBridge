@@ -27,7 +27,7 @@ Agent 或 OpenAI-compatible SDK 通过稳定的 loopback HTTP 地址和 Public M
 - 管理员显式运行的固定 Models 与基础 API probe。probe 不修改 registry，也不把一次探测提升为模型语义、
   客户端、负载或长期兼容结论。
 
-下一步以富语义 IR 统一驱动 Generation 的请求与响应编码，为之后的受信分析、工具注入和拦截提供处理位置；不要求任意请求都能跨 Provider 转换，也不在本轮实现 hook。该方向已接受、尚未完成，详见 [ADR-0001](../decisions/0001-generation-ir-authority.md)与[下一步目标](../implementation-plans/next-goal.md)。
+下一步用任务 IR 类型族统一语义处理原则，而不是把不同任务塞进 GenerationRequest；在当前支持范围内使请求与响应编码由 IR 驱动，为之后的受信分析、工具注入和拦截提供位置。不要求任意跨 Provider 转换，也不在本轮实现 hook。该方向已接受、尚未完成，详见 [ADR-0002](../decisions/0002-task-ir-and-semantic-ownership.md)与[下一步目标](../implementation-plans/next-goal.md)。
 
 ## 2. Generation 状态契约
 

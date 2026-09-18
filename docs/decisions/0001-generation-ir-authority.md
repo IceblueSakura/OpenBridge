@@ -5,6 +5,7 @@
 - **决策：已接受。** 用户确定的下一步方向是双向 decode → 富语义 IR → encode，而不是扩大任意请求的跨源兼容。
 - **实现：按语义域收敛中。** Native 普通采样控制已由 IR 驱动编码；其余源 envelope 保留路径尚未闭合，不能宣称完整管线已完成。
 - **授权边界。** 本决策不表示 hook、工具执行器或管线重构已完成，也不独立授权代码变更。
+- **关联决策。** [ADR-0002](0002-task-ir-and-semantic-ownership.md) 补充任务类型族，并收窄本页的任务边界与 decode 顺序；IR 语义权威原则继续有效。
 
 ## 背景与问题
 
@@ -19,10 +20,11 @@ OpenBridge 同时处理下游协议、Provider 协议差异、固定路由与响
 ```text
 下游 wire
   → admission（认证、大小与协议形状）
-  → 下游协议 decode
-  → Request IR
+  → 解析 Public Model 的固定任务契约（不选择 Provider）
+  → 按任务和下游协议 decode
+  → 对应任务的 Request IR
   → 语义验证 / 受信策略处理位置
-  → Public Model 固定接口预检与固定 Route 计划
+  → 从最终 IR 提取 requirements，执行固定接口预检与 Route 计划
   → 候选 Provider/API 的可表达性检查
   → 协议 encode + Provider 特定映射
   → 受信 transport
@@ -72,7 +74,7 @@ SSE 增量 decode 到 Event IR 后增量 encode，不默认聚合整条流。保
 
 ### 6. 范围与非目标
 
-下一步先收敛 Generation 的 Chat/Responses 请求、JSON 响应与 SSE 响应，包括其中已支持的图片、文件与音频语义。独立的 Embeddings、Images Generations 保留自己的 operation 契约；Models、健康检查、MCP 不进入 Generation IR。
+本 ADR 拥有 Generation 的 Chat/Responses 请求、JSON 响应与 SSE 响应，包括其支持范围内的多模态内容。Embeddings、Images Generations 与专用 Speech 任务按 [ADR-0002](0002-task-ir-and-semantic-ownership.md) 建立各自语义，不因复用 Chat wire 就并入对话 Generation；Models、健康检查和 MCP 不进入模型推理 IR。
 
 现在不实现通用 hook 注册、动态脚本、工具注入或拦截执行器、工具续轮循环、任意跨 Provider 转换，也不改变固定路由、状态契约或凭据边界。已有局部 ToolPlan/test-only 机制不等于生产 hook 平台。
 
@@ -88,6 +90,6 @@ SSE 增量 decode 到 Event IR 后增量 encode，不默认聚合整条流。保
 
 ## 影响与落实
 
-主要成本在补齐当前依赖 source 保留的语义、定义扩展合并规则和收敛 Provider JSON 变换，不在新增一套平行 IR。优先证明同协议保真与 IR 修改生效，再收敛跨协议和流式路径。
+主要成本在补齐当前依赖 source 保留的语义、定义扩展合并规则和收敛 Provider JSON 变换，不在新增一套平行 Generation IR。先完成任务表达与语义所有权核查，再以同协议保真和 IR 修改生效为门槛迁移 codec；请求与对应静态/流式响应必须在支持范围内闭合。
 
 当前模块与数据流见[架构](../architecture.md)，实现差距见[当前状态边界](../implementation-status/current-boundaries.md)，阶段目标与验收见[下一步目标](../implementation-plans/next-goal.md)。本 ADR 不维护逐模型能力表或验证来源目录。

@@ -1,6 +1,6 @@
 # OpenBridge 架构
 
-本文描述当前 checkout 的模块职责、启动装配和请求/响应数据流，并明确与下一步设计的差距。设计理由由 [ADR](decisions/README.md)维护，下一步范围见[Generation IR 目标](implementation-plans/next-goal.md)。
+本文描述当前 checkout 的模块职责、启动装配和请求/响应数据流，并明确与下一步设计的差距。设计理由由 [ADR](decisions/README.md)维护，下一步范围见[多任务 IR 与 codec 验收目标](implementation-plans/next-goal.md)。
 
 ## 架构摘要
 
@@ -8,11 +8,12 @@
 |---|---|---|
 | 控制与执行 | 启动编译 immutable registry；请求使用固定 Public Model 接口和候选 | 保持静态路由、凭据和受信出口边界 |
 | Generation 语义 | 已有 Static/Event IR 与 Chat/Responses codec；Native 仍有源对象保留路径 | 让所有 Generation 请求/响应的编码以 IR 为语义权威 |
+| 其他推理任务 | Embedding、Images 有独立 pipeline，但没有完整语义 IR；专用音频任务仍复用 Chat wire | 区分任务、协议和模态，建立共享基础值的任务 IR 类型族 |
 | Provider 差异 | adapter 绑定目标并执行部分 JSON 字段变换 | 明确协议编码与 Provider 语义映射的唯一所有权 |
 | 生命周期 | ingress/execution/transport 管理有界 body、attempt、取消与 commit | 不因统一 IR 而引入全流缓存或提交后重试 |
 | 扩展 | 有局部 ToolPlan 等基础，尚无生产通用 hook 管线 | 先建立语义处理位置，工具注入、拦截与分析策略另行实现 |
 
-**下一步的判断标准是修改 IR 是否真正改变最终 wire，而非是否调用过 decode。** 详见 [ADR-0001](decisions/0001-generation-ir-authority.md)。
+**先确认任务语义能被 IR 区分，再验证修改 IR 是否真正改变最终 wire；调用过 decode 不等于完整覆盖。** 原则见 [ADR-0001](decisions/0001-generation-ir-authority.md)，任务边界与设计准入见 [ADR-0002](decisions/0002-task-ir-and-semantic-ownership.md)。
 
 OpenBridge 是运行在所有者控制环境中的 headless、OpenAI-compatible、多 Provider 网关。受信 Rust catalog 将 Model、Provider、Upstream Target、Upstream API、Route 和 Public Model 编译为固定的下游接口；Bootstrap 与私有文件只提供进程策略、用户和 credential material。下游请求只能选择 Public Model，不能提交上游 URL、Provider、Target、Route、credential、认证 header 或转换规则。
 
@@ -171,13 +172,15 @@ JSON admission
 
 `analyze` 和 `plan` 可以拒绝请求，但不读取 upstream body、不取 credential、不执行网络 I/O，也不提交下游 response。Bridge 在 canonical IR 上做协议转换；Native 请求由专用 encoder 从 IR 写入普通采样控制，其他字段仍使用源保留，静态响应仍重新序列化源 envelope。因此“已经过 IR 校验”不等于“最终编码完全由 IR 决定”。
 
-目标是先 decode 得到 Request IR，经语义处理位置、既定预检和路由后，再针对已选 Provider/API 编码；响应则 decode 为 Response/Event IR 后按下游协议编码。同协议也服从这个边界。迁移保留现有能力与生命周期，不以跨协议较窄子集裁剪 Native；完整决定见 [ADR-0001](decisions/0001-generation-ir-authority.md)。
+目标是 admission 后先解析 Public Model 的固定任务契约，而非选择 Provider，再按任务/协议 decode；变换后的 IR 重新提取 requirements 并执行固定接口预检，然后按既定 Route 编码。响应进入对应任务的 Response/Event IR 后向下游编码。同协议也服从此边界；完整顺序见 [ADR-0002](decisions/0002-task-ir-and-semantic-ownership.md#2-先识别任务再语义-decode最后选择-provider)。
 
 ### 6.3 Embeddings、Images 与 Models
 
 Embeddings 和 Images 分别经过自己的 analysis、fixed-interface preflight、planning、bounded upstream response validation 和 response projection。它们的 response policy 不读取 body；ingress 在实际 body 生命周期中执行读取、usage 观察、错误终态和 downstream commit。Embeddings 不做 Bridge、跨模型 fallback、向量转换或缓存；Images 按固定候选执行单一请求，不把图片 URL/bytes 放入普通 OTLP attributes。
 
 Models list/retrieve 与 extended Models API 都从同一 immutable Public Model snapshot 读取：标准视图只返回下游 identity，扩展视图返回下游安全的 task/interface/limit/capability。
+
+当前 `EmbeddingRequest`、`ImagesRequest` 仍包裹 wire body，analysis 的形状/数量 facts 不是完整任务语义 IR。目标是为各任务建立独立 request/response 语义，复用有界资源等基础值；专用 Speech 与多模态 Generation 按任务契约区分，不按 Chat endpoint 猜测。不把 Models/MCP 纳入推理 IR，设计见 [ADR-0002](decisions/0002-task-ir-and-semantic-ownership.md)。
 
 ## 7. Credential、IR、retry 与 commit 边界
 

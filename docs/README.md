@@ -2,7 +2,7 @@
 
 文档主线是 **当前架构 → 架构决策（ADR）→ 下一步目标**。先理解系统如何工作、为什么这样划分，再查看准备解决的具体差距。安装操作与细分合同按需阅读，能力清单、来源和历史验证不占据主线。
 
-已接受的设计不等于已完成实现；下一步方向不等于代码实施授权。当前重点是让 Generation 的请求与响应以富语义 IR 为最终编码的权威，而不是要求任意请求都可跨源转换。
+已接受的设计不等于已完成实现；下一步方向不等于代码实施授权。当前重点是先收敛多任务 IR 的表达与语义所有权，再以离线 codec 测试推进双向编码，不要求任意请求都可跨源转换。
 
 ## 从这里开始
 
@@ -11,7 +11,7 @@
 | 安装、配置和调用 | [使用手册](../README.md)、[Provider 探测指南](guides/provider-probing.md) |
 | 理解产品行为与失败语义 | [功能需求](functional-requirements/README.md) |
 | 理解模块职责与请求数据流 | [当前架构](architecture.md) |
-| 理解架构选择及其代价 | [ADR 索引](decisions/README.md)、[IR 语义权威](decisions/0001-generation-ir-authority.md) |
+| 理解架构选择及其代价 | [ADR 索引](decisions/README.md)、[IR 语义权威](decisions/0001-generation-ir-authority.md)、[多任务 IR](decisions/0002-task-ir-and-semantic-ownership.md) |
 | 理解下一步要解决什么 | [下一步目标](implementation-plans/next-goal.md) |
 | 修改代码并选择验证方式 | [开发指南](development.md) |
 | 判断当前实现与设计差距 | [实施现状](implementation-status/README.md) |

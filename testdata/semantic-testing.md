@@ -124,7 +124,7 @@ cargo test --locked --test semantic_router_contract -- --nocapture
 
 ## 7. 当前未覆盖
 
-本流程没有实现通用 network/live runner、完整 capability parameter differential/enforcement matrix、Chat↔Responses canonical IR round-trip 报告、模型生成失败时的 strict retry、live web-search dataset、effective-length 自动曲线/85% threshold、排行榜或生产指标聚合。需要这些能力时必须建立新的获准切片、固定来源与运行边界；不能从 0.9.0 的 reference traces 或 synthetic pass/fail 推断。IR 语义权威方向与验收原则见[下一步目标](../docs/implementation-plans/next-goal.md)与 [ADR-0001](../docs/decisions/0001-generation-ir-authority.md)；对应 runner 与 round-trip 报告按获准切片建立。
+本流程没有实现通用 network/live runner、完整 capability parameter differential/enforcement matrix、Chat↔Responses canonical IR round-trip 报告、模型生成失败时的 strict retry、live web-search dataset、effective-length 自动曲线/85% threshold、排行榜或生产指标聚合。需要这些能力时必须建立新的获准切片、固定来源与运行边界；不能从 0.9.0 的 reference traces 或 synthetic pass/fail 推断。多任务 IR 的设计准入见 [ADR-0002](../docs/decisions/0002-task-ir-and-semantic-ownership.md)，推进顺序见[下一步目标](../docs/implementation-plans/next-goal.md)。下节之后的 codec 方法是待按切片落实的验收约束，不表示新 runner 或任务 case 已存在。
 
 ## 8. 新增 case
 
@@ -134,3 +134,37 @@ cargo test --locked --test semantic_router_contract -- --nocapture
 4. 更新 catalog required feature；
 5. 运行 lint、完整 Python tests、coverage report 与 deterministic pack；
 6. 只有 task、oracle、provenance、license 与负例审查完成时才把 `reviewed` 提升为 `accepted`；`accepted` 仍不证明 SUT 或 Provider 已通过。
+
+## 9. Provider 无关的任务 IR/codec 验收
+
+### 准入与职责
+
+先按 [ADR-0002 的设计准入](../docs/decisions/0002-task-ir-and-semantic-ownership.md#6-设计准入先于语料扩张)明确任务语义、所有权与失败边界，再将语料纳入正式验收。设计阶段可用小型反例检查类型是否折叠有意义的差异；既有测试通过、来源已选或 fixture 已下载都不代表设计准入通过。
+
+Provider 无关意味着测试不需要真实模型、账号、凭据或上游网络；仍必须标明任务、wire 协议、profile 与预期可表达性。优先直接调用纯 codec/IR；只有增加独立价值时才补 synthetic Router/loopback。不要为 codec 正确性先搭建通用 live runner。
+
+### 独立 oracle 与最小覆盖
+
+| 检查 | 应保护的结果 |
+|---|---|
+| wire → IR | 独立预期的语义值、presence、身份与资源用途；不同输入不是无解释地折叠为相同 IR |
+| IR → wire | 人工审定或外部协议依据的 expected，不调用同一个生产 encoder 生成答案 |
+| 同协议往返 | 等价规范化、来源限定保留与不可表达拒绝分别声明；不把 byte equality 当作唯一保真标准 |
+| IR 变换 | 新增、替换、删除真实影响 wire；删除 item 后其元数据不复活，重排不误绑旧下标 |
+| 请求/响应闭合 | 候选数量、工具 call/result、输出模式、部分/失败结果在两侧一致；不只测请求可编码 |
+| 任务隔离 | 相同 Chat 形状的对话、ASR、TTS 或声音条件按固定任务解释；任务与 endpoint 不匹配失败 |
+| 媒体与向量 | bytes 和必要格式/用途不变；Embedding 维度、index、有限值、精度与编码转换符合显式策略 |
+| 流式等价 | 不同合法字节分片与 UTF-8/SSE 边界产生相同语义事件；错误终态、EOF、取消及预算不伪装成功 |
+| 负例 | 删除字段/终态、错配身份、重复 key、非法扩展、超限等扰动能被对应 oracle 检出 |
+
+round-trip 仅是补充：decoder 和 encoder 可能以相同方式丢掉字段而互相自证。源码 mutation、wire 扰动和 normalized-trace 扰动各自说明作用层，不相互替代。
+
+### 语料选择与接入
+
+- 优先复用已有 canonical wire cases；新样本只补独立语义或失败边界，不按 Provider/model 复制矩阵。
+- 协议实现的 JSON/SSE fixtures 可提供候选 wire；JSON Schema 样本可测试 schema 保留，SSE 规范样本可测试 framing。外部实现的输出不自动成为 OpenBridge oracle，schema 保真也不证明模型执行 schema。
+- 媒体优先使用小型、确定生成的有效格式 payload；只测元数据时明确合成 bytes 不是媒体解码验证。向量使用已知数值、精度/维度边界，不用检索或生成质量分数判断 codec。
+- 固定源版本并审核许可证、敏感信息、大小与必要的语义投影；仅纳入最小合法样本。来源元数据归既有 `sources/` 契约，不在架构/ADR 中复制数据目录。
+- 现有 function/context/structured case 模型不因此变成所有任务的万能容器。任务 codec fixtures 与 Rust expected 放在最低 owning layer；确需改变 canonical 格式时，按获准切片同步 schema、fixture、tooling 与测试。
+
+数据准备可预筛，正式验收须在设计准入和独立 oracle 具备后进行。默认测试不下载媒体、不调用 Provider，不引入付费 probe、质量 benchmark 或生产能力声明。

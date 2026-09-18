@@ -19,7 +19,7 @@
 - 当前模块和执行顺序写入[架构](architecture.md)，重要选择按 [ADR 格式](decisions/README.md)说明背景、决定、替代方案和代价。
 - 用户明确的下一步方向写入[目标页](implementation-plans/next-goal.md)；决策接受、代码实施和验收完成分别标注。
 - 不在架构或 ADR 中堆积逐模型能力表、测试文件库存、外部来源清单或重复的“未验证”声明。保留能解释真实限制的信息，细节放在所属参考或测试文档。
-- Generation IR 变更应证明同协议保真、IR 修改影响 wire、删除不被 source 恢复，以及跨协议拒绝与流式生命周期安全；目标存在不表示已完成这些验证。
+- 任务 IR 变更先按 [ADR-0002](decisions/0002-task-ir-and-semantic-ownership.md#6-设计准入先于语料扩张)核查语义表达、请求/响应闭合和所有权，再引入正式语料并实施 codec。独立验证 decode/encode、IR 修改与删除、不可表达拒绝以及流式生命周期；具体离线方法见 [semantic testing](../testdata/semantic-testing.md#9-provider-无关的任务-ircodec-验收)。
 
 ## 按修改范围选择验证
 
