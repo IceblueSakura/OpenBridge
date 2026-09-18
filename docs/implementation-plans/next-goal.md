@@ -2,13 +2,13 @@
 
 ## 目标与状态
 
-**方向已明确，代码实施尚未开始。** 依据 [ADR-0001](../decisions/0001-generation-ir-authority.md)，让 Generation 请求和响应的最终 wire 由富语义 IR 决定，为之后的分析、工具注入和拦截提供统一位置。
+**正在按语义域逐步实施，完整管线尚未闭合。** 依据 [ADR-0001](../decisions/0001-generation-ir-authority.md)，让 Generation 请求和响应的最终 wire 由富语义 IR 决定，为之后的分析、工具注入和拦截提供统一位置。
 
-这不是要求每个请求都能跨 Provider 或跨协议，也不是本轮实现 hook。当前文档修订不改变运行时行为；具体获准实施切片另记于[当前开发焦点](current-focus.md)。
+这不是要求每个请求都能跨 Provider 或跨协议，也不包含 hook 实现。具体获准实施切片另记于[当前开发焦点](current-focus.md)。
 
 ## 当前起点
 
-已有 Static/Event IR、Chat/Responses codec、固定路由、Provider adapter 和有界响应生命周期。主要缺口是 Native 的源对象保留路径与 Provider JSON 变换尚未统一到 IR 语义权威之下。详见[当前实现](../implementation-status/current-state.md)，不新增平行 IR 或一次性推倒重写。
+已有 Static/Event IR、Chat/Responses codec、固定路由、Provider adapter 和有界响应生命周期。Native 普通采样控制已经从 IR 编码；其余源对象保留路径与 Provider JSON 变换仍需收敛。详见[当前实现](../implementation-status/current-state.md)，不新增平行 IR 或一次性推倒重写。下一切片应继续明确输入项和工具的保留元数据所有权，再闭合对应静态编码，不能直接套用较窄的 Bridge encoder。
 
 ## 推进顺序
 

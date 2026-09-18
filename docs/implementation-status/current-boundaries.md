@@ -17,7 +17,7 @@
 
 目标数据流（decode → 富语义 IR → encode，IR 是最终 wire 的唯一语义权威）由 [ADR-0001](../decisions/0001-generation-ir-authority.md) 拥有，阶段推进与验收见[下一步目标](../implementation-plans/next-goal.md)；本节只记录当前 checkout 与该目标的差距和既有路径的限制。
 
-- **decode 校验不等于 IR 权威。** Native 请求在 `StaticBridgePlan::prepare_with_reasoning_output` 的同协议分支复制源对象并替换 `model`；Native 静态响应的 `encode_native_response` 在此前 decode 校验后，检查源 ID 并重新序列化源 envelope。代码位置分别为 `src/bridge/static_codec.rs` 和 `src/bridge/static_codec/response.rs`。这些分支不足以保证任意 IR 修改或删除都反映到 wire；不能把跨协议 lowering 或已有 ToolPlan 转换的能力等同于全路径完成。
+- **decode 校验不等于 IR 权威。** Native 普通采样控制已从 IR 编码，修改与删除不再被源值覆盖；其他请求字段仍依赖源保留。Native 静态响应的 `encode_native_response` 在 decode 校验后检查源 ID 并重新序列化源 envelope。代码入口为 `src/bridge/static_codec/request.rs` 和 `src/bridge/static_codec/response.rs`。这不足以保证任意 IR 修改或删除都反映到 wire；不能把局部字段迁移、跨协议 lowering 或已有 ToolPlan 转换等同于全路径完成。
 - Native 合法源字段、annotation 和未知非终态事件当前以有界 codec envelope/扩展保留，跨协议不猜测其含义；该保留机制在 IR 权威目标下缺少明确的语义所有权与合并规则，是[下一步目标](../implementation-plans/next-goal.md)阶段 1 的收敛对象。
 - SSE 规范化覆盖分片、CRLF、data-only typed event、可确定的 event/type 补齐，以及由已验证 items 补齐稀疏 completed terminal。它不承诺恢复任意缺失身份、乱序或丢失的消息边界；矛盾 type/event、非法 JSON、超限和无 terminal 仍拒绝。未执行真实 Provider 或负载兼容性复测。
 - Bridge 不支持图片、音频、文件、hosted/custom tool、background/state、opaque continuation 或 Provider 私有语义的通用跨协议转换；目标也不承诺任意跨源转换（见 ADR-0001 范围）。

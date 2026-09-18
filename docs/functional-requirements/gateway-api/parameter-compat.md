@@ -26,6 +26,14 @@ prompt-cache 字段、streaming mode、reasoning、tool/tool choice、Structured
 对普通忽略字段，`supported_parameters` 只表示 OpenBridge 接受该请求，不保证每个候选上游都会应用该提示。
 规则不得扩展为任意字符串、用户配置或请求可选过滤器。
 
+### Native 采样控制的语义所有权
+
+`temperature`、`top_p`、`top_k`、`seed`、`frequency_penalty`、`presence_penalty`、`stop` 和 `n` 进入 GenerationControls，由 Native encoder 输出；IR 删除的 active 值不得从源对象恢复。该规则不扩展 Public Model 的支持参数，也不扩大跨协议能力。
+
+`seed` 使用有符号 64 位整数，`top_k` 使用无符号 64 位整数，`n` 使用非零无符号 32 位整数；浮点控制必须可表示为有限值。`stop` 保留字符串或字符串数组的语义，空字符串、空列表与省略不混同。新纳入的可选控制（`top_k`、`seed`、两个 penalty、`stop`、`n`）允许原有的显式 `null` 表现形式，温度与 top-p 的既有非 null 校验不变。非法形状或不能表示的数值在提交前拒绝。
+
+原始 JSON 只为这些字段保留等价的数值、stop 标量/数组及 null 表现形式；其他请求语义的 IR 权威迁移仍见[下一步目标](../../implementation-plans/next-goal.md)。输出 token 别名和 active parallel-tool 控制保持各自现有规则。
+
 ## 2. Responses `include`
 
 - `include` 解析为逐值的类型化条件输出请求。省略、`null` 与空数组不请求任何值；`include: []` 在一次公共

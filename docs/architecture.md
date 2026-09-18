@@ -160,7 +160,7 @@ JSON admission
   → normalize shared request policy
   → build fixed RouteCandidate plan
   → decode canonical Static IR
-       ├─ Native: validate and rebind model identity
+       ├─ Native: encode IR sampling controls, preserve other source fields
        └─ Bridge: encode the declared target protocol
   → ProviderAdapter prepares a routed request
   → bounded attempt loop + UpstreamTransport
@@ -169,7 +169,7 @@ JSON admission
   → downstream response commit and observations
 ```
 
-`analyze` 和 `plan` 可以拒绝请求，但不读取 upstream body、不取 credential、不执行网络 I/O，也不提交下游 response。Bridge 在 canonical IR 上做协议转换；Native decode 后仍有源对象保留分支：请求复制 source 并替换 model，静态响应重新序列化源 envelope。因此“已经过 IR 校验”不等于“最终编码完全由 IR 决定”。
+`analyze` 和 `plan` 可以拒绝请求，但不读取 upstream body、不取 credential、不执行网络 I/O，也不提交下游 response。Bridge 在 canonical IR 上做协议转换；Native 请求由专用 encoder 从 IR 写入普通采样控制，其他字段仍使用源保留，静态响应仍重新序列化源 envelope。因此“已经过 IR 校验”不等于“最终编码完全由 IR 决定”。
 
 目标是先 decode 得到 Request IR，经语义处理位置、既定预检和路由后，再针对已选 Provider/API 编码；响应则 decode 为 Response/Event IR 后按下游协议编码。同协议也服从这个边界。迁移保留现有能力与生命周期，不以跨协议较窄子集裁剪 Native；完整决定见 [ADR-0001](decisions/0001-generation-ir-authority.md)。
 

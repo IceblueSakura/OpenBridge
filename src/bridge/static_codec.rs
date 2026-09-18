@@ -305,13 +305,8 @@ impl StaticBridgePlan {
         }
         let request = request::decode_request(source_protocol, &source, limits.request_body)?;
         let (target, request_changes) = if source_protocol == target_protocol {
-            let mut source = request.source.clone();
-            source.insert("model".to_owned(), Value::String(upstream_model.to_owned()));
             (
-                Bytes::from(
-                    serde_json::to_vec(&Value::Object(source))
-                        .map_err(|_| StaticCodecError::InvalidShape)?,
-                ),
+                request::encode_native_request(&request, upstream_model)?,
                 Vec::new(),
             )
         } else {
@@ -374,12 +369,7 @@ impl StaticBridgePlan {
             request::validate_bridge_source(source_protocol, &source)?;
         }
         let target = if source_protocol == target_protocol && request_changes.is_empty() {
-            let mut source = request.source.clone();
-            source.insert("model".to_owned(), Value::String(upstream_model.to_owned()));
-            Bytes::from(
-                serde_json::to_vec(&Value::Object(source))
-                    .map_err(|_| StaticCodecError::InvalidShape)?,
-            )
+            request::encode_native_request(&request, upstream_model)?
         } else {
             let target = request::lower_request(
                 target_protocol,

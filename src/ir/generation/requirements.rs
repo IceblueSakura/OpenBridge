@@ -310,7 +310,7 @@ impl ControlRequirements {
     }
 
     /// Returns stop sequences, preserving omission versus an explicit empty list.
-    pub fn stop(&self) -> Option<&[super::TextValue]> {
+    pub fn stop(&self) -> Option<&[super::StopSequence]> {
         self.controls.stop()
     }
 

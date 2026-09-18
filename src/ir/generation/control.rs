@@ -1,6 +1,27 @@
 //! Portable Generation controls with explicit absent-versus-value semantics.
 
-use super::{ParallelToolCalls, SemanticValidationError, TextValue};
+use super::{ParallelToolCalls, SemanticValidationError, ValidationError};
+
+/// A byte-bounded stop sequence. Unlike message text, an empty sequence is a wire value and
+/// must not be silently removed or confused with an empty stop list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StopSequence(String);
+
+impl StopSequence {
+    /// Creates a sequence within the owning request's UTF-8 byte limit.
+    pub fn new(value: impl Into<String>, max_bytes: usize) -> Result<Self, ValidationError> {
+        let value = value.into();
+        if value.len() > max_bytes {
+            return Err(ValidationError::TextTooLarge { max_bytes });
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the exact stop sequence, including an explicit empty string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 /// Finite floating-point control value preserving its exact IEEE-754 representation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -29,7 +50,7 @@ pub struct GenerationControls {
     temperature: Option<FiniteF64>,
     top_p: Option<FiniteF64>,
     top_k: Option<u64>,
-    stop: Option<Vec<TextValue>>,
+    stop: Option<Vec<StopSequence>>,
     seed: Option<i64>,
     frequency_penalty: Option<FiniteF64>,
     presence_penalty: Option<FiniteF64>,
@@ -69,7 +90,7 @@ impl GenerationControls {
     }
 
     /// Replaces stop sequences; `None` and an explicit empty list remain distinct.
-    pub fn with_stop(mut self, stop: Option<Vec<TextValue>>) -> Self {
+    pub fn with_stop(mut self, stop: Option<Vec<StopSequence>>) -> Self {
         self.stop = stop;
         self
     }
@@ -123,7 +144,7 @@ impl GenerationControls {
     }
 
     /// Returns stop sequences while preserving omission versus an explicit empty list.
-    pub fn stop(&self) -> Option<&[TextValue]> {
+    pub fn stop(&self) -> Option<&[StopSequence]> {
         self.stop.as_deref()
     }
 

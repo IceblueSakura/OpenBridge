@@ -30,6 +30,8 @@ pub(super) enum TargetRequest {
     Responses(Map<String, Value>),
 }
 
+mod controls;
+
 /// Decodes one accepted Chat or Responses request into canonical semantics plus delivery metadata.
 pub(super) fn decode_request(
     protocol: ApiProtocol,
@@ -50,7 +52,7 @@ pub(super) fn decode_request(
         .with_tools(tools, tool_choice, parallel)
         .map_err(StaticCodecError::from_validation)?;
     request = request
-        .with_controls(decode_controls(protocol, source, parallel)?)
+        .with_controls(controls::decode(protocol, source, parallel, max_bytes)?)
         .map_err(StaticCodecError::from_validation)?;
     request = request.with_output(decode_output(protocol, source, max_bytes)?);
     request = request.with_reasoning(decode_reasoning(protocol, source)?);
@@ -151,6 +153,19 @@ pub(super) fn encode_request(target: TargetRequest) -> Result<Bytes, StaticCodec
         TargetRequest::Chat(object) | TargetRequest::Responses(object) => object,
     };
     serde_json::to_vec(&Value::Object(object))
+        .map(Bytes::from)
+        .map_err(|_| StaticCodecError::InvalidShape)
+}
+
+/// Encodes a Native request without imposing the narrower cross-protocol input projection.
+pub(super) fn encode_native_request(
+    request: &WireRequest,
+    upstream_model: &str,
+) -> Result<Bytes, StaticCodecError> {
+    let mut target = request.source.clone();
+    target.insert("model".to_owned(), Value::String(upstream_model.to_owned()));
+    controls::encode_native(request.semantic.controls(), &request.source, &mut target);
+    serde_json::to_vec(&Value::Object(target))
         .map(Bytes::from)
         .map_err(|_| StaticCodecError::InvalidShape)
 }
@@ -966,27 +981,6 @@ fn decode_parallel(
         Some(false) => Ok(ParallelToolCalls::RequireSerial),
         None => Err(StaticCodecError::InvalidShape),
     }
-}
-
-fn decode_controls(
-    protocol: ApiProtocol,
-    source: &Map<String, Value>,
-    parallel: ParallelToolCalls,
-) -> Result<GenerationControls, StaticCodecError> {
-    let max_output_tokens = match protocol {
-        ApiProtocol::ChatCompletions => source
-            .get("max_completion_tokens")
-            .or_else(|| source.get("max_tokens")),
-        ApiProtocol::Responses => source.get("max_output_tokens"),
-    }
-    .map(parse_u64)
-    .transpose()?;
-    let temperature = source.get("temperature").map(parse_f64).transpose()?;
-    let top_p = source.get("top_p").map(parse_f64).transpose()?;
-    GenerationControls::new(max_output_tokens, None)
-        .and_then(|controls| controls.with_sampling(temperature, top_p, None))
-        .map(|controls| controls.with_parallel_tool_calls(parallel))
-        .map_err(|_| StaticCodecError::InvalidShape)
 }
 
 fn decode_output(

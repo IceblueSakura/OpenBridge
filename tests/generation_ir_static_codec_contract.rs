@@ -7,6 +7,127 @@ use openbridge::{
 };
 use serde_json::{Value, json};
 
+#[test]
+fn native_sampling_controls_are_decoded_without_losing_wire_representation() {
+    for (protocol, input) in [
+        (
+            ApiProtocol::ChatCompletions,
+            json!({"messages": [{"role": "user", "content": "hello"}]}),
+        ),
+        (ApiProtocol::Responses, json!({"input": "hello"})),
+    ] {
+        let mut source = input;
+        source.as_object_mut().unwrap().extend(
+            json!({
+                "model": "public-model", "temperature": 1, "top_p": 0.75, "top_k": 32,
+                "seed": -17, "frequency_penalty": -0.5, "presence_penalty": 1,
+                "stop": "END", "n": 1
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
+        let (plan, encoded) = StaticBridgePlan::prepare(
+            protocol,
+            protocol,
+            "public-model",
+            "upstream-model",
+            body(source.clone()),
+            limits(),
+        )
+        .unwrap();
+        let controls = plan.request().controls();
+        assert_eq!(controls.temperature(), Some(1.0));
+        assert_eq!(controls.top_p(), Some(0.75));
+        assert_eq!(controls.top_k(), Some(32));
+        assert_eq!(controls.seed(), Some(-17));
+        assert_eq!(controls.frequency_penalty(), Some(-0.5));
+        assert_eq!(controls.presence_penalty(), Some(1.0));
+        assert_eq!(controls.candidate_count(), Some(1));
+        assert_eq!(
+            controls
+                .stop()
+                .unwrap()
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>(),
+            ["END"]
+        );
+        source["model"] = json!("upstream-model");
+        assert_eq!(
+            serde_json::from_slice::<Value>(encoded.body()).unwrap(),
+            source
+        );
+    }
+}
+
+#[test]
+fn native_sampling_controls_preserve_null_empty_and_integer_boundaries() {
+    for values in [
+        json!({"seed": null, "stop": null, "top_k": null, "n": null,
+            "frequency_penalty": null, "presence_penalty": null}),
+        json!({"seed": i64::MIN, "top_k": u64::MAX, "stop": [], "n": u32::MAX}),
+        json!({"seed": i64::MAX, "stop": ["", "END"]}),
+    ] {
+        let mut source = json!({"model": "public-model", "input": "hello"});
+        source
+            .as_object_mut()
+            .unwrap()
+            .extend(values.as_object().unwrap().clone());
+        let (plan, encoded) = StaticBridgePlan::prepare(
+            ApiProtocol::Responses,
+            ApiProtocol::Responses,
+            "public-model",
+            "upstream-model",
+            body(source.clone()),
+            limits(),
+        )
+        .unwrap();
+        if values["stop"] == json!([]) {
+            assert_eq!(plan.request().controls().stop(), Some([].as_slice()));
+            assert_eq!(plan.request().controls().seed(), Some(i64::MIN));
+            assert_eq!(plan.request().controls().top_k(), Some(u64::MAX));
+        }
+        source["model"] = json!("upstream-model");
+        assert_eq!(
+            serde_json::from_slice::<Value>(encoded.body()).unwrap(),
+            source
+        );
+    }
+}
+
+#[test]
+fn native_sampling_controls_reject_unrepresentable_shapes() {
+    for (field, value) in [
+        ("seed", json!(1.5)),
+        ("seed", json!(u64::MAX)),
+        ("top_k", json!(-1)),
+        ("n", json!(0)),
+        ("n", json!(u64::MAX)),
+        ("frequency_penalty", json!("1")),
+        ("presence_penalty", json!({})),
+        ("stop", json!(["END", false])),
+        ("stop", json!({})),
+    ] {
+        let mut source = json!({"model": "public-model", "input": "hello"});
+        source[field] = value;
+        assert!(
+            matches!(
+                StaticBridgePlan::prepare(
+                    ApiProtocol::Responses,
+                    ApiProtocol::Responses,
+                    "public-model",
+                    "upstream-model",
+                    body(source),
+                    limits(),
+                ),
+                Err(StaticCodecError::InvalidShape)
+            ),
+            "{field}"
+        );
+    }
+}
+
 fn body(value: Value) -> Bytes {
     Bytes::from(serde_json::to_vec(&value).expect("test JSON must serialize"))
 }
