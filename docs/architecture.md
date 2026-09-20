@@ -7,7 +7,7 @@
 | 方面 | 当前结构 | 下一步 |
 |---|---|---|
 | 控制与执行 | 启动编译 immutable registry；请求使用固定 Public Model 接口和候选 | 保持静态路由、凭据和受信出口边界 |
-| Generation 语义 | 已有 Static/Event IR 与 Chat/Responses codec；Native 仍有源对象保留路径 | 让所有 Generation 请求/响应的编码以 IR 为语义权威 |
+| Generation 语义 | 已有 Static/Event IR；Native 静态内容部分由 IR 编码，Event 仍主要按来源事件编码 | 让所有 Generation 请求/响应的编码以 IR 为语义权威 |
 | 其他推理任务 | Embedding、Images 有独立 pipeline，但没有完整语义 IR；专用音频任务仍复用 Chat wire | 区分任务、协议和模态，建立共享基础值的任务 IR 类型族 |
 | Provider 差异 | adapter 绑定目标并执行部分 JSON 字段变换 | 明确协议编码与 Provider 语义映射的唯一所有权 |
 | 生命周期 | ingress/execution/transport 管理有界 body、attempt、取消与 commit | 不因统一 IR 而引入全流缓存或提交后重试 |
@@ -89,7 +89,7 @@ bootstrap/private files
 | Registry 与 Public Model | `src/registry/` | 校验引用和 capability ceiling，编译 immutable runtime entities、固定 Route candidates、私有 execution interface，并投影 downstream-safe Models DTO |
 | 请求分析与规划 | `src/pipeline/` | Generation、Embeddings、Images 各自拥有 analyzer、preflight、planner 和 pure response policy；不执行 body I/O、credential、transport、observation 或 commit |
 | Generation semantic IR | `src/ir/generation/` | Provider-neutral Static/Event values、验证、reducer 和 materializer；不拥有 registry、routing、credential、网络 I/O 或 downstream commit |
-| Generation codec / Protocol Bridge | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | 在固定 plan 上执行 Native 保留编码与 Chat ↔ Responses lowering；不选择 Provider，不管理 retry、liveness、取消或 commit |
+| Generation codec / Protocol Bridge | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | 在固定 plan 上执行部分 IR 权威的 Native 静态编码与受限跨协议 lowering；Native Event 共享 reducer 校验但仍主要编码源 payload；不拥有路由或 commit |
 | HTTP ingress | `src/ingress/` | Router、Bearer admission、body lifecycle、operation handlers、attempt/fallback、streaming response、错误映射和 downstream commit |
 | Attempt coordination | `src/execution.rs`、`src/execution/` | 只管理请求级 attempt/candidate state、硬预算和 backoff；不拥有 operation pipeline、Provider 分类、credential 选择或 commit policy |
 | Upstream transport | `src/transport/` | 共享 HTTP client、validated target、相对 URI、timeout、safe headers 和 SSE framing；不解释业务路由 |
@@ -158,25 +158,29 @@ JSON admission
   → analyze Chat/Responses request facts
   → resolve Public Model and fixed operation interface
   → capability/state/limit preflight
-  → normalize shared request policy
-  → build fixed RouteCandidate plan
-  → decode canonical Static IR
-       ├─ Native: encode owned IR controls/content with identity-bound source hints
-       └─ Bridge: encode the declared target protocol
-  → ProviderAdapter prepares a routed request
+  → normalize shared request policy on JSON
+  → for each fixed candidate independently:
+       candidate-specific JSON omissions
+       → decode canonical Static IR
+       → Native owned controls/content + source hints, or cross-protocol lowering
+  → ProviderAdapter binds model and applies trusted JSON/profile mappings
   → bounded attempt loop + UpstreamTransport
   → decode/validate canonical JSON or Event IR response
-  → encode Native owned content/source hints or cross-protocol projection
+  → static owned content/source hints, Native source event encoding, or cross-protocol projection
   → downstream response commit and observations
 ```
 
 `analyze` 和 `plan` 可以拒绝请求，但不读取 upstream body、不取 credential、不执行网络 I/O，也不提交下游 response。Bridge 在 canonical IR 上做协议转换；Native 请求与静态响应的内容 encoder 按稳定 item/group/part 身份将已拥有的文本及 function-tool 语义写回 wire，不借源记录恢复被删内容。采样控制继续由 IR 编码，未迁移语义仍需要源保留；缺少安全绑定或存在未知依赖时，内容变换失败关闭，而不是调用较窄 Bridge encoder。具体支持与拒绝边界归[实施状态](implementation-status/current-boundaries.md#generation-与-bridge与-ir-权威目标的差距)；“已经过 IR 校验”仍不等于“整个任务最终编码完全由 IR 决定”。
 
-目标是 admission 后先解析 Public Model 的固定任务契约，而非选择 Provider，再按任务/协议 decode；变换后的 IR 重新提取 requirements 并执行固定接口预检，然后按既定 Route 编码。响应进入对应任务的 Response/Event IR 后向下游编码。同协议也服从此边界；完整顺序见 [ADR-0002](decisions/0002-task-ir-and-semantic-ownership.md#2-先识别任务再语义-decode最后选择-provider)。
+当前 `plan_request` 独立地从同一个规范化 JSON body 构造候选，并非前一候选修改后一候选；但完整语义 decode 仍在候选展开后，`src/ir/generation/requirements.rs` 的纯投影尚未成为全部生产预检的权威。Native request/response encoder 还会为旧语义基线再次 decode 来源对象。
+
+流式路径的 `StaticEventBridge` 先 decode/reduce；跨协议 encoder 消费 canonical event，而 Native 分支调用 `native::encode` 读取原 `SseEvent` payload，并在特定稀疏 terminal 中利用已验证状态补齐。这是共享生命周期校验，不是 Event IR 已全面决定输出；目标边界见 [ADR-0005](decisions/0005-event-ir-and-delivery-lifecycle.md)。
+
+目标是先解析固定任务再 decode，由最终 IR 导出 requirements、固定预检和候选 lowering，最后 encode；阶段输入输出由 [ADR-0003](decisions/0003-ir-pipeline-and-target-compilation.md#1-目标数据流)维护。上述现行顺序不会因目标文档修订而自动改变。
 
 ### 6.3 Embeddings、Images 与 Models
 
-Embeddings 和 Images 分别经过自己的 analysis、fixed-interface preflight、planning、bounded upstream response validation 和 response projection。它们的 response policy 不读取 body；ingress 在实际 body 生命周期中执行读取、usage 观察、错误终态和 downstream commit。Embeddings 不做 Bridge、跨模型 fallback、向量转换或缓存；Images 按固定候选执行单一请求，不把图片 URL/bytes 放入普通 OTLP attributes。
+Embeddings 和 Images 分别经过自己的 analysis、fixed-interface preflight、planning、bounded upstream response validation 和 response projection。它们的 response policy 不读取 body；ingress 在实际 body 生命周期中执行读取、usage 观察、错误终态和 downstream commit。Embeddings 不做 Bridge、跨模型 fallback、归一化、降维或缓存；仅在已注册 target/API policy 下允许 float32/Base64 wire 表示转换，精度边界见[Embedding 合同](functional-requirements/extended-capabilities/embeddings.md#1-用户结果)；Images 按固定候选执行单一请求，不把图片 URL/bytes 放入普通 OTLP attributes。
 
 Models list/retrieve 与 extended Models API 都从同一 immutable Public Model snapshot 读取：标准视图只返回下游 identity，扩展视图返回下游安全的 task/interface/limit/capability。
 
@@ -192,7 +196,7 @@ Registry 只保存 credential pool 的非敏感 identity、Provider kind 和 cre
 
 Generation IR 表达支持范围内的语义并集，包括文本、refusal、工具、非完成结果及有界命名空间扩展，不以任一 Provider 或协议的能力交集裁剪核心类型。固定 Public Model 能力交集仍属于 registry/preflight。IR 不携带 registry entity、Route、credential 或上游 endpoint 定位信息，也不直接访问 body、clock、task 或 observation。
 
-当前 Provider adapter 仍会对编码后的 JSON 执行目标相关字段变换。下一步需要收敛语义所有权：已建模内容由 IR 决定，codec 的保留元数据只保存不冲突且目标允许的协议信息，Provider 映射不形成第二套独立语义状态。尚未实现通用的注入、分析或拦截 hook。
+当前 `prepare_routed_request` 在 Bridge 编码后解析 JSON，执行 model binding、request body hook、忽略参数删除与 reasoning level 映射。目标不是删除所有 Provider 差异，而是按 [ADR-0003](decisions/0003-ir-pipeline-and-target-compilation.md#5-provider-映射与执行上下文)将语义 policy、目标表示与执行绑定分开；来源信息按 [ADR-0004](decisions/0004-source-records-and-fidelity.md)合并，不形成第二个业务语义 owner。尚未实现通用的注入、分析或拦截 hook。
 
 ### Retry、fallback 与 cooldown
 
@@ -202,7 +206,7 @@ Generation IR 表达支持范围内的语义并集，包括文本、refusal、�
 
 ### Commit 与终态
 
-下游 commit 是不可逆边界：在首个可见业务输出前，响应仍可因受信的 retryable failure 进行有界 retry/fallback；commit 后不能拼接另一个 upstream 响应。Native 与 Bridge SSE 都经 Event IR 校验并编码，Native 可保留源字段与扩展；允许为确定的协议规范化做有界缓冲，一旦有合法输出即发送，不固定等待或默认缓存整条流。terminal 前 EOF、body error、非法 framing 或超限都以失败关闭，不伪造 terminal。下游取消会取消对应 upstream body。
+下游 commit 是不可逆边界：在首个可见业务输出前，响应仍可因受信的 retryable failure 进行有界 retry/fallback；commit 后不能拼接另一个 upstream 响应。Native 与 Bridge SSE 都经 Event IR 校验后编码，当前 Native 正文仍主要来自源事件 payload；允许为确定的协议规范化做有界缓冲，一旦有合法输出即发送，不固定等待或默认缓存整条流。terminal 前 EOF、body error、非法 framing 或超限都以失败关闭，不伪造 terminal。下游取消会取消对应 upstream body。
 
 ### Observation
 

@@ -8,7 +8,7 @@ reasoning，不等同于缺少 reasoning 字段。
 
 ### IR 语义权威（设计目标，未完成）
 
-Generation 原则见 [ADR-0001](../../decisions/0001-generation-ir-authority.md)，任务边界与 decode 顺序由 [ADR-0002](../../decisions/0002-task-ir-and-semantic-ownership.md)补充，阶段计划见[下一步目标](../../implementation-plans/next-goal.md)。目标行为为：
+Generation 原则见 [ADR-0001](../../decisions/0001-generation-ir-authority.md)，任务边界见 [ADR-0002](../../decisions/0002-task-ir-and-semantic-ownership.md)，阶段顺序、来源保真及 Event 权威分别由 [ADR-0003](../../decisions/0003-ir-pipeline-and-target-compilation.md)、[ADR-0004](../../decisions/0004-source-records-and-fidelity.md)、[ADR-0005](../../decisions/0005-event-ir-and-delivery-lifecycle.md)维护。阶段计划见[下一步目标](../../implementation-plans/next-goal.md)。目标行为为：
 
 - Chat/Responses Generation 的请求与响应双向都经 decode → 富语义 IR → encode；同协议 Native 与跨协议 Bridge 使用同一语义边界，IR 是唯一语义权威。已建模字段的最终 wire 编码只由 IR 决定；被删除、归一化或拒绝的语义不得经保留的原始 JSON 旁路复活。
 - Native 保持已接受语义，跨协议只转换目标可表达的内容；受约束扩展不得覆盖已建模字段或未经许可跨 Provider 重放。不要求任意请求都可跨源，不得静默丢失语义。
@@ -26,7 +26,7 @@ Generation 原则见 [ADR-0001](../../decisions/0001-generation-ir-authority.md)
 展开和 Bridge 转换前执行一次，全部 fallback candidate 获得同一有效档位；随后选中 Upstream API 的 wire mapping 仍独立执行。
 
 Embeddings Native Path 使用独立严格 JSON request union 和有界 JSON response validator；不保留未知字段，不进入 generation
-SSE/Bridge，也不在网关转换 vector encoding 或 dimensions。客户端必须以所选
+SSE/Bridge，不执行向量归一化、降维或跨模型转换。只有已注册 Target/Upstream API 的 encoding policy 可按[Embedding 合同](../extended-capabilities/embeddings.md#1-用户结果)执行有界 float32/Base64 wire 表示转换，保持其明确精度边界。客户端必须以所选
 `interfaces.embeddings` 的 forms、domain、parameters 与有效 limits 为准。
 
 显式 `Bridged` Route 必须只转换两协议共同可表达且已由 Upstream API capability 确认可读、方向兼容的 reasoning
@@ -50,7 +50,7 @@ Chat `stream_options` 只允许与 `stream:true` 组合。省略、空对象与 
 前生成唯一 `choices:[]` usage-only chunk，并使此前所有 Chat chunk 带 `usage:null`。Bridge 不估算、修正或补造 token；请求 usage 时若
 terminal usage 缺失或非法，不得发送 finish、usage-only 或 `[DONE]`。非对象、未知/额外成员、`include_obfuscation`、非布尔
 `include_usage` 和非流式组合必须在 Provider egress 前拒绝；Responses interface 继续把该 Chat-only 顶层字段视为未知参数。
-- 上游 Chat JSON/SSE usage 的 `completion_tokens_details` 与 `prompt_tokens_details` 省略或显式 `null` 都表示对应 detail absent；对象时只读取已建模 token 字段，其他值继续 fail closed。Native 验证后仍保留原始 response bytes，不把 `null` 改写为空对象。
+- 上游 Chat JSON/SSE usage 的 `completion_tokens_details` 与 `prompt_tokens_details` 省略或显式 `null` 都表示对应 detail absent；对象时只读取已建模 token 字段，其他值继续 fail closed。Native 编码保留已接受 usage 字段的语义与必要 presence，不把 `null` 改写为空对象；不承诺原始 JSON bytes、空白或 key order 一致。
 
 合法空 assistant 输出、refusal、空 output 和非完成的 Responses 终态是结果语义，不等于非法 JSON 或 transport failure。拒绝内容必须作为 refusal 表达，不拼接成普通 assistant text；incomplete、failed、cancelled 及其真实原因不得伪装成 completed。跨协议 encoder 只输出准确可表达的结果，对无法表达的状态或扩展显式拒绝。
 

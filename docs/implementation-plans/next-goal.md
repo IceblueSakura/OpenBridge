@@ -2,7 +2,7 @@
 
 ## 目标与状态
 
-**先完成任务级设计准入，再推进 codec 迁移与新语料验收。** [ADR-0001](../decisions/0001-generation-ir-authority.md) 定义 IR 语义权威，[ADR-0002](../decisions/0002-task-ir-and-semantic-ownership.md) 定义多任务类型族、任务识别顺序与所有权。完整管线尚未闭合，接受设计不等于类型与映射已经齐备。
+**先完成任务级设计准入，再推进 codec 迁移与新语料验收。** [ADR-0001](../decisions/0001-generation-ir-authority.md) 定义 IR 语义权威，[ADR-0002](../decisions/0002-task-ir-and-semantic-ownership.md) 定义多任务类型族与设计准入；[ADR-0003](../decisions/0003-ir-pipeline-and-target-compilation.md)、[ADR-0004](../decisions/0004-source-records-and-fidelity.md)、[ADR-0005](../decisions/0005-event-ir-and-delivery-lifecycle.md) 分别维护阶段管线、来源保真与 Event 交付细则。完整管线尚未闭合，接受设计不等于类型与映射已经齐备。
 
 这不是要求每个请求都能跨 Provider 或跨协议，也不包含 hook 实现。具体获准实施切片另记于[当前开发焦点](current-focus.md)。
 
@@ -34,6 +34,12 @@
 
 具体命令见[开发指南](../development.md)。真实 Provider、SDK/Agent 与负载验证按具体变更另定；不以静态文档或 codec 单测声称外部兼容。
 
+### 切片完成判据
+
+每个语义切片按 [semantic testing 的最小验收映射](../../testdata/semantic-testing.md#切片验收映射与完成判据)分别给出类型表达、codec 映射、生产接线与实际执行证据。不变保真、增删改和重排、失败边界及适用 Static/Event/materialize 都有独立 expected；候选隔离和最终 IR requirements 需由对应 owning layer 及必要生产见证证明。
+
+已支持语义仍只能靠未解释的原 JSON 才能输出、或 Event 只校验而仍按旧 payload 编码时，不宣称该范围全流程闭合。移除重复 decode 只是来源记录切片的一项结果，不是整个管线完成或性能提升的证明。文档细化不改变下方既定迁移顺序，也不开放额外任务。
+
 ## 本目标不包含
 
 - hook/plugin 系统、动态脚本、工具执行器、工具拦截续轮或分析策略实现；
@@ -43,7 +49,7 @@
 
 ## 首个 Generation 实施切片的准入
 
-身份、消息分组、presence 与附属元数据的设计规则由 [ADR-0002 的所有权章节](../decisions/0002-task-ir-and-semantic-ownership.md#3-每类信息只有一个输出-owner)拥有。规则已明确不等于现有类型、codec 和生产接线已经通过准入；本页不授予代码实施权限。
+身份、消息分组、presence 与附属元数据的设计规则由 [ADR-0004](../decisions/0004-source-records-and-fidelity.md)拥有，阶段与流式约束分别见 ADR-0003/0005。规则已明确不等于现有类型、codec 和生产接线已经通过准入；本页不授予代码实施权限。
 
 Generation 文本、消息身份与 function-tool 历史已具有同协议请求和静态响应的受限 IR 权威编码。下面的准入要求继续约束该范围的扩展；当前实现不能安全表达的变换仍拒绝，不能把局部落地视为整个 Generation 已通过设计准入。后续切片继续按支持语义列出类型、decode、encode、保留元数据与失败结果的对应关系，并确定独立 expected：
 

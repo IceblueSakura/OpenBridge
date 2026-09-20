@@ -30,7 +30,20 @@
 
 ### Generation 与 Bridge：与 IR 权威目标的差距
 
-Generation 的 IR 权威原则由 [ADR-0001](../decisions/0001-generation-ir-authority.md)拥有，任务识别与完整顺序见 [ADR-0002](../decisions/0002-task-ir-and-semantic-ownership.md)，阶段推进与验收见[下一步目标](../implementation-plans/next-goal.md)；本节只记录实现差距和既有路径限制。
+Generation 的 IR 权威原则由 [ADR-0001](../decisions/0001-generation-ir-authority.md)拥有，任务边界见 [ADR-0002](../decisions/0002-task-ir-and-semantic-ownership.md)，完整阶段、来源保真与流式目标分别见 [ADR-0003](../decisions/0003-ir-pipeline-and-target-compilation.md)、[ADR-0004](../decisions/0004-source-records-and-fidelity.md)、[ADR-0005](../decisions/0005-event-ir-and-delivery-lifecycle.md)，阶段推进与验收见[下一步目标](../implementation-plans/next-goal.md)；本节只记录实现差距和既有路径限制。
+
+下表按实际输出路径解释“部分实现”，不把类型、codec、生产接线或测试入口存在混成验收结论：
+
+| 路径 | 当前状态与差距 | 源码入口 |
+|---|---|---|
+| Native 请求 | 普通采样控制、受限内容和 function-tool 历史由 IR 决定；encoder 仍重复 decode 源对象取得旧基线，工具定义/presence/投影等未闭合 | `src/bridge/static_codec/request/native.rs` |
+| Native 静态响应 | 文本/refusal、function call 和稳定 part 关联部分迁移；usage/status、reasoning 编辑及通用扩展仍受限 | `src/bridge/static_codec/response/native.rs` |
+| Native Event | 先 decode/reduce 校验，再主要根据原 `SseEvent` payload 编码；不是 canonical event 全面驱动输出 | `src/bridge/event_codec.rs`、`src/bridge/event_codec/native.rs` |
+| materialize / 通用响应编码 | 已有有界 materializer 与编码路径；通用 annotation 的旧 content 下标关联尚需与 Native 稳定 part 规则统一 | `src/bridge/static_codec.rs`、`src/bridge/static_codec/response.rs` |
+| 生产规划 | wire facts 预检、JSON 归一化及候选省略在语义 decode 前；各候选独立构造，但不是从最终不可变任务 IR 投影 | `src/pipeline/generation/planning.rs`、`src/ir/generation/requirements.rs` |
+| Provider 映射 | Bridge 编码后仍重新解析 JSON，执行 model binding、request body hook、参数删除和 reasoning 映射 | `src/providers/openai_compatible/request.rs` |
+
+以下补充适用语义及安全拒绝边界，不表示这些缺口均已获准实施。现有 `request/native/tests.rs` 与 `response/native/tests.rs` 是静态内容变换的测试入口，不单独证明 Event、生产管线或本次测试已执行。
 
 - **静态内容已有受限的 IR 权威编码，不是完整任务闭合。** Native 普通采样控制、指令/消息文本及 function-call/result 历史从最终 IR 决定输出；静态响应的文本/refusal、function call 和对应删除也不再无条件重放源 envelope。请求有显式 item/group 身份，请求与响应消息有稳定 part 身份；重排按身份关联源提示，新建对象不继承旧位置字段。代码入口为 `src/bridge/static_codec/request/native/`、`src/bridge/static_codec/response/native.rs` 与 `src/ir/generation/{request,response}.rs`。
 - 源 envelope 仍承担未迁移语义的保留；只有同一身份且相关语义未变化时才可复用。未知字段依赖、源中没有对应 IR item 的音频历史/空消息、无法对应的空 content part、带有效 annotation 的文本改写等变换明确拒绝，原请求/响应未修改时保持既有 Native 接受域。媒体资源可在身份不变且值未修改时随文本编辑或重排保留；此路径不是通用媒体 encoder。Native 请求的工具定义、presence、投影、token 上限及状态等仍未完成所有权迁移，静态响应的 usage/status、reasoning 编辑及通用扩展变换也未闭合。

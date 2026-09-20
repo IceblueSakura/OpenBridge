@@ -32,7 +32,7 @@ Provider adapter 的 float32/Base64 wire 表示转换不改变 vector identity�
 |------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
 | `input_forms`          | `string`、`string_array`、`token_array`、`token_array_array` 的非空保证集合                                                         |
 | `encoding.default`     | 省略 `encoding_format` 时保证的 `float` 或 `base64` wire                                                                            |
-| `encoding.allowed`     | `null` 或可显式请求的 `float`/`base64` 非空集合；不得由网关本地转换补足                                                             |
+| `encoding.allowed`     | `null` 或可显式请求的 `float`/`base64` 非空集合；仅可包含固定接口明确承诺的表示，不能由请求期临时转换扩大                                                             |
 | `dimensions.default`   | 省略 `dimensions` 时保证返回的正整数维度                                                                                            |
 | `dimensions.allowed`   | `null`、闭区间或离散集合；`null` 表示请求不得携带 `dimensions`                                                                      |
 | `limits`               | 有效批量项数、单输入/总 token 上界，以及 `locally_counted_input_forms`；部署级 request、JSON response 与 replay budget 另行统一执行 |
@@ -53,7 +53,7 @@ contract，不能用字符或 UTF-8 字节估算冒充本地预检。
   固定 envelope 收窄；无法证明至少一个输入的合法响应受限时启动失败。
 - 请求分析冻结实际 input form、encoding、dimension、批量和可直接计算的 token/byte facts；通过 preflight 后不得按请求重新筛选
   Route。
-- 成功体必须在下游提交前完成有界 JSON shape 校验；网关只投影 Public Model，不转换向量或编码。
+- 成功体必须在下游提交前完成有界 JSON shape、index 与适用编码校验，并投影 Public Model；只有第 1 节明确的 target/API policy 可执行 wire 表示转换，不得归一化、降维或改变 vector identity。
 
 ## 4. 重放、取消与数据保护
 

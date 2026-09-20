@@ -4,6 +4,7 @@
 
 - **决策：已接受，待按任务实施。** 先核查任务表达与语义所有权，再迁移 codec，并以离线、Provider 无关的测试验收。
 - **关系：补充并收窄 [ADR-0001](0001-generation-ir-authority.md) 的任务边界与目标执行顺序。** 保留其 IR 权威、保真和失败原则；不把所有使用 Chat wire 的任务都解释为对话 Generation。
+- **细则归属。** 阶段契约由 [ADR-0003](0003-ir-pipeline-and-target-compilation.md)、身份/presence/来源保真由 [ADR-0004](0004-source-records-and-fidelity.md)、Event 与交付边界由 [ADR-0005](0005-event-ir-and-delivery-lifecycle.md)维护；本页保留任务规则与设计准入。
 - **实现：尚未形成完整类型族。** 当前只有 Generation Static/Event IR；Embedding、Images 仍使用结构事实与保留 body。具体缺口由[实施状态](../implementation-status/current-boundaries.md)维护。
 
 ## 背景与问题
@@ -31,88 +32,25 @@ Models、健康检查、认证和本地 MCP 不伪装成模型推理 IR。定义
 
 ### 2. 先识别任务，再语义 decode，最后选择 Provider
 
-```text
-下游 wire
-  → admission：认证、有界严格解析、endpoint 与 Public Model 标识
-  → 解析 Public Model 的固定任务契约（不选择 Provider）
-  → 按任务和下游协议 decode
-  → 任务 Request IR + 受约束的 wire 保留元数据
-  → 语义校验 / 未来受信处理位置
-  → 从最终 IR 提取 requirements，执行固定接口预检
-  → 既定 Route 计划
-  → 每个候选独立投影、可表达性检查与 encode
-  → 受信 transport
+任务解析只消费受信 Public Model 契约，不选择 Provider。未知模型或任务与 endpoint 不匹配时拒绝，不按正文猜任务。纯 codec 接收明确任务和来源协议/profile，不查询 registry 或获取凭据。
 
-上游结果
-  → 按已选任务和上游协议 decode
-  → 任务 Response IR / 适用的 Event IR
-  → 校验 / 未来受信响应处理位置
-  → 下游协议 encode
-  → commit 与 body lifecycle
-```
-
-任务解析只消费受信 Public Model 契约；纯 codec 不查询 registry，不获得凭据或 endpoint。未知模型、任务与 endpoint 不匹配时，在语义执行前拒绝，不根据输入内容猜测或改选任务。
-
-未来 IR 变换后重新验证身份、资源和能力要求，不能继续使用旧 requirements。候选投影从同一不可变 IR 独立生成；已有允许的参数省略规则仍按目标应用，不污染重试或后续候选。不可表达不等于可跳过较弱 Route，固定候选顺序与交集规则不变。
+任务 decode 后处理并重验证 IR，再从最终 IR 提取 requirements，执行固定接口预检、既定 Route 计划和每候选独立目标编码；不可表达不授权筛选或重排 Route。完整阶段顺序及 Provider 映射归属由 [ADR-0003](0003-ir-pipeline-and-target-compilation.md)接替维护。
 
 ### 3. 每类信息只有一个输出 owner
 
-| 分类 | 所有权与处理 |
-|---|---|
-| 已建模语义 | IR 唯一决定值及删除；encoder 不得从源字段恢复已删除内容 |
-| 表示元数据 | 只保留语义等价的拼写、顺序或 envelope 表现；有明确挂载位置和合并规则，不得覆盖语义 |
-| 来源限定扩展 | 有大小、命名空间、来源、暴露策略与目标允许范围；未知来源不获得跨 Provider 重放权限 |
-| 不可表达内容 | 明确拒绝；只有已批准、可追踪的降级策略才允许省略 |
-
-保留元数据应绑定稳定 item/call/part 身份，不靠变换前的数组下标合并。删除 item 同时移除其附属元数据；新 item 不继承不相关的源字段。当前受支持的核心语义不能长期藏在 opaque 扩展或整段原 JSON 中。
-
-省略、`null`、空字符串、空列表、显式默认值和显式关闭分别解释。只有来源与目标契约能证明等价时才可折叠；例如 `strict` 省略与 `false` 不得不加区分地跨协议重放。保留必要的语义 presence，而不是机械地把所有字段包装成同一种可空类型。
+已建模语义由 IR 决定值、必要 presence、关联及删除；表示提示与来源限定扩展不得覆盖语义。来源不明不获得跨 Provider 重放权限，不可表达只可拒绝或执行既有明确授权的转换策略。详细分类、合并与保真规则由 [ADR-0004](0004-source-records-and-fidelity.md)维护，不在本页保留第二份规范。
 
 #### Generation 身份与消息分组
 
-以下是待实施的语义结构约束，不表示现有 Rust 类型或生产 codec 已满足；具体类型名不在本 ADR 固定。
-
-| 身份 | 职责与作用域 |
-|---|---|
-| item 身份 | 在所属请求或响应内唯一，覆盖指令、消息、reasoning、call 和 result 等可独立变换对象；与数组位置无关 |
-| part 身份 | 在所属 item 内唯一，重排不变；引用使用 item 与 part 的组合，不使用旧 content 下标 |
-| call 身份 | 关联调用与结果，独立于 call item 自身身份；变换后重新检查重复、悬空引用与结果配对 |
-| 消息分组身份 | 显式记录同一消息中的正文、reasoning 和 calls 的归属与顺序；不代表一次请求、整个会话或可执行工具循环 |
-| wire 身份 | 对目标协议可观察的标识及其来源约束；与内部身份分开，不把内部生成的标识自动泄露为 wire ID |
-
-保留有序 item 结构，并以显式归属表达消息分组，不维护第二份重复内容。Chat decoder 将一个消息拆为多个语义对象时，必须保留其共同分组；Responses 的独立 item 不因相邻就被断言来自同一原始消息。目标协议需要 regroup 时，由 lowering 验证语义等价性；无等价表示则拒绝，不凭邻接关系偷偷合并。
-
-role、instruction authority、正文、refusal、reasoning 与工具调用关系属于语义，不属于源 envelope 提示。支持范围内的组合必须可表达；请求历史中当前不支持的混合正文/调用等组合仍按既有合同拒绝，设计不会自动开放它们。请求历史与响应输出可以有不同合法性约束，不因响应允许空 assistant 就放宽所有请求消息。
-
-内部身份可在 decode 时按局部确定规则分配，之后随对象保留；插入分配新身份，重排不重新编号。替换同一对象的值可保留身份，但必须使依赖旧内容的元数据失效；替换为另一对象则创建新身份。删除 call 不能由 encoder 静默删除仍存在的 result：变换须显式维护关联，否则整体校验失败。必需的目标 wire ID 缺失时，仅允许明确的协议/profile 生成规则，否则拒绝；不借内部身份绕过来源绑定。
+item、part、call、消息分组和 wire identity 有独立作用域，不等同于数组位置。部分身份基础已存在，但完整覆盖由实施状态判断；结构规则见 [ADR-0004 的身份章节](0004-source-records-and-fidelity.md#3-generation-身份与消息分组)。
 
 #### Generation presence 与默认值
 
-| 语义域 | 采用的表示与编码规则 |
-|---|---|
-| function strict | IR 区分未指定、显式 false、显式 true。未指定保留来源协议/profile 的默认语义约束；跨协议必须证明默认等价或有精确的显式表示，否则拒绝 |
-| 消息内容 | role、合法空内容与有序 parts 由 IR 决定。字符串/part 数组、省略/null 只有经具体合同证明等价后才可作为表示提示；不得把合法空输出变成不存在的消息 |
-| 生成控制 | 延续字段各自的有效值域；stop 空串与空列表不同，数值零与省略不同。token 上限别名不能只因字段类似就合并为相同预算语义 |
-| 输出投影 | 请求的 include 语义由已有 OutputProjection 拥有；去重/排序仅限集合等价，目标省略必须使用已批准规则，不由源对象回填 |
-| 工具及 schema | 保留显式关闭、默认选择与 schema 内容的有效差异；schema 缺失与默认对象只有经合同证明等价才可折叠 |
-
-纯 decoder 接收明确的任务与来源协议/profile 契约，不查询 registry 来猜默认值。Native encoder 不因 IR 内部有有效默认值就强制写入省略字段；跨协议 encoder 也不能把显式 false 改为依赖另一协议默认值的省略。`null` 若非法则拒绝；若与省略等价可保留为表示提示；若有独立意义则进入该字段的语义类型。未证明等价不授予规范化或静默丢弃权限。
+省略、null、空值、显式默认和显式关闭按语义域区分，不凭 wire 形状折叠。function strict、消息内容、生成控制、投影与 schema 的详细规则见 [ADR-0004 的 presence 章节](0004-source-records-and-fidelity.md#4-generation-presence-与默认值)。
 
 #### 元数据绑定与变换规则
 
-保留元数据采用有界、带来源协议/profile 的附属记录，挂载到稳定的 envelope/item/part 身份。记录只保存未与 IR 冲突的表示提示或明确允许的来源限定扩展，不保存另一份可独立决定已建模值的内容。编码顺序是从 IR 构造已拥有字段，再应用仍有效且目标允许的提示；字段冲突拒绝，不由后写者覆盖。
-
-| 变换 | 附属记录处理 |
-|---|---|
-| 新增 | 不继承旧位置、同名工具或相同文本的记录；只使用新对象显式携带的合法信息 |
-| 重排 | 跟随稳定身份，编码时重新计算目标数组位置 |
-| 删除 | 移除被删对象及其子记录；不得借源 envelope 恢复对象；其他对象的悬空语义引用使校验失败 |
-| 内容替换 | 等价拼写提示须重新验证；依赖旧文本、bytes 或格式的 annotation/资源提示不得沿用 |
-| 跨协议或跨来源 | 逐项检查目标允许范围；来源未知不等于通用许可，不可表达时拒绝或执行明确批准的降级 |
-
-citation/annotation 的目标、范围及语义关联不能长期作为无主 opaque JSON。保留 wire annotation 时，其范围绑定到具体 part 的内容版本；重排 part 不失效，改变被引用内容则必须显式重建关联，或按批准策略移除并报告，不能无条件丢弃或继续使用旧 offset。仅无语义影响的表示提示可在失效后舍弃并使用规范表示；无法分类的内容不按“纯提示”处理。
-
-这些规则同时约束 Native 静态响应、逐事件编码与缓冲后 materialize 编码，不能让 delivery 模式决定语义 owner。Static 与 Event 使用一致的身份关联和终态语义；已发送事件不可回改，未来处理位置只能影响未提交内容，并继续遵守背压、预算及 commit 边界。
+来源记录跟随稳定身份；删除不复活，新增不继承，内容替换使相关依赖重新验证。annotation 不按旧 content 下标回填；详细规则见 [ADR-0004 的变换章节](0004-source-records-and-fidelity.md#5-元数据绑定与变换规则)，适用 Event/交付边界见 [ADR-0005](0005-event-ir-and-delivery-lifecycle.md)。
 
 ### 4. 媒体与事件必须保持可解释性
 
@@ -120,7 +58,7 @@ citation/annotation 的目标、范围及语义关联不能长期作为无主 op
 - 音频内容理解、识别输入、合成输出与音色条件由任务明确解释。输出格式、voice、语言，以及适用的 PCM 参数不能只存在于源 JSON。
 - 流式媒体需有与任务对应的 typed event，保留 item/part 身份、顺序、格式及增量边界；不以通用 opaque 事件代替已支持的媒体语义。
 - Static/Event IR 对同一支持语义应有一致的终态表达；空输出、refusal、部分结果、失败与取消不能被归一为成功。候选数量与工具结果关联在请求、响应和事件层闭合。
-- 事件逐步 decode/encode，不要求聚合整条流；每事件、每资源和累计预算分别有界，取消与下游背压继续传递。提交后失败不能重试拼流或补造成功 terminal。
+- Event 的权威编码、materialize 一致性与有界交付由 [ADR-0005](0005-event-ir-and-delivery-lifecycle.md)维护；本节只定义任务需要保留的媒体与结果语义。
 
 ### 5. Embedding 有独立数值与身份契约
 

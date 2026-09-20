@@ -2,7 +2,7 @@
 
 文档主线是 **当前架构 → 架构决策（ADR）→ 下一步目标**。先理解系统如何工作、为什么这样划分，再查看准备解决的具体差距。安装操作与细分合同按需阅读，能力清单、来源和历史验证不占据主线。
 
-已接受的设计不等于已完成实现；下一步方向不等于代码实施授权。当前重点是先收敛多任务 IR 的表达与语义所有权，再以离线 codec 测试推进双向编码，不要求任意请求都可跨源转换。
+已接受的设计不等于已完成实现；下一步方向不等于代码实施授权。当前重点是以任务 IR 为请求和响应的语义权威，收敛 decode → IR → encode 的阶段、来源保留与 Event 输出，再以离线 codec 测试推进迁移；不要求任意请求都可跨源转换。
 
 ## 从这里开始
 
@@ -12,6 +12,9 @@
 | 理解产品行为与失败语义 | [功能需求](functional-requirements/README.md) |
 | 理解模块职责与请求数据流 | [当前架构](architecture.md) |
 | 理解架构选择及其代价 | [ADR 索引](decisions/README.md)、[IR 语义权威](decisions/0001-generation-ir-authority.md)、[多任务 IR](decisions/0002-task-ir-and-semantic-ownership.md) |
+| 核对 decode、requirements、候选编码的阶段契约 | [IR 管线](decisions/0003-ir-pipeline-and-target-compilation.md) |
+| 核对身份、presence、来源合并和保真结果 | [来源记录与保真](decisions/0004-source-records-and-fidelity.md) |
+| 核对增量输出、materialize 与提交边界 | [Event 与交付生命周期](decisions/0005-event-ir-and-delivery-lifecycle.md) |
 | 理解下一步要解决什么 | [下一步目标](implementation-plans/next-goal.md) |
 | 修改代码并选择验证方式 | [开发指南](development.md) |
 | 判断当前实现与设计差距 | [实施现状](implementation-status/README.md) |
@@ -43,7 +46,7 @@
 
 - 一个详细事实有一个明确维护位置；其他页面可用短摘要和链接，不复制长规则、精确清单或状态表。
 - 标题按问题域命名，开头简述范围。表格用于导航和对照，不强制每页套用空章节。
-- 区分“必须/不得”的产品约束、“已实现”的代码事实与“已验证”的执行结果。
+- 区分“必须/不得”的产品约束、“已实现”的代码事实与“已验证”的执行结果。IR 类型表达、codec 映射、生产接线与实际执行证据分别判断；“经过 IR 校验”不等于“最终输出由 IR 决定”。
 - 产品永久非目标归需求；范围内缺口与未验证项归状态。状态不是未来实施计划。
 - 保持既有验收 ID 和技术标识；索引不维护文档数量、模型数量、测试数量或“最新”快照。
 - 代码注册关系可以维护为实现映射；单模型 capability metadata、价格和外部全量目录不复制到文档。能力事实由代码、扩展 Models API 或外部官方来源拥有。扩展 Models API 不公开私有执行拓扑，不能替代维护者的注册源码入口。

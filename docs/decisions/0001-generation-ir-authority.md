@@ -3,41 +3,28 @@
 ## 状态
 
 - **决策：已接受。** 用户确定的下一步方向是双向 decode → 富语义 IR → encode，而不是扩大任意请求的跨源兼容。
-- **实现：按语义域收敛中。** Native 普通采样控制已由 IR 驱动编码；其余源 envelope 保留路径尚未闭合，不能宣称完整管线已完成。
+- **实现：按语义域收敛中。** Native 普通采样控制与受限静态内容已由 IR 驱动；其余语义和生产顺序尚未闭合。逐项覆盖由[实施状态](../implementation-status/current-boundaries.md)维护。
 - **授权边界。** 本决策不表示 hook、工具执行器或管线重构已完成，也不独立授权代码变更。
-- **关联决策。** [ADR-0002](0002-task-ir-and-semantic-ownership.md) 补充任务类型族，并收窄本页的任务边界与 decode 顺序；IR 语义权威原则继续有效。
+- **关联决策。** [ADR-0002](0002-task-ir-and-semantic-ownership.md) 补充任务边界；[ADR-0003](0003-ir-pipeline-and-target-compilation.md)、[ADR-0004](0004-source-records-and-fidelity.md)、[ADR-0005](0005-event-ir-and-delivery-lifecycle.md) 分别维护阶段、来源保真与流式细则。IR 语义权威原则继续有效。
 
 ## 背景与问题
 
 OpenBridge 同时处理下游协议、Provider 协议差异、固定路由与响应生命周期。若只在 Chat ↔ Responses 转换时使用语义 IR，而同协议请求仍由原始 JSON 决定输出，后续语义分析、工具注入或拦截就必须维护两套处理路径。
 
-现有代码已 decode Native 请求与响应，但普通采样控制以外的请求内容仍依赖源保留，静态响应仍可重发源 envelope。它有利于保存尚未建模的字段，却不能保证任意 IR 修改、删除和约束都反映到最终 wire。问题不是缺少 IR 类型，而是 IR 尚未成为完整的输出权威。
+作出本决策时，Native 请求和响应虽已进入 IR 解码与校验，大量输出语义仍由源 envelope 保留路径决定。这有利于保存尚未建模的字段，却不能保证 IR 修改、删除和约束反映到最终 wire。问题不是缺少 IR 类型，而是 IR 尚未成为完整的输出权威；该背景不代替当前实现状态。
 
 ## 决策
 
 ### 1. 双向语义管线
 
-```text
-下游 wire
-  → admission（认证、大小与协议形状）
-  → 解析 Public Model 的固定任务契约（不选择 Provider）
-  → 按任务和下游协议 decode
-  → 对应任务的 Request IR
-  → 语义验证 / 受信策略处理位置
-  → 从最终 IR 提取 requirements，执行固定接口预检与 Route 计划
-  → 候选 Provider/API 的可表达性检查
-  → 协议 encode + Provider 特定映射
-  → 受信 transport
+“全流程 IR”指：对当前产品支持范围内的每个推理任务，请求及对应响应在协议边界之间以任务 IR 为语义权威。Native 与跨协议 Bridge 使用相同语义处理边界；最终输出由最终 IR、合法来源记录、受信目标契约及显式转换策略共同生成，原始 wire 不得作为覆盖 IR 的平行语义来源。
 
-上游 JSON / SSE
-  → Provider-aware decode
-  → Response IR / Event IR
-  → 语义验证 / 受信响应处理位置
-  → 下游协议 encode
-  → downstream commit / body lifecycle
+```text
+请求：下游 wire → 任务 decode → Request IR → 验证/受信处理 → 固定计划/目标 lowering → encode → 上游
+响应：上游 wire → 任务 decode → Response/Event IR → 验证/适用处理 → 下游 lowering/encode → 客户端
 ```
 
-这是目标数据流，不是对当前调用顺序的描述。路由候选及顺序仍由既定规则决定；目标不可表达性检查不引入请求期能力筛选、动态选模或任意跨源重试。
+完整阶段顺序和输入输出由 [ADR-0003](0003-ir-pipeline-and-target-compilation.md#1-目标数据流)维护。这是目标，不是当前调用顺序的声明；全流程不等于任意跨源兼容、所有接口都进入 Generation IR，或每条路径只允许一次 JSON 解析。
 
 ### 2. IR 是语义权威，不是原 JSON 的包装
 
@@ -56,21 +43,15 @@ IR 表达支持范围内的语义并集，不收缩为 Chat/Responses 的最小�
 
 ### 4. Codec、Provider 与执行职责
 
-| 边界 | 职责 | 不负责 |
-|---|---|---|
-| 协议 codec | wire 与 Static/Event IR 的纯转换、协议校验 | 路由、凭据、网络、重试 |
-| Provider 映射 | 已选目标的字段映射、私有扩展约束和能力收窄 | 改选 Public Model 或 Route |
-| Registry / planner | 静态实体、固定接口、候选与执行计划 | 修改协议正文来掩盖不可表达语义 |
-| 执行与 ingress | attempt、body I/O、取消、资源限制、commit | 自建另一套语义转换逻辑 |
-| IR 处理位置 | 对受信语义变换提供清晰输入输出边界 | 当前不引入动态插件或工具运行时 |
+协议 codec 只处理 wire 与任务 IR 的纯转换；registry/planner 拥有固定接口和候选；Provider 映射只作用于已选目标；ingress/execution/transport 拥有网络、凭据绑定、attempt、取消和 commit。IR 本身不拥有这些执行能力。
 
-实现可保留必要的 wire 适配，但同一语义不能在 IR 和后续 JSON hook 中各自独立决定。Provider 的语义变换应具有明确归属，编码后检查不能使被禁止或删除的字段复活。
+同一语义不能同时由 IR 和后置 JSON hook 独立决定。默认、约束及授权省略归受信语义处理或目标 lowering；表现形式归目标编码；认证、URI 与网络归执行上下文。详细阶段权限见 [ADR-0003](0003-ir-pipeline-and-target-compilation.md#2-阶段输入输出与权限)，来源合并规则见 [ADR-0004](0004-source-records-and-fidelity.md)。
 
 ### 5. 流式响应
 
-SSE 增量 decode 到 Event IR 后增量 encode，不默认聚合整条流。保留事件顺序、item/call identity、参数增量、usage 和合法终态；只允许确定性规范化所需的有界状态。
+Event IR 也必须决定增量输出，而不只是校验待重发的原事件。默认逐事件 decode/encode，仅保留必要有界状态；Static/Event 在支持语义上保持一致，不以完整流缓存换取形式统一。
 
-保留现有取消、背压和 commit 约束：提交后不可重试拼接另一条响应，EOF 或 body error 不能伪造成功 terminal。未来需要拦截完整工具调用时，必须另行定义缓冲和提交边界。
+取消、背压及提交后不可拼流的边界继续有效，EOF 或 body error 不能伪造成功 terminal。详细理由与约束见 [ADR-0005](0005-event-ir-and-delivery-lifecycle.md)；未来完整工具调用拦截必须另定缓冲和提交边界。
 
 ### 6. 范围与非目标
 

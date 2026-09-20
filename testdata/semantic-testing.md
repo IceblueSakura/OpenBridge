@@ -143,6 +143,28 @@ cargo test --locked --test semantic_router_contract -- --nocapture
 
 Provider 无关意味着测试不需要真实模型、账号、凭据或上游网络；仍必须标明任务、wire 协议、profile 与预期可表达性。优先直接调用纯 codec/IR；只有增加独立价值时才补 synthetic Router/loopback。不要为 codec 正确性先搭建通用 live runner。
 
+### 切片验收映射与完成判据
+
+每个待迁移语义域使用最小映射，不新增一套平行 schema 或逐模型库存。规则依据分别为 [ADR-0002](../docs/decisions/0002-task-ir-and-semantic-ownership.md)、[阶段契约](../docs/decisions/0003-ir-pipeline-and-target-compilation.md)、[来源与保真](../docs/decisions/0004-source-records-and-fidelity.md)及[Event 交付](../docs/decisions/0005-event-ir-and-delivery-lifecycle.md)。
+
+| 记录项 | 必须回答 |
+|---|---|
+| 支持范围 | 哪个任务、协议/profile、方向和交付模式；是否属于当前公共合同 |
+| 语义 owner | 必需的值、presence、身份、资源用途与合法关联由哪个 IR 域拥有 |
+| codec 与保留边界 | decode/encode 的独立预期；哪些来源记录可用、何时失效、如何拒绝或按既定策略转换 |
+| 生产接线 | 实际调用方是否使用该 IR 及最终 requirements；候选是否独立投影；后置映射是否保持语义 |
+| 测试见证 | 最低 owning layer 的独立 expected、正/负控制；必要的 Router 见证及本次实际执行范围 |
+
+类型能表达、codec 已映射、生产已接线与测试已执行是不同结论；测试函数存在不是运行结果，helper 接受域不是 Public Model 支持域。具体当前缺口只在[实施状态](../docs/implementation-status/current-boundaries.md)维护，常规执行结果在交付或既有 CI 报告，不另建完成日志。
+
+适用切片至少保护以下独立机制：
+
+- 不变时同协议语义保真；新增、替换、删除与重排真正影响 wire；来源字段和 annotation 不复活、不误绑，依赖旧内容的记录拒绝复用或执行明确授权策略。
+- 从变换后的最终 IR 导出 requirements；各候选的合法省略互不污染，不可表达不筛选 Route；Provider 目标映射不能恢复被移除语义。
+- 对 Event 给出独立的增量 encode 预期，不只验证 reducer 或最终聚合值；适用 materialize 与独立静态预期一致，合法分片变化为正控制，EOF、身份冲突、超限及提交前后失败为负控制。
+
+空 changes 不证明完整无损，round-trip 不证明独立 decode/encode 正确，减少解析次数不证明语义迁移完成。适用语义、表示依赖、生产调用和失败边界全部闭合后，才能宣称该切片达标；没有受影响的任务或交付分支不为凑矩阵新增测试。
+
 ### 独立 oracle 与最小覆盖
 
 | 检查 | 应保护的结果 |
