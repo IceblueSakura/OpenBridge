@@ -8,7 +8,7 @@
 
 ## 当前起点
 
-已有 Generation Static/Event IR、Chat/Responses codec、固定路由和有界生命周期；Native 普通采样控制已从 IR 编码，但其他任务尚未形成完整语义 IR，部分媒体和参数差异仍依赖源保留。具体缺口见[当前状态边界](../implementation-status/current-boundaries.md)。暂停无整体设计依据的逐字段迁移，不直接以较窄 Bridge encoder 替换 Native。
+已有 Generation Static/Event IR、Chat/Responses codec、固定路由和有界生命周期；Native 普通采样控制与受限静态内容变换已从 IR 编码，消息/part 身份和 function-tool 历史可用于安全的增删改与重排。但其他任务尚未形成完整语义 IR，媒体、presence、扩展与 Event 所有权仍有缺口，生产 decode/requirements 顺序尚未调整。具体边界见[当前状态](../implementation-status/current-boundaries.md)。后续仍按完整语义切片推进，不直接以较窄 Bridge encoder 替换 Native。
 
 ## 推进顺序
 
@@ -45,7 +45,7 @@
 
 身份、消息分组、presence 与附属元数据的设计规则由 [ADR-0002 的所有权章节](../decisions/0002-task-ir-and-semantic-ownership.md#3-每类信息只有一个输出-owner)拥有。规则已明确不等于现有类型、codec 和生产接线已经通过准入；本页不授予代码实施权限。
 
-首个候选切片是 Generation 文本、消息身份与 function-tool 历史在同协议请求和静态响应中的 IR 权威编码。实施前按支持语义列出类型、decode、encode、保留元数据与失败结果的对应关系，并为以下结果确定独立 expected：
+Generation 文本、消息身份与 function-tool 历史已具有同协议请求和静态响应的受限 IR 权威编码。下面的准入要求继续约束该范围的扩展；当前实现不能安全表达的变换仍拒绝，不能把局部落地视为整个 Generation 已通过设计准入。后续切片继续按支持语义列出类型、decode、encode、保留元数据与失败结果的对应关系，并确定独立 expected：
 
 - 同一消息的正文、reasoning、refusal 和 calls 保持明确归属；只覆盖现有合法组合，不借重构扩展接受域。
 - 新增、替换、删除与重排影响真实 wire；call/result 关联重新验证，元数据不因旧数组位置误绑，删除项不复活。
@@ -53,6 +53,20 @@
 - 请求与静态响应配对，presence/default 有明确解释；候选数、工具身份及失败终态不出现只验请求的闭合缺口。多候选是否开放仍由既有公共任务合同决定。
 - Event 身份与 materialize 结果同该切片兼容；静态迁移不等于 Event 已迁移，受影响的共享类型、事件调用方和合同必须同步维护。
 
-优先使用小型离线反例验证设计，不先扩大正式语料。获准行为实施时才记录 current-focus 并以失败测试推进；Event 编码与生产 decode/requirements 顺序随后按独立完整切片闭合，不在文本迁移中夹带管线重写。
+优先使用小型离线反例验证设计，不先扩大正式语料。获准行为实施时才记录 current-focus 并以失败测试推进，不在内容迁移中夹带管线重写。
+
+## 近期迁移收尾顺序
+
+先收敛仍承担实际功能的过渡结构，不把“删除旧代码”作为完成标准。`BridgePlan` 的 Static/Event 编排、来源限定字段的安全保留和失败关闭仍有实际职责，不能仅为减少层数而删除。
+
+| 顺序 | 范围与交付 | 验收边界 |
+|---|---|---|
+| 1. Native 来源记录 | 从当前 Native encoder 为比较基线而再次 decode 源对象的路径入手，在初次 decode 时形成有界、不可变的来源记录及身份绑定；请求和静态响应一起收敛 | 编码不再为取得基线重复语义 decode；不建立第二个可变语义 owner；未修改内容保真，增删改/重排、新增项不继承旧元数据、未迁移语义拒绝边界均保持。检查来源记录的内存、克隆和生命周期成本，不以无界快照替代重复解析 |
+| 2. annotation 身份统一 | 将通用 Responses encoder 的 item ID + 旧 content 下标回填收敛到稳定 item/part 身份，贯通 Native 静态、跨协议与 Event materialize 后的适用路径 | 多 part 与 item 重排不误绑；删除不恢复附属记录；改写被引用内容时重新校验范围，不能沿用旧 offset。不能精确保留时仍拒绝，不靠清空 annotation 让测试通过 |
+| 3. 剩余语义与管线 | 来源所有权收敛后，按完整切片补齐 presence/投影、媒体与扩展表达，再闭合 Event 编码和固定任务后的 decode/requirements 顺序 | 不同时重写所有任务；候选独立投影，固定 Route 顺序和能力交集不变；Static/Event 终态、资源预算、取消、背压与 commit 边界继续成立 |
+
+首个收尾切片优先处理来源记录；annotation 可按独立切片推进，但不能留下两套对同一语义互相冲突的合并规则。具体类型与持有位置先对照实际调用方和预算确定，不预设通用 sidecar 框架，也不因来源记录就绪而宣称生产管线已经实现一次 decode。
+
+验证先运行最低 owning layer 的独立 decode/encode 预期及变换负例，再执行[开发指南](../development.md#rust-行为与依赖)的完整 Rust 基线与文档检查。保留有独立价值的 production wrapper、流式终态和资源失败测试；不恢复包装层与其底层同一实现的“新旧对跑”自证。真实 Provider、外部 SDK、负载与部署不在此收尾计划的默认执行范围内。
 
 其余任务继续按任务族明确媒体用途、Embedding 精度和事件表达，不同时实现所有类型。具体 Rust 接口由对应切片及失败测试确定，不为未开放任务提前搭建框架。

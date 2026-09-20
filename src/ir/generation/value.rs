@@ -43,6 +43,12 @@ pub(in crate::ir::generation) fn encoded_json_len(
 /// Validation failure for one static Generation IR value.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum ValidationError {
+    /// Request identities or message groups are inconsistent with ordered input.
+    #[error("invalid input identity layout")]
+    InvalidInputLayout,
+    /// Text and JSON tool results have distinct canonical representations.
+    #[error("JSON tool result must not be a string")]
+    InvalidToolJsonKind,
     /// A bounded text value is empty.
     #[error("text must not be empty")]
     EmptyText,
@@ -165,8 +171,8 @@ impl JsonObject {
 
 /// Bounded JSON Schema object with validated top-level shape.
 ///
-/// JSON Schema permits unknown extension keywords, so R1 does not pretend to validate a Target's
-/// supported keyword subset. Capability/lowering owns that check before encoding.
+/// JSON Schema permits unknown extension keywords. This type validates shape and size;
+/// capability/lowering owns the Target's supported-keyword check before encoding.
 #[derive(Clone, Debug, PartialEq)]
 pub struct JsonSchema {
     value: Value,

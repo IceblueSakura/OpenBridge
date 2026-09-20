@@ -25,7 +25,7 @@ mod shared;
 use chat::{ChatEventDecoder, ChatEventEncoder};
 use responses::{ResponsesEventDecoder, ResponsesEventEncoder};
 
-/// Wire Event codec failure before production Bridge takeover.
+/// Wire Event decoding, lifecycle, or encoding failure.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum StaticEventCodecError {
     #[error("wire event is not valid JSON")]

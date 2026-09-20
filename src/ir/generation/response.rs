@@ -9,8 +9,8 @@ use std::{borrow::Borrow, collections::BTreeSet, fmt, ops::Deref};
 use thiserror::Error;
 
 use super::{
-    ContentPart, JsonObject, OpaqueState, ProviderExtension, Resource, Source, SourceId,
-    TextAnnotation, TextValue, ToolInput, ToolName, WireIdentity,
+    ContentPart, OpaqueState, ProviderExtension, Resource, Source, SourceId, TextAnnotation,
+    TextValue, ToolInput, ToolName, WireIdentity,
 };
 
 /// Validation failure for a bounded response or Provider identity value.
@@ -116,6 +116,9 @@ bounded_identity! {
 /// Validation failure for one canonical response value.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum ResponseValidationError {
+    /// A message contains two parts with the same local identity.
+    #[error("duplicate response part identity")]
+    DuplicatePartId,
     /// A completed response contains an explicitly unfinished function argument fragment.
     #[error("completed response contains incomplete tool arguments")]
     IncompleteSuccess,
@@ -170,6 +173,7 @@ pub enum ReasoningPart {
 pub struct ResponseMessage {
     id: ItemId,
     content: Vec<ContentPart>,
+    part_ids: Vec<usize>,
     wire_identity: Option<WireIdentity>,
 }
 
@@ -182,6 +186,7 @@ impl ResponseMessage {
     ) -> Result<Self, ResponseValidationError> {
         Ok(Self {
             id,
+            part_ids: (0..content.len()).collect(),
             content,
             wire_identity,
         })
@@ -195,6 +200,27 @@ impl ResponseMessage {
     /// Returns ordered content.
     pub fn content(&self) -> &[ContentPart] {
         &self.content
+    }
+
+    /// Returns stable message-local identities in current content order, not wire indexes.
+    pub fn part_ids(&self) -> &[usize] {
+        &self.part_ids
+    }
+
+    /// Replaces content while explicitly retaining, deleting, or assigning part identities.
+    ///
+    /// A fresh identity denotes a new part; reusing one denotes an edit to that same part.
+    /// Codec metadata must independently validate its dependency on the old content.
+    pub fn with_identified_content(
+        mut self,
+        parts: Vec<(usize, ContentPart)>,
+    ) -> Result<Self, ResponseValidationError> {
+        let mut seen = BTreeSet::new();
+        if parts.iter().any(|(id, _)| !seen.insert(*id)) {
+            return Err(ResponseValidationError::DuplicatePartId);
+        }
+        (self.part_ids, self.content) = parts.into_iter().unzip();
+        Ok(self)
     }
 
     /// Returns the Provider wire identity when one exists.
@@ -311,11 +337,33 @@ pub enum ToolResultStatus {
 
 /// Structured tool result payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolJsonValue(serde_json::Value);
+
+impl ToolJsonValue {
+    /// Creates a bounded non-string JSON result; strings use ToolOutput::Text.
+    pub fn new(value: serde_json::Value, max_bytes: usize) -> Result<Self, super::ValidationError> {
+        if value.is_string() {
+            return Err(super::ValidationError::InvalidToolJsonKind);
+        }
+        if super::value::encoded_json_len(&value, max_bytes).is_none() {
+            return Err(super::ValidationError::JsonObjectTooLarge { max_bytes });
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the exact JSON value without coercing it into textual output.
+    pub fn as_value(&self) -> &serde_json::Value {
+        &self.0
+    }
+}
+
+/// Structured tool result payload.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolOutput {
     /// Plain text output.
     Text(TextValue),
-    /// Structured JSON object output.
-    Json(JsonObject),
+    /// Structured non-string JSON output, including arrays and scalar values.
+    Json(ToolJsonValue),
     /// Ordered multimodal output.
     Content(Vec<ContentPart>),
     /// Typed image, audio, or file output.

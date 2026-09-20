@@ -31,6 +31,7 @@ pub(super) enum TargetRequest {
 }
 
 mod controls;
+mod native;
 
 /// Decodes one accepted Chat or Responses request into canonical semantics plus delivery metadata.
 pub(super) fn decode_request(
@@ -39,15 +40,30 @@ pub(super) fn decode_request(
     max_bytes: usize,
 ) -> Result<WireRequest, StaticCodecError> {
     let stream = optional_bool(source, "stream")?;
-    let input = match protocol {
+    let (input, groups) = match protocol {
         ApiProtocol::ChatCompletions => decode_chat_input(source, max_bytes)?,
-        ApiProtocol::Responses => decode_responses_input(source, max_bytes)?,
+        ApiProtocol::Responses => {
+            let input = decode_responses_input(source, max_bytes)?;
+            let groups = (0..input.len()).collect();
+            (input, groups)
+        }
     };
     let tools = decode_tools(protocol, source, max_bytes)?;
     let tool_choice = decode_tool_choice(protocol, source.get("tool_choice"), &tools, max_bytes)?;
     let parallel = decode_parallel(source.get("parallel_tool_calls"), tools.is_empty())?;
 
     let mut request = GenerationRequest::new(input).map_err(StaticCodecError::from_validation)?;
+    let entries = request
+        .input()
+        .iter()
+        .cloned()
+        .zip(groups)
+        .enumerate()
+        .map(|(id, (item, group))| (crate::ir::generation::InputIdentity::new(id, group), item))
+        .collect();
+    request = request
+        .with_identified_input(entries)
+        .map_err(StaticCodecError::from_validation)?;
     request = request
         .with_tools(tools, tool_choice, parallel)
         .map_err(StaticCodecError::from_validation)?;
@@ -61,6 +77,8 @@ pub(super) fn decode_request(
     Ok(WireRequest {
         semantic: request,
         source: source.clone(),
+        protocol,
+        max_bytes,
         stream,
         service_tier: source
             .get("service_tier")
@@ -165,6 +183,7 @@ pub(super) fn encode_native_request(
     let mut target = request.source.clone();
     target.insert("model".to_owned(), Value::String(upstream_model.to_owned()));
     controls::encode_native(request.semantic.controls(), &request.source, &mut target);
+    native::encode_input(request, &mut target)?;
     serde_json::to_vec(&Value::Object(target))
         .map(Bytes::from)
         .map_err(|_| StaticCodecError::InvalidShape)
@@ -435,7 +454,7 @@ fn validate_completed_status(object: &Map<String, Value>) -> Result<(), StaticCo
 fn decode_chat_input(
     source: &Map<String, Value>,
     max_bytes: usize,
-) -> Result<Vec<InputItem>, StaticCodecError> {
+) -> Result<(Vec<InputItem>, Vec<usize>), StaticCodecError> {
     let messages = source
         .get("messages")
         .and_then(Value::as_array)
@@ -444,7 +463,9 @@ fn decode_chat_input(
     let mut known_calls = BTreeSet::new();
     let mut seen_results = BTreeSet::new();
     let mut item_ids = BTreeSet::new();
+    let mut groups = Vec::new();
     for (ordinal, message) in messages.iter().enumerate() {
+        let start = input.len();
         let message = message.as_object().ok_or(StaticCodecError::InvalidShape)?;
         let role = required_string(message, "role")?;
         if role != "assistant"
@@ -537,8 +558,9 @@ fn decode_chat_input(
             }
             _ => return Err(StaticCodecError::UnsupportedSemantics),
         }
+        groups.extend(std::iter::repeat_n(ordinal, input.len() - start));
     }
-    Ok(input)
+    Ok((input, groups))
 }
 
 fn decode_chat_instruction_content(
@@ -786,15 +808,18 @@ fn decode_responses_input(
                     return Err(StaticCodecError::InvalidToolIdentity);
                 }
                 let output = item.get("output").ok_or(StaticCodecError::InvalidShape)?;
-                let output = output
-                    .as_str()
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_else(|| output.to_string());
+                let output = match output.as_str() {
+                    Some(text) => ToolOutput::Text(text_value(text.to_owned(), max_bytes)?),
+                    None => ToolOutput::Json(
+                        crate::ir::generation::ToolJsonValue::new(output.clone(), max_bytes)
+                            .map_err(StaticCodecError::from_validation)?,
+                    ),
+                };
                 input.push(InputItem::ToolResult(ToolResult::new(
                     item_id(format!("tool_result_{ordinal}"), max_bytes)?,
                     call_id_value(call_id, max_bytes)?,
                     ToolResultStatus::Success,
-                    vec![ToolOutput::Text(text_value(output, max_bytes)?)],
+                    vec![output],
                     None,
                 )));
             }
@@ -1540,9 +1565,7 @@ fn flatten_tool_output(output: &[ToolOutput]) -> Result<String, StaticCodecError
     for value in output {
         match value {
             ToolOutput::Text(value) => text.push_str(value.as_str()),
-            ToolOutput::Json(value) => {
-                text.push_str(&Value::Object(value.as_map().clone()).to_string())
-            }
+            ToolOutput::Json(value) => text.push_str(&value.as_value().to_string()),
             _ => return Err(StaticCodecError::UnsupportedSemantics),
         }
     }

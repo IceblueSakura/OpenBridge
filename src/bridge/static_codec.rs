@@ -27,6 +27,9 @@ use super::event_codec::{StaticEventBridge, StaticEventCodecError};
 mod request;
 mod response;
 
+#[cfg(test)]
+mod ownership_tests;
+
 /// Retains bounded annotation metadata as a codec-owned extension.
 pub(crate) fn snapshot_annotations(
     item: &Value,
@@ -65,6 +68,8 @@ pub(crate) fn terminal_output_snapshot(
 struct WireRequest {
     semantic: GenerationRequest,
     source: Map<String, Value>,
+    protocol: ApiProtocol,
+    max_bytes: usize,
     stream: Option<bool>,
     service_tier: Option<String>,
 }
@@ -75,7 +80,7 @@ struct WireResponse {
     source_id: String,
 }
 
-/// Static codec rejection before production Bridge takeover.
+/// Rejection from bounded Static IR decoding or target encoding.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum StaticCodecError {
     /// A request or response body exceeds the caller-approved admission limit.
@@ -422,6 +427,7 @@ impl StaticBridgePlan {
                 self.target_protocol,
                 &self.public_model,
                 self.reasoning_output,
+                self.limits.response_body,
             )?;
             if rendered.len() > self.limits.response_body {
                 return Err(StaticCodecError::LimitExceeded);
@@ -475,7 +481,7 @@ impl StaticBridgePlan {
         Ok(rendered)
     }
 
-    /// Returns the canonical request, primarily for semantic parity assertions during R2.
+    /// Returns the canonical request owned by this static plan.
     pub fn request(&self) -> &GenerationRequest {
         &self.request.semantic
     }
@@ -654,7 +660,7 @@ impl BridgePlan {
         BridgeStreamRenderer { inner }
     }
 
-    /// Returns the canonical request fixed before Provider selection.
+    /// Returns the canonical request decoded for this planned protocol pair.
     pub fn request(&self) -> &GenerationRequest {
         self.static_plan.request()
     }

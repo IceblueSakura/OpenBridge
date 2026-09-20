@@ -32,8 +32,10 @@
 
 Generation 的 IR 权威原则由 [ADR-0001](../decisions/0001-generation-ir-authority.md)拥有，任务识别与完整顺序见 [ADR-0002](../decisions/0002-task-ir-and-semantic-ownership.md)，阶段推进与验收见[下一步目标](../implementation-plans/next-goal.md)；本节只记录实现差距和既有路径限制。
 
-- **decode 校验不等于 IR 权威。** Native 普通采样控制已从 IR 编码，修改与删除不再被源值覆盖；其他请求字段仍依赖源保留。Native 静态响应的 `encode_native_response` 在 decode 校验后检查源 ID 并重新序列化源 envelope。代码入口为 `src/bridge/static_codec/request.rs` 和 `src/bridge/static_codec/response.rs`。这不足以保证任意 IR 修改或删除都反映到 wire；不能把局部字段迁移、跨协议 lowering 或已有 ToolPlan 转换等同于全路径完成。
-- Native 合法源字段、annotation 和未知非终态事件当前以有界 codec envelope/扩展保留，跨协议不猜测其含义；该保留机制在 IR 权威目标下缺少明确的语义所有权与合并规则，是[下一步目标](../implementation-plans/next-goal.md)阶段 1 的收敛对象。
+- **静态内容已有受限的 IR 权威编码，不是完整任务闭合。** Native 普通采样控制、指令/消息文本及 function-call/result 历史从最终 IR 决定输出；静态响应的文本/refusal、function call 和对应删除也不再无条件重放源 envelope。请求有显式 item/group 身份，请求与响应消息有稳定 part 身份；重排按身份关联源提示，新建对象不继承旧位置字段。代码入口为 `src/bridge/static_codec/request/native/`、`src/bridge/static_codec/response/native.rs` 与 `src/ir/generation/{request,response}.rs`。
+- 源 envelope 仍承担未迁移语义的保留；只有同一身份且相关语义未变化时才可复用。未知字段依赖、源中没有对应 IR item 的音频历史/空消息、无法对应的空 content part、带有效 annotation 的文本改写等变换明确拒绝，原请求/响应未修改时保持既有 Native 接受域。媒体资源可在身份不变且值未修改时随文本编辑或重排保留；此路径不是通用媒体 encoder。Native 请求的工具定义、presence、投影、token 上限及状态等仍未完成所有权迁移，静态响应的 usage/status、reasoning 编辑及通用扩展变换也未闭合。
+- Responses function result 的文本与非字符串 JSON 值已分别进入 `ToolOutput::Text` / `ToolOutput::Json(ToolJsonValue)`，Native 编码不以源值恢复旧表示；该区分不扩大当前公共接口支持域。原有受限跨协议路径仍按已接受的文本 lowering 规则工作。
+- Native 静态 annotation 回填在编码时按 item 与稳定 part 身份绑定；移除对象不恢复其 annotation，改变被注解文本时拒绝沿用旧范围。annotation 仍使用 codec-owned 扩展和源记录，不等同于完整 typed citation/annotation 变换 API。Native Event 仍主要保留原事件 payload；静态身份与内容编码完成不表示 Event 所有权迁移已完成。
 - SSE 规范化覆盖分片、CRLF、data-only typed event、可确定的 event/type 补齐，以及由已验证 items 补齐稀疏 completed terminal。它不承诺恢复任意缺失身份、乱序或丢失的消息边界；矛盾 type/event、非法 JSON、超限和无 terminal 仍拒绝。未执行真实 Provider 或负载兼容性复测。
 - Bridge 不支持图片、音频、文件、hosted/custom tool、background/state、opaque continuation 或 Provider 私有语义的通用跨协议转换；目标也不承诺任意跨源转换（见 ADR-0001 范围）。
 - ToolPlan 的 immutable Inject/Strip 与 Provider-native lowering API 已存在，但 production planner 尚未调用；bounded Gateway web-search loop 仅在 `#[cfg(test)]` 下编译。当前没有 production Gateway tool loop 或普通 function-tool executor；未来 hook/拦截不在本轮实施范围。

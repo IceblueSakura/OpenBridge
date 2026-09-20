@@ -127,7 +127,7 @@ pub enum ChangeKind {
 
 /// Why one semantic change was made.
 ///
-/// The variants describe the small set of changes that are meaningful to the R1 kernel. Wire
+/// The variants describe the closed set of changes understood by the semantic fidelity policy. Wire
 /// codecs may use the associated constants below when a more domain-specific spelling is useful;
 /// they still produce one of this closed enum's stable reasons.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

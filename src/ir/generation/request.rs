@@ -98,6 +98,7 @@ impl ContentPart {
 pub struct Message {
     role: MessageRole,
     content: Vec<ContentPart>,
+    part_ids: Vec<usize>,
 }
 
 impl Message {
@@ -113,7 +114,11 @@ impl Message {
         {
             return Err(ValidationError::RefusalInUserMessage);
         }
-        Ok(Self { role, content })
+        Ok(Self {
+            role,
+            part_ids: (0..content.len()).collect(),
+            content,
+        })
     }
 
     /// Returns the message role.
@@ -124,6 +129,47 @@ impl Message {
     /// Returns ordered message content.
     pub fn content(&self) -> &[ContentPart] {
         &self.content
+    }
+
+    /// Returns stable message-local part identities in current order.
+    pub fn part_ids(&self) -> &[usize] {
+        &self.part_ids
+    }
+
+    /// Replaces message parts with explicit identities, validating role and uniqueness.
+    pub fn with_identified_content(
+        self,
+        parts: Vec<(usize, ContentPart)>,
+    ) -> Result<Self, ValidationError> {
+        let (ids, content): (Vec<_>, Vec<_>) = parts.into_iter().unzip();
+        if ids.iter().copied().collect::<BTreeSet<_>>().len() != ids.len() {
+            return Err(ValidationError::InvalidInputLayout);
+        }
+        let mut result = Self::new(self.role, content)?;
+        result.part_ids = ids;
+        Ok(result)
+    }
+}
+
+/// Stable request-local item identity and its explicit message group.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InputIdentity {
+    id: usize,
+    group: usize,
+}
+
+impl InputIdentity {
+    /// Creates an identity; insertion into a request validates uniqueness and group contiguity.
+    pub const fn new(id: usize, group: usize) -> Self {
+        Self { id, group }
+    }
+    /// Returns the stable local item identity, not its current array index.
+    pub const fn id(self) -> usize {
+        self.id
+    }
+    /// Returns explicit message membership, not inferred adjacency.
+    pub const fn group(self) -> usize {
+        self.group
     }
 }
 /// Ordered semantic input accepted by a Generation request.
@@ -147,6 +193,8 @@ pub enum InputItem {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenerationRequest {
     input: Vec<InputItem>,
+    input_identities: Vec<InputIdentity>,
+    identity_high_watermark: Option<usize>,
     tools: Vec<ToolDefinition>,
     tool_choice: ToolChoice,
     output: OutputConstraint,
@@ -185,6 +233,10 @@ impl GenerationRequest {
             }
         }
         Ok(Self {
+            input_identities: (0..input.len())
+                .map(|id| InputIdentity::new(id, id))
+                .collect(),
+            identity_high_watermark: input.len().checked_sub(1),
             input,
             tools: Vec::new(),
             tool_choice: ToolChoice::None,
@@ -202,15 +254,63 @@ impl GenerationRequest {
         &self.input
     }
 
+    /// Returns stable identities and explicit message grouping for the ordered input.
+    pub fn input_identities(&self) -> &[InputIdentity] {
+        &self.input_identities
+    }
+
+    /// Applies an ordered edit without losing controls or silently reassigning source identity.
+    pub fn with_identified_input(
+        mut self,
+        entries: Vec<(InputIdentity, InputItem)>,
+    ) -> Result<Self, ValidationError> {
+        let (identities, input): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
+        Self::new(input.clone())?;
+        let mut ids = BTreeSet::new();
+        let mut groups = BTreeSet::new();
+        let mut previous = None;
+        for identity in &identities {
+            if !ids.insert(identity.id)
+                || (previous != Some(identity.group) && !groups.insert(identity.group))
+            {
+                return Err(ValidationError::InvalidInputLayout);
+            }
+            previous = Some(identity.group);
+        }
+        self.input = input;
+        self.identity_high_watermark = self.identity_high_watermark.max(
+            identities
+                .iter()
+                .map(|identity| identity.id.max(identity.group))
+                .max(),
+        );
+        self.input_identities = identities;
+        Ok(self)
+    }
+
     /// Appends canonical history while preserving every request control and revalidating identities.
     pub fn with_appended_input(
         mut self,
         items: impl IntoIterator<Item = InputItem>,
     ) -> Result<Self, ValidationError> {
-        let mut input = self.input.clone();
-        input.extend(items);
-        Self::new(input.clone())?;
-        self.input = input;
+        let mut entries: Vec<_> = self
+            .input_identities
+            .iter()
+            .copied()
+            .zip(self.input.iter().cloned())
+            .collect();
+        let mut next_id = self.identity_high_watermark;
+        for item in items {
+            let id = match next_id {
+                None => 0,
+                Some(previous) => previous
+                    .checked_add(1)
+                    .ok_or(ValidationError::InvalidInputLayout)?,
+            };
+            next_id = Some(id);
+            entries.push((InputIdentity::new(id, id), item));
+        }
+        self = self.with_identified_input(entries)?;
         Ok(self)
     }
 

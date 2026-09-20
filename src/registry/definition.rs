@@ -826,7 +826,7 @@ pub struct UpstreamTimeoutPolicy {
 }
 
 impl UpstreamTimeoutPolicy {
-    /// Creates the initial migration policy from one target-owned finite timeout.
+    /// Creates a phase policy using one target-owned bound and no streaming wall-clock total.
     ///
     /// Streaming keeps the same bound for headers, first event, and event idle while deliberately
     /// omitting a wall-clock total. Non-streaming preserves the existing complete-response bound.

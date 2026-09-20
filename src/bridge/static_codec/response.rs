@@ -21,6 +21,8 @@ use crate::{
 
 use super::{StaticCodecError, WireResponse};
 
+mod native;
+
 /// Closed private wire DTO produced only after canonical response lowering succeeds.
 pub(super) enum TargetResponse {
     Chat(Map<String, Value>),
@@ -95,16 +97,17 @@ pub(super) fn lower_response(
 pub(super) fn encode_native_response(
     response: &WireResponse,
     source: &Map<String, Value>,
-    _protocol: ApiProtocol,
+    protocol: ApiProtocol,
     _public_model: &str,
-    _reasoning_output: ReasoningOutput,
+    reasoning_output: ReasoningOutput,
+    max_bytes: usize,
 ) -> Result<Bytes, StaticCodecError> {
-    // The source envelope is a codec sidecar bound to this decoded IR response. Native encoding
-    // must not require the narrower cross-protocol projection (for example for audio output).
     if source.get("id").and_then(Value::as_str) != Some(response.source_id.as_str()) {
         return Err(StaticCodecError::InvalidShape);
     }
-    serde_json::to_vec(&Value::Object(source.clone()))
+    let original = decode_response(protocol, source, reasoning_output, max_bytes)?;
+    let encoded = native::encode(protocol, response, &original, source)?;
+    serde_json::to_vec(&Value::Object(encoded))
         .map(Bytes::from)
         .map_err(|_| StaticCodecError::InvalidShape)
 }

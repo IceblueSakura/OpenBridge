@@ -6,8 +6,7 @@
 use bytes::Bytes;
 use openbridge::{
     bridge::{
-        BridgeLimits, BridgePlan as ProductionBridgePlan, StaticBridgePlan, StaticCodecLimits,
-        StaticEventBridge, StaticEventCodecError,
+        BridgeLimits, BridgePlan as ProductionBridgePlan, StaticEventBridge, StaticEventCodecError,
     },
     core::{ApiProtocol, ReasoningOutput},
     ir::generation::EventLimits,
@@ -27,10 +26,6 @@ fn fixture(directory: &str, name: &str) -> Bytes {
         .join(directory)
         .join(name);
     Bytes::from(std::fs::read(path).expect("canonical bridge artifact must exist"))
-}
-
-fn static_codec_limits() -> StaticCodecLimits {
-    StaticCodecLimits::new(256 * 1024, 256 * 1024).expect("test limits must be valid")
 }
 
 fn bridge_limits() -> BridgeLimits {
@@ -84,25 +79,6 @@ fn assert_json_eq(actual: &[u8], expected: &[u8]) {
     let actual: Value = serde_json::from_slice(actual).expect("actual body must be JSON");
     let expected: Value = serde_json::from_slice(expected).expect("fixture body must be JSON");
     assert_eq!(actual, expected);
-}
-
-fn assert_bytes_eq(actual: &[u8], expected: &[u8], context: &str) {
-    if actual == expected {
-        return;
-    }
-    let offset = actual
-        .iter()
-        .zip(expected)
-        .position(|(left, right)| left != right)
-        .unwrap_or_else(|| actual.len().min(expected.len()));
-    let start = offset.saturating_sub(80);
-    let actual_end = (offset + 160).min(actual.len());
-    let expected_end = (offset + 160).min(expected.len());
-    panic!(
-        "{context} differs at byte {offset}; actual={:?}; expected={:?}",
-        String::from_utf8_lossy(&actual[start..actual_end]),
-        String::from_utf8_lossy(&expected[start..expected_end])
-    );
 }
 
 fn decode(document: &[u8]) -> Vec<SseEvent> {
@@ -241,54 +217,22 @@ fn canonical_non_stream_requests_and_responses_convert_in_both_directions() {
             case.upstream,
             "public-model",
             "upstream-model",
-            client_request.clone(),
+            client_request,
         )
         .expect("accepted request must be bridgeable");
+        assert!(!plan.request_changes().is_empty());
         assert_json_eq(
             upstream_request.body(),
             &fixture(case.directory, "expected-upstream-request.json"),
         );
 
         let client_response = plan
-            .render_non_stream(fixture(case.directory, "upstream-response.json"))
+            .render_non_stream_ir(fixture(case.directory, "upstream-response.json"))
             .expect("accepted response must be bridgeable");
+        assert!(!client_response.changes().is_empty());
         assert_json_eq(
-            &client_response,
+            client_response.body(),
             &fixture(case.directory, "expected-client-response.json"),
-        );
-
-        // Dual-run the Static IR path until the production Bridge takeover gate.
-        let (static_plan, static_upstream_request) = StaticBridgePlan::prepare(
-            case.downstream,
-            case.upstream,
-            "public-model",
-            "upstream-model",
-            client_request,
-            static_codec_limits(),
-        )
-        .expect("accepted request must lower through Static IR");
-        assert!(!static_plan.request_changes().is_empty());
-        assert_json_eq(
-            static_upstream_request.body(),
-            &fixture(case.directory, "expected-upstream-request.json"),
-        );
-        assert_eq!(
-            static_upstream_request.body(),
-            upstream_request.body(),
-            "exact canonical request bytes must match the established Bridge"
-        );
-        let static_client_response = static_plan
-            .render_non_stream(fixture(case.directory, "upstream-response.json"))
-            .expect("accepted response must lower through Static IR");
-        assert!(!static_client_response.changes().is_empty());
-        assert_json_eq(
-            static_client_response.body(),
-            &fixture(case.directory, "expected-client-response.json"),
-        );
-        assert_eq!(
-            static_client_response.body(),
-            &client_response,
-            "exact canonical response bytes must match the established Bridge"
         );
     }
 }
@@ -368,44 +312,15 @@ fn canonical_text_and_parallel_tool_streams_render_in_both_directions() {
             &fixture(directory, "expected-upstream-request.json"),
         );
         let mut renderer = plan.stream_renderer();
-        let mut static_renderer = StaticEventBridge::new(
-            upstream,
-            downstream,
-            "public-model",
-            ReasoningOutput::Unsupported,
-            false,
-            EventLimits::new(256 * 1024, 256 * 1024, 1024 * 1024).unwrap(),
-        )
-        .expect("canonical stream direction must be supported");
         let mut actual = Vec::new();
-        let mut static_actual = Vec::new();
         for event in decode(&fixture(directory, "upstream-stream.sse")) {
-            actual.extend(
-                renderer
-                    .render(event.clone())
-                    .expect("fixture event must render"),
-            );
-            static_actual.extend(
-                static_renderer
-                    .render(event)
-                    .expect("fixture event must render through Event IR"),
-            );
+            actual.extend(renderer.render(event).expect("fixture event must render"));
         }
         actual.extend(renderer.finish().expect("fixture stream must finish"));
-        static_actual.extend(
-            static_renderer
-                .finish()
-                .expect("Event IR fixture stream must finish"),
-        );
         assert_sse_semantics(
             downstream,
             &actual,
             &fixture(directory, "expected-client-stream.sse"),
-        );
-        assert_bytes_eq(
-            &static_actual,
-            &actual,
-            "canonical Event IR stream must match the established Bridge",
         );
     }
 }
@@ -455,16 +370,6 @@ data: {"type":"response.completed","response":{"id":"resp_usage","object":"respo
         );
     }
     actual.extend(renderer.finish().expect("usage stream must finish"));
-
-    let static_actual = render_static_stream(
-        ApiProtocol::Responses,
-        ApiProtocol::ChatCompletions,
-        ReasoningOutput::Unsupported,
-        true,
-        &upstream,
-    )
-    .expect("Event IR usage stream must finish");
-    assert_bytes_eq(&static_actual, &actual, "Event IR usage stream");
 
     let events = decode(&actual);
     assert_eq!(events.last().map(SseEvent::data), Some("[DONE]"));
@@ -533,16 +438,6 @@ data: {"type":"response.completed","response":{"id":"resp_usage_reasoning","stat
             .expect("reasoning usage stream must finish"),
     );
 
-    let static_actual = render_static_stream(
-        ApiProtocol::Responses,
-        ApiProtocol::ChatCompletions,
-        ReasoningOutput::PlainText,
-        true,
-        &upstream,
-    )
-    .expect("Event IR reasoning usage stream must finish");
-    assert_bytes_eq(&static_actual, &actual, "Event IR reasoning usage stream");
-
     let events = decode(&actual);
     assert_eq!(events.last().map(SseEvent::data), Some("[DONE]"));
     let chunks = events[..events.len() - 1]
@@ -596,16 +491,6 @@ fn chat_to_responses_stream_usage_marks_function_tool_chunks() {
         actual.extend(renderer.render(event).expect("tool event must render"));
     }
     actual.extend(renderer.finish().expect("tool usage stream must finish"));
-
-    let static_actual = render_static_stream(
-        ApiProtocol::Responses,
-        ApiProtocol::ChatCompletions,
-        ReasoningOutput::Unsupported,
-        true,
-        &upstream,
-    )
-    .expect("Event IR tool usage stream must finish");
-    assert_bytes_eq(&static_actual, &actual, "Event IR tool usage stream");
 
     let events = decode(&actual);
     assert_eq!(events.last().map(SseEvent::data), Some("[DONE]"));
@@ -1239,16 +1124,6 @@ data: [DONE]
             .expect("reasoning text stream should finish"),
     );
 
-    let static_actual = render_static_stream(
-        ApiProtocol::ChatCompletions,
-        ApiProtocol::Responses,
-        ReasoningOutput::PlainText,
-        false,
-        &upstream,
-    )
-    .expect("Event IR reasoning text stream must finish");
-    assert_bytes_eq(&static_actual, &actual, "Event IR reasoning text stream");
-
     assert_sse_semantics(
         ApiProtocol::Responses,
         &actual,
@@ -1331,16 +1206,6 @@ data: {"type":"response.completed","response":{"id":"resp_summary","model":"upst
             .finish()
             .expect("reasoning summary stream should finish"),
     );
-
-    let static_actual = render_static_stream(
-        ApiProtocol::Responses,
-        ApiProtocol::ChatCompletions,
-        ReasoningOutput::Summary,
-        false,
-        &upstream,
-    )
-    .expect("Event IR reasoning summary stream must finish");
-    assert_bytes_eq(&static_actual, &actual, "Event IR reasoning summary stream");
 
     assert_sse_semantics(
         ApiProtocol::ChatCompletions,

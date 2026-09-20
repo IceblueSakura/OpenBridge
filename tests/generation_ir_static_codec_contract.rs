@@ -1,8 +1,8 @@
-//! Dual-run contracts for R2 Static Generation IR request/response codecs.
+//! Static Generation IR codec contracts with explicit wire and semantic expectations.
 
 use bytes::Bytes;
 use openbridge::{
-    bridge::{BridgeLimits, BridgePlan, StaticBridgePlan, StaticCodecError, StaticCodecLimits},
+    bridge::{StaticBridgePlan, StaticCodecError, StaticCodecLimits},
     core::{ApiProtocol, ReasoningOutput},
 };
 use serde_json::{Value, json};
@@ -136,10 +136,6 @@ fn limits() -> StaticCodecLimits {
     StaticCodecLimits::new(256 * 1024, 256 * 1024).expect("test limits must be valid")
 }
 
-fn bridge_limits() -> BridgeLimits {
-    BridgeLimits::new(256 * 1024, 256 * 1024, 64 * 1024).expect("test Bridge limits must be valid")
-}
-
 #[test]
 fn static_codecs_enforce_request_and_response_limits_before_decode() {
     let request = body(json!({
@@ -197,23 +193,14 @@ fn static_codecs_enforce_request_and_response_limits_before_decode() {
     );
 }
 
-fn assert_request_parity(
+fn assert_request_encoding(
     source: ApiProtocol,
     target: ApiProtocol,
     request: Value,
     reasoning: ReasoningOutput,
+    expected: Value,
 ) {
     let request = body(request);
-    let (_, established) = BridgePlan::prepare_with_reasoning_output(
-        source,
-        target,
-        "public-model",
-        "upstream-model",
-        request.clone(),
-        reasoning,
-        bridge_limits(),
-    )
-    .expect("established Bridge must accept the characterized request");
     let (static_plan, static_ir) = StaticBridgePlan::prepare_with_reasoning_output(
         source,
         target,
@@ -225,9 +212,8 @@ fn assert_request_parity(
     )
     .expect("Static IR codec must accept the characterized request");
     assert!(!static_plan.request_changes().is_empty());
-    let established: Value = serde_json::from_slice(established.body()).unwrap();
     let static_ir: Value = serde_json::from_slice(static_ir.body()).unwrap();
-    assert_eq!(static_ir, established);
+    assert_eq!(static_ir, expected);
 }
 
 #[test]
@@ -238,7 +224,7 @@ fn static_codecs_preserve_structured_reasoning_instruction_and_tool_semantics() 
         "required": ["answer"],
         "type": "object"
     });
-    assert_request_parity(
+    assert_request_encoding(
         ApiProtocol::ChatCompletions,
         ApiProtocol::Responses,
         json!({
@@ -259,8 +245,23 @@ fn static_codecs_preserve_structured_reasoning_instruction_and_tool_semantics() 
             "stream": false
         }),
         ReasoningOutput::Unsupported,
+        json!({
+            "model": "upstream-model", "stream": false, "store": false,
+            "instructions": "follow policy",
+            "input": [{"type": "message", "role": "user", "content": [
+                {"type": "input_text", "text": "return JSON"}
+            ]}],
+            "text": {"format": {
+                "type": "json_schema", "name": "answer", "description": "A short answer",
+                "strict": true, "schema": {
+                    "additionalProperties": false,
+                    "properties": {"answer": {"type": "string"}},
+                    "required": ["answer"], "type": "object"
+                }
+            }}
+        }),
     );
-    assert_request_parity(
+    assert_request_encoding(
         ApiProtocol::Responses,
         ApiProtocol::ChatCompletions,
         json!({
@@ -287,8 +288,18 @@ fn static_codecs_preserve_structured_reasoning_instruction_and_tool_semantics() 
             "tools": [{"name": "lookup", "parameters": {"type": "object"}, "type": "function"}]
         }),
         ReasoningOutput::PlainText,
+        json!({
+            "model": "upstream-model", "stream": false, "reasoning_effort": "high",
+            "messages": [
+                {"role": "user", "content": "lookup weather"},
+                {"role": "assistant", "content": null, "reasoning_content": "decide lookup",
+                 "tool_calls": [{"id": "call_lookup", "type": "function",
+                    "function": {"name": "lookup", "arguments": "{\"city\":\"Hangzhou\"}"}}]}
+            ],
+            "tools": [{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+        }),
     );
-    assert_request_parity(
+    assert_request_encoding(
         ApiProtocol::Responses,
         ApiProtocol::ChatCompletions,
         json!({
@@ -310,6 +321,19 @@ fn static_codecs_preserve_structured_reasoning_instruction_and_tool_semantics() 
             "tools": [{"name": "lookup", "parameters": {"type": "object"}, "type": "function"}]
         }),
         ReasoningOutput::Unsupported,
+        json!({
+            "model": "upstream-model", "stream": false, "tool_choice": "none",
+            "messages": [
+                {"role": "user", "content": "look up value"},
+                {"role": "assistant", "content": null, "tool_calls": [
+                    {"id": "call_lookup", "type": "function",
+                     "function": {"name": "lookup", "arguments": "{\"key\":\"value\"}"}}
+                ]},
+                {"role": "tool", "tool_call_id": "call_lookup", "content": "{\"value\":42}"},
+                {"role": "user", "content": "return DONE"}
+            ],
+            "tools": [{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+        }),
     );
 }
 
@@ -321,16 +345,7 @@ fn static_codecs_preserve_readable_non_stream_reasoning_and_usage() {
         "reasoning": {"effort": "high", "summary": "auto"},
         "stream": false
     }));
-    let (established, _) = BridgePlan::prepare_with_reasoning_output(
-        ApiProtocol::Responses,
-        ApiProtocol::ChatCompletions,
-        "public-model",
-        "upstream-model",
-        request.clone(),
-        ReasoningOutput::PlainText,
-        bridge_limits(),
-    )
-    .unwrap();
+
     let (static_ir, _) = StaticBridgePlan::prepare_with_reasoning_output(
         ApiProtocol::Responses,
         ApiProtocol::ChatCompletions,
@@ -344,14 +359,12 @@ fn static_codecs_preserve_readable_non_stream_reasoning_and_usage() {
     let upstream = Bytes::from_static(
         br#"{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"answer","reasoning_content":"analysis","role":"assistant"}}],"id":"chatcmpl_reasoning","model":"upstream-model","object":"chat.completion","usage":{"completion_tokens":5,"completion_tokens_details":{"reasoning_tokens":2},"prompt_tokens":3,"prompt_tokens_details":{"cached_tokens":1},"total_tokens":8}}"#,
     );
-    let established = established.render_non_stream(upstream.clone()).unwrap();
     let static_ir = static_ir.render_non_stream(upstream).unwrap();
     assert!(!static_ir.changes().is_empty());
-    let established: Value = serde_json::from_slice(&established).unwrap();
     let static_ir: Value = serde_json::from_slice(static_ir.body()).unwrap();
-    for field in ["input_tokens", "output_tokens", "total_tokens"] {
-        assert_eq!(static_ir["usage"][field], established["usage"][field]);
-    }
+    assert_eq!(static_ir["usage"]["input_tokens"], 3);
+    assert_eq!(static_ir["usage"]["output_tokens"], 5);
+    assert_eq!(static_ir["usage"]["total_tokens"], 8);
     assert_eq!(
         static_ir["usage"]["output_tokens_details"]["reasoning_tokens"],
         2
@@ -466,18 +479,7 @@ fn static_codecs_fail_closed_on_unmodeled_or_unresolved_semantics() {
     ];
     for (source, target, request) in cases {
         let request = body(request);
-        assert!(
-            BridgePlan::prepare(
-                source,
-                target,
-                "public-model",
-                "upstream-model",
-                request.clone(),
-                bridge_limits(),
-            )
-            .is_err(),
-            "established Bridge must reject the characterized loss"
-        );
+
         assert!(
             StaticBridgePlan::prepare(
                 source,

@@ -161,16 +161,16 @@ JSON admission
   → normalize shared request policy
   → build fixed RouteCandidate plan
   → decode canonical Static IR
-       ├─ Native: encode IR sampling controls, preserve other source fields
+       ├─ Native: encode owned IR controls/content with identity-bound source hints
        └─ Bridge: encode the declared target protocol
   → ProviderAdapter prepares a routed request
   → bounded attempt loop + UpstreamTransport
   → decode/validate canonical JSON or Event IR response
-  → encode Native source preservation or cross-protocol projection
+  → encode Native owned content/source hints or cross-protocol projection
   → downstream response commit and observations
 ```
 
-`analyze` 和 `plan` 可以拒绝请求，但不读取 upstream body、不取 credential、不执行网络 I/O，也不提交下游 response。Bridge 在 canonical IR 上做协议转换；Native 请求由专用 encoder 从 IR 写入普通采样控制，其他字段仍使用源保留，静态响应仍重新序列化源 envelope。因此“已经过 IR 校验”不等于“最终编码完全由 IR 决定”。
+`analyze` 和 `plan` 可以拒绝请求，但不读取 upstream body、不取 credential、不执行网络 I/O，也不提交下游 response。Bridge 在 canonical IR 上做协议转换；Native 请求与静态响应的内容 encoder 按稳定 item/group/part 身份将已拥有的文本及 function-tool 语义写回 wire，不借源记录恢复被删内容。采样控制继续由 IR 编码，未迁移语义仍需要源保留；缺少安全绑定或存在未知依赖时，内容变换失败关闭，而不是调用较窄 Bridge encoder。具体支持与拒绝边界归[实施状态](implementation-status/current-boundaries.md#generation-与-bridge与-ir-权威目标的差距)；“已经过 IR 校验”仍不等于“整个任务最终编码完全由 IR 决定”。
 
 目标是 admission 后先解析 Public Model 的固定任务契约，而非选择 Provider，再按任务/协议 decode；变换后的 IR 重新提取 requirements 并执行固定接口预检，然后按既定 Route 编码。响应进入对应任务的 Response/Event IR 后向下游编码。同协议也服从此边界；完整顺序见 [ADR-0002](decisions/0002-task-ir-and-semantic-ownership.md#2-先识别任务再语义-decode最后选择-provider)。
 
