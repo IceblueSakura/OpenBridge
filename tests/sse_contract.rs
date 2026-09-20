@@ -91,3 +91,28 @@ fn decoder_rejects_complete_events_and_incomplete_lines_over_the_limit() {
         SseDecodeError::EventTooLarge
     );
 }
+
+#[test]
+fn decoder_applies_wpt_inspired_case_sensitive_field_and_data_joining_rules() {
+    // Informed by web-platform-tests EventSource field parsing at
+    // 269bca0dd35c303639f3c9cf1d8bcb3d911bdb60 (BSD-3-Clause). The fixture
+    // is reduced to LF/CRLF because OpenBridge's transport contract does not
+    // currently claim bare-CR framing parity with browser EventSource.
+    let payload = concat!(
+        "Data: ignored\r\n",
+        "datax: ignored\n",
+        ": keepalive\n",
+        "data:  leading-space\r\n",
+        "data:\n",
+        "data:tail\r\n",
+        " data: ignored\n",
+        "\n",
+    );
+    let mut decoder = SseDecoder::new(512);
+
+    let events = decoder.push(payload.as_bytes()).unwrap();
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event(), None);
+    assert_eq!(events[0].data(), " leading-space\n\ntail");
+}

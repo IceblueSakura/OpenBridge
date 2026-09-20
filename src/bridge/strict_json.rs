@@ -111,3 +111,31 @@ impl<'de> Visitor<'de> for StrictValueVisitor {
         Ok(StrictValue(Value::Object(values)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{from_slice, from_str};
+    use serde_json::json;
+
+    #[test]
+    fn duplicate_object_keys_are_rejected_after_unescaping() {
+        // Informed by nst/JSONTestSuite y_object_duplicated_key.json at
+        // 1ef36fa01286573e846ac449e8683f8833c5b26a. OpenBridge deliberately
+        // applies a stricter duplicate-key policy than that parser classification.
+        for input in [
+            br#"{"dup":1,"dup":2}"#.as_slice(),
+            br#"{"outer":{"a":1,"\u0061":2}}"#.as_slice(),
+        ] {
+            assert!(from_slice(input).is_err());
+        }
+    }
+
+    #[test]
+    fn escaped_object_keys_that_decode_to_distinct_strings_remain_valid() {
+        let value = from_str(r#"{"foo\nbar":1,"foo\tbar":2,"foo\\bar":3}"#).unwrap();
+
+        assert_eq!(value["foo\nbar"], json!(1));
+        assert_eq!(value["foo\tbar"], json!(2));
+        assert_eq!(value["foo\\bar"], json!(3));
+    }
+}

@@ -339,3 +339,29 @@ fn identity_and_group_validation_rejects_ambiguous_layouts() {
             .is_err()
     );
 }
+
+#[test]
+fn existing_input_identity_cannot_be_reparented_between_message_groups() {
+    let mut value = request(
+        ApiProtocol::ChatCompletions,
+        json!({"model":"public","messages":[
+            {"role":"user","content":"first"},
+            {"role":"user","content":"second"}
+        ]}),
+    );
+    let original = entries(&value);
+    let moved_identity = InputIdentity::new(original[1].0.id(), original[0].0.group());
+
+    set(
+        &mut value,
+        vec![
+            original[0].clone(),
+            (moved_identity, original[1].1.clone()),
+        ],
+    );
+
+    assert!(matches!(
+        render(&value),
+        Err(StaticCodecError::UnsupportedSemantics)
+    ));
+}

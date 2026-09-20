@@ -59,3 +59,26 @@ def test_eof_does_not_dispatch_unterminated_event() -> None:
     parser = IncrementalSseParser()
     assert parser.feed(b"data: {\"value\":1}\n") == []
     parser.close()
+
+
+def test_parser_matches_wpt_eventsource_field_parsing_fixture() -> None:
+    """Verify case-sensitive fields, CR/LF handling, and data-line joining from WPT."""
+
+    # Informed by web-platform-tests/eventsource/format-field-parsing.any.js at
+    # 269bca0dd35c303639f3c9cf1d8bcb3d911bdb60. This project-owned fixture
+    # covers the same field-name, whitespace, bare-CR, and data-joining classes.
+    payload = (
+        b"data:first\r"
+        b"Data:ignored\n"
+        b"unknown:value\r\n"
+        b"data:  second\n"
+        b"data:\r"
+        b" data:ignored\n"
+        b"data:third\n\n"
+    )
+
+    events = parse_sse(payload)
+
+    assert len(events) == 1
+    assert events[0].event_field is None
+    assert events[0].data_text == "first\n second\n\nthird"
