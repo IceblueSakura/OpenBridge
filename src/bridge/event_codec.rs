@@ -174,9 +174,14 @@ impl StaticEventBridge {
             return Err(StaticEventCodecError::InvalidLifecycle);
         }
         let events = self.decoder.decode(&event)?;
+        let native = matches!(&self.encoder, WireEncoder::Native(_));
+        let mut native_events = Vec::with_capacity(events.len());
         let mut output = Vec::new();
         for envelope in events {
             let canonical = envelope.event().clone();
+            if native {
+                native_events.push(canonical.clone());
+            }
             let opaque_change = if let GenerationEvent::PartDelta {
                 part,
                 delta: crate::ir::generation::PartDelta::Opaque(_),
@@ -196,9 +201,9 @@ impl StaticEventBridge {
                 .take()
                 .ok_or(StaticEventCodecError::InvalidLifecycle)?;
             self.state = Some(reduce(state, EventInput::Event(Box::new(envelope)))?);
-            // Native streams take the same validated encode path as cross-protocol streams.  The
-            // source envelope is retained by the decoder only for semantics that have no portable
-            // representation; it must never bypass framing or the reducer.
+            // Cross-protocol streams encode the canonical event directly. Native keeps the source
+            // envelope as a representation sidecar, while migrated fields are merged from these
+            // same validated canonical events below.
             let encoded = self.encoder.encode(&canonical)?;
             let next = self
                 .encoded_bytes
@@ -218,7 +223,7 @@ impl StaticEventBridge {
                 .state
                 .as_ref()
                 .ok_or(StaticEventCodecError::InvalidLifecycle)?;
-            let encoded = native::encode(*protocol, &event, state, self.limits)?;
+            let encoded = native::encode(*protocol, &event, &native_events, state, self.limits)?;
             self.encoded_bytes = self
                 .encoded_bytes
                 .checked_add(encoded.len())

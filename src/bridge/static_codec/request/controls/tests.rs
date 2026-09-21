@@ -106,3 +106,51 @@ fn native_wire_can_add_controls_absent_from_the_source() {
         json!({"model": "target", "input": "hello", "seed": 42, "stop": []})
     );
 }
+
+#[test]
+fn native_presence_keeps_null_as_a_hint_but_zero_and_empty_stop_values_active() {
+    let null_source = json!({"model": "public", "input": "hello", "seed": null, "stop": null});
+    let null_request = decode_request(
+        ApiProtocol::Responses,
+        null_source.as_object().unwrap(),
+        8192,
+    )
+    .unwrap();
+    assert_eq!(null_request.semantic.controls().seed(), None);
+    assert_eq!(null_request.semantic.controls().stop(), None);
+    let null_encoded: Value =
+        serde_json::from_slice(&encode_native_request(&null_request, "target").unwrap()).unwrap();
+    let mut null_expected = null_source;
+    null_expected["model"] = json!("target");
+    assert_eq!(null_encoded, null_expected);
+
+    let active_source = json!({"model": "public", "input": "hello", "seed": 0, "stop": []});
+    let active_request = decode_request(
+        ApiProtocol::Responses,
+        active_source.as_object().unwrap(),
+        8192,
+    )
+    .unwrap();
+    assert_eq!(active_request.semantic.controls().seed(), Some(0));
+    assert_eq!(active_request.semantic.controls().stop(), Some([].as_slice()));
+    let active_encoded: Value =
+        serde_json::from_slice(&encode_native_request(&active_request, "target").unwrap()).unwrap();
+    let mut active_expected = active_source;
+    active_expected["model"] = json!("target");
+    assert_eq!(active_encoded, active_expected);
+
+    let empty_string_source = json!({"model": "public", "input": "hello", "stop": ""});
+    let empty_string_request = decode_request(
+        ApiProtocol::Responses,
+        empty_string_source.as_object().unwrap(),
+        8192,
+    )
+    .unwrap();
+    let stop = empty_string_request.semantic.controls().stop().unwrap();
+    assert_eq!(stop.len(), 1);
+    assert_eq!(stop[0].as_str(), "");
+    let empty_string_encoded: Value =
+        serde_json::from_slice(&encode_native_request(&empty_string_request, "target").unwrap())
+            .unwrap();
+    assert_eq!(empty_string_encoded["stop"], "");
+}

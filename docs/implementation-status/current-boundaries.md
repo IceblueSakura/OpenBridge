@@ -38,7 +38,7 @@ Generation 的 IR 权威原则由 [ADR-0001](../decisions/0001-generation-ir-aut
 |---|---|---|
 | Native 请求 | 普通采样控制、受限内容和 function-tool 历史由 IR 决定；encoder 仍重复 decode 源对象取得旧基线，工具定义/presence/投影等未闭合 | `src/bridge/static_codec/request/native.rs` |
 | Native 静态响应 | 文本/refusal、function call 和稳定 part 关联部分迁移；usage/status、reasoning 编辑及通用扩展仍受限 | `src/bridge/static_codec/response/native.rs` |
-| Native Event | 先 decode/reduce 校验，再主要根据原 `SseEvent` payload 编码；不是 canonical event 全面驱动输出 | `src/bridge/event_codec.rs`、`src/bridge/event_codec/native.rs` |
+| Native Event | 先 decode/reduce 校验；Responses 文本 delta 的 `delta` 已由 canonical `PartDelta::Text` 决定并与源扩展合并，其余域仍主要根据原 `SseEvent` payload 编码 | `src/bridge/event_codec.rs`、`src/bridge/event_codec/native.rs` |
 | materialize / 通用响应编码 | 已有有界 materializer 与编码路径；通用 annotation 的旧 content 下标关联尚需与 Native 稳定 part 规则统一 | `src/bridge/static_codec.rs`、`src/bridge/static_codec/response.rs` |
 | 生产规划 | wire facts 预检、JSON 归一化及候选省略在语义 decode 前；各候选独立构造，但不是从最终不可变任务 IR 投影 | `src/pipeline/generation/planning.rs`、`src/ir/generation/requirements.rs` |
 | Provider 映射 | Bridge 编码后仍重新解析 JSON，执行 model binding、request body hook、参数删除和 reasoning 映射 | `src/providers/openai_compatible/request.rs` |
@@ -48,7 +48,7 @@ Generation 的 IR 权威原则由 [ADR-0001](../decisions/0001-generation-ir-aut
 - **静态内容已有受限的 IR 权威编码，不是完整任务闭合。** Native 普通采样控制、指令/消息文本及 function-call/result 历史从最终 IR 决定输出；静态响应的文本/refusal、function call 和对应删除也不再无条件重放源 envelope。请求有显式 item/group 身份，请求与响应消息有稳定 part 身份；重排按身份关联源提示，新建对象不继承旧位置字段。代码入口为 `src/bridge/static_codec/request/native/`、`src/bridge/static_codec/response/native.rs` 与 `src/ir/generation/{request,response}.rs`。
 - 源 envelope 仍承担未迁移语义的保留；只有同一身份且相关语义未变化时才可复用。未知字段依赖、源中没有对应 IR item 的音频历史/空消息、无法对应的空 content part、带有效 annotation 的文本改写等变换明确拒绝，原请求/响应未修改时保持既有 Native 接受域。媒体资源可在身份不变且值未修改时随文本编辑或重排保留；此路径不是通用媒体 encoder。Native 请求的工具定义、presence、投影、token 上限及状态等仍未完成所有权迁移，静态响应的 usage/status、reasoning 编辑及通用扩展变换也未闭合。
 - Responses function result 的文本与非字符串 JSON 值已分别进入 `ToolOutput::Text` / `ToolOutput::Json(ToolJsonValue)`，Native 编码不以源值恢复旧表示；该区分不扩大当前公共接口支持域。原有受限跨协议路径仍按已接受的文本 lowering 规则工作。
-- Native 静态 annotation 回填在编码时按 item 与稳定 part 身份绑定；移除对象不恢复其 annotation，改变被注解文本时拒绝沿用旧范围。annotation 仍使用 codec-owned 扩展和源记录，不等同于完整 typed citation/annotation 变换 API。Native Event 仍主要保留原事件 payload；静态身份与内容编码完成不表示 Event 所有权迁移已完成。
+- Native 静态 annotation 回填在编码时按 item 与稳定 part 身份绑定；移除对象不恢复其 annotation，改变被注解文本时拒绝沿用旧范围。annotation 仍使用 codec-owned 扩展和源记录，不等同于完整 typed citation/annotation 变换 API。Native Event 仍主要保留原事件 payload；Responses 文本 delta 已建立第一个 canonical-owned 合并点，但静态身份与该局部迁移均不表示 Event 所有权迁移已完成。
 - SSE 规范化覆盖分片、CRLF、data-only typed event、可确定的 event/type 补齐，以及由已验证 items 补齐稀疏 completed terminal。它不承诺恢复任意缺失身份、乱序或丢失的消息边界；矛盾 type/event、非法 JSON、超限和无 terminal 仍拒绝。未执行真实 Provider 或负载兼容性复测。
 - Bridge 不支持图片、音频、文件、hosted/custom tool、background/state、opaque continuation 或 Provider 私有语义的通用跨协议转换；目标也不承诺任意跨源转换（见 ADR-0001 范围）。
 - ToolPlan 的 immutable Inject/Strip 与 Provider-native lowering API 已存在，但 production planner 尚未调用；bounded Gateway web-search loop 仅在 `#[cfg(test)]` 下编译。当前没有 production Gateway tool loop 或普通 function-tool executor；未来 hook/拦截不在本轮实施范围。

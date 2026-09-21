@@ -89,7 +89,7 @@ bootstrap/private files
 | Registry 与 Public Model | `src/registry/` | 校验引用和 capability ceiling，编译 immutable runtime entities、固定 Route candidates、私有 execution interface，并投影 downstream-safe Models DTO |
 | 请求分析与规划 | `src/pipeline/` | Generation、Embeddings、Images 各自拥有 analyzer、preflight、planner 和 pure response policy；不执行 body I/O、credential、transport、observation 或 commit |
 | Generation semantic IR | `src/ir/generation/` | Provider-neutral Static/Event values、验证、reducer 和 materializer；不拥有 registry、routing、credential、网络 I/O 或 downstream commit |
-| Generation codec / Protocol Bridge | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | 在固定 plan 上执行部分 IR 权威的 Native 静态编码与受限跨协议 lowering；Native Event 共享 reducer 校验但仍主要编码源 payload；不拥有路由或 commit |
+| Generation codec / Protocol Bridge | `src/bridge.rs`、`src/bridge/static_codec/`、`src/bridge/event_codec/` | 在固定 plan 上执行部分 IR 权威的 Native 静态编码与受限跨协议 lowering；Native Event 共享 reducer 校验，Responses 文本 delta 已从 canonical event 回写，其余域仍主要保留源 payload；不拥有路由或 commit |
 | HTTP ingress | `src/ingress/` | Router、Bearer admission、body lifecycle、operation handlers、attempt/fallback、streaming response、错误映射和 downstream commit |
 | Attempt coordination | `src/execution.rs`、`src/execution/` | 只管理请求级 attempt/candidate state、硬预算和 backoff；不拥有 operation pipeline、Provider 分类、credential 选择或 commit policy |
 | Upstream transport | `src/transport/` | 共享 HTTP client、validated target、相对 URI、timeout、safe headers 和 SSE framing；不解释业务路由 |
@@ -174,7 +174,7 @@ JSON admission
 
 当前 `plan_request` 独立地从同一个规范化 JSON body 构造候选，并非前一候选修改后一候选；但完整语义 decode 仍在候选展开后，`src/ir/generation/requirements.rs` 的纯投影尚未成为全部生产预检的权威。Native request/response encoder 还会为旧语义基线再次 decode 来源对象。
 
-流式路径的 `StaticEventBridge` 先 decode/reduce；跨协议 encoder 消费 canonical event，而 Native 分支调用 `native::encode` 读取原 `SseEvent` payload，并在特定稀疏 terminal 中利用已验证状态补齐。这是共享生命周期校验，不是 Event IR 已全面决定输出；目标边界见 [ADR-0005](decisions/0005-event-ir-and-delivery-lifecycle.md)。
+流式路径的 `StaticEventBridge` 先 decode/reduce；跨协议 encoder 消费 canonical event，Native 分支同时保留原 `SseEvent` 作为表现 sidecar。当前 Responses `response.output_text.delta` 的 `delta` 已由同次 decode 得到的 canonical `PartDelta::Text` 回写，未知源字段仍保留；其他 Native Event 域仍主要按源 payload 编码，稀疏 terminal 可利用已验证状态补齐。因此 Event IR 权威只在该最小域开始落地，不能外推到完整流式语义；目标边界见 [ADR-0005](decisions/0005-event-ir-and-delivery-lifecycle.md)。
 
 目标是先解析固定任务再 decode，由最终 IR 导出 requirements、固定预检和候选 lowering，最后 encode；阶段输入输出由 [ADR-0003](decisions/0003-ir-pipeline-and-target-compilation.md#1-目标数据流)维护。上述现行顺序不会因目标文档修订而自动改变。
 

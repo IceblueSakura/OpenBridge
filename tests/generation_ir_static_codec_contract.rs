@@ -62,12 +62,10 @@ fn native_sampling_controls_are_decoded_without_losing_wire_representation() {
 }
 
 #[test]
-fn native_sampling_controls_preserve_null_empty_and_integer_boundaries() {
+fn native_sampling_controls_accept_integer_domain_boundaries() {
     for values in [
-        json!({"seed": null, "stop": null, "top_k": null, "n": null,
-            "frequency_penalty": null, "presence_penalty": null}),
-        json!({"seed": i64::MIN, "top_k": u64::MAX, "stop": [], "n": u32::MAX}),
-        json!({"seed": i64::MAX, "stop": ["", "END"]}),
+        json!({"seed": i64::MIN, "top_k": u64::MAX, "n": u32::MAX}),
+        json!({"seed": i64::MAX}),
     ] {
         let mut source = json!({"model": "public-model", "input": "hello"});
         source
@@ -83,10 +81,10 @@ fn native_sampling_controls_preserve_null_empty_and_integer_boundaries() {
             limits(),
         )
         .unwrap();
-        if values["stop"] == json!([]) {
-            assert_eq!(plan.request().controls().stop(), Some([].as_slice()));
-            assert_eq!(plan.request().controls().seed(), Some(i64::MIN));
+        assert_eq!(plan.request().controls().seed(), values["seed"].as_i64());
+        if values.get("top_k").is_some() {
             assert_eq!(plan.request().controls().top_k(), Some(u64::MAX));
+            assert_eq!(plan.request().controls().candidate_count(), Some(u32::MAX));
         }
         source["model"] = json!("upstream-model");
         assert_eq!(
