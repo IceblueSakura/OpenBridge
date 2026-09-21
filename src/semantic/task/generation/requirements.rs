@@ -1,0 +1,3 @@
+use super::{ContentPart,GenerationRequest,Item};
+#[derive(Clone,Debug,Default,Eq,PartialEq)] pub struct GenerationRequirements{pub instruction_count:usize,pub message_count:usize,pub text_part_count:usize,pub max_output_tokens:Option<u64>,pub temperature:bool}
+impl GenerationRequirements{pub fn derive(r:&GenerationRequest)->Self{let mut x=Self{max_output_tokens:r.controls().max_output_tokens,temperature:r.controls().temperature().is_some(),..Self::default()};for(_,i)in r.items(){match i{Item::Instruction(_)=>x.instruction_count+=1,Item::Message(m)=>{x.message_count+=1;x.text_part_count+=m.parts.iter().filter(|p|matches!(p.content,ContentPart::Text(_))).count();}}}x}}
