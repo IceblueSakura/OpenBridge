@@ -1,0 +1,5 @@
+use crate::semantic::task::generation::{GenerationRequest,GenerationRequirements};
+#[derive(Clone,Copy,Debug,Eq,PartialEq)] pub struct GenerationRepresentationContract{pub instructions:bool,pub temperature:bool,pub max_output_tokens:bool}
+impl GenerationRepresentationContract{pub const fn full_text()->Self{Self{instructions:true,temperature:true,max_output_tokens:true}}}
+pub fn check(r:&GenerationRequest,c:GenerationRepresentationContract)->Result<GenerationRequirements,RepresentationError>{let q=GenerationRequirements::derive(r);if q.instruction_count>0&&!c.instructions{return Err(RepresentationError::Instructions)}if q.temperature&&!c.temperature{return Err(RepresentationError::Temperature)}if q.max_output_tokens.is_some()&&!c.max_output_tokens{return Err(RepresentationError::MaxOutputTokens)}Ok(q)}
+#[derive(Clone,Copy,Debug,Eq,thiserror::Error,PartialEq)] pub enum RepresentationError{#[error("target cannot represent instructions")]Instructions,#[error("target cannot represent temperature")]Temperature,#[error("target cannot represent maximum output tokens")]MaxOutputTokens}
