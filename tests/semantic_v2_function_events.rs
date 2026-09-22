@@ -1,317 +1,233 @@
-//! Function-call Event IR: independent deltas, terminals, and static materialization.
+//! Function argument, mixed-item identity, snapshot and terminal conformance.
+#[path = "support/semantic_events.rs"]
+mod support;
 use openbridge::{
-    lowering::generation::{GenerationRepresentationContract as Contract, lower_response},
-    protocol::openai::{
-        Profile, ResponseMetadata,
-        function_events::{FunctionEventDecoder, FunctionEventEncoder},
+    protocol::{
+        fidelity::FidelityRecords,
+        openai::{
+            Profile,
+            events::{EventDecoder, EventEncoder},
+        },
     },
-    semantic::task::generation::{
-        Completion, EventError, Item, ItemId, MessageRole, Outcome, StreamEvent, StreamState,
-        StreamTerminal, end_of_stream, materialize, reduce,
-    },
+    semantic::task::generation::*,
 };
-use serde_json::{Value, json};
-
-fn text(s: &str) -> openbridge::semantic::value::Text {
-    openbridge::semantic::value::Text::new(s, "fixture", 256).unwrap()
-}
-fn metadata() -> ResponseMetadata {
-    ResponseMetadata {
-        id: "response_1".into(),
-        model: "fixture-model".into(),
-        created: 10,
-    }
-}
-fn started(item: u64, call: &str, name: &str, message: Option<u64>) -> StreamEvent {
-    StreamEvent::CallStarted {
-        item: ItemId::new(item),
-        call_id: text(call),
-        name: text(name),
-        message: message.map(ItemId::new),
-    }
-}
-fn delta(item: u64, fragment: &str) -> StreamEvent {
-    StreamEvent::ArgumentsDelta {
-        item: ItemId::new(item),
-        fragment: fragment.into(),
-    }
-}
-fn finished(item: u64) -> StreamEvent {
-    StreamEvent::CallFinished {
-        item: ItemId::new(item),
-    }
-}
-fn apply(events: &[StreamEvent]) -> Result<StreamState, EventError> {
-    events.iter().cloned().try_fold(StreamState::new(), reduce)
-}
-fn decode(
-    profile: Profile,
-    payloads: &[Value],
-) -> (
-    Vec<StreamEvent>,
-    openbridge::protocol::fidelity::FidelityRecords,
-    ResponseMetadata,
-) {
-    let mut decoder = FunctionEventDecoder::new(profile);
-    let mut events = Vec::new();
-    for payload in payloads {
-        events.extend(decoder.push(payload).unwrap());
-    }
-    decoder.finish().unwrap();
-    let (fidelity, metadata) = decoder.into_parts().unwrap();
-    (events, fidelity, metadata)
-}
+use serde_json::json;
+use support::*;
 
 #[test]
-fn argument_deltas_keep_exact_incomplete_json_and_call_identity() {
-    let events = [
-        started(2, "call_a", "weather", Some(1)),
-        delta(2, "{\"city\":"),
-        delta(2, "\"Paris\"}"),
-        finished(2),
-        StreamEvent::Terminal(StreamTerminal::Completed),
-    ];
-    let state = apply(&events).unwrap();
-    let response = materialize(&state).unwrap();
-    assert_eq!(response.completion(), Some(Completion::ToolCalls));
-    let Item::ToolCall(call) = &response.items()[1].1 else {
-        panic!("call");
+fn exact_arguments_and_deleted_fragments_drive_static_and_event_output() {
+    let mut events = vec![StreamEvent::Started];
+    events.extend(call(7, 8, "c", "{broken"));
+    events.push(terminal(StreamTerminal::Completed));
+    let r = materialize(&apply(&events).unwrap()).unwrap();
+    let Item::ToolCall(c) = &r.items()[0].1 else {
+        panic!()
     };
-    assert_eq!(call.arguments, "{\"city\":\"Paris\"}");
-    assert_eq!(call.call_id.as_str(), "call_a");
-    assert_eq!(call.message, Some(ItemId::new(1)));
-    let mut dropped = events.to_vec();
-    dropped.remove(2);
-    let shortened = materialize(&apply(&dropped).unwrap()).unwrap();
-    let Item::ToolCall(call) = &shortened.items()[1].1 else {
-        panic!("call");
+    assert_eq!(c.arguments, "{broken");
+    assert_eq!(c.call_id.as_str(), "c");
+    let wire = encode(&events, Profile::Responses, &FidelityRecords::default());
+    assert_eq!(
+        wire.last().unwrap()["response"]["output"],
+        json!([call_item("item_7", "c", "{broken", "completed")])
+    );
+    events.retain(|e| !matches!(e, StreamEvent::Delta { .. }));
+    let wire = encode(&events, Profile::Responses, &FidelityRecords::default());
+    assert_eq!(
+        wire.last().unwrap()["response"]["output"][0]["arguments"],
+        ""
+    );
+}
+#[test]
+fn independent_wire_decodes_arguments_and_close_without_inventing_a_terminal() {
+    let mut d = EventDecoder::new(Profile::Responses);
+    d.push(&created()).unwrap();
+    d.push(&json!({"type":"response.output_item.added","output_index":0,"item":call_item("fc","c","","in_progress")})).unwrap();
+    d.push(&json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc","delta":"{"})).unwrap();
+    d.push(&json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc","arguments":"{"})).unwrap();
+    d.push(&json!({"type":"response.output_item.done","output_index":0,"item":call_item("fc","c","{","incomplete")})).unwrap();
+    assert!(d.finish().is_err());
+    d.push(&json!({"type":"response.incomplete","response":envelope("incomplete",json!([call_item("fc","c","{","incomplete")]))})).unwrap();
+    let decoded = d.materialize().unwrap();
+    assert_eq!(decoded.semantic.outcome(), Outcome::Incomplete);
+    let Item::ToolCall(c) = &decoded.semantic.items()[0].1 else {
+        panic!()
     };
-    assert_eq!(call.arguments, "{\"city\":");
-    assert!(!call.arguments.contains("Paris"));
+    assert_eq!(c.arguments, "{");
+    assert_eq!(c.status, ItemLifecycle::Incomplete);
 }
-
 #[test]
-fn identity_conflicts_open_calls_and_duplicate_finish_fail_before_success() {
-    assert!(matches!(
-        apply(&[
-            started(1, "call_a", "weather", None),
-            started(2, "call_a", "other", None),
-        ]),
-        Err(EventError::Identity)
-    ));
-    assert!(matches!(
-        apply(&[started(1, "call_a", "weather", None), delta(9, "{")]),
-        Err(EventError::Identity)
-    ));
-    assert!(matches!(
-        apply(&[
-            started(1, "call_a", "weather", None),
-            finished(1),
-            delta(1, "{"),
-        ]),
-        Err(EventError::Lifecycle)
-    ));
-    assert!(matches!(
-        apply(&[
-            started(1, "call_a", "weather", None),
-            StreamEvent::Terminal(StreamTerminal::Completed),
-        ]),
-        Err(EventError::Lifecycle)
-    ));
-    assert!(matches!(
-        apply(&[
-            started(1, "call_a", "weather", Some(7)),
-            started(2, "call_b", "weather", None),
-        ]),
-        Err(EventError::Lifecycle)
-    ));
-    let open = apply(&[started(1, "call_a", "weather", None)]).unwrap();
-    assert!(matches!(
-        end_of_stream(&open),
-        Err(EventError::EofBeforeTerminal)
-    ));
+fn value_done_disallows_later_delta_and_poisoned_decoders_cannot_resume() {
+    let mut d = EventDecoder::new(Profile::Responses);
+    d.push(&created()).unwrap();
+    d.push(&json!({"type":"response.output_item.added","output_index":0,"item":call_item("fc","c","{}","in_progress")})).unwrap();
+    d.push(&json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc","arguments":"{}"})).unwrap();
+    assert!(d.push(&json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc","delta":"x"})).is_err());
+    assert!(d.push(&json!({"type":"response.output_item.done","output_index":0,"item":call_item("fc","c","{}","completed")})).is_err());
 }
-
 #[test]
-fn failed_incomplete_and_error_terminals_do_not_materialize_as_success() {
-    for terminal in [
-        StreamTerminal::Failed,
-        StreamTerminal::Incomplete,
-        StreamTerminal::Error,
-    ] {
-        let state = apply(&[
-            started(1, "call_a", "weather", None),
-            delta(1, "{"),
-            finished(1),
-            StreamEvent::Terminal(terminal),
-        ])
-        .unwrap();
-        assert_eq!(state.terminal(), Some(terminal));
-        let materialized = materialize(&state);
-        match terminal {
-            StreamTerminal::Error => assert!(matches!(
-                materialized,
-                Err(EventError::TerminalFailure(StreamTerminal::Error))
-            )),
-            StreamTerminal::Failed => {
-                assert_eq!(materialized.unwrap().outcome(), Outcome::Failed)
-            }
-            StreamTerminal::Incomplete => {
-                assert_eq!(materialized.unwrap().outcome(), Outcome::Incomplete)
-            }
-            StreamTerminal::Completed => unreachable!("completed is not in this set"),
+fn mixed_output_uses_one_index_space_and_original_order() {
+    let mut events = vec![StreamEvent::Started];
+    events.extend(call(90, 30, "a", "{}"));
+    events.push(start(40, ItemKind::Message));
+    events.extend(part(40, 20, PartKind::Text, "answer"));
+    events.push(close(40, ItemLifecycle::Completed));
+    events.extend(call(10, 70, "b", "[]"));
+    events.push(terminal(StreamTerminal::Completed));
+    let wire = encode(&events, Profile::Responses, &FidelityRecords::default());
+    for v in &wire {
+        if let Some(id) = v.get("item_id").and_then(|v| v.as_str()) {
+            assert_eq!(
+                v["output_index"],
+                match id {
+                    "item_90" => 0,
+                    "item_40" => 1,
+                    "item_10" => 2,
+                    _ => panic!(),
+                }
+            );
         }
-        assert!(end_of_stream(&state).is_ok());
+    }
+    let output = wire.last().unwrap()["response"]["output"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        output
+            .iter()
+            .map(|v| v["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["item_90", "item_40", "item_10"]
+    );
+    let mut decoder = EventDecoder::new(Profile::Responses);
+    for v in wire {
+        decoder.push(&v).unwrap();
+    }
+    assert_eq!(decoder.materialize().unwrap().semantic.items().len(), 3);
+}
+#[test]
+fn duplicate_call_part_and_item_identity_and_open_success_fail() {
+    let base = vec![
+        StreamEvent::Started,
+        start(
+            1,
+            ItemKind::ToolCall {
+                call_id: text("a"),
+                name: text("f"),
+                message: None,
+            },
+        ),
+    ];
+    let state = apply(&base).unwrap();
+    assert!(
+        reduce(
+            state.clone(),
+            start(
+                2,
+                ItemKind::ToolCall {
+                    call_id: text("a"),
+                    name: text("g"),
+                    message: None
+                }
+            )
+        )
+        .is_err()
+    );
+    assert!(reduce(state.clone(), terminal(StreamTerminal::Completed)).is_err());
+    assert!(reduce(state, start(1, ItemKind::Message)).is_err());
+    let mut e = vec![StreamEvent::Started, start(1, ItemKind::Message)];
+    e.extend(part(1, 5, PartKind::Text, "a"));
+    e.push(start(2, ItemKind::Message));
+    e.push(StreamEvent::PartStarted {
+        item: ItemId::new(2),
+        part: PartId::new(5),
+        kind: PartKind::Text,
+    });
+    assert!(apply(&e).is_err());
+}
+#[test]
+fn non_success_terminals_keep_partial_output_and_error_is_not_materializable() {
+    for t in [
+        StreamTerminal::Incomplete,
+        StreamTerminal::Failed,
+        StreamTerminal::Cancelled,
+    ] {
+        let events = vec![
+            StreamEvent::Started,
+            start(
+                1,
+                ItemKind::ToolCall {
+                    call_id: text("a"),
+                    name: text("f"),
+                    message: None,
+                },
+            ),
+            StreamEvent::PartStarted {
+                item: ItemId::new(1),
+                part: PartId::new(1),
+                kind: PartKind::Arguments,
+            },
+            StreamEvent::Delta {
+                item: ItemId::new(1),
+                part: PartId::new(1),
+                fragment: "{".into(),
+            },
+            terminal(t),
+        ];
+        let wire = encode(&events, Profile::Responses, &FidelityRecords::default());
+        assert_eq!(
+            wire.last().unwrap()["response"]["output"][0]["arguments"],
+            "{"
+        );
+        assert_eq!(
+            wire.last().unwrap()["response"]["output"][0]["status"],
+            "incomplete"
+        );
+        let mut d = EventDecoder::new(Profile::Responses);
+        for v in wire {
+            d.push(&v).unwrap();
+        }
+        assert!(d.materialize().unwrap().semantic.completion().is_none());
+    }
+    let mut d = EventDecoder::new(Profile::Responses);
+    d.push(&json!({"type":"error","code":"server_error","message":"synthetic error","param":null}))
+        .unwrap();
+    assert!(d.finish().is_ok());
+    assert!(d.materialize().is_err());
+}
+#[test]
+fn snapshot_identity_name_and_status_conflicts_are_rejected() {
+    for key in ["name", "call_id", "id", "arguments"] {
+        let mut d = EventDecoder::new(Profile::Responses);
+        d.push(&created()).unwrap();
+        d.push(&json!({"type":"response.output_item.added","output_index":0,"item":call_item("fc","c","{}","in_progress")})).unwrap();
+        d.push(&json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc","arguments":"{}"})).unwrap();
+        let mut item = call_item("fc", "c", "{}", "completed");
+        item[key] = json!("conflict");
+        assert!(
+            d.push(&json!({"type":"response.output_item.done","output_index":0,"item":item}))
+                .is_err()
+        );
     }
 }
-
 #[test]
-fn chat_and_responses_fragments_materialize_to_independent_static_calls() {
-    let chat = [
-        json!({"id":"response_1","object":"chat.completion.chunk","created":10,"model":"fixture-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"weather","arguments":""}}]},"finish_reason":null}]}),
-        json!({"id":"response_1","object":"chat.completion.chunk","created":10,"model":"fixture-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":"}}]},"finish_reason":null}]}),
-        json!({"id":"response_1","object":"chat.completion.chunk","created":10,"model":"fixture-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Paris\"}"}}]},"finish_reason":"tool_calls"}]}),
-    ];
-    let (events, fidelity, metadata) = decode(Profile::Chat, &chat);
-    assert!(fidelity.response_item_id(ItemId::new(2)).is_none());
-    let response = materialize(&apply(&events).unwrap()).unwrap();
-    assert_eq!(
-        response.items()[0],
-        (
-            ItemId::new(1),
-            Item::Message(openbridge::semantic::task::generation::Message {
-                role: MessageRole::Assistant,
-                parts: vec![],
-            })
-        )
-    );
-    let Item::ToolCall(call) = &response.items()[1].1 else {
-        panic!("call");
-    };
-    assert_eq!(call.call_id.as_str(), "call_a");
-    assert_eq!(call.name.as_str(), "weather");
-    assert_eq!(call.arguments, "{\"city\":\"Paris\"}");
-    assert_eq!(call.message, Some(ItemId::new(1)));
-    let responses = [
-        json!({"type":"response.created","response":{"id":"response_1","object":"response","created_at":10,"model":"fixture-model","status":"in_progress","output":[]}}),
-        json!({"type":"response.output_item.added","output_index":0,"item":{"id":"item_2","type":"function_call","call_id":"call_a","name":"weather","arguments":"","status":"in_progress"}}),
-        json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"item_2","delta":"{\"ci"}),
-        json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"item_2","delta":"ty\":\"Paris\"}"}),
-        json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"item_2","arguments":"{\"city\":\"Paris\"}"}),
-        json!({"type":"response.output_item.done","output_index":0,"item":{"id":"item_2","type":"function_call","call_id":"call_a","name":"weather","arguments":"{\"city\":\"Paris\"}","status":"completed"}}),
-        json!({"type":"response.completed","response":{"id":"response_1","object":"response","created_at":10,"model":"fixture-model","status":"completed","output":[{"id":"item_2","type":"function_call","call_id":"call_a","name":"weather","arguments":"{\"city\":\"Paris\"}","status":"completed"}]}}),
-    ];
-    let (events, fidelity, responses_metadata) = decode(Profile::Responses, &responses);
-    assert_eq!(fidelity.response_item_id(ItemId::new(1)), Some("item_2"));
-    assert_eq!(responses_metadata, metadata);
-    let other = materialize(&apply(&events).unwrap()).unwrap();
-    let Item::ToolCall(other_call) = &other.items()[0].1 else {
-        panic!("call");
-    };
-    assert_eq!(other_call.call_id, call.call_id);
-    assert_eq!(other_call.name, call.name);
-    assert_eq!(other_call.arguments, call.arguments);
-    assert_eq!(other_call.message, None);
-    let fidelity = openbridge::protocol::fidelity::FidelityRecords::default();
-    let static_chat = lower_response(
-        &response,
-        &fidelity,
-        &metadata,
-        Profile::Chat,
-        Contract::full(),
-    )
-    .unwrap();
-    assert_eq!(
-        openbridge::protocol::openai::chat::encode_response(&static_chat).unwrap()["choices"][0]["message"]
-            ["tool_calls"],
-        json!([{"id":"call_a","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Paris\"}"}}])
-    );
+fn chat_usage_tail_requires_actual_done_and_closes_to_same_function_semantics() {
+    let mut d = EventDecoder::new(Profile::Chat);
+    d.push(&json!({"id":"r","object":"chat.completion.chunk","created":0,"model":"synthetic","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c","type":"function","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":"tool_calls"}]})).unwrap();
+    assert!(d.finish().is_err());
+    d.push(&json!({"id":"r","object":"chat.completion.chunk","created":0,"model":"synthetic","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}})).unwrap();
+    d.done().unwrap();
+    let r = d.materialize().unwrap().semantic;
+    assert_eq!(r.usage().unwrap().total_tokens, 5);
+    assert_eq!(r.completion(), Some(Completion::ToolCalls));
 }
-
 #[test]
-fn encoded_events_follow_semantic_deltas_and_drop_deleted_fidelity() {
-    let events = [
-        started(1, "call_a", "weather", None),
-        delta(1, "{\"city\":\"Paris\"}"),
-        finished(1),
-        started(2, "call_b", "forecast", None),
-        delta(2, "{}"),
-        finished(2),
-        StreamEvent::Terminal(StreamTerminal::Completed),
-    ];
-    let mut fidelity = openbridge::protocol::fidelity::FidelityRecords::default();
-    fidelity
-        .record_response_item_id(ItemId::new(1), "item_a")
-        .unwrap();
-    fidelity
-        .record_response_item_id(ItemId::new(2), "item_b")
-        .unwrap();
-    let mut encoder = FunctionEventEncoder::new(Profile::Responses, metadata()).unwrap();
-    let wire: Vec<_> = events
-        .iter()
-        .flat_map(|event| encoder.encode(event, &fidelity).unwrap())
-        .collect();
-    assert!(
-        wire.iter()
-            .any(|v| v["type"] == "response.function_call_arguments.delta" && v["delta"] == "{}")
-    );
-    assert!(
-        wire.last().unwrap()["response"]["output"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["id"] == "item_b")
-    );
-    let kept: Vec<_> = events.into_iter().filter(|event| !matches!(event, StreamEvent::CallStarted { item, .. } | StreamEvent::ArgumentsDelta { item, .. } | StreamEvent::CallFinished { item } if item.get() == 2)).collect();
-    let mut encoder = FunctionEventEncoder::new(Profile::Responses, metadata()).unwrap();
-    let wire: Vec<_> = kept
-        .iter()
-        .flat_map(|event| encoder.encode(event, &fidelity).unwrap())
-        .collect();
-    let rendered = serde_json::to_string(&wire).unwrap();
-    assert!(!rendered.contains("item_b"));
-    assert!(!rendered.contains("call_b"));
-    assert!(rendered.contains("item_a"));
-}
-
-#[test]
-fn snapshot_mismatch_and_noncompleted_chat_finish_do_not_repair_arguments() {
-    let mut decoder = FunctionEventDecoder::new(Profile::Responses);
-    decoder
-        .push(&json!({"type":"response.created","response":{"id":"response_1","object":"response","created_at":10,"model":"fixture-model","status":"in_progress","output":[]}}))
-        .unwrap();
-    decoder
-        .push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"item_2","type":"function_call","call_id":"call_a","name":"weather","arguments":"{\"a\":","status":"in_progress"}}))
-        .unwrap();
-    assert!(decoder
-        .push(&json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"item_2","arguments":"{\"a\":1}"}))
-        .is_err());
-    let mut decoder = FunctionEventDecoder::new(Profile::Chat);
-    let events = decoder
-        .push(&json!({"id":"response_1","object":"chat.completion.chunk","created":10,"model":"fixture-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"weather","arguments":"{"}}]},"finish_reason":"length"}]}))
-        .unwrap();
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, StreamEvent::Terminal(StreamTerminal::Incomplete)))
-    );
-    assert_eq!(
-        materialize(&apply(&events).unwrap()).unwrap().outcome(),
-        Outcome::Incomplete
-    );
-}
-
-#[test]
-fn error_terminal_is_distinct_and_unknown_event_fields_fail() {
-    let mut decoder = FunctionEventDecoder::new(Profile::Responses);
-    decoder
-        .push(&json!({"type":"response.created","response":{"id":"response_1","object":"response","created_at":10,"model":"fixture-model","status":"in_progress","output":[]}}))
-        .unwrap();
-    let events = decoder
-        .push(&json!({"type":"error","code":"server_error","message":"boom","param":null}))
-        .unwrap();
-    assert_eq!(events, vec![StreamEvent::Terminal(StreamTerminal::Error)]);
-    assert!(decoder
-        .push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"item_2","type":"function_call","call_id":"call_a","name":"weather","arguments":"","status":"in_progress"},"sequence_number":1}))
-        .is_err());
+fn event_encoder_rejects_duplicate_terminal_and_unrepresentable_chat_grouping() {
+    let mut e = EventEncoder::new(Profile::Responses, metadata()).unwrap();
+    let f = FidelityRecords::default();
+    e.encode(&StreamEvent::Started, &f).unwrap();
+    e.encode(&terminal(StreamTerminal::Completed), &f).unwrap();
+    assert!(e.encode(&terminal(StreamTerminal::Completed), &f).is_err());
+    let mut e = EventEncoder::new(Profile::Chat, metadata()).unwrap();
+    e.encode(&StreamEvent::Started, &f).unwrap();
+    e.encode(&start(1, ItemKind::Message), &f).unwrap();
+    assert!(e.encode(&start(2, ItemKind::Message), &f).is_err());
 }

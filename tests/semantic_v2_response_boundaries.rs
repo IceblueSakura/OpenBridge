@@ -134,3 +134,48 @@ fn incomplete_and_failed_responses_do_not_encode_as_success() {
         json!("failed")
     );
 }
+
+#[test]
+fn chat_length_has_the_same_partial_semantics_in_json_and_events() {
+    let mut wire = chat_refusal();
+    wire["choices"][0]["message"] = json!({"role":"assistant","content":"Partial"});
+    wire["choices"][0]["finish_reason"] = json!("length");
+    let expected = chat::decode_response(&wire).unwrap().semantic;
+    let mut decoder = openbridge::protocol::openai::events::EventDecoder::new(Profile::Chat);
+    decoder.push(&json!({"id":"response_1","object":"chat.completion.chunk","created":10,"model":"fixture-model","choices":[{"index":0,"delta":{"role":"assistant","content":"Partial"},"finish_reason":"length"}]})).unwrap();
+    assert!(decoder.finish().is_err());
+    decoder.done().unwrap();
+    assert_eq!(decoder.materialize().unwrap().semantic, expected);
+    assert_eq!(
+        expected.details().incomplete,
+        Some(openbridge::semantic::task::generation::IncompleteReason::MaxOutputTokens)
+    );
+}
+
+#[test]
+fn empty_responses_output_is_not_an_invented_chat_message() {
+    let mut wire = responses_refusal();
+    wire["output"] = json!([]);
+    let decoded = responses::decode_response(&wire).unwrap();
+    assert!(decoded.semantic.items().is_empty());
+    assert!(
+        lower_response(
+            &decoded.semantic,
+            &decoded.fidelity,
+            &metadata(),
+            Profile::Responses,
+            Contract::full()
+        )
+        .is_ok()
+    );
+    assert!(
+        lower_response(
+            &decoded.semantic,
+            &decoded.fidelity,
+            &metadata(),
+            Profile::Chat,
+            Contract::full()
+        )
+        .is_err()
+    );
+}

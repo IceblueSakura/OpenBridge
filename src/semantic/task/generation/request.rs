@@ -20,6 +20,9 @@ impl PartId {
     pub const fn new(v: u64) -> Self {
         Self(v)
     }
+    pub const fn get(self) -> u64 {
+        self.0
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InstructionAuthority {
@@ -52,6 +55,7 @@ pub struct Part {
 pub struct Message {
     pub role: MessageRole,
     pub parts: Vec<Part>,
+    pub status: super::ItemLifecycle,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
@@ -59,6 +63,17 @@ pub enum Item {
     Message(Message),
     ToolCall(ToolCall),
     ToolResult(ToolResult),
+    Reasoning(super::ReasoningItem),
+}
+impl Item {
+    pub fn lifecycle(&self) -> Option<super::ItemLifecycle> {
+        match self {
+            Self::Message(m) => Some(m.status),
+            Self::ToolCall(c) => Some(c.status),
+            Self::Reasoning(r) => Some(r.status),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenerationControls {
@@ -108,8 +123,20 @@ impl GenerationRequest {
         if self.controls.max_output_tokens == Some(0) {
             return Err(GenerationError::InvalidControl);
         }
-        super::validate::items(&self.items, false)?;
-        super::validate::tools(self.tools(), self.tool_choice.as_ref())
+        if self.reasoning.effort() == Some(super::ReasoningEffort::None)
+            && self
+                .reasoning
+                .summary()
+                .is_some_and(|s| s != super::ReasoningSummary::Disabled)
+        {
+            return Err(GenerationError::InvalidControl);
+        }
+        let items = super::validate::items(&self.items, false)?;
+        let tools = super::validate::tools(self.tools(), self.tool_choice.as_ref())?;
+        if items.saturating_add(tools) > super::MAX_TOTAL_BYTES {
+            return Err(GenerationError::Limit);
+        }
+        Ok(())
     }
     pub fn items(&self) -> &[(ItemId, Item)] {
         &self.items
@@ -188,7 +215,7 @@ pub enum GenerationError {
     EmptyInput,
     #[error("duplicate item identity")]
     DuplicateItemId,
-    #[error("message content must not be empty unless it owns tool calls")]
+    #[error("user message must contain at least one content part")]
     EmptyMessage,
     #[error("duplicate part identity")]
     DuplicatePartId,

@@ -1,10 +1,12 @@
 //! Pure codecs for the explicitly supported Generation migration slice.
 pub mod chat;
 mod common;
-pub mod function_events;
+pub mod events;
 mod function_tools;
+mod reasoning;
 pub mod responses;
 mod static_response;
+mod terminal;
 
 use crate::{
     protocol::fidelity::FidelityRecords,
@@ -46,6 +48,8 @@ pub enum CodecError {
     ProfileMismatch,
     #[error(transparent)]
     Semantic(#[from] GenerationError),
+    #[error(transparent)]
+    Event(#[from] crate::semantic::task::generation::EventError),
 }
 
 /// Only lowering can construct an encoding input; codecs cannot bypass representability.

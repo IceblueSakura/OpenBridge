@@ -32,6 +32,13 @@ pub enum ToolChoice {
     Required,
     Specific(Text),
 }
+/// Item close state. In-progress is an event state, not a static item state.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ItemLifecycle {
+    #[default]
+    Completed,
+    Incomplete,
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToolCall {
     pub call_id: Text,
@@ -40,6 +47,7 @@ pub struct ToolCall {
     pub arguments: String,
     /// Stable owner of a Chat assistant message, independent of call_id and item position.
     pub message: Option<ItemId>,
+    pub status: ItemLifecycle,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToolResult {

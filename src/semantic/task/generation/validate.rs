@@ -7,7 +7,7 @@ pub const MAX_TEXT_BYTES: usize = 1 << 20;
 pub const MAX_TOTAL_BYTES: usize = 4 << 20;
 pub const MAX_TOOLS: usize = 128;
 
-pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<(), GenerationError> {
+pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, GenerationError> {
     if items.is_empty() {
         return Err(GenerationError::EmptyInput);
     }
@@ -42,7 +42,6 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<(), GenerationE
                     return Err(GenerationError::Limit);
                 }
                 owners.insert(*id, (m.role, m.parts.is_empty(), false));
-                let mut refusals = 0usize;
                 for p in &m.parts {
                     if !parts.insert(p.id) {
                         return Err(GenerationError::DuplicatePartId);
@@ -56,14 +55,10 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<(), GenerationE
                             if m.role != MessageRole::Assistant {
                                 return Err(GenerationError::RefusalInUserMessage);
                             }
-                            refusals += 1;
                             add(&mut bytes, t.as_str())?;
                         }
                         ContentPart::Resource(_) => {}
                     }
-                }
-                if refusals > 0 && (refusals != m.parts.len() || refusals > 1) {
-                    return Err(GenerationError::InvalidResponse);
                 }
             }
             Item::ToolCall(c) => {
@@ -106,6 +101,25 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<(), GenerationE
                     active_owner = None;
                 }
             }
+            Item::Reasoning(reasoning) => {
+                active_owner = None;
+                if reasoning.parts.len() > MAX_ITEMS {
+                    return Err(GenerationError::Limit);
+                }
+                for (id, part) in &reasoning.parts {
+                    if parts.len() >= MAX_ITEMS {
+                        return Err(GenerationError::Limit);
+                    }
+                    if !parts.insert(*id) {
+                        return Err(GenerationError::DuplicatePartId);
+                    }
+                    let text = match part {
+                        super::ReasoningContent::Summary(text)
+                        | super::ReasoningContent::Text(text) => text,
+                    };
+                    add(&mut bytes, text.as_str())?;
+                }
+            }
             Item::ToolResult(r) => {
                 if response {
                     return Err(GenerationError::InvalidResponse);
@@ -119,10 +133,14 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<(), GenerationE
             }
         }
     }
-    if owners.values().any(|(_, empty, calls)| *empty && !calls) {
+    if !response
+        && owners
+            .values()
+            .any(|(role, empty, calls)| *role == MessageRole::User && *empty && !calls)
+    {
         return Err(GenerationError::EmptyMessage);
     }
-    Ok(())
+    Ok(bytes)
 }
 fn add(total: &mut usize, value: &str) -> Result<(), GenerationError> {
     *total = total
@@ -133,7 +151,10 @@ fn add(total: &mut usize, value: &str) -> Result<(), GenerationError> {
     }
     Ok(())
 }
-pub fn tools(tools: &[ToolDefinition], choice: Option<&ToolChoice>) -> Result<(), GenerationError> {
+pub fn tools(
+    tools: &[ToolDefinition],
+    choice: Option<&ToolChoice>,
+) -> Result<usize, GenerationError> {
     if tools.len() > MAX_TOOLS {
         return Err(GenerationError::Limit);
     }
@@ -162,6 +183,6 @@ pub fn tools(tools: &[ToolDefinition], choice: Option<&ToolChoice>) -> Result<()
             Err(GenerationError::InvalidToolChoice)
         }
         Some(ToolChoice::Required) if names.is_empty() => Err(GenerationError::InvalidToolChoice),
-        _ => Ok(()),
+        _ => Ok(bytes),
     }
 }

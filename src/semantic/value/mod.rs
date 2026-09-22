@@ -1,4 +1,6 @@
 //! Shared semantic leaf values.
+mod replay;
+pub use replay::ReplayOrigin;
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 pub enum ValueError {
     #[error("{kind} must not be empty")]

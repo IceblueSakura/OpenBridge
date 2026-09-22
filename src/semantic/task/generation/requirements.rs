@@ -15,6 +15,7 @@ pub struct GenerationRequirements {
     pub tool_history: bool,
     pub structured_output: bool,
     pub reasoning: bool,
+    pub reasoning_items: usize,
     pub max_output_tokens: Option<u64>,
     pub temperature: bool,
 }
@@ -34,7 +35,8 @@ impl GenerationRequirements {
             temperature: r.controls().temperature().is_some(),
             tool_count: r.tools().len(),
             structured_output: !matches!(r.output(), OutputConstraint::Text),
-            reasoning: r.reasoning().effort.is_some() || r.reasoning().summary.is_some(),
+            reasoning: r.reasoning().presence() == super::ReasoningPresence::Present
+                || r.reasoning().encrypted_output(),
             ..Self::default()
         };
         for (_, i) in r.items() {
@@ -59,6 +61,10 @@ impl GenerationRequirements {
                     }
                 }
                 Item::ToolCall(_) | Item::ToolResult(_) => x.tool_history = true,
+                Item::Reasoning(_) => {
+                    x.reasoning_items += 1;
+                    x.reasoning = true;
+                }
             }
         }
         x

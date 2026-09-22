@@ -58,7 +58,8 @@ fn independent_decode_preserves_function_meaning_and_message_ownership() {
             call_id: text("call_a"),
             name: text("weather"),
             arguments: "{ \"city\": \"Paris\" }".into(),
-            message: Some(ItemId::new(2))
+            message: Some(ItemId::new(2)),
+            status: ItemLifecycle::Completed,
         }
     );
     let ToolDefinition::Function(def) = &d.semantic.tools()[0];
@@ -92,6 +93,7 @@ fn independent_ir_encodes_call_and_empty_result_without_source_wire() {
                 name: text("lookup"),
                 arguments: "not valid JSON".into(),
                 message: None,
+                status: ItemLifecycle::Completed,
             }),
         ),
         (
@@ -178,6 +180,7 @@ fn replacement_insertion_and_reordering_drive_both_encoders() {
                 name: text("weather"),
                 arguments: "{}".into(),
                 message: Some(ItemId::new(2)),
+                status: ItemLifecycle::Completed,
             }),
         ),
     );
@@ -477,6 +480,7 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
             name: text("f"),
             arguments: "{broken".into(),
             message: None,
+            status: ItemLifecycle::Completed,
         }),
     );
     let ir = GenerationResponse::new(vec![item], Completion::ToolCalls).unwrap();
@@ -506,6 +510,7 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
             vec![(
                 ItemId::new(8),
                 Item::Message(Message {
+                    status: ItemLifecycle::Completed,
                     role: MessageRole::Assistant,
                     parts: vec![Part {
                         id: PartId::new(1),
@@ -647,6 +652,7 @@ fn semantic_construction_cannot_bypass_identifier_or_control_validation() {
         name: text("f"),
         arguments: "{}".into(),
         message: None,
+        status: ItemLifecycle::Completed,
     });
     assert!(
         GenerationRequest::new(vec![(ItemId::new(1), call)], GenerationControls::default())

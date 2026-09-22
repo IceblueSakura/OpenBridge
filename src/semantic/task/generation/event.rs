@@ -1,339 +1,459 @@
-//! Function-call and assistant-text Event IR. Framing and other domains stay outside this slice.
-use super::{
-    Completion, ContentPart, GenerationError, GenerationResponse, Item, ItemId, MAX_ITEMS,
-    MAX_TEXT_BYTES, MAX_TOTAL_BYTES, Message, MessageRole, Outcome, Part, PartId, ToolCall,
-};
+//! Ordered Generation event state. Value, part, item and response closure are independent.
+//! A failed reduction consumes the state; callers must not resume a rejected stream.
+use super::*;
 use crate::semantic::value::Text;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StreamTerminal {
     Completed,
-    Failed,
     Incomplete,
+    Failed,
+    Cancelled,
     Error,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum StreamEvent {
-    TextStarted {
-        item: ItemId,
-        part: PartId,
-    },
-    TextDelta {
-        item: ItemId,
-        part: PartId,
-        fragment: String,
-    },
-    TextFinished {
-        item: ItemId,
-        part: PartId,
-    },
-    CallStarted {
-        item: ItemId,
+pub enum ItemKind {
+    Message,
+    ToolCall {
         call_id: Text,
         name: Text,
         message: Option<ItemId>,
     },
-    ArgumentsDelta {
+    Reasoning,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PartKind {
+    Text,
+    Refusal,
+    Summary,
+    ReasoningText,
+    Arguments,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StreamEvent {
+    Started,
+    ItemStarted {
         item: ItemId,
+        kind: ItemKind,
+        replay: Option<ReasoningReplay>,
+    },
+    PartStarted {
+        item: ItemId,
+        part: PartId,
+        kind: PartKind,
+    },
+    Delta {
+        item: ItemId,
+        part: PartId,
         fragment: String,
     },
-    CallFinished {
+    ValueFinished {
         item: ItemId,
+        part: PartId,
     },
-    Terminal(StreamTerminal),
+    PartFinished {
+        item: ItemId,
+        part: PartId,
+    },
+    ItemFinished {
+        item: ItemId,
+        status: ItemLifecycle,
+        replay: Option<ReasoningReplay>,
+    },
+    Usage(Usage),
+    Terminal {
+        terminal: StreamTerminal,
+        details: TerminalDetails,
+    },
 }
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 pub enum EventError {
-    #[error("stream event identity conflicts with an existing item")]
+    #[error("conflicting event identity")]
     Identity,
-    #[error("stream event lifecycle is invalid")]
+    #[error("invalid event lifecycle")]
     Lifecycle,
-    #[error("stream event exceeds the slice limit")]
+    #[error("event state limit exceeded")]
     Limit,
-    #[error("non-completed terminal cannot materialize as success")]
+    #[error("stream failed: {0:?}")]
     TerminalFailure(StreamTerminal),
-    #[error("stream ended before a terminal")]
+    #[error("EOF before terminal")]
     EofBeforeTerminal,
     #[error(transparent)]
     Semantic(#[from] GenerationError),
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct TextPart {
-    item: ItemId,
-    part: PartId,
-    text: String,
-    finished: bool,
+pub struct StreamPart {
+    pub id: PartId,
+    pub kind: PartKind,
+    pub text: String,
+    pub value_finished: bool,
+    pub finished: bool,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct Call {
-    item: ItemId,
-    call_id: Text,
-    name: Text,
-    message: Option<ItemId>,
-    arguments: String,
-    finished: bool,
+pub struct StreamItem {
+    pub id: ItemId,
+    pub kind: ItemKind,
+    pub parts: Vec<StreamPart>,
+    pub status: Option<ItemLifecycle>,
+    pub replay: Option<ReasoningReplay>,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct StreamState {
-    texts: Vec<TextPart>,
-    calls: Vec<Call>,
+    started: bool,
+    items: Vec<StreamItem>,
+    part_ids: BTreeSet<PartId>,
     terminal: Option<StreamTerminal>,
+    usage: Option<Usage>,
+    details: TerminalDetails,
     bytes: usize,
 }
 impl StreamState {
     pub fn new() -> Self {
-        Self {
-            texts: Vec::new(),
-            calls: Vec::new(),
-            terminal: None,
-            bytes: 0,
-        }
+        Self::default()
     }
-    pub const fn terminal(&self) -> Option<StreamTerminal> {
+    pub fn items(&self) -> &[StreamItem] {
+        &self.items
+    }
+    pub fn item(&self, id: ItemId) -> Result<&StreamItem, EventError> {
+        self.items
+            .iter()
+            .find(|i| i.id == id)
+            .ok_or(EventError::Identity)
+    }
+    pub fn part(&self, item: ItemId, part: PartId) -> Result<&StreamPart, EventError> {
+        self.item(item)?
+            .parts
+            .iter()
+            .find(|p| p.id == part)
+            .ok_or(EventError::Identity)
+    }
+    pub fn terminal(&self) -> Option<StreamTerminal> {
         self.terminal
     }
-}
-impl Default for StreamState {
-    fn default() -> Self {
-        Self::new()
+    pub fn usage(&self) -> Option<Usage> {
+        self.usage
+    }
+    pub fn details(&self) -> &TerminalDetails {
+        &self.details
+    }
+    fn open_item(&mut self, id: ItemId) -> Result<&mut StreamItem, EventError> {
+        self.items
+            .iter_mut()
+            .find(|i| i.id == id && i.status.is_none())
+            .ok_or(EventError::Lifecycle)
+    }
+    fn open_part(&mut self, item: ItemId, part: PartId) -> Result<&mut StreamPart, EventError> {
+        self.open_item(item)?
+            .parts
+            .iter_mut()
+            .find(|p| p.id == part && !p.finished)
+            .ok_or(EventError::Lifecycle)
+    }
+    fn charge(&mut self, n: usize) -> Result<(), EventError> {
+        self.bytes = self.bytes.checked_add(n).ok_or(EventError::Limit)?;
+        if self.bytes > MAX_TOTAL_BYTES {
+            return Err(EventError::Limit);
+        }
+        Ok(())
     }
 }
 pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState, EventError> {
     if state.terminal.is_some() {
         return Err(EventError::Lifecycle);
     }
+    if !state.started
+        && !matches!(
+            event,
+            StreamEvent::Started
+                | StreamEvent::Terminal {
+                    terminal: StreamTerminal::Error,
+                    ..
+                }
+        )
+    {
+        return Err(EventError::Lifecycle);
+    }
     match event {
-        StreamEvent::TextStarted { item, part } => {
-            if state.texts.len() + state.calls.len() >= MAX_ITEMS
-                || state.texts.iter().any(|text| text.part == part)
-                || state.calls.iter().any(|call| call.item == item)
-            {
-                return Err(EventError::Identity);
-            }
-            if state
-                .texts
-                .iter()
-                .any(|text| text.item == item && text.finished)
-            {
+        StreamEvent::Started => {
+            if state.started {
                 return Err(EventError::Lifecycle);
             }
-            state.texts.push(TextPart {
-                item,
-                part,
+            state.started = true;
+        }
+        StreamEvent::ItemStarted { item, kind, replay } => {
+            if state.items.len() >= MAX_ITEMS {
+                return Err(EventError::Limit);
+            }
+            if state.items.iter().any(|i| i.id == item) {
+                return Err(EventError::Identity);
+            }
+            if let ItemKind::ToolCall {
+                call_id,
+                name,
+                message,
+            } = &kind
+            {
+                if call_id.as_str().is_empty()
+                    || call_id.as_str().len() > 256
+                    || name.as_str().is_empty()
+                    || name.as_str().len() > 128
+                {
+                    return Err(EventError::Limit);
+                }
+                if state
+                    .items
+                    .iter()
+                    .any(|i| matches!(&i.kind,ItemKind::ToolCall{call_id:id,..} if id==call_id))
+                {
+                    return Err(EventError::Identity);
+                }
+                if let Some(owner) = message {
+                    if !state
+                        .items
+                        .iter()
+                        .any(|i| i.id == *owner && matches!(i.kind, ItemKind::Message))
+                    {
+                        return Err(EventError::Identity);
+                    }
+                    if state.items.iter().rev().take_while(|i| i.id != *owner).any(
+                        |i| !matches!(&i.kind,ItemKind::ToolCall{message:Some(m),..} if m==owner),
+                    ) {
+                        return Err(EventError::Lifecycle);
+                    }
+                }
+                state.charge(call_id.as_str().len() + name.as_str().len())?;
+            }
+            if let Some(r) = &replay {
+                r.validate()?;
+                if !matches!(kind, ItemKind::Reasoning) || r.value.replay_token().is_some() {
+                    return Err(EventError::Lifecycle);
+                }
+                state.charge(r.value.as_str().len())?;
+            }
+            state.items.push(StreamItem {
+                id: item,
+                kind,
+                parts: vec![],
+                status: None,
+                replay,
+            });
+        }
+        StreamEvent::PartStarted { item, part, kind } => {
+            if state.part_ids.len() >= MAX_ITEMS {
+                return Err(EventError::Limit);
+            }
+            if !state.part_ids.insert(part) {
+                return Err(EventError::Identity);
+            }
+            let owner = state.open_item(item)?;
+            let valid = matches!(
+                (&owner.kind, kind),
+                (ItemKind::Message, PartKind::Text | PartKind::Refusal)
+                    | (
+                        ItemKind::Reasoning,
+                        PartKind::Summary | PartKind::ReasoningText
+                    )
+                    | (ItemKind::ToolCall { .. }, PartKind::Arguments)
+            );
+            if !valid || matches!(kind, PartKind::Arguments) && !owner.parts.is_empty() {
+                return Err(EventError::Lifecycle);
+            }
+            owner.parts.push(StreamPart {
+                id: part,
+                kind,
                 text: String::new(),
+                value_finished: false,
                 finished: false,
             });
         }
-        StreamEvent::TextDelta {
+        StreamEvent::Delta {
             item,
             part,
             fragment,
         } => {
-            if fragment.is_empty() {
+            let target = state.open_part(item, part)?;
+            if target.value_finished {
                 return Err(EventError::Lifecycle);
             }
-            let current = open_text(&state, item, part)?.text.len();
-            if current + fragment.len() > MAX_TEXT_BYTES {
+            if target.text.len().saturating_add(fragment.len()) > MAX_TEXT_BYTES {
                 return Err(EventError::Limit);
             }
-            add(&mut state.bytes, &fragment)?;
-            open_text_mut(&mut state, item, part)?
-                .text
-                .push_str(&fragment);
+            state.charge(fragment.len())?;
+            state.open_part(item, part)?.text.push_str(&fragment);
         }
-        StreamEvent::TextFinished { item, part } => {
-            let text = open_text_mut(&mut state, item, part)?;
-            if text.text.is_empty() {
+        StreamEvent::ValueFinished { item, part } => {
+            let p = state.open_part(item, part)?;
+            if p.value_finished {
                 return Err(EventError::Lifecycle);
             }
-            text.finished = true;
+            p.value_finished = true;
         }
-        StreamEvent::CallStarted {
+        StreamEvent::PartFinished { item, part } => {
+            let p = state.open_part(item, part)?;
+            if !p.value_finished {
+                return Err(EventError::Lifecycle);
+            }
+            p.finished = true;
+        }
+        StreamEvent::ItemFinished {
             item,
-            call_id,
-            name,
-            message,
+            status,
+            replay,
         } => {
-            if state.calls.len() >= MAX_ITEMS
-                || state.calls.iter().any(|call| call.item == item)
-                || state.calls.iter().any(|call| call.call_id == call_id)
-                || state.texts.iter().any(|text| text.item == item)
-                || call_id.as_str().len() > 256
-                || name.as_str().len() > 128
+            let owner = state.open_item(item)?;
+            if status == ItemLifecycle::Completed && owner.parts.iter().any(|p| !p.finished) {
+                return Err(EventError::Lifecycle);
+            }
+            if matches!(owner.kind, ItemKind::ToolCall { .. }) && owner.parts.len() != 1 {
+                return Err(EventError::Lifecycle);
+            }
+            if let Some(r) = &replay {
+                r.validate()?;
+                if !matches!(owner.kind, ItemKind::Reasoning) || r.value.replay_token().is_none() {
+                    return Err(EventError::Lifecycle);
+                }
+                if owner
+                    .replay
+                    .as_ref()
+                    .is_some_and(|old| old.origin != r.origin)
+                {
+                    return Err(EventError::Identity);
+                }
+            }
+            let old = owner.replay.as_ref().map_or(0, |r| r.value.as_str().len());
+            state.bytes -= old;
+            state.charge(replay.as_ref().map_or(0, |r| r.value.as_str().len()))?;
+            let owner = state.open_item(item)?;
+            owner.replay = replay;
+            owner.status = Some(status);
+        }
+        StreamEvent::Usage(usage) => {
+            usage.validate()?;
+            if state.usage.is_some() {
+                return Err(EventError::Lifecycle);
+            }
+            state.usage = Some(usage);
+        }
+        StreamEvent::Terminal { terminal, details } => {
+            if terminal == StreamTerminal::Completed
+                && state
+                    .items
+                    .iter()
+                    .any(|i| i.status != Some(ItemLifecycle::Completed))
             {
-                return Err(EventError::Identity);
-            }
-            if state
-                .calls
-                .first()
-                .is_some_and(|call| call.message != message)
-            {
                 return Err(EventError::Lifecycle);
             }
-            add(&mut state.bytes, call_id.as_str())?;
-            add(&mut state.bytes, name.as_str())?;
-            state.calls.push(Call {
-                item,
-                call_id,
-                name,
-                message,
-                arguments: String::new(),
-                finished: false,
-            });
-        }
-        StreamEvent::ArgumentsDelta { item, fragment } => {
-            if fragment.is_empty() {
-                return Err(EventError::Lifecycle);
-            }
-            let current = state
-                .calls
-                .iter()
-                .find(|call| call.item == item && !call.finished)
-                .ok_or(if state.calls.iter().any(|call| call.item == item) {
-                    EventError::Lifecycle
-                } else {
-                    EventError::Identity
-                })?
-                .arguments
-                .len();
-            if current + fragment.len() > MAX_TEXT_BYTES {
-                return Err(EventError::Limit);
-            }
-            add(&mut state.bytes, &fragment)?;
-            open_call(&mut state, item)?.arguments.push_str(&fragment);
-        }
-        StreamEvent::CallFinished { item } => {
-            open_call(&mut state, item)?.finished = true;
-        }
-        StreamEvent::Terminal(terminal) => {
-            let open = state.texts.iter().any(|text| !text.finished)
-                || state.calls.iter().any(|call| !call.finished);
-            let empty = state.texts.is_empty() && state.calls.is_empty();
-            if terminal == StreamTerminal::Completed && (empty || open) {
-                return Err(EventError::Lifecycle);
-            }
+            let outcome = outcome(terminal, &state.items)?;
+            details.validate(outcome)?;
+            state.charge(details.bytes())?;
+            state.details = details;
             state.terminal = Some(terminal);
         }
     }
     Ok(state)
 }
+fn outcome(terminal: StreamTerminal, items: &[StreamItem]) -> Result<Outcome, EventError> {
+    Ok(match terminal {
+        StreamTerminal::Completed => Outcome::Completed(
+            if items
+                .iter()
+                .any(|i| matches!(i.kind, ItemKind::ToolCall { .. }))
+            {
+                Completion::ToolCalls
+            } else {
+                Completion::Stop
+            },
+        ),
+        StreamTerminal::Incomplete => Outcome::Incomplete,
+        StreamTerminal::Failed | StreamTerminal::Error => Outcome::Failed,
+        StreamTerminal::Cancelled => Outcome::Cancelled,
+    })
+}
 pub fn end_of_stream(state: &StreamState) -> Result<(), EventError> {
-    if state.terminal.is_none() {
-        Err(EventError::EofBeforeTerminal)
-    } else {
+    if state.terminal.is_some() {
         Ok(())
+    } else {
+        Err(EventError::EofBeforeTerminal)
+    }
+}
+/// Partial snapshots preserve item order and unfinished status; opaque replay stays in the sidecar.
+pub fn snapshot_items(state: &StreamState) -> Result<Vec<(ItemId, Item)>, EventError> {
+    state
+        .items
+        .iter()
+        .map(|i| Ok((i.id, i.snapshot()?)))
+        .collect()
+}
+impl StreamItem {
+    pub(crate) fn snapshot(&self) -> Result<Item, EventError> {
+        let i = self;
+        let status = i.status.unwrap_or(ItemLifecycle::Incomplete);
+        let bounded = |p: &StreamPart| {
+            Text::allowing_empty(&p.text, "event part", MAX_TEXT_BYTES)
+                .map_err(|_| EventError::Limit)
+        };
+        let item = match &i.kind {
+            ItemKind::Message => Item::Message(Message {
+                role: MessageRole::Assistant,
+                status,
+                parts: i
+                    .parts
+                    .iter()
+                    .map(|p| {
+                        Ok(Part {
+                            id: p.id,
+                            content: match p.kind {
+                                PartKind::Text => ContentPart::Text(bounded(p)?),
+                                PartKind::Refusal => ContentPart::Refusal(bounded(p)?),
+                                _ => return Err(EventError::Lifecycle),
+                            },
+                        })
+                    })
+                    .collect::<Result<_, EventError>>()?,
+            }),
+            ItemKind::ToolCall {
+                call_id,
+                name,
+                message,
+            } => Item::ToolCall(ToolCall {
+                call_id: call_id.clone(),
+                name: name.clone(),
+                message: *message,
+                status,
+                arguments: i.parts.first().map(|p| p.text.clone()).unwrap_or_default(),
+            }),
+            ItemKind::Reasoning => Item::Reasoning(ReasoningItem {
+                status,
+                parts: i
+                    .parts
+                    .iter()
+                    .map(|p| {
+                        Ok((
+                            p.id,
+                            match p.kind {
+                                PartKind::Summary => ReasoningContent::Summary(bounded(p)?),
+                                PartKind::ReasoningText => ReasoningContent::Text(bounded(p)?),
+                                _ => return Err(EventError::Lifecycle),
+                            },
+                        ))
+                    })
+                    .collect::<Result<_, EventError>>()?,
+            }),
+        };
+        Ok(item)
     }
 }
 pub fn materialize(state: &StreamState) -> Result<GenerationResponse, EventError> {
-    let outcome = match state.terminal {
-        Some(StreamTerminal::Completed) => {
-            let completion = if state.calls.is_empty() {
-                Completion::Stop
-            } else {
-                Completion::ToolCalls
-            };
-            Outcome::Completed(completion)
-        }
-        Some(StreamTerminal::Incomplete) => Outcome::Incomplete,
-        Some(StreamTerminal::Failed) => Outcome::Failed,
-        Some(terminal) => return Err(EventError::TerminalFailure(terminal)),
-        None => return Err(EventError::Lifecycle),
-    };
-    let mut items = Vec::new();
-    let owner = state.calls.first().and_then(|call| call.message);
-    if let Some(owner) = owner {
-        items.push((owner, message_item(state, owner)?));
-    } else {
-        let mut seen = Vec::new();
-        for text in &state.texts {
-            if !seen.contains(&text.item) {
-                seen.push(text.item);
-                items.push((text.item, message_item(state, text.item)?));
-            }
-        }
+    let terminal = state.terminal.ok_or(EventError::EofBeforeTerminal)?;
+    if terminal == StreamTerminal::Error {
+        return Err(EventError::TerminalFailure(terminal));
     }
-    for call in &state.calls {
-        items.push((
-            call.item,
-            Item::ToolCall(ToolCall {
-                call_id: call.call_id.clone(),
-                name: call.name.clone(),
-                arguments: call.arguments.clone(),
-                message: call.message,
-            }),
-        ));
+    let mut response =
+        GenerationResponse::from_outcome(snapshot_items(state)?, outcome(terminal, &state.items)?)?
+            .with_details(state.details.clone())?;
+    if let Some(usage) = state.usage {
+        response = response.with_usage(usage)?;
     }
-    Ok(match outcome {
-        Outcome::Completed(completion) => GenerationResponse::new(items, completion)?,
-        outcome => GenerationResponse::unfinished(items, outcome)?,
-    })
-}
-fn message_item(state: &StreamState, item: ItemId) -> Result<Item, EventError> {
-    let parts = state
-        .texts
-        .iter()
-        .filter(|text| text.item == item && !text.text.is_empty())
-        .map(|text| {
-            Ok(Part {
-                id: text.part,
-                content: ContentPart::Text(
-                    Text::allowing_empty(text.text.clone(), "text", MAX_TEXT_BYTES)
-                        .map_err(|_| EventError::Limit)?,
-                ),
-            })
-        })
-        .collect::<Result<Vec<_>, EventError>>()?;
-    Ok(Item::Message(Message {
-        role: MessageRole::Assistant,
-        parts,
-    }))
-}
-fn open_text(state: &StreamState, item: ItemId, part: PartId) -> Result<&TextPart, EventError> {
-    state
-        .texts
-        .iter()
-        .find(|text| text.item == item && text.part == part && !text.finished)
-        .ok_or(if state.texts.iter().any(|text| text.part == part) {
-            EventError::Lifecycle
-        } else {
-            EventError::Identity
-        })
-}
-fn open_text_mut(
-    state: &mut StreamState,
-    item: ItemId,
-    part: PartId,
-) -> Result<&mut TextPart, EventError> {
-    let finished = state
-        .texts
-        .iter()
-        .any(|text| text.part == part && text.finished);
-    state
-        .texts
-        .iter_mut()
-        .find(|text| text.item == item && text.part == part && !text.finished)
-        .ok_or(if finished {
-            EventError::Lifecycle
-        } else {
-            EventError::Identity
-        })
-}
-fn open_call(state: &mut StreamState, item: ItemId) -> Result<&mut Call, EventError> {
-    let missing = !state.calls.iter().any(|call| call.item == item);
-    state
-        .calls
-        .iter_mut()
-        .find(|call| call.item == item && !call.finished)
-        .ok_or(if missing {
-            EventError::Identity
-        } else {
-            EventError::Lifecycle
-        })
-}
-fn add(total: &mut usize, value: &str) -> Result<(), EventError> {
-    *total = total.checked_add(value.len()).ok_or(EventError::Limit)?;
-    if *total > MAX_TOTAL_BYTES {
-        return Err(EventError::Limit);
-    }
-    Ok(())
+    Ok(response)
 }

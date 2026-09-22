@@ -139,19 +139,20 @@ Events are not raw SSE wrappers. Transport framing is outside IR.
 Generation event examples:
 
 ```text
-GenerationStarted
-ItemStarted(ItemId, ...)
-PartDelta(ItemId, PartId, ...)
-ToolArgumentsDelta(ToolCallId, ...)
-UsageUpdated(...)
-ItemCompleted(ItemId)
-GenerationCompleted(...)
-GenerationFailed(...)
+Started
+ItemStarted(ItemId, ItemKind, optional replay snapshot)
+PartStarted(ItemId, PartId, PartKind)
+Delta(ItemId, PartId, bounded fragment)
+ValueFinished(ItemId, PartId)
+PartFinished(ItemId, PartId)
+ItemFinished(ItemId, lifecycle, optional final replay)
+Usage(reported totals and details)
+Terminal(completed / incomplete / failed / cancelled / error, details)
 ```
 
 A reducer consumes valid events into a task response state. Protocol event codecs must emit/consume typed events. Source SSE payload may be retained only as bounded fidelity metadata.
 
-Reasoning ownership is decided in [ADR-v2-0006](decisions/0006-reasoning-ownership.md). Request controls, readable reasoning items, and same-provider opaque replay are separate. The current placeholder request enum is not that contract and has no codec.
+Reasoning and replay ownership is [ADR-v2-0006](decisions/0006-reasoning-ownership.md). Request controls, readable reasoning parts and origin-bound representation replay are separate. A final item event, not old fidelity, owns the final encrypted value. Unknown/mismatched origin prevents replay encoding. Summary and reasoning-text parts share stable semantic identity allocation while retaining separate wire index spaces. Message, reasoning and call lifecycle is independent of the response outcome. Chat represents shared effort labels but rejects readable reasoning/replay and other unsupported projections.
 
 ## Requirements
 

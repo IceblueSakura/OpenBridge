@@ -8,8 +8,9 @@ use crate::{
 };
 use std::collections::BTreeSet;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenerationRepresentationContract {
+    pub replay_origin: Option<crate::semantic::value::ReplayOrigin>,
     pub instructions: bool,
     pub temperature: bool,
     pub max_output_tokens: bool,
@@ -25,6 +26,7 @@ pub struct GenerationRepresentationContract {
 impl GenerationRepresentationContract {
     pub const fn full() -> Self {
         Self {
+            replay_origin: None,
             instructions: true,
             temperature: true,
             max_output_tokens: true,
@@ -91,10 +93,24 @@ pub fn lower_request<'a>(
     profile: Profile,
     c: GenerationRepresentationContract,
 ) -> Result<RequestRepresentation<'a>, RepresentationError> {
-    let q = check(r, c)?;
-    if q.structured_output || q.reasoning {
+    let q = check(r, c.clone())?;
+    if profile == Profile::Chat
+        && r.items()
+            .iter()
+            .any(|(_, i)| i.lifecycle() == Some(ItemLifecycle::Incomplete))
+    {
+        return Err(RepresentationError::Terminal);
+    }
+    if q.structured_output {
         return Err(RepresentationError::UnmigratedSemantic);
     }
+    represent_reasoning(
+        r.reasoning(),
+        r.items(),
+        fidelity,
+        profile,
+        c.replay_origin.as_ref(),
+    )?;
     text_items(r.items(), profile)?;
     let expected_default = if profile == Profile::Chat {
         StrictDefault::NonStrict
@@ -121,8 +137,29 @@ pub fn lower_response<'a>(
     c: GenerationRepresentationContract,
 ) -> Result<ResponseRepresentation<'a>, RepresentationError> {
     // Reuse the same pure requirement projection for supported output items.
-    let request = GenerationRequest::new(r.items().to_vec(), GenerationControls::default())?;
-    check(&request, c)?;
+    if !r.items().is_empty() {
+        let request = GenerationRequest::new(r.items().to_vec(), GenerationControls::default())?;
+        check(&request, c.clone())?;
+    }
+    represent_reasoning(
+        &ReasoningRequest::absent(),
+        r.items(),
+        fidelity,
+        profile,
+        c.replay_origin.as_ref(),
+    )?;
+    let chat_status = if r.outcome() == Outcome::Incomplete {
+        ItemLifecycle::Incomplete
+    } else {
+        ItemLifecycle::Completed
+    };
+    if profile == Profile::Chat
+        && r.items()
+            .iter()
+            .any(|(_, item)| item.lifecycle().is_some_and(|status| status != chat_status))
+    {
+        return Err(RepresentationError::Terminal);
+    }
     text_items(r.items(), profile)?;
     if profile == Profile::Chat && chat_message_count(r.items()) != 1 {
         return Err(RepresentationError::MessageGrouping);
@@ -134,7 +171,14 @@ pub fn lower_response<'a>(
     {
         return Err(RepresentationError::Metadata);
     }
-    if profile == Profile::Chat && matches!(r.outcome(), Outcome::Failed) {
+    if profile == Profile::Chat
+        && (matches!(r.outcome(), Outcome::Failed | Outcome::Cancelled)
+            || r.details().error.is_some()
+            || r.details()
+                .incomplete
+                .as_ref()
+                .is_some_and(|reason| !matches!(reason, IncompleteReason::MaxOutputTokens)))
+    {
         return Err(RepresentationError::Terminal);
     }
     validate_wire_ids(r.items(), fidelity, true)?;
@@ -144,6 +188,43 @@ pub fn lower_response<'a>(
         metadata,
         profile,
     })
+}
+fn represent_reasoning(
+    controls: &ReasoningRequest,
+    items: &[(ItemId, Item)],
+    fidelity: &FidelityRecords,
+    profile: Profile,
+    origin: Option<&crate::semantic::value::ReplayOrigin>,
+) -> Result<(), RepresentationError> {
+    for (id, item) in items {
+        if let Item::Reasoning(reasoning) = item
+            && let Some(replay) = fidelity.replay(*id)
+            && (profile != Profile::Responses
+                || !replay.permits(origin)
+                || replay.value.replay_token().is_none()
+                || !fidelity.replay_matches(*id, reasoning))
+        {
+            return Err(RepresentationError::ReplayOrigin);
+        }
+    }
+    let items = items
+        .iter()
+        .any(|(_, item)| matches!(item, Item::Reasoning(_)));
+    if controls.effort() == Some(ReasoningEffort::Max) {
+        return Err(RepresentationError::Reasoning);
+    }
+    let chat_control = controls.presence() == ReasoningPresence::Present
+        && (controls.effort().is_none() || controls.summary().is_some());
+    if items && profile != Profile::Responses {
+        return Err(RepresentationError::Reasoning);
+    }
+    if controls.encrypted_output() && profile != Profile::Responses {
+        return Err(RepresentationError::Reasoning);
+    }
+    if profile == Profile::Chat && chat_control {
+        return Err(RepresentationError::Reasoning);
+    }
+    Ok(())
 }
 fn text_items(items: &[(ItemId, Item)], profile: Profile) -> Result<(), RepresentationError> {
     for (_, i) in items {
@@ -190,7 +271,11 @@ fn validate_wire_ids(
 ) -> Result<(), RepresentationError> {
     let mut ids = BTreeSet::new();
     for (id, item) in items {
-        if matches!(item, Item::Message(m) if m.parts.is_empty()) {
+        if matches!(item, Item::Message(m) if m.parts.is_empty())
+            && items
+                .iter()
+                .any(|(_, i)| matches!(i,Item::ToolCall(c) if c.message == Some(*id)))
+        {
             continue;
         }
         let value = fidelity
@@ -207,6 +292,8 @@ fn validate_wire_ids(
 pub enum RepresentationError {
     #[error(transparent)]
     Semantic(#[from] GenerationError),
+    #[error(transparent)]
+    Event(#[from] EventError),
     #[error("target cannot represent instructions")]
     Instructions,
     #[error("target cannot represent temperature")]
@@ -225,6 +312,8 @@ pub enum RepresentationError {
     StructuredOutput,
     #[error("target cannot represent reasoning")]
     Reasoning,
+    #[error("opaque replay requires a final token and a matching trusted origin")]
+    ReplayOrigin,
     #[error("target cannot represent image input")]
     ImageInput,
     #[error("target cannot represent audio input")]

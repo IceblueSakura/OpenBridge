@@ -72,6 +72,10 @@ During lowering, fidelity may be reused only if:
 
 Otherwise it is dropped or causes a deterministic representability error according to policy.
 
+For admitted Responses encrypted reasoning, static decode returns unbound replay records. A trusted caller binds their source scope with `FidelityRecords::bind_replay_origin`; event decoding receives the same scope through `EventDecoder::with_replay_origin`. `GenerationRepresentationContract::replay_origin` identifies the fixed target's compatible scope. Missing or mismatched scope, partial replay, or changed reasoning-owner dependencies fail lowering. These labels must not be supplied by business JSON or contain credential/endpoint locators. Scope construction is an execution-boundary responsibility, not provider discovery inside a codec.
+
+Event codecs use `src/lowering/events.rs` for incremental representability and the same semantic reducer for lifecycle validation. `EventEncoder` checks a fixed target contract before rendering each event and validates the complete static projection at the terminal. A semantic event has authority over its final replay value; passed source fidelity supplies wire identities, not an alternative token. Chat output returns payloads only; framing owns `[DONE]`. A Chat decoder requires `done()` after finish and optional usage, and `finish()` rejects EOF without that terminal.
+
 ## Provider boundary
 
 Provider code may contribute:

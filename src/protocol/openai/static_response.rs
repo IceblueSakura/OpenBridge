@@ -1,12 +1,15 @@
 //! Single-candidate text and function response closure, including non-success terminals.
 use super::{
     CodecError, DecodedResponse, Profile, ResponseMetadata, ResponseRepresentation, chat,
-    common::*, responses,
+    common::*, responses, terminal::*,
 };
 use crate::semantic::task::generation::*;
 use serde_json::{Map, Value, json};
 
-fn metadata(o: &Map<String, Value>, profile: Profile) -> Result<ResponseMetadata, CodecError> {
+pub(super) fn metadata(
+    o: &Map<String, Value>,
+    profile: Profile,
+) -> Result<ResponseMetadata, CodecError> {
     let created_key = if profile == Profile::Chat {
         "created"
     } else {
@@ -24,7 +27,7 @@ fn metadata(o: &Map<String, Value>, profile: Profile) -> Result<ResponseMetadata
         .ok_or(CodecError::Invalid("created time"))?;
     Ok(ResponseMetadata { id, model, created })
 }
-fn usage(value: Option<&Value>, profile: Profile) -> Result<Option<Usage>, CodecError> {
+pub(super) fn usage(value: Option<&Value>, profile: Profile) -> Result<Option<Usage>, CodecError> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
     };
@@ -89,7 +92,7 @@ fn detail(
         }
     }
 }
-fn encode_usage(usage: Usage, profile: Profile) -> Value {
+pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
     let mut value = match profile {
         Profile::Chat => json!({
             "prompt_tokens": usage.input_tokens,
@@ -152,8 +155,25 @@ pub fn decode_chat(v: &Value) -> Result<DecodedResponse, CodecError> {
     let message = object(c.get("message").ok_or(CodecError::Invalid("message"))?)?;
     let mut b = Items::default();
     chat::decode_message(&mut b, message)?;
+    if matches!(outcome, Outcome::Incomplete) {
+        for (_, item) in &mut b.items {
+            match item {
+                Item::ToolCall(call) => call.status = ItemLifecycle::Incomplete,
+                Item::Message(m) => m.status = ItemLifecycle::Incomplete,
+                _ => {}
+            }
+        }
+    }
     Ok(DecodedResponse {
-        semantic: response_with_usage(b.items, outcome, usage(o.get("usage"), Profile::Chat)?)?,
+        semantic: response_with_usage(b.items, outcome, usage(o.get("usage"), Profile::Chat)?)?
+            .with_details(if outcome == Outcome::Incomplete {
+                TerminalDetails {
+                    error: None,
+                    incomplete: Some(IncompleteReason::MaxOutputTokens),
+                }
+            } else {
+                TerminalDetails::default()
+            })?,
         fidelity: b.fidelity,
         metadata: metadata(o, Profile::Chat)?,
     })
@@ -178,16 +198,11 @@ pub fn decode_responses(v: &Value) -> Result<DecodedResponse, CodecError> {
     if string(o, "object")? != "response" {
         return Err(CodecError::Invalid("response object"));
     }
-    if ["error", "incomplete_details"]
-        .iter()
-        .any(|key| o.get(*key).is_some_and(|v| !v.is_null()))
-    {
-        return Err(CodecError::Unsupported("terminal details".into()));
-    }
     let outcome = match string(o, "status")? {
         "completed" => None,
         "incomplete" => Some(Outcome::Incomplete),
         "failed" => Some(Outcome::Failed),
+        "cancelled" => Some(Outcome::Cancelled),
         _ => return Err(CodecError::Unsupported("response status".into())),
     };
     let output = o
@@ -213,7 +228,8 @@ pub fn decode_responses(v: &Value) -> Result<DecodedResponse, CodecError> {
             b.items,
             outcome,
             usage(o.get("usage"), Profile::Responses)?,
-        )?,
+        )?
+        .with_details(decode_details(o)?)?,
         fidelity: b.fidelity,
         metadata: metadata(o, Profile::Responses)?,
     })
@@ -240,37 +256,42 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
         Outcome::Completed(Completion::Stop) => "stop",
         Outcome::Completed(Completion::ToolCalls) => "tool_calls",
         Outcome::Incomplete => "length",
-        Outcome::Failed => return Err(CodecError::Unsupported("failed terminal".into())),
+        Outcome::Failed | Outcome::Cancelled => {
+            return Err(CodecError::Unsupported("failed terminal".into()));
+        }
     };
     let messages = chat::encode_items(target.semantic.items());
     let message = messages
         .first()
-        .ok_or(CodecError::Invalid("empty candidate"))?;
+        .ok_or(CodecError::Invalid("empty Chat candidate"))?;
     let m = target.metadata;
-    Ok(
-        json!({"id":m.id,"object":"chat.completion","created":m.created,"model":m.model,
+    let value = json!({"id":m.id,"object":"chat.completion","created":m.created,"model":m.model,
         "choices":[{"index":0,"message":message,"finish_reason":finish}],
-        "usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Chat))}),
-    )
+        "usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Chat))});
+    bounded(&value)?;
+    Ok(value)
 }
 pub fn encode_responses(target: &ResponseRepresentation<'_>) -> Result<Value, CodecError> {
     if target.profile != Profile::Responses {
         return Err(CodecError::ProfileMismatch);
     }
-    let (status, item_status) = match target.semantic.outcome() {
-        Outcome::Completed(_) => ("completed", "completed"),
-        Outcome::Incomplete => ("incomplete", "incomplete"),
-        Outcome::Failed => ("failed", "incomplete"),
+    let status = match target.semantic.outcome() {
+        Outcome::Completed(_) => "completed",
+        Outcome::Incomplete => "incomplete",
+        Outcome::Failed => "failed",
+        Outcome::Cancelled => "cancelled",
     };
-    let mut output = responses::encode_items(target.semantic.items(), target.fidelity, true);
-    for item in &mut output {
-        if item.get("status").is_some() {
-            item["status"] = json!(item_status);
-        }
-    }
+    let output = responses::encode_items(target.semantic.items(), target.fidelity, true);
     let m = target.metadata;
-    Ok(
-        json!({"id":m.id,"object":"response","created_at":m.created,"model":m.model,"status":status,
-        "output":output,"usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Responses))}),
-    )
+    let mut value = json!({"id":m.id,"object":"response","created_at":m.created,"model":m.model,"status":status,
+        "output":output,"usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Responses))});
+    if target.semantic.details().error.is_some() {
+        value["error"] = encode_error(target.semantic.details().error.as_ref());
+    }
+    if target.semantic.details().incomplete.is_some() {
+        value["incomplete_details"] =
+            encode_incomplete(target.semantic.details().incomplete.as_ref());
+    }
+    bounded(&value)?;
+    Ok(value)
 }

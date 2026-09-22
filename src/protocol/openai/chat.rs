@@ -18,6 +18,7 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
             "tools",
             "tool_choice",
             "parallel_tool_calls",
+            "reasoning_effort",
         ],
     )?;
     let messages = o
@@ -28,7 +29,8 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
     for message in messages {
         decode_message(&mut b, object(message)?)?;
     }
-    let r = GenerationRequest::new(b.items, controls(o, "max_completion_tokens")?)?;
+    let r = GenerationRequest::new(b.items, controls(o, "max_completion_tokens")?)?
+        .with_reasoning(super::reasoning::chat_request(o)?);
     Ok(DecodedRequest {
         semantic: function_tools::decode(r, o, Profile::Chat)?,
         fidelity: b.fidelity,
@@ -83,9 +85,10 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
             }
             let refusal = match m.get("refusal") {
                 None | Some(Value::Null) => None,
-                Some(Value::String(value)) if !value.is_empty() && role == "assistant" => {
-                    Some(text(value, "refusal", MAX_TEXT_BYTES)?)
-                }
+                Some(Value::String(value)) if role == "assistant" => Some(
+                    crate::semantic::value::Text::allowing_empty(value, "refusal", MAX_TEXT_BYTES)
+                        .map_err(|_| CodecError::Limit)?,
+                ),
                 _ => return Err(CodecError::Invalid("refusal")),
             };
             let parts = match (m.get("content"), refusal) {
@@ -97,7 +100,7 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
                 }
                 (_, Some(refusal)) => vec![b.refusal(refusal)?],
                 (Some(Value::String(s)), None) => vec![b.part(s)?],
-                (None | Some(Value::Null), None) if calls.is_some() => Vec::new(),
+                (None | Some(Value::Null), None) if role == "assistant" => Vec::new(),
                 _ => return Err(CodecError::Unsupported("message content".into())),
             };
             b.items.push((
@@ -109,6 +112,7 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
                         MessageRole::Assistant
                     },
                     parts,
+                    status: ItemLifecycle::Completed,
                 }),
             ));
             if let Some(calls) = calls {
@@ -131,6 +135,8 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     let o = v.as_object_mut().expect("object literal");
     write_controls(target.semantic, o, "max_completion_tokens");
     function_tools::encode(target.semantic, Profile::Chat, o);
+    super::reasoning::write_request(target.semantic.reasoning(), o, Profile::Chat);
+    bounded(&v)?;
     Ok(v)
 }
 pub(super) fn call_wire(c: &ToolCall) -> Value {
@@ -178,6 +184,7 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
                 calls.as_array_mut().expect("calls").push(call_wire(c));
                 standalone_calls = c.message.is_none();
             }
+            Item::Reasoning(_) => unreachable!("lowering rejects reasoning items on chat"),
             Item::ToolResult(r) => {
                 standalone_calls = false;
                 messages.push(

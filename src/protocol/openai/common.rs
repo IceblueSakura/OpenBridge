@@ -92,6 +92,13 @@ impl Items {
         self.next_item += 1;
         Ok(ItemId::new(self.next_item))
     }
+    pub fn part_id(&mut self) -> Result<PartId, CodecError> {
+        self.next_part += 1;
+        if self.next_part as usize > MAX_ITEMS {
+            return Err(CodecError::Limit);
+        }
+        Ok(PartId::new(self.next_part))
+    }
     pub fn refusal(&mut self, text: Text) -> Result<Part, CodecError> {
         self.next_part += 1;
         if self.next_part as usize > MAX_ITEMS {
@@ -154,20 +161,34 @@ pub(super) fn tool_call(
         Profile::Responses => {
             fields(o, &["id", "type", "call_id", "name", "arguments", "status"])?;
             if let Some(status) = item_status {
-                completed_item(o, status)?;
+                accept_status(o, status)?;
             }
             (o, string(o, "call_id")?)
         }
+    };
+    let status = match (item_status, o.get("status").and_then(Value::as_str)) {
+        (Some("completed") | None, Some("completed") | None) => ItemLifecycle::Completed,
+        (Some("incomplete"), Some("completed")) => ItemLifecycle::Completed,
+        (Some("incomplete"), Some("incomplete")) => ItemLifecycle::Incomplete,
+        (None, Some("incomplete")) => ItemLifecycle::Incomplete,
+        _ => return Err(CodecError::Unsupported("item status".into())),
     };
     Ok(ToolCall {
         call_id: text(id, "call_id", 256)?,
         name: text(string(f, "name")?, "function name", 128)?,
         arguments: raw_string(f, "arguments")?,
         message,
+        status,
     })
 }
-pub(super) fn completed_item(o: &Map<String, Value>, expected: &str) -> Result<(), CodecError> {
-    if o.get("status").and_then(Value::as_str) != Some(expected) {
+pub(super) fn accept_status(o: &Map<String, Value>, expected: &str) -> Result<(), CodecError> {
+    let actual = o.get("status").and_then(Value::as_str);
+    let allowed = if expected == "incomplete" {
+        actual == Some("completed") || actual == Some("incomplete")
+    } else {
+        actual == Some(expected)
+    };
+    if !allowed {
         return Err(CodecError::Unsupported("non-completed item".into()));
     }
     Ok(())

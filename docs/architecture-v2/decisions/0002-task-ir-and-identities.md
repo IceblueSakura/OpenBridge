@@ -10,7 +10,7 @@ OpenBridge uses a closed task family with task-specific request/response/event t
 
 Semantic entities use explicit scoped identities rather than array position. Presence is modeled according to semantics, not uniformly collapsed into `Option<T>`.
 
-Protocol/provider-specific opaque information is kept in bounded fidelity records outside Task IR.
+Protocol/provider-specific opaque information is kept in bounded fidelity records outside task request/response item semantics. Lifecycle events can carry typed sidecar updates without making opaque state a readable content part; origin, finality and ownership follow [ADR-v2-0006](0006-reasoning-ownership.md).
 
 ## Rationale
 

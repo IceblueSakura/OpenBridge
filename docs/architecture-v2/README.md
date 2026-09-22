@@ -55,7 +55,7 @@ Only after M1-M4 pass should topology, endpoint and execution migration begin.
 
 ## v2 decisions
 
-ADR-v2-0001 through ADR-v2-0005 remain the accepted baseline. [ADR-v2-0006](decisions/0006-reasoning-ownership.md) records reasoning ownership only; it does not implement a codec. Do not add another ADR merely to describe implementation progress.
+ADR-v2-0001 through ADR-v2-0005 remain the accepted baseline. [ADR-v2-0006](decisions/0006-reasoning-ownership.md) owns reasoning separation and its admitted Responses subset. Do not add another ADR merely to describe implementation progress.
 
 ## Current acceptance principle
 
@@ -67,4 +67,4 @@ The migration is not validated by JSON round-trip alone. Tests must prove:
 - unsupported target semantics fail before encoding rather than being silently dropped;
 - requirements are derived from final IR rather than independently reconstructed from source wire.
 
-The function-tool request, completed static response, function-call events and assistant-text events now have v2 codecs and independent conformance cases. Scope and unresolved replacement gates are recorded in [migration.md](migration.md#function-tool-slice-implementation-boundary). Media, structured output and reasoning stay outside this slice; this does not complete M1-M4.
+The function-tool request, completed static response, function-call events, assistant-text events, and the admitted reasoning subset now have v2 codecs and independent conformance cases. Scope and unresolved replacement gates are recorded in [migration.md](migration.md#function-tool-slice-implementation-boundary). Media and structured output stay outside this slice; this does not complete M1-M4.
