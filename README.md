@@ -1,5 +1,7 @@
 # OpenBridge 使用手册
 
+> `semantic-v2` 分支正在进行破坏性语义迁移。架构与实施顺序以 [v2 总览](docs/architecture-v2/README.md)和[v2 迁移计划](docs/architecture-v2/migration.md)为准；下文运行时使用说明仍描述尚未替换的旧路径。
+
 OpenBridge 是一个面向本地或所有者控制环境的 headless、多 Provider、OpenAI-compatible 网关。它把代码中注册的
 Provider、Upstream Target、Route 和 Public Model 编译为固定下游接口，并使用私有用户表认证本地客户端。
 

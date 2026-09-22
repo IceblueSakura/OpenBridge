@@ -1,5 +1,7 @@
 # 下一步目标：多任务 IR 与离线 codec 验收
 
+> 本页保留前代 IR/Native 迁移路线作为参考。`semantic-v2` 当前按 [v2 迁移计划](../architecture-v2/migration.md)推进 Generation；本页的 Native 来源记录收尾顺序不作为 v2 工作主线。
+
 ## 目标与状态
 
 **先完成任务级设计准入，再推进 codec 迁移与新语料验收。** [ADR-0001](../decisions/0001-generation-ir-authority.md) 定义 IR 语义权威，[ADR-0002](../decisions/0002-task-ir-and-semantic-ownership.md) 定义多任务类型族与设计准入；[ADR-0003](../decisions/0003-ir-pipeline-and-target-compilation.md)、[ADR-0004](../decisions/0004-source-records-and-fidelity.md)、[ADR-0005](../decisions/0005-event-ir-and-delivery-lifecycle.md) 分别维护阶段管线、来源保真与 Event 交付细则。完整管线尚未闭合，接受设计不等于类型与映射已经齐备。

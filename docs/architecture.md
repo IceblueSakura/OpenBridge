@@ -1,5 +1,7 @@
 # OpenBridge 架构
 
+> 本页描述前代运行时路径。`semantic-v2` 的目标架构以 [v2 总览](architecture-v2/README.md)为准，迁移边界见[v2 迁移计划](architecture-v2/migration.md)。
+
 本文描述当前 checkout 的模块职责、启动装配和请求/响应数据流，并明确与下一步设计的差距。设计理由由 [ADR](decisions/README.md)维护，下一步范围见[多任务 IR 与 codec 验收目标](implementation-plans/next-goal.md)。
 
 ## 架构摘要

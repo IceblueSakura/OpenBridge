@@ -357,11 +357,9 @@ fn unknown_envelope_dependencies_cannot_survive_content_edits() {
 
 #[test]
 fn same_text_with_new_part_identity_does_not_inherit_old_annotations() {
-    let source = responses(
-        json!([{"type":"output_text","text":"same","annotations":[
-            {"type":"url_citation","url":"https://example.com/source","start_index":0,"end_index":4}
-        ]}]),
-    );
+    let source = responses(json!([{"type":"output_text","text":"same","annotations":[
+        {"type":"url_citation","url":"https://example.com/source","start_index":0,"end_index":4}
+    ]}]));
     let mut response = decoded(ApiProtocol::Responses, &source);
     let OutputItem::Message(message) = &response.semantic.candidates()[0].output()[0] else {
         panic!()

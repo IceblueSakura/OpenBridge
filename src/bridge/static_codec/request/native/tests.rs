@@ -354,10 +354,7 @@ fn existing_input_identity_cannot_be_reparented_between_message_groups() {
 
     set(
         &mut value,
-        vec![
-            original[0].clone(),
-            (moved_identity, original[1].1.clone()),
-        ],
+        vec![original[0].clone(), (moved_identity, original[1].1.clone())],
     );
 
     assert!(matches!(

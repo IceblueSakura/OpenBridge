@@ -132,7 +132,10 @@ fn native_presence_keeps_null_as_a_hint_but_zero_and_empty_stop_values_active() 
     )
     .unwrap();
     assert_eq!(active_request.semantic.controls().seed(), Some(0));
-    assert_eq!(active_request.semantic.controls().stop(), Some([].as_slice()));
+    assert_eq!(
+        active_request.semantic.controls().stop(),
+        Some([].as_slice())
+    );
     let active_encoded: Value =
         serde_json::from_slice(&encode_native_request(&active_request, "target").unwrap()).unwrap();
     let mut active_expected = active_source;
