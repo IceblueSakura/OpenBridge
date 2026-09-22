@@ -1,84 +1,125 @@
 # Rewrite and Migration Strategy
 
-## Strategy
+## Current status
 
-This is a repository-preserving rewrite, not an incremental compatibility migration.
+Architecture exploration is complete enough to begin controlled migration. The active phase is **Generation Semantic Migration & Validation**.
 
-The existing implementation remains available through Git history and the `main` branch while `semantic-v2` develops the replacement architecture. New v2 code may coexist temporarily with legacy modules, but v2 must not add compatibility layers whose only purpose is preserving internal Rust APIs.
+This remains a repository-preserving rewrite. The `main` branch and Git history retain the predecessor implementation while `semantic-v2` is free to make breaking internal changes.
 
-## Asset classification
+## Migration rule
 
-### Preserve directly
+Do not port predecessor modules mechanically.
 
-- provider probe evidence and integration observations;
-- protocol fixtures and semantic test data;
-- security boundaries around trusted targets and credentials;
-- bounded body/SSE/transport behavior;
-- retry-before-commit and cancellation requirements;
-- observability privacy requirements;
-- validated OAuth and credential lifecycle behavior;
-- public product requirements that remain intentional.
-
-### Preserve as knowledge, redesign implementation
-
-- `src/ir/generation`;
-- `src/bridge`;
-- `src/pipeline`;
-- registry/public-model compilation;
-- provider adapters and capability structures.
-
-For these areas, extract invariants and examples first. Do not mechanically rename old structs into v2 types.
-
-### Delete when superseded
-
-- transitional Native-vs-Bridge ownership paths;
-- JSON normalization or post-codec surgery that owns modeled semantics;
-- duplicate request-fact structures once final IR-derived requirements replace them;
-- compatibility facades that exist only for the pre-v2 internal module layout.
-
-## Implementation order
-
-1. Freeze the v2 ontology and invariants.
-2. Define shared semantic value primitives and the Task union.
-3. Implement Generation request/response/event IR as the first vertical slice.
-4. Define protocol codec traits around explicit Task + ProtocolProfile inputs.
-5. Decode downstream request before requirements extraction.
-6. Derive requirements exclusively from final IR.
-7. Introduce Endpoint contracts and candidate lowering.
-8. Encode without semantic post-processing.
-9. Reconnect execution, credential, transport and commit lifecycle.
-10. Port Embedding, ImageGeneration and Speech task families.
-11. Remove superseded bridge/pipeline/IR modules.
-12. Rewrite top-level architecture documentation and make v2 the default branch only after semantic acceptance gates pass.
-
-## Acceptance gates for a migrated task
-
-A task is v2-complete only when:
-
-- meaningful supported input distinctions have typed semantic representation;
-- request and response mappings are independently tested;
-- streaming event semantics are covered when the task streams;
-- requirements are derived from final IR;
-- each candidate starts from the same immutable IR;
-- mutations to IR are observable in encoded output;
-- deleted semantics cannot reappear from source records;
-- unsupported target representation fails deterministically;
-- no provider/network dependency is required for codec conformance tests.
-
-## First coding milestone
-
-Do not begin by porting the current bridge.
-
-Build a minimal vertical semantic path:
+For each behavior:
 
 ```text
-Chat request fixture
- -> Chat codec
- -> GenerationRequest
- -> requirements
- -> Responses lowering
- -> Responses codec
- -> expected wire fixture
+legacy implementation / evidence
+ -> extract observable semantic invariant
+ -> assign one v2 owner
+ -> implement in semantic / protocol / lowering
+ -> add independent conformance test
+ -> only then mark predecessor responsibility replaceable
 ```
 
-Then run the same IR through a Chat target codec. This proves that Native and cross-protocol paths share one semantic authority before reconnecting production routing.
+Source compatibility is not an acceptance criterion.
+
+## Active scope: Generation only
+
+Migrate and validate:
+
+- instructions and messages;
+- text and stable item/part identity;
+- image, audio and file resources;
+- function tools, tool choice, tool calls and tool results;
+- structured output and JSON Schema;
+- reasoning controls and replay semantics where supported;
+- generation controls;
+- semantic presence/default distinctions;
+- bounded fidelity/source metadata.
+
+Do not start another Task family until Generation passes the phase gates.
+
+## Milestones
+
+### M1 — Generation IR
+
+Complete a protocol-neutral Generation request/response/event model for the supported product surface.
+
+Acceptance:
+- no modeled semantic value requires original JSON to remain meaningful;
+- identity and presence rules are explicit;
+- requirements are pure projections from validated final IR.
+
+### M2 — Chat / Responses codecs
+
+Migrate proven protocol behavior from predecessor codecs and evidence.
+
+Acceptance:
+- supported Chat request/response semantics decode and encode through IR;
+- supported Responses request/response semantics decode and encode through IR;
+- same-protocol and cross-protocol paths use the same semantic authority;
+- unsupported mappings fail explicitly.
+
+### M3 — Semantic conformance suite
+
+Prefer semantic properties over round-trip self-validation.
+
+Required test classes:
+
+1. **Convergence:** equivalent Chat and Responses wires decode to equivalent semantics.
+2. **Authority:** semantic mutation/deletion changes all applicable encoded outputs.
+3. **Fidelity isolation:** source metadata cannot restore deleted or replaced semantics.
+4. **Representability:** unsupported endpoint semantics fail deterministically before encoding.
+5. **Independent expected fixtures:** decoder and encoder correctness are checked against independently authored expectations.
+
+### M4 — Legacy replacement assessment
+
+Audit:
+
+- `src/ir/generation/`;
+- `src/bridge/static_codec/`;
+- `src/bridge/event_codec/`;
+- Generation parts of `src/pipeline/`;
+- relevant `testdata/` and `docs/implementation-status/evidence/`.
+
+Classify each responsibility as:
+
+- migrated to v2;
+- retained outside semantic core;
+- intentionally unsupported;
+- still blocking replacement.
+
+M4 does not require deleting the legacy path. It establishes whether deletion is safe.
+
+## Deferred work
+
+Until M1-M4 pass, defer:
+
+- Embedding, Image Generation and Speech IR;
+- provider/route redesign implementation;
+- credential migration;
+- retry/fallback and execution rewrite;
+- MCP and observability redesign;
+- general hooks/plugins;
+- broad architecture-document expansion.
+
+Existing security, credential, transport, cancellation, commit and observability evidence remains valid input for later phases.
+
+## Phase exit gate
+
+Generation migration is complete only when its supported semantics can, without provider accounts or network I/O:
+
+```text
+Chat / Responses wire
+ -> decode
+ -> Generation IR
+ -> semantic transform
+ -> requirements
+ -> representability check
+ -> encode
+ -> Chat / Responses wire
+```
+
+and the semantic conformance suite proves IR authority.
+
+Only then begin Endpoint/Topology/Execution migration.
