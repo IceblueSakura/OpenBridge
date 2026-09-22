@@ -101,7 +101,7 @@ The offline v2 slice owns ordinary function definitions, optional description/sc
 | Protocol request | `src/protocol/openai/{chat,responses,function_tools}.rs`; both protocols decode and encode function history | Inputs are task payloads; model binding, delivery/stream controls, top-level Responses instructions and other unmodeled fields are rejected by this slice |
 | Lowering | `src/lowering/generation.rs`; validated immutable representations are the only public encoder inputs | Omitted strict cannot cross profiles with different defaults; unimplemented domains fail even when the endpoint advertises support |
 | Static response | `src/semantic/task/generation/response.rs` and `src/protocol/openai/static_response.rs`; completed single-candidate text/function output and replay into request history | Partial/failed responses, refusal, annotations and multiple candidates remain unsupported |
-| Function-call events | `src/semantic/task/generation/event.rs` and `src/protocol/openai/function_events.rs`; argument deltas, identity checks, distinct terminals and materialize into the static response | Text, media, reasoning and usage events are not represented; SSE framing and downstream commit stay outside the codec |
+| Function and text events | `src/semantic/task/generation/event.rs` and `src/protocol/openai/function_events.rs`; function-call and assistant-text deltas, identity checks, distinct terminals and materialize into the static response | Media, reasoning, annotations and usage events are not represented; SSE framing and downstream commit stay outside the codec |
 | Fidelity | `src/protocol/fidelity.rs`; bounded Responses item IDs keyed by surviving semantic identity | No raw semantic envelope or generic unknown-field passthrough; source records cannot create deleted output |
 | Conformance | `tests/semantic_v2_tools.rs`, `tests/semantic_v2_generation.rs` and `tests/semantic_v2_function_events.rs`; independent wire/IR expectations and mutation/failure cases | No production routing, provider, SDK or live-network acceptance |
 
@@ -119,11 +119,11 @@ The fixed offline admission limits are 4 MiB serialized task payload, 1 MiB per 
 |---|---|
 | Ordinary function values and request mappings in `src/ir/generation/tool.rs` and `src/bridge/static_codec/request.rs` | Migrated subset has independent v2 owners; broader legacy semantics remain |
 | Static function response mapping | Completed single-candidate subset migrated; partial results, usage projection and other output domains still block replacement |
-| Tool argument events, reducers and materialization in `src/bridge/event_codec/` and `src/ir/generation/` | Function-call subset has independent v2 owners; text and other event domains, plus production wiring, still block replacement |
+| Tool argument events, reducers and materialization in `src/bridge/event_codec/` and `src/ir/generation/` | Function-call and assistant-text subsets have independent v2 owners; other event domains and production wiring still block replacement |
 | Model binding, provider/route selection, credential and attempt lifecycle | Retained outside semantic core; not modified by this slice |
 | Production Generation pipeline | Still uses predecessor path; offline v2 conformance does not authorize deletion |
 
-M1-M4 are therefore not complete. Function-call events now materialize into the static contract. Next, close assistant text events against that same static response before expanding media, structured output or reasoning. Do not delete the predecessor tool path or begin topology/execution migration yet.
+M1-M4 are therefore not complete. Function-call and assistant-text events now materialize into the static contract. Do not expand media, structured output or reasoning until each domain has an admitted static contract and independent expected fixtures. Do not delete the predecessor tool path or begin topology/execution migration yet.
 
 ## Deferred work
 

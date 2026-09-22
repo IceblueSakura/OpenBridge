@@ -5,7 +5,9 @@ use super::{
 };
 use crate::{
     protocol::fidelity::FidelityRecords,
-    semantic::task::generation::{ItemId, MAX_ITEMS, MAX_TEXT_BYTES, StreamEvent, StreamTerminal},
+    semantic::task::generation::{
+        ItemId, MAX_ITEMS, MAX_TEXT_BYTES, PartId, StreamEvent, StreamTerminal,
+    },
 };
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -19,14 +21,24 @@ struct TrackedCall {
     arguments: String,
     finished: bool,
 }
+struct TrackedText {
+    item: ItemId,
+    part: PartId,
+    wire_id: String,
+    text: String,
+    finished: bool,
+}
 pub struct FunctionEventDecoder {
     profile: Profile,
     metadata: Option<ResponseMetadata>,
     fidelity: FidelityRecords,
     next_item: u64,
+    next_part: u64,
     message_owner: Option<ItemId>,
     terminal: bool,
     calls: BTreeMap<u64, TrackedCall>,
+    texts: BTreeMap<u64, TrackedText>,
+    chat_text: Option<TrackedText>,
     created: bool,
 }
 impl FunctionEventDecoder {
@@ -36,9 +48,12 @@ impl FunctionEventDecoder {
             metadata: None,
             fidelity: FidelityRecords::default(),
             next_item: 0,
+            next_part: 0,
             message_owner: None,
             terminal: false,
             calls: BTreeMap::new(),
+            texts: BTreeMap::new(),
+            chat_text: None,
             created: false,
         }
     }
@@ -83,15 +98,19 @@ impl FunctionEventDecoder {
         }
         let delta = object(choice.get("delta").ok_or(CodecError::Invalid("delta"))?)?;
         fields(delta, &["role", "content", "tool_calls"])?;
-        if delta.contains_key("content") && !delta.get("content").is_some_and(Value::is_null) {
-            return Err(CodecError::Unsupported("text delta".into()));
-        }
         if let Some(role) = delta.get("role")
             && role.as_str() != Some("assistant")
         {
             return Err(CodecError::Unsupported("delta role".into()));
         }
         let mut events = Vec::new();
+        if let Some(content) = delta.get("content") {
+            if let Some(fragment) = content.as_str() {
+                events.extend(self.chat_text(fragment)?);
+            } else if !content.is_null() {
+                return Err(CodecError::Unsupported("text delta".into()));
+            }
+        }
         if let Some(calls) = delta.get("tool_calls") {
             let calls = calls.as_array().ok_or(CodecError::Invalid("tool_calls"))?;
             for call in calls {
@@ -106,12 +125,21 @@ impl FunctionEventDecoder {
             }
             Some(reason) => {
                 let terminal = match reason.as_str() {
-                    Some("tool_calls") => StreamTerminal::Completed,
+                    Some("tool_calls") if !self.calls.is_empty() => StreamTerminal::Completed,
+                    Some("stop") if self.calls.is_empty() && self.chat_text.is_some() => {
+                        StreamTerminal::Completed
+                    }
                     Some("length") => StreamTerminal::Incomplete,
+                    Some("tool_calls") | Some("stop") => {
+                        return Err(CodecError::Invalid("finish reason"));
+                    }
                     _ => return Err(CodecError::Unsupported("finish reason".into())),
                 };
                 if terminal == StreamTerminal::Completed {
-                    events.extend(self.finish_open_calls()?);
+                    events.extend(self.finish_open_text());
+                    if !self.calls.is_empty() {
+                        events.extend(self.finish_open_calls()?);
+                    }
                 }
                 self.terminal = true;
                 events.push(StreamEvent::Terminal(terminal));
@@ -208,6 +236,10 @@ impl FunctionEventDecoder {
         match kind {
             "response.created" | "response.in_progress" => self.responses_status(o, "in_progress"),
             "response.output_item.added" => self.item_added(o),
+            "response.content_part.added" => self.content_part_added(o),
+            "response.output_text.delta" => self.text_delta(o),
+            "response.output_text.done" => self.text_done(o),
+            "response.content_part.done" => self.content_part_done(o),
             "response.function_call_arguments.delta" => self.arguments_delta(o),
             "response.function_call_arguments.done" => self.arguments_done(o),
             "response.output_item.done" => self.item_done(o),
@@ -252,10 +284,13 @@ impl FunctionEventDecoder {
     fn item_added(&mut self, o: &Map<String, Value>) -> Result<Vec<StreamEvent>, CodecError> {
         fields(o, &["type", "output_index", "item"])?;
         let index = index_of(o)?;
-        if index != self.calls.len() as u64 {
+        if index != self.calls.len() as u64 + self.texts.len() as u64 {
             return Err(CodecError::Invalid("output index"));
         }
         let item = object(o.get("item").ok_or(CodecError::Invalid("item"))?)?;
+        if string(item, "type")? == "message" {
+            return self.message_added(index, item);
+        }
         fields(
             item,
             &["id", "type", "call_id", "name", "arguments", "status"],
@@ -327,6 +362,9 @@ impl FunctionEventDecoder {
         fields(o, &["type", "output_index", "item"])?;
         let index = index_of(o)?;
         let snapshot = object(o.get("item").ok_or(CodecError::Invalid("item"))?)?;
+        if self.texts.contains_key(&index) {
+            return self.message_done(index, snapshot);
+        }
         fields(
             snapshot,
             &["id", "type", "call_id", "name", "arguments", "status"],
@@ -348,6 +386,159 @@ impl FunctionEventDecoder {
         let item = call.item;
         call.finished = true;
         Ok(vec![StreamEvent::CallFinished { item }])
+    }
+    fn message_added(
+        &mut self,
+        index: u64,
+        item: &Map<String, Value>,
+    ) -> Result<Vec<StreamEvent>, CodecError> {
+        fields(item, &["id", "type", "role", "status", "content"])?;
+        if string(item, "role")? != "assistant" || string(item, "status")? != "in_progress" {
+            return Err(CodecError::Unsupported("message item".into()));
+        }
+        if item
+            .get("content")
+            .is_some_and(|content| content.as_array().is_none_or(|parts| !parts.is_empty()))
+        {
+            return Err(CodecError::Unsupported("message content".into()));
+        }
+        let wire_id = string(item, "id")?.to_owned();
+        let semantic_id = self.item_id()?;
+        self.fidelity
+            .record_response_item_id(semantic_id, &wire_id)?;
+        self.texts.insert(
+            index,
+            TrackedText {
+                item: semantic_id,
+                part: PartId::new(0),
+                wire_id,
+                text: String::new(),
+                finished: false,
+            },
+        );
+        Ok(Vec::new())
+    }
+    fn content_part_added(
+        &mut self,
+        o: &Map<String, Value>,
+    ) -> Result<Vec<StreamEvent>, CodecError> {
+        fields(
+            o,
+            &["type", "output_index", "content_index", "item_id", "part"],
+        )?;
+        if o.get("content_index").and_then(Value::as_u64) != Some(0) {
+            return Err(CodecError::Unsupported("content index".into()));
+        }
+        let index = index_of(o)?;
+        let part = object(o.get("part").ok_or(CodecError::Invalid("part"))?)?;
+        fields(part, &["type", "text", "annotations"])?;
+        if string(part, "type")? != "output_text" || !string(part, "text")?.is_empty() {
+            return Err(CodecError::Unsupported("text part".into()));
+        }
+        if part
+            .get("annotations")
+            .is_some_and(|annotations| annotations.as_array().is_none_or(|items| !items.is_empty()))
+        {
+            return Err(CodecError::Unsupported("annotations".into()));
+        }
+        let item_id = string(o, "item_id")?.to_owned();
+        if !self
+            .texts
+            .get(&index)
+            .is_some_and(|text| text.part == PartId::new(0) && text.wire_id == item_id)
+        {
+            return Err(CodecError::Invalid("event identity"));
+        }
+        let part_id = self.part_id()?;
+        let text = self.texts.get_mut(&index).expect("text item exists");
+        text.part = part_id;
+        Ok(vec![StreamEvent::TextStarted {
+            item: text.item,
+            part: part_id,
+        }])
+    }
+    fn message_done(
+        &mut self,
+        index: u64,
+        snapshot: &Map<String, Value>,
+    ) -> Result<Vec<StreamEvent>, CodecError> {
+        fields(snapshot, &["id", "type", "role", "status", "content"])?;
+        let content = snapshot
+            .get("content")
+            .and_then(Value::as_array)
+            .ok_or(CodecError::Invalid("message content"))?;
+        let part = object(content.first().ok_or(CodecError::Invalid("text part"))?)?;
+        let text = self
+            .texts
+            .get_mut(&index)
+            .ok_or(CodecError::Invalid("event identity"))?;
+        if string(snapshot, "id")? != text.wire_id
+            || string(snapshot, "type")? != "message"
+            || string(snapshot, "status")? != "completed"
+            || string(part, "text")? != text.text
+        {
+            return Err(CodecError::Invalid("item snapshot"));
+        }
+        if text.finished {
+            return Ok(Vec::new());
+        }
+        text.finished = true;
+        Ok(vec![StreamEvent::TextFinished {
+            item: text.item,
+            part: text.part,
+        }])
+    }
+    fn text_delta(&mut self, o: &Map<String, Value>) -> Result<Vec<StreamEvent>, CodecError> {
+        fields(
+            o,
+            &["type", "output_index", "content_index", "item_id", "delta"],
+        )?;
+        if o.get("content_index").and_then(Value::as_u64) != Some(0) {
+            return Err(CodecError::Unsupported("content index".into()));
+        }
+        let fragment = string(o, "delta")?;
+        if fragment.is_empty() {
+            return Err(CodecError::Invalid("empty delta"));
+        }
+        let text = self.open_response_text(o)?;
+        append(&mut text.text, fragment)?;
+        Ok(vec![StreamEvent::TextDelta {
+            item: text.item,
+            part: text.part,
+            fragment: fragment.to_owned(),
+        }])
+    }
+    fn text_done(&mut self, o: &Map<String, Value>) -> Result<Vec<StreamEvent>, CodecError> {
+        fields(
+            o,
+            &["type", "output_index", "content_index", "item_id", "text"],
+        )?;
+        let text = self.open_response_text(o)?;
+        if string(o, "text")? != text.text {
+            return Err(CodecError::Invalid("text snapshot"));
+        }
+        Ok(Vec::new())
+    }
+    fn content_part_done(
+        &mut self,
+        o: &Map<String, Value>,
+    ) -> Result<Vec<StreamEvent>, CodecError> {
+        fields(
+            o,
+            &["type", "output_index", "content_index", "item_id", "part"],
+        )?;
+        let text = self.open_response_text(o)?;
+        let part = object(o.get("part").ok_or(CodecError::Invalid("part"))?)?;
+        if string(part, "text")? != text.text {
+            return Err(CodecError::Invalid("text snapshot"));
+        }
+        let item = text.item;
+        let part_id = text.part;
+        text.finished = true;
+        Ok(vec![StreamEvent::TextFinished {
+            item,
+            part: part_id,
+        }])
     }
     fn responses_terminal(
         &mut self,
@@ -385,20 +576,33 @@ impl FunctionEventDecoder {
                 .get("output")
                 .and_then(Value::as_array)
                 .ok_or(CodecError::Invalid("output"))?;
-            if output.len() != self.calls.len() || self.calls.values().any(|call| !call.finished) {
+            if output.len() != self.calls.len() + self.texts.len()
+                || self.calls.values().any(|call| !call.finished)
+                || self.texts.values().any(|text| !text.finished)
+            {
                 return Err(CodecError::Invalid("incomplete output"));
             }
             for (index, item) in output.iter().enumerate() {
                 let item = object(item)?;
-                let call = self
-                    .calls
-                    .get(&(index as u64))
-                    .ok_or(CodecError::Invalid("output index"))?;
-                if string(item, "id")? != call.wire_id.as_deref().unwrap_or_default()
-                    || string(item, "arguments")? != call.arguments
-                    || string(item, "call_id")? != call.call_id
-                {
-                    return Err(CodecError::Invalid("completed snapshot"));
+                let index = index as u64;
+                if let Some(call) = self.calls.get(&index) {
+                    if string(item, "id")? != call.wire_id.as_deref().unwrap_or_default()
+                        || string(item, "arguments")? != call.arguments
+                        || string(item, "call_id")? != call.call_id
+                    {
+                        return Err(CodecError::Invalid("completed snapshot"));
+                    }
+                } else if let Some(text) = self.texts.get(&index) {
+                    let content = item
+                        .get("content")
+                        .and_then(Value::as_array)
+                        .ok_or(CodecError::Invalid("message content"))?;
+                    let part = object(content.first().ok_or(CodecError::Invalid("text part"))?)?;
+                    if string(item, "id")? != text.wire_id || string(part, "text")? != text.text {
+                        return Err(CodecError::Invalid("completed snapshot"));
+                    }
+                } else {
+                    return Err(CodecError::Invalid("output index"));
                 }
             }
         }
@@ -447,6 +651,73 @@ impl FunctionEventDecoder {
         self.message_owner = Some(owner);
         Ok(owner)
     }
+    fn chat_text(&mut self, fragment: &str) -> Result<Vec<StreamEvent>, CodecError> {
+        let mut events = Vec::new();
+        if self.chat_text.is_none() {
+            let item = self.message_owner()?;
+            let part = self.part_id()?;
+            self.chat_text = Some(TrackedText {
+                item,
+                part,
+                wire_id: String::new(),
+                text: String::new(),
+                finished: false,
+            });
+            events.push(StreamEvent::TextStarted { item, part });
+        }
+        let text = self
+            .chat_text
+            .as_mut()
+            .filter(|text| !text.finished)
+            .ok_or(CodecError::Invalid("event lifecycle"))?;
+        if !fragment.is_empty() {
+            append(&mut text.text, fragment)?;
+            events.push(StreamEvent::TextDelta {
+                item: text.item,
+                part: text.part,
+                fragment: fragment.to_owned(),
+            });
+        }
+        Ok(events)
+    }
+    fn finish_open_text(&mut self) -> Vec<StreamEvent> {
+        let mut events = Vec::new();
+        if let Some(text) = self.chat_text.as_mut().filter(|text| !text.finished) {
+            text.finished = true;
+            events.push(StreamEvent::TextFinished {
+                item: text.item,
+                part: text.part,
+            });
+        }
+        for text in self.texts.values_mut().filter(|text| !text.finished) {
+            text.finished = true;
+            events.push(StreamEvent::TextFinished {
+                item: text.item,
+                part: text.part,
+            });
+        }
+        events
+    }
+    fn open_response_text(
+        &mut self,
+        o: &Map<String, Value>,
+    ) -> Result<&mut TrackedText, CodecError> {
+        let index = index_of(o)?;
+        let item_id = string(o, "item_id")?;
+        let text = self
+            .texts
+            .get_mut(&index)
+            .filter(|text| !text.finished && text.part != PartId::new(0) && text.wire_id == item_id)
+            .ok_or(CodecError::Invalid("event identity"))?;
+        Ok(text)
+    }
+    fn part_id(&mut self) -> Result<PartId, CodecError> {
+        if self.next_part as usize >= MAX_ITEMS {
+            return Err(CodecError::Limit);
+        }
+        self.next_part += 1;
+        Ok(PartId::new(self.next_part))
+    }
     fn item_id(&mut self) -> Result<ItemId, CodecError> {
         if self.next_item as usize >= MAX_ITEMS {
             return Err(CodecError::Limit);
@@ -480,10 +751,18 @@ impl FunctionEventDecoder {
         Ok(())
     }
 }
+struct EncodedText {
+    item: ItemId,
+    part: PartId,
+    wire_id: String,
+    text: String,
+    finished: bool,
+}
 pub struct FunctionEventEncoder {
     profile: Profile,
     metadata: ResponseMetadata,
     calls: Vec<TrackedCall>,
+    texts: Vec<EncodedText>,
     next_index: u64,
 }
 impl FunctionEventEncoder {
@@ -500,6 +779,7 @@ impl FunctionEventEncoder {
             profile,
             metadata,
             calls: Vec::new(),
+            texts: Vec::new(),
             next_index: 0,
         })
     }
@@ -515,6 +795,43 @@ impl FunctionEventEncoder {
     }
     fn encode_chat(&mut self, event: &StreamEvent) -> Result<Vec<Value>, CodecError> {
         match event {
+            StreamEvent::TextStarted { item, part } => {
+                self.texts.push(EncodedText {
+                    item: *item,
+                    part: *part,
+                    wire_id: String::new(),
+                    text: String::new(),
+                    finished: false,
+                });
+                Ok(vec![self.chat_chunk(
+                    json!({"role":"assistant","content":""}),
+                    Value::Null,
+                )])
+            }
+            StreamEvent::TextDelta {
+                item,
+                part,
+                fragment,
+            } => {
+                let text = self
+                    .texts
+                    .iter_mut()
+                    .find(|text| text.item == *item && text.part == *part && !text.finished)
+                    .ok_or(CodecError::Invalid("event identity"))?;
+                append(&mut text.text, fragment)?;
+                Ok(vec![
+                    self.chat_chunk(json!({"content":fragment}), Value::Null),
+                ])
+            }
+            StreamEvent::TextFinished { item, part } => {
+                let text = self
+                    .texts
+                    .iter_mut()
+                    .find(|text| text.item == *item && text.part == *part && !text.finished)
+                    .ok_or(CodecError::Invalid("event identity"))?;
+                text.finished = true;
+                Ok(Vec::new())
+            }
             StreamEvent::CallStarted {
                 item,
                 call_id,
@@ -543,10 +860,18 @@ impl FunctionEventEncoder {
                 Ok(Vec::new())
             }
             StreamEvent::Terminal(StreamTerminal::Completed) => {
-                if self.calls.is_empty() || self.calls.iter().any(|call| !call.finished) {
+                if self.calls.is_empty() && self.texts.is_empty()
+                    || self.calls.iter().any(|call| !call.finished)
+                    || self.texts.iter().any(|text| !text.finished)
+                {
                     return Err(CodecError::Invalid("event lifecycle"));
                 }
-                Ok(vec![self.chat_chunk(json!({}), json!("tool_calls"))])
+                let finish = if self.calls.is_empty() {
+                    "stop"
+                } else {
+                    "tool_calls"
+                };
+                Ok(vec![self.chat_chunk(json!({}), json!(finish))])
             }
             StreamEvent::Terminal(StreamTerminal::Incomplete) => {
                 Ok(vec![self.chat_chunk(json!({}), json!("length"))])
@@ -560,6 +885,66 @@ impl FunctionEventEncoder {
         fidelity: &FidelityRecords,
     ) -> Result<Vec<Value>, CodecError> {
         match event {
+            StreamEvent::TextStarted { item, part } => {
+                let wire_id = fidelity
+                    .response_item_id(*item)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("item_{}", item.get()));
+                let index = self.next_index;
+                self.next_index += 1;
+                self.texts.push(EncodedText {
+                    item: *item,
+                    part: *part,
+                    wire_id: wire_id.clone(),
+                    text: String::new(),
+                    finished: false,
+                });
+                Ok(vec![
+                    json!({"type":"response.output_item.added","output_index":index,"item":{"id":&wire_id,"type":"message","role":"assistant","status":"in_progress","content":[]}}),
+                    json!({"type":"response.content_part.added","output_index":index,"content_index":0,"item_id":wire_id,"part":{"type":"output_text","text":"","annotations":[]}}),
+                ])
+            }
+            StreamEvent::TextDelta {
+                item,
+                part,
+                fragment,
+            } => {
+                let index =
+                    self.texts
+                        .iter()
+                        .position(|text| text.item == *item && text.part == *part)
+                        .ok_or(CodecError::Invalid("event identity"))? as u64;
+                let text = self
+                    .texts
+                    .iter_mut()
+                    .find(|text| text.item == *item && text.part == *part && !text.finished)
+                    .ok_or(CodecError::Invalid("event identity"))?;
+                append(&mut text.text, fragment)?;
+                let wire_id = text.wire_id.clone();
+                Ok(vec![
+                    json!({"type":"response.output_text.delta","output_index":index,"content_index":0,"item_id":wire_id,"delta":fragment}),
+                ])
+            }
+            StreamEvent::TextFinished { item, part } => {
+                let index =
+                    self.texts
+                        .iter()
+                        .position(|text| text.item == *item && text.part == *part)
+                        .ok_or(CodecError::Invalid("event identity"))? as u64;
+                let text = self
+                    .texts
+                    .iter_mut()
+                    .find(|text| text.item == *item && text.part == *part && !text.finished)
+                    .ok_or(CodecError::Invalid("event identity"))?;
+                text.finished = true;
+                let wire_id = text.wire_id.clone();
+                let body = text.text.clone();
+                Ok(vec![
+                    json!({"type":"response.output_text.done","output_index":index,"content_index":0,"item_id":&wire_id,"text":&body}),
+                    json!({"type":"response.content_part.done","output_index":index,"content_index":0,"item_id":&wire_id,"part":{"type":"output_text","text":&body,"annotations":[]}}),
+                    json!({"type":"response.output_item.done","output_index":index,"item":{"id":wire_id,"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":body,"annotations":[]}]}}),
+                ])
+            }
             StreamEvent::CallStarted {
                 item,
                 call_id,
@@ -603,16 +988,22 @@ impl FunctionEventEncoder {
                 ])
             }
             StreamEvent::Terminal(StreamTerminal::Completed) => {
-                if self.calls.is_empty() || self.calls.iter().any(|call| !call.finished) {
+                if self.calls.is_empty() && self.texts.is_empty()
+                    || self.calls.iter().any(|call| !call.finished)
+                    || self.texts.iter().any(|text| !text.finished)
+                {
                     return Err(CodecError::Invalid("event lifecycle"));
                 }
-                let output: Vec<_> = self
-                    .calls
+                let mut output: Vec<_> = self
+                    .texts
                     .iter()
-                    .map(|call| {
-                        json!({"id":call.wire_id,"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":call.arguments,"status":"completed"})
+                    .map(|text| {
+                        json!({"id":text.wire_id,"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":text.text,"annotations":[]}]})
                     })
                     .collect();
+                output.extend(self.calls.iter().map(|call| {
+                    json!({"id":call.wire_id,"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":call.arguments,"status":"completed"})
+                }));
                 Ok(vec![self.responses_terminal(
                     "response.completed",
                     "completed",
