@@ -1,6 +1,7 @@
 //! Pure codecs for the explicitly supported Generation migration slice.
 pub mod chat;
 mod common;
+pub mod function_events;
 mod function_tools;
 pub mod responses;
 mod static_response;

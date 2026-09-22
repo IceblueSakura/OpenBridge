@@ -1,4 +1,5 @@
 //! Generation semantic IR.
+mod event;
 mod output;
 mod reasoning;
 mod request;
@@ -20,5 +21,8 @@ pub use tool::{
     ToolResult,
 };
 
+pub use event::{
+    EventError, StreamEvent, StreamState, StreamTerminal, end_of_stream, materialize, reduce,
+};
 pub use response::{Completion, GenerationResponse};
 pub use validate::{MAX_ITEMS, MAX_TEXT_BYTES, MAX_TOOLS, MAX_TOTAL_BYTES};

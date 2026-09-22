@@ -67,4 +67,4 @@ The migration is not validated by JSON round-trip alone. Tests must prove:
 - unsupported target semantics fail before encoding rather than being silently dropped;
 - requirements are derived from final IR rather than independently reconstructed from source wire.
 
-The function-tool request and completed static-response subset now has v2 codecs, validated lowering inputs and independent conformance cases. Scope and unresolved replacement gates are recorded in [migration.md](migration.md#function-tool-slice-implementation-boundary). The next slice is tool Event IR and static/event closure; this does not complete M1-M4.
+The function-tool request, completed static response, and function-call event subset now has v2 codecs, validated lowering inputs and independent conformance cases. Scope and unresolved replacement gates are recorded in [migration.md](migration.md#function-tool-slice-implementation-boundary). The next slice is assistant text event closure; this does not complete M1-M4.
