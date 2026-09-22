@@ -151,6 +151,8 @@ GenerationFailed(...)
 
 A reducer consumes valid events into a task response state. Protocol event codecs must emit/consume typed events. Source SSE payload may be retained only as bounded fidelity metadata.
 
+Reasoning ownership is decided in [ADR-v2-0006](decisions/0006-reasoning-ownership.md). Request controls, readable reasoning items, and same-provider opaque replay are separate. The current placeholder request enum is not that contract and has no codec.
+
 ## Requirements
 
 Requirements are derived values, never independently parsed request facts:

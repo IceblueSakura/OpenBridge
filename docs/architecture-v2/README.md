@@ -55,7 +55,7 @@ Only after M1-M4 pass should topology, endpoint and execution migration begin.
 
 ## v2 decisions
 
-ADR-v2-0001 through ADR-v2-0005 remain the accepted baseline. Do not add another ADR merely to describe implementation progress.
+ADR-v2-0001 through ADR-v2-0005 remain the accepted baseline. [ADR-v2-0006](decisions/0006-reasoning-ownership.md) records reasoning ownership only; it does not implement a codec. Do not add another ADR merely to describe implementation progress.
 
 ## Current acceptance principle
 
