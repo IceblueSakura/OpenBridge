@@ -740,7 +740,6 @@ impl FunctionEventDecoder {
             id: text(id, "response id", 256)?.as_str().to_owned(),
             model: text(model, "response model", 256)?.as_str().to_owned(),
             created,
-            usage: None,
         };
         if let Some(current) = &self.metadata
             && current != &next
@@ -771,7 +770,6 @@ impl FunctionEventEncoder {
             || metadata.model.is_empty()
             || metadata.id.len() > 256
             || metadata.model.len() > 256
-            || metadata.usage.is_some()
         {
             return Err(CodecError::Invalid("event metadata"));
         }

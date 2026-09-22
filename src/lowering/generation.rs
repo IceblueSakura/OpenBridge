@@ -134,13 +134,8 @@ pub fn lower_response<'a>(
     {
         return Err(RepresentationError::Metadata);
     }
-    if let Some((source, usage)) = &metadata.usage {
-        if *source != profile {
-            return Err(RepresentationError::UsageProjection);
-        }
-        if !usage.is_object() || usage.to_string().len() > MAX_TEXT_BYTES {
-            return Err(RepresentationError::Metadata);
-        }
+    if profile == Profile::Chat && matches!(r.outcome(), Outcome::Failed) {
+        return Err(RepresentationError::Terminal);
     }
     validate_wire_ids(r.items(), fidelity, true)?;
     Ok(ResponseRepresentation {
@@ -155,7 +150,7 @@ fn text_items(items: &[(ItemId, Item)], profile: Profile) -> Result<(), Represen
         if let Item::Message(m) = i {
             if m.parts
                 .iter()
-                .any(|p| !matches!(p.content, ContentPart::Text(_)))
+                .any(|p| !matches!(p.content, ContentPart::Text(_) | ContentPart::Refusal(_)))
             {
                 return Err(RepresentationError::UnmigratedSemantic);
             }
@@ -240,6 +235,8 @@ pub enum RepresentationError {
     UnmigratedSemantic,
     #[error("message grouping cannot be preserved in this target")]
     MessageGrouping,
+    #[error("terminal cannot be represented by the target profile")]
+    Terminal,
     #[error("usage conversion is not part of this migration slice")]
     UsageProjection,
     #[error("invalid or conflicting response representation metadata")]

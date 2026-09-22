@@ -10,7 +10,6 @@ use crate::{
     protocol::fidelity::FidelityRecords,
     semantic::task::generation::{GenerationError, GenerationRequest, GenerationResponse},
 };
-use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Profile {
@@ -34,8 +33,6 @@ pub struct ResponseMetadata {
     pub id: String,
     pub model: String,
     pub created: u64,
-    /// Usage projection is deliberately not guessed across protocol families.
-    pub usage: Option<(Profile, Value)>,
 }
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 pub enum CodecError {

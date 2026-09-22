@@ -1,7 +1,7 @@
 //! Function-call and assistant-text Event IR. Framing and other domains stay outside this slice.
 use super::{
     Completion, ContentPart, GenerationError, GenerationResponse, Item, ItemId, MAX_ITEMS,
-    MAX_TEXT_BYTES, MAX_TOTAL_BYTES, Message, MessageRole, Part, PartId, ToolCall,
+    MAX_TEXT_BYTES, MAX_TOTAL_BYTES, Message, MessageRole, Outcome, Part, PartId, ToolCall,
 };
 use crate::semantic::value::Text;
 
@@ -225,15 +225,19 @@ pub fn end_of_stream(state: &StreamState) -> Result<(), EventError> {
     }
 }
 pub fn materialize(state: &StreamState) -> Result<GenerationResponse, EventError> {
-    match state.terminal {
-        Some(StreamTerminal::Completed) => {}
+    let outcome = match state.terminal {
+        Some(StreamTerminal::Completed) => {
+            let completion = if state.calls.is_empty() {
+                Completion::Stop
+            } else {
+                Completion::ToolCalls
+            };
+            Outcome::Completed(completion)
+        }
+        Some(StreamTerminal::Incomplete) => Outcome::Incomplete,
+        Some(StreamTerminal::Failed) => Outcome::Failed,
         Some(terminal) => return Err(EventError::TerminalFailure(terminal)),
         None => return Err(EventError::Lifecycle),
-    }
-    let completion = if state.calls.is_empty() {
-        Completion::Stop
-    } else {
-        Completion::ToolCalls
     };
     let mut items = Vec::new();
     let owner = state.calls.first().and_then(|call| call.message);
@@ -259,13 +263,16 @@ pub fn materialize(state: &StreamState) -> Result<GenerationResponse, EventError
             }),
         ));
     }
-    Ok(GenerationResponse::new(items, completion)?)
+    Ok(match outcome {
+        Outcome::Completed(completion) => GenerationResponse::new(items, completion)?,
+        outcome => GenerationResponse::unfinished(items, outcome)?,
+    })
 }
 fn message_item(state: &StreamState, item: ItemId) -> Result<Item, EventError> {
     let parts = state
         .texts
         .iter()
-        .filter(|text| text.item == item)
+        .filter(|text| text.item == item && !text.text.is_empty())
         .map(|text| {
             Ok(Part {
                 id: text.part,

@@ -17,7 +17,6 @@ fn metadata() -> ResponseMetadata {
         id: "response_1".into(),
         model: "fixture-model".into(),
         created: 10,
-        usage: None,
     }
 }
 fn text_delta(item: u64, part: u64, fragment: &str) -> StreamEvent {
@@ -56,7 +55,7 @@ fn text_deltas_materialize_to_one_assistant_message() {
         StreamEvent::Terminal(StreamTerminal::Completed),
     ];
     let response = materialize(&apply(&events).unwrap()).unwrap();
-    assert_eq!(response.completion(), Completion::Stop);
+    assert_eq!(response.completion(), Some(Completion::Stop));
     let Item::Message(message) = &response.items()[0].1 else {
         panic!("message");
     };
@@ -99,7 +98,10 @@ fn unfinished_text_and_length_do_not_become_success() {
             .iter()
             .any(|event| { matches!(event, StreamEvent::Terminal(StreamTerminal::Incomplete)) })
     );
-    assert!(materialize(&apply(&events).unwrap()).is_err());
+    assert_eq!(
+        materialize(&apply(&events).unwrap()).unwrap().outcome(),
+        openbridge::semantic::task::generation::Outcome::Incomplete
+    );
 }
 
 #[test]

@@ -420,7 +420,7 @@ fn responses_response() -> Value {
 #[test]
 fn static_response_encodes_independent_expectations_and_replays_into_history() {
     let a = chat::decode_response(&chat_response()).unwrap();
-    assert_eq!(a.semantic.completion(), Completion::ToolCalls);
+    assert_eq!(a.semantic.completion(), Some(Completion::ToolCalls));
     let t = lower_response(
         &a.semantic,
         &a.fidelity,
@@ -484,7 +484,6 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
         id: "r".into(),
         model: "fixture".into(),
         created: 0,
-        usage: None,
     };
     let mut fidelity = FidelityRecords::default();
     fidelity
@@ -533,13 +532,21 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
 fn response_failures_and_independent_message_grouping_do_not_become_success() {
     let mut w = chat_response();
     w["choices"][0]["finish_reason"] = json!("length");
-    assert!(chat::decode_response(&w).is_err());
+    assert_eq!(
+        chat::decode_response(&w).unwrap().semantic.outcome(),
+        Outcome::Incomplete
+    );
     let mut w = chat_response();
     w["choices"][0]["finish_reason"] = json!("stop");
     assert!(chat::decode_response(&w).is_err());
     let mut w = responses_response();
     w["status"] = json!("incomplete");
-    assert!(responses::decode_response(&w).is_err());
+    w["output"][0]["status"] = json!("incomplete");
+    w["output"][1]["status"] = json!("incomplete");
+    assert_eq!(
+        responses::decode_response(&w).unwrap().semantic.outcome(),
+        Outcome::Incomplete
+    );
     let mut w = responses_response();
     w["output"][0]["status"] = json!("in_progress");
     assert!(responses::decode_response(&w).is_err());
@@ -558,11 +565,21 @@ fn response_failures_and_independent_message_grouping_do_not_become_success() {
     ));
 }
 #[test]
-fn usage_is_preserved_on_same_profile_and_not_guessed_across_profiles() {
+fn usage_projects_known_totals_across_profiles_without_estimating() {
     let mut wire = chat_response();
     wire["usage"] = json!({"prompt_tokens":5,"completion_tokens":3,"total_tokens":8,"completion_tokens_details":{"reasoning_tokens":2}});
     let d = chat::decode_response(&wire).unwrap();
-    let t = lower_response(
+    assert_eq!(
+        d.semantic.usage(),
+        Some(Usage {
+            input_tokens: 5,
+            output_tokens: 3,
+            total_tokens: 8,
+            reasoning_tokens: Some(2),
+            cached_input_tokens: None,
+        })
+    );
+    let chat = lower_response(
         &d.semantic,
         &d.fidelity,
         &d.metadata,
@@ -570,17 +587,43 @@ fn usage_is_preserved_on_same_profile_and_not_guessed_across_profiles() {
         Contract::full(),
     )
     .unwrap();
-    assert_eq!(chat::encode_response(&t).unwrap(), wire);
-    assert!(matches!(
-        lower_response(
-            &d.semantic,
-            &d.fidelity,
-            &d.metadata,
-            Profile::Responses,
-            Contract::full()
-        ),
-        Err(RepresentationError::UsageProjection)
-    ));
+    assert_eq!(
+        chat::encode_response(&chat).unwrap()["usage"],
+        wire["usage"]
+    );
+    let responses = lower_response(
+        &d.semantic,
+        &d.fidelity,
+        &d.metadata,
+        Profile::Responses,
+        Contract::full(),
+    )
+    .unwrap();
+    assert_eq!(
+        responses::encode_response(&responses).unwrap()["usage"],
+        json!({"input_tokens":5,"output_tokens":3,"total_tokens":8,"output_tokens_details":{"reasoning_tokens":2}})
+    );
+    wire["usage"]["prompt_tokens"] = json!(0);
+    wire["usage"]["completion_tokens"] = json!(0);
+    wire["usage"]["total_tokens"] = json!(0);
+    wire["usage"]
+        .as_object_mut()
+        .unwrap()
+        .remove("completion_tokens_details");
+    assert_eq!(
+        chat::decode_response(&wire)
+            .unwrap()
+            .semantic
+            .usage()
+            .unwrap()
+            .total_tokens,
+        0
+    );
+    wire["usage"] = json!({"prompt_tokens":1,"completion_tokens":1,"total_tokens":3});
+    assert!(chat::decode_response(&wire).is_err());
+    wire["usage"] =
+        json!({"prompt_tokens":1,"completion_tokens":1,"total_tokens":2,"audio_tokens":1});
+    assert!(chat::decode_response(&wire).is_err());
 }
 #[test]
 fn bounded_values_fidelity_collisions_and_codec_profile_mismatch_fail() {

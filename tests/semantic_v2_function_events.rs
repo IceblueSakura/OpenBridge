@@ -6,7 +6,7 @@ use openbridge::{
         function_events::{FunctionEventDecoder, FunctionEventEncoder},
     },
     semantic::task::generation::{
-        Completion, EventError, Item, ItemId, MessageRole, StreamEvent, StreamState,
+        Completion, EventError, Item, ItemId, MessageRole, Outcome, StreamEvent, StreamState,
         StreamTerminal, end_of_stream, materialize, reduce,
     },
 };
@@ -20,7 +20,6 @@ fn metadata() -> ResponseMetadata {
         id: "response_1".into(),
         model: "fixture-model".into(),
         created: 10,
-        usage: None,
     }
 }
 fn started(item: u64, call: &str, name: &str, message: Option<u64>) -> StreamEvent {
@@ -74,7 +73,7 @@ fn argument_deltas_keep_exact_incomplete_json_and_call_identity() {
     ];
     let state = apply(&events).unwrap();
     let response = materialize(&state).unwrap();
-    assert_eq!(response.completion(), Completion::ToolCalls);
+    assert_eq!(response.completion(), Some(Completion::ToolCalls));
     let Item::ToolCall(call) = &response.items()[1].1 else {
         panic!("call");
     };
@@ -148,10 +147,20 @@ fn failed_incomplete_and_error_terminals_do_not_materialize_as_success() {
         ])
         .unwrap();
         assert_eq!(state.terminal(), Some(terminal));
-        assert!(matches!(
-            materialize(&state),
-            Err(EventError::TerminalFailure(value)) if value == terminal
-        ));
+        let materialized = materialize(&state);
+        match terminal {
+            StreamTerminal::Error => assert!(matches!(
+                materialized,
+                Err(EventError::TerminalFailure(StreamTerminal::Error))
+            )),
+            StreamTerminal::Failed => {
+                assert_eq!(materialized.unwrap().outcome(), Outcome::Failed)
+            }
+            StreamTerminal::Incomplete => {
+                assert_eq!(materialized.unwrap().outcome(), Outcome::Incomplete)
+            }
+            StreamTerminal::Completed => unreachable!("completed is not in this set"),
+        }
         assert!(end_of_stream(&state).is_ok());
     }
 }
@@ -286,7 +295,10 @@ fn snapshot_mismatch_and_noncompleted_chat_finish_do_not_repair_arguments() {
             .iter()
             .any(|event| matches!(event, StreamEvent::Terminal(StreamTerminal::Incomplete)))
     );
-    assert!(materialize(&apply(&events).unwrap()).is_err());
+    assert_eq!(
+        materialize(&apply(&events).unwrap()).unwrap().outcome(),
+        Outcome::Incomplete
+    );
 }
 
 #[test]

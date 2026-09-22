@@ -35,7 +35,10 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
     })
 }
 pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<(), CodecError> {
-    fields(m, &["role", "content", "tool_calls", "tool_call_id"])?;
+    fields(
+        m,
+        &["role", "content", "tool_calls", "tool_call_id", "refusal"],
+    )?;
     let role = string(m, "role")?;
     let id = b.id()?;
     match role {
@@ -78,9 +81,23 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
             if calls.is_some_and(Vec::is_empty) {
                 return Err(CodecError::Invalid("empty tool_calls"));
             }
-            let parts = match m.get("content") {
-                Some(Value::String(s)) => vec![b.part(s)?],
-                None | Some(Value::Null) if calls.is_some() => Vec::new(),
+            let refusal = match m.get("refusal") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(value)) if !value.is_empty() && role == "assistant" => {
+                    Some(text(value, "refusal", MAX_TEXT_BYTES)?)
+                }
+                _ => return Err(CodecError::Invalid("refusal")),
+            };
+            let parts = match (m.get("content"), refusal) {
+                (_, Some(_)) if calls.is_some() => {
+                    return Err(CodecError::Invalid("refusal"));
+                }
+                (Some(Value::String(s)), Some(_)) if !s.is_empty() => {
+                    return Err(CodecError::Invalid("refusal"));
+                }
+                (_, Some(refusal)) => vec![b.refusal(refusal)?],
+                (Some(Value::String(s)), None) => vec![b.part(s)?],
+                (None | Some(Value::Null), None) if calls.is_some() => Vec::new(),
                 _ => return Err(CodecError::Unsupported("message content".into())),
             };
             b.items.push((
@@ -96,7 +113,7 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
             ));
             if let Some(calls) = calls {
                 for c in calls {
-                    let call = tool_call(object(c)?, Profile::Chat, Some(id))?;
+                    let call = tool_call(object(c)?, Profile::Chat, Some(id), None)?;
                     let cid = b.id()?;
                     b.items.push((cid, Item::ToolCall(call)));
                 }
@@ -130,16 +147,21 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
             }
             Item::Message(m) => {
                 standalone_calls = false;
-                let content = if m.parts.is_empty() {
-                    Value::Null
-                } else {
-                    // Lowering admits only one text part, so boundaries cannot be silently collapsed.
-                    match &m.parts[0].content {
-                        ContentPart::Text(t) => json!(t.as_str()),
+                let mut message =
+                    json!({"role":if m.role == MessageRole::User { "user" } else { "assistant" }});
+                match m.parts.as_slice() {
+                    [] => message["content"] = Value::Null,
+                    [part] => match &part.content {
+                        ContentPart::Text(t) => message["content"] = json!(t.as_str()),
+                        ContentPart::Refusal(t) => {
+                            message["content"] = Value::Null;
+                            message["refusal"] = json!(t.as_str());
+                        }
                         ContentPart::Resource(_) => unreachable!("lowering rejects media"),
-                    }
-                };
-                messages.push(json!({"role":if m.role == MessageRole::User { "user" } else { "assistant" },"content":content}));
+                    },
+                    _ => unreachable!("lowering rejects multi-part chat text"),
+                }
+                messages.push(message);
             }
             Item::ToolCall(c) => {
                 if c.message.is_none() && !standalone_calls {

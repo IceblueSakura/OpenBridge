@@ -24,5 +24,5 @@ pub use tool::{
 pub use event::{
     EventError, StreamEvent, StreamState, StreamTerminal, end_of_stream, materialize, reduce,
 };
-pub use response::{Completion, GenerationResponse};
+pub use response::{Completion, GenerationResponse, Outcome, Usage};
 pub use validate::{MAX_ITEMS, MAX_TEXT_BYTES, MAX_TOOLS, MAX_TOTAL_BYTES};

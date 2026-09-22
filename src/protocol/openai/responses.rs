@@ -27,7 +27,7 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
         .and_then(Value::as_array)
         .ok_or(CodecError::Invalid("input"))?;
     let mut b = Items::default();
-    decode_items(&mut b, input, false)?;
+    decode_items(&mut b, input, false, "completed")?;
     let r = GenerationRequest::new(b.items, controls(o, "max_output_tokens")?)?;
     Ok(DecodedRequest {
         semantic: function_tools::decode(r, o, Profile::Responses)?,
@@ -38,6 +38,7 @@ pub(super) fn decode_items(
     b: &mut Items,
     input: &[Value],
     response: bool,
+    item_status: &str,
 ) -> Result<(), CodecError> {
     for item in input {
         let o = object(item)?;
@@ -47,7 +48,13 @@ pub(super) fn decode_items(
             .map(|v| v.as_str().ok_or(CodecError::Invalid("item type")))
             .transpose()?;
         let item = match kind {
-            Some("function_call") => Item::ToolCall(tool_call(o, Profile::Responses, None)?),
+            Some("function_call") => Item::ToolCall(tool_call(
+                o,
+                Profile::Responses,
+                None,
+                response.then_some(item_status),
+            )?),
+
             Some("function_call_output") if !response => {
                 fields(o, &["type", "call_id", "output", "id"])?;
                 Item::ToolResult(ToolResult {
@@ -65,7 +72,9 @@ pub(super) fn decode_items(
                         &["type", "id", "role", "content", "status"]
                     },
                 )?;
-                completed_item(o)?;
+                if response {
+                    completed_item(o, item_status)?;
+                }
                 let role = string(o, "role")?;
                 if role == "system" || role == "developer" {
                     Item::Instruction(Instruction {
@@ -95,8 +104,19 @@ pub(super) fn decode_items(
                             .iter()
                             .map(|p| {
                                 let p = object(p)?;
-                                fields(p, &["type", "text", "annotations"])?;
                                 let typ = string(p, "type")?;
+                                if typ == "refusal" {
+                                    if role != MessageRole::Assistant {
+                                        return Err(CodecError::Invalid("refusal"));
+                                    }
+                                    fields(p, &["type", "refusal"])?;
+                                    return b.refusal(text(
+                                        string(p, "refusal")?,
+                                        "refusal",
+                                        MAX_TEXT_BYTES,
+                                    )?);
+                                }
+                                fields(p, &["type", "text", "annotations"])?;
                                 if typ
                                     != if role == MessageRole::User {
                                         "input_text"
@@ -155,6 +175,7 @@ pub(super) fn encode_items(
                         let mut p = json!({"type":if m.role == MessageRole::User {"input_text"} else {"output_text"},"text":t.as_str()});
                         if response { p["annotations"] = json!([]); } p
                     }
+                    ContentPart::Refusal(t) => json!({"type":"refusal","refusal":t.as_str()}),
                     ContentPart::Resource(_) => unreachable!("lowering rejects media"),
                 }).collect();
                 json!({"type":"message","role":if m.role == MessageRole::User {"user"} else {"assistant"},"content":parts})

@@ -46,6 +46,7 @@ impl GenerationRequirements {
                     for p in &m.parts {
                         match &p.content {
                             ContentPart::Text(_) => x.text_part_count += 1,
+                            ContentPart::Refusal(_) => {}
                             ContentPart::Resource(resource) => {
                                 x.resource_count += 1;
                                 match resource.kind {

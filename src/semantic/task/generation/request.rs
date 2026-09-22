@@ -39,6 +39,8 @@ pub enum MessageRole {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContentPart {
     Text(Text),
+    /// Assistant refusal, distinct from ordinary text and from a failed terminal.
+    Refusal(Text),
     Resource(Resource),
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -208,4 +210,6 @@ pub enum GenerationError {
     Limit,
     #[error("unsupported static response semantics")]
     InvalidResponse,
+    #[error("refusal content is only valid for assistant messages")]
+    RefusalInUserMessage,
 }

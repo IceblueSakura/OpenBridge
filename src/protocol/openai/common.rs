@@ -92,6 +92,16 @@ impl Items {
         self.next_item += 1;
         Ok(ItemId::new(self.next_item))
     }
+    pub fn refusal(&mut self, text: Text) -> Result<Part, CodecError> {
+        self.next_part += 1;
+        if self.next_part as usize > MAX_ITEMS {
+            return Err(CodecError::Limit);
+        }
+        Ok(Part {
+            id: PartId::new(self.next_part),
+            content: ContentPart::Refusal(text),
+        })
+    }
     pub fn part(&mut self, s: &str) -> Result<Part, CodecError> {
         self.next_part += 1;
         if self.next_part as usize > MAX_ITEMS {
@@ -129,6 +139,7 @@ pub(super) fn tool_call(
     o: &Map<String, Value>,
     profile: Profile,
     message: Option<ItemId>,
+    item_status: Option<&str>,
 ) -> Result<ToolCall, CodecError> {
     let (f, id) = match profile {
         Profile::Chat => {
@@ -142,7 +153,9 @@ pub(super) fn tool_call(
         }
         Profile::Responses => {
             fields(o, &["id", "type", "call_id", "name", "arguments", "status"])?;
-            completed_item(o)?;
+            if let Some(status) = item_status {
+                completed_item(o, status)?;
+            }
             (o, string(o, "call_id")?)
         }
     };
@@ -153,10 +166,8 @@ pub(super) fn tool_call(
         message,
     })
 }
-pub(super) fn completed_item(o: &Map<String, Value>) -> Result<(), CodecError> {
-    if let Some(status) = o.get("status")
-        && status.as_str() != Some("completed")
-    {
+pub(super) fn completed_item(o: &Map<String, Value>, expected: &str) -> Result<(), CodecError> {
+    if o.get("status").and_then(Value::as_str) != Some(expected) {
         return Err(CodecError::Unsupported("non-completed item".into()));
     }
     Ok(())

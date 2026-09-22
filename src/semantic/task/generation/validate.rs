@@ -42,6 +42,7 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<(), GenerationE
                     return Err(GenerationError::Limit);
                 }
                 owners.insert(*id, (m.role, m.parts.is_empty(), false));
+                let mut refusals = 0usize;
                 for p in &m.parts {
                     if !parts.insert(p.id) {
                         return Err(GenerationError::DuplicatePartId);
@@ -49,9 +50,20 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<(), GenerationE
                     if parts.len() > MAX_ITEMS {
                         return Err(GenerationError::Limit);
                     }
-                    if let ContentPart::Text(t) = &p.content {
-                        add(&mut bytes, t.as_str())?;
+                    match &p.content {
+                        ContentPart::Text(t) => add(&mut bytes, t.as_str())?,
+                        ContentPart::Refusal(t) => {
+                            if m.role != MessageRole::Assistant {
+                                return Err(GenerationError::RefusalInUserMessage);
+                            }
+                            refusals += 1;
+                            add(&mut bytes, t.as_str())?;
+                        }
+                        ContentPart::Resource(_) => {}
                     }
+                }
+                if refusals > 0 && (refusals != m.parts.len() || refusals > 1) {
+                    return Err(GenerationError::InvalidResponse);
                 }
             }
             Item::ToolCall(c) => {
@@ -77,6 +89,17 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<(), GenerationE
                         .ok_or(GenerationError::InvalidMessageGroup)?;
                     if entry.0 != MessageRole::Assistant {
                         return Err(GenerationError::InvalidMessageGroup);
+                    }
+                    if items.iter().any(|(owner_id, item)| {
+                        *owner_id == owner
+                            && matches!(
+                                item,
+                                Item::Message(message) if message.parts.iter().any(|part| {
+                                    matches!(part.content, ContentPart::Refusal(_))
+                                })
+                            )
+                    }) {
+                        return Err(GenerationError::InvalidResponse);
                     }
                     entry.2 = true;
                 } else {
