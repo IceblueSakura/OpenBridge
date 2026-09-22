@@ -1,80 +1,70 @@
 # OpenBridge Semantic Architecture v2
 
-Status: target architecture for the pre-release breaking rewrite.
+Status: **architecture baseline frozen; Generation semantic migration and validation in progress.**
 
-This directory defines the architectural authority for the `semantic-v2` epoch. It is intentionally not constrained by internal source compatibility with the predecessor implementation. Existing code, ADRs, tests, provider evidence, protocol samples, credential logic, transport constraints and observability requirements are design inputs, not module-layout authorities.
+This directory defines the architectural authority for the `semantic-v2` epoch. Internal source compatibility with the predecessor implementation is not a goal. Existing code, ADRs, tests, provider evidence and protocol samples are migration evidence, not module-layout authorities.
 
-## Architectural thesis
+## Current phase
 
-OpenBridge is a semantic inference gateway. Protocols and providers are boundary representations; they are not the domain model.
+The project has moved from architecture exploration to **staged code migration and validation**.
+
+The architectural baseline is now sufficiently defined. New architecture documents or ADRs are added only when implementation exposes a real semantic ownership problem that the current model cannot resolve.
+
+The active scope is deliberately narrow:
+
+> Migrate Generation semantics from the predecessor implementation into the v2 Semantic Core and prove the migration with offline semantic conformance tests.
+
+Until this phase passes its acceptance gates, do not expand work into Embedding, Image Generation, Speech, provider routing, credential redesign, execution rewrite, MCP, observability redesign, or a general hook/plugin system.
+
+## Frozen processing model
 
 ```text
-downstream wire
-  -> protocol decode
-  -> Task IR
-  -> semantic validation / trusted transform / revalidation
-  -> requirements
-  -> public-contract check + fixed route
-  -> candidate lowering
-  -> target protocol encode
-  -> execution
-
-upstream wire/event
-  -> selected endpoint protocol decode
-  -> Response/Event IR
-  -> semantic validation
-  -> downstream lowering
-  -> downstream protocol encode
-  -> delivery
+Wire
+ -> Protocol Codec
+ -> Task IR
+ -> Semantic Validation / Trusted Transform
+ -> Requirements
+ -> Representability / Lowering
+ -> Protocol Codec
+ -> Wire
 ```
+
+Provider, route, credential and HTTP execution are intentionally outside the current migration slice.
 
 There is no privileged Native path and no Bridge domain object. Same-protocol and cross-protocol requests pass through the same semantic authority.
 
+## Current migration milestones
+
+1. **M1 — Generation IR:** migrate the supported Generation semantic domains without copying predecessor module boundaries.
+2. **M2 — Chat / Responses codecs:** establish complete supported `Chat <-> IR <-> Responses` mappings.
+3. **M3 — Semantic conformance:** prove convergence, IR authority, fidelity isolation and deterministic representability failures.
+4. **M4 — Legacy replacement assessment:** map predecessor Bridge/Pipeline/Generation-IR responsibilities to v2 and identify code that can be deleted or migrated.
+
+Only after M1-M4 pass should topology, endpoint and execution migration begin.
+
 ## Core design documents
 
-- [domain-model.md](domain-model.md) — ontology: Model, Task, IR, Protocol, Provider, Endpoint, Public Model, Route and Capability.
-- [semantic-ir.md](semantic-ir.md) — task type family, identity, presence, extensions, validation, response/event semantics and requirements.
-- [protocol-and-lowering.md](protocol-and-lowering.md) — codec, fidelity records, endpoint lowering and provider boundary.
-- [capability-model.md](capability-model.md) — semantic, representation, execution and public contracts.
-- [execution-model.md](execution-model.md) — immutable topology, planning, attempts, commit and response symmetry.
-- [rust-layout.md](rust-layout.md) — proposed breaking Rust module layout and dependency direction.
-- [invariants.md](invariants.md) — non-negotiable architecture gates.
-- [migration.md](migration.md) — repository-preserving rewrite strategy and acceptance gates.
+- [domain-model.md](domain-model.md) — ontology.
+- [semantic-ir.md](semantic-ir.md) — task IR and semantic ownership.
+- [protocol-and-lowering.md](protocol-and-lowering.md) — codec, fidelity and lowering boundaries.
+- [capability-model.md](capability-model.md) — capability dimensions.
+- [execution-model.md](execution-model.md) — later execution target model; not current implementation scope.
+- [rust-layout.md](rust-layout.md) — target module direction.
+- [invariants.md](invariants.md) — architecture gates.
+- [migration.md](migration.md) — active staged migration plan.
 
 ## v2 decisions
 
-- [ADR-v2-0001](decisions/0001-semantic-core.md) — Semantic Core is the architectural center.
-- [ADR-v2-0002](decisions/0002-task-ir-and-identities.md) — task-specific IR, stable identity and semantic presence.
-- [ADR-v2-0003](decisions/0003-codec-lowering-boundary.md) — protocol codec and endpoint lowering are separate.
-- [ADR-v2-0004](decisions/0004-capability-separation.md) — capability dimensions are separate.
-- [ADR-v2-0005](decisions/0005-execution-lifecycle.md) — execution is semantically blind after encoding.
+ADR-v2-0001 through ADR-v2-0005 remain the accepted baseline. Do not add another ADR merely to describe implementation progress.
 
-## Epoch rule
+## Current acceptance principle
 
-The predecessor `docs/decisions/0001-0005` remain design history and evidence of earlier reasoning. v2 decisions own the target architecture on `semantic-v2` when the two epochs conflict.
+The migration is not validated by JSON round-trip alone. Tests must prove:
 
-Do not preserve a legacy abstraction solely to reduce migration work. Preserve observable requirements and proven invariants; redesign their representation when the semantic model calls for it.
+- semantically equivalent Chat and Responses inputs converge;
+- changing final IR changes every applicable target encoding;
+- deleting semantic IR cannot be undone by fidelity/source records;
+- unsupported target semantics fail before encoding rather than being silently dropped;
+- requirements are derived from final IR rather than independently reconstructed from source wire.
 
-## Immediate implementation gate
-
-Before reconnecting real providers, implement one offline vertical slice:
-
-```text
-Chat fixture
- -> Chat codec
- -> GenerationRequest
- -> semantic transform
- -> requirements
- -> Responses lowering/codec
- -> expected Responses fixture
-```
-
-and independently:
-
-```text
-same GenerationRequest
- -> Chat lowering/codec
- -> expected Chat fixture
-```
-
-The slice passes only if changing/deleting IR semantics changes/deletes the encoded result and source fidelity cannot resurrect them.
+The next work item is therefore code migration and test expansion, not further horizontal architecture design.
