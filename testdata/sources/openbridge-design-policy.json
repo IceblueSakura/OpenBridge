@@ -1,7 +1,8 @@
 {
   "adaptation_notes": [
     "这是项目设计来源，不表示对应 runtime 已实现。",
-    "Reject 和 continuation case 在集成前仍只作为 proposed oracle。"
+    "Reject 和 continuation case 在集成前仍只作为 proposed oracle。",
+    "该计划已从分支尖端删除；URL 固定到仍包含该文件的提交 cf1a17e3d78776f5242a9981fcbf0ce75b8f1b2c。"
   ],
   "id": "openbridge.design.policy",
   "license": null,
@@ -15,5 +16,5 @@
   "ref": null,
   "retrieved_at": "2026-07-26",
   "schema_version": "0.1",
-  "url": "https://github.com/IceblueSakura/OpenBridge/blob/main/docs/implementation-plans/agent-loop-bridge.md"
+  "url": "https://github.com/IceblueSakura/OpenBridge/blob/cf1a17e3d78776f5242a9981fcbf0ce75b8f1b2c/docs/implementation-plans/agent-loop-bridge.md"
 }

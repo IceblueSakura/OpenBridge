@@ -4,7 +4,7 @@
 
 Architecture exploration is complete enough to begin controlled migration. The active phase is **Generation Semantic Migration & Validation**.
 
-This remains a repository-preserving rewrite. The `main` branch and Git history retain the predecessor implementation while `semantic-v2` is free to make breaking internal changes.
+This remains a repository-preserving rewrite. The [`semantic-v1`](https://github.com/IceblueSakura/OpenBridge/tree/semantic-v1) branch and Git history retain the predecessor implementation while `semantic-v2` is free to make breaking internal changes.
 
 ## Migration rule
 
