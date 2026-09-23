@@ -17,7 +17,7 @@
 - 文本生成入口为 `POST /v1/chat/completions`，使用 Bearer API key。
 - OpenAI-compatible 只描述请求/响应形状；具体模型参数、reasoning 和当前可用性以官方模型参考为准。
 
-OpenBridge 当前映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。
 
 ## 证据边界
 

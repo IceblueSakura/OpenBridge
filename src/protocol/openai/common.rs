@@ -23,6 +23,35 @@ pub(super) fn bounded(v: &Value) -> Result<(), CodecError> {
     }
     serde_json::to_writer(Counter(0), v).map_err(|_| CodecError::Limit)
 }
+pub(super) fn read_presence<T>(
+    o: &Map<String, Value>,
+    key: &'static str,
+    parse: impl FnOnce(&Value) -> Result<T, CodecError>,
+) -> Result<crate::semantic::value::Presence<T>, CodecError> {
+    use crate::semantic::value::Presence;
+    match o.get(key) {
+        None => Ok(Presence::Absent),
+        Some(Value::Null) => Ok(Presence::Null),
+        Some(v) => parse(v).map(Presence::Value),
+    }
+}
+pub(super) fn put_presence<T>(
+    o: &mut Map<String, Value>,
+    key: &str,
+    value: &crate::semantic::value::Presence<T>,
+    encode: impl FnOnce(&T) -> Value,
+) {
+    use crate::semantic::value::Presence;
+    match value {
+        Presence::Absent => {}
+        Presence::Null => {
+            o.insert(key.into(), Value::Null);
+        }
+        Presence::Value(v) => {
+            o.insert(key.into(), encode(v));
+        }
+    }
+}
 pub(super) fn object(v: &Value) -> Result<&Map<String, Value>, CodecError> {
     v.as_object().ok_or(CodecError::Invalid("object"))
 }
@@ -43,11 +72,12 @@ pub(super) fn string<'a>(
 pub(super) fn text(value: &str, kind: &'static str, max: usize) -> Result<Text, CodecError> {
     Text::new(value, kind, max).map_err(|_| CodecError::Invalid(kind))
 }
-pub(super) fn optional_bool(
+pub(super) fn nullable_bool(
     o: &Map<String, Value>,
     key: &'static str,
 ) -> Result<Option<bool>, CodecError> {
     o.get(key)
+        .filter(|v| !v.is_null())
         .map(|v| v.as_bool().ok_or(CodecError::Invalid(key)))
         .transpose()
 }
@@ -58,22 +88,26 @@ pub(super) fn controls(
     let mut c = GenerationControls::default();
     c.max_output_tokens = o
         .get(key)
+        .filter(|v| !v.is_null())
         .map(|v| {
             v.as_u64()
                 .filter(|n| *n > 0)
                 .ok_or(CodecError::Invalid(key))
         })
         .transpose()?;
-    if let Some(t) = o.get("temperature") {
+    if let Some(t) = o.get("temperature").filter(|v| !v.is_null()) {
         c = c.with_temperature(t.as_f64().ok_or(CodecError::Invalid("temperature"))?)?;
     }
     Ok(c)
 }
 pub(super) fn write_controls(r: &GenerationRequest, o: &mut Map<String, Value>, key: &str) {
-    if let Some(t) = r.controls().temperature() {
+    write_control_values(r.controls(), o, key);
+}
+pub(super) fn write_control_values(c: &GenerationControls, o: &mut Map<String, Value>, key: &str) {
+    if let Some(t) = c.temperature() {
         o.insert("temperature".into(), Value::from(t));
     }
-    if let Some(n) = r.controls().max_output_tokens {
+    if let Some(n) = c.max_output_tokens {
         o.insert(key.into(), Value::from(n));
     }
 }
@@ -117,7 +151,9 @@ impl Items {
         Ok(Part {
             id: PartId::new(self.next_part),
             content: ContentPart::Text(
-                Text::allowing_empty(s, "text", MAX_TEXT_BYTES).map_err(|_| CodecError::Limit)?,
+                Text::allowing_empty(s, "text", MAX_TEXT_BYTES)
+                    .map_err(|_| CodecError::Limit)?
+                    .into(),
             ),
         })
     }
@@ -159,20 +195,38 @@ pub(super) fn tool_call(
             (f, string(o, "id")?)
         }
         Profile::Responses => {
-            fields(o, &["id", "type", "call_id", "name", "arguments", "status"])?;
+            fields(
+                o,
+                &[
+                    "id",
+                    "type",
+                    "call_id",
+                    "name",
+                    "arguments",
+                    "parsed_arguments",
+                    "status",
+                    "caller",
+                    "namespace",
+                    "async",
+                ],
+            )?;
+            if let Some(parsed) = o.get("parsed_arguments") {
+                // The pinned SDK's parsed function-call object exposes a derived convenience
+                // value in model_dump. Never trust it over the authoritative raw arguments.
+                let raw = string(o, "arguments")?;
+                let expected: Value = serde_json::from_str(raw)
+                    .map_err(|_| CodecError::Invalid("parsed_arguments"))?;
+                if item_status.is_some() || *parsed != expected {
+                    return Err(CodecError::Invalid("parsed_arguments"));
+                }
+            }
             if let Some(status) = item_status {
                 accept_status(o, status)?;
             }
             (o, string(o, "call_id")?)
         }
     };
-    let status = match (item_status, o.get("status").and_then(Value::as_str)) {
-        (Some("completed") | None, Some("completed") | None) => ItemLifecycle::Completed,
-        (Some("incomplete"), Some("completed")) => ItemLifecycle::Completed,
-        (Some("incomplete"), Some("incomplete")) => ItemLifecycle::Incomplete,
-        (None, Some("incomplete")) => ItemLifecycle::Incomplete,
-        _ => return Err(CodecError::Unsupported("item status".into())),
-    };
+    let status = super::responses::status(o, ItemLifecycle::Completed)?;
     Ok(ToolCall {
         call_id: text(id, "call_id", 256)?,
         name: text(string(f, "name")?, "function name", 128)?,
@@ -184,9 +238,9 @@ pub(super) fn tool_call(
 pub(super) fn accept_status(o: &Map<String, Value>, expected: &str) -> Result<(), CodecError> {
     let actual = o.get("status").and_then(Value::as_str);
     let allowed = if expected == "incomplete" {
-        actual == Some("completed") || actual == Some("incomplete")
+        actual.is_none() || matches!(actual, Some("completed" | "incomplete" | "in_progress"))
     } else {
-        actual == Some(expected)
+        actual.is_none() || actual == Some(expected)
     };
     if !allowed {
         return Err(CodecError::Unsupported("non-completed item".into()));

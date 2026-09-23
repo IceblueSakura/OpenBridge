@@ -19,4 +19,4 @@
 
 ## 证据边界
 
-观察只覆盖一个账号、PNG data URL、remote URL 和一次网络状态；不证明其他格式、尺寸、`detail`、`file_id`、SDK、负载、长期运行或未来 Provider 状态。OpenBridge 当前映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+观察只覆盖一个账号、PNG data URL、remote URL 和一次网络状态；不证明其他格式、尺寸、`detail`、`file_id`、SDK、负载、长期运行或未来 Provider 状态。OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。

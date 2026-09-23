@@ -15,6 +15,12 @@ pub struct GenerationRepresentationContract {
     pub temperature: bool,
     pub max_output_tokens: bool,
     pub tools: bool,
+    pub custom_tools: bool,
+    pub text_metadata: bool,
+    pub top_p: bool,
+    pub logprobs: bool,
+    pub verbosity: bool,
+    pub truncation: bool,
     pub structured_output: bool,
     pub reasoning: bool,
     pub image_input: bool,
@@ -31,6 +37,12 @@ impl GenerationRepresentationContract {
             temperature: true,
             max_output_tokens: true,
             tools: true,
+            custom_tools: true,
+            text_metadata: true,
+            top_p: true,
+            logprobs: true,
+            verbosity: true,
+            truncation: true,
             structured_output: true,
             reasoning: true,
             image_input: true,
@@ -63,6 +75,19 @@ pub fn check(
         && !c.tools
     {
         return Err(RepresentationError::Tools);
+    }
+    if q.custom_tools && !c.custom_tools {
+        return Err(RepresentationError::Tools);
+    }
+    if q.text_metadata && !c.text_metadata {
+        return Err(RepresentationError::TextMetadata);
+    }
+    if q.top_p && !c.top_p
+        || q.logprobs && !c.logprobs
+        || q.truncation && !c.truncation
+        || !r.text_options().verbosity.is_absent() && !c.verbosity
+    {
+        return Err(RepresentationError::Controls);
     }
     if q.parallel_tool_calls == Some(true) && !c.parallel_tool_calls {
         return Err(RepresentationError::ParallelTools);
@@ -97,11 +122,16 @@ pub fn lower_request<'a>(
     if profile == Profile::Chat
         && r.items()
             .iter()
-            .any(|(_, i)| i.lifecycle() == Some(ItemLifecycle::Incomplete))
+            .any(|(_, i)| i.lifecycle().is_some_and(|s| s != ItemLifecycle::Completed))
     {
         return Err(RepresentationError::Terminal);
     }
-    if q.structured_output {
+    if profile == Profile::Chat
+        && (q.structured_output
+            || q.logprobs
+            || q.truncation
+            || !r.text_options().verbosity.is_absent())
+    {
         return Err(RepresentationError::UnmigratedSemantic);
     }
     represent_reasoning(
@@ -110,6 +140,7 @@ pub fn lower_request<'a>(
         fidelity,
         profile,
         c.replay_origin.as_ref(),
+        true,
     )?;
     text_items(r.items(), profile)?;
     let expected_default = if profile == Profile::Chat {
@@ -117,10 +148,40 @@ pub fn lower_request<'a>(
     } else {
         StrictDefault::NormalizeSchema
     };
-    for ToolDefinition::Function(t) in r.tools() {
-        if matches!(t.strict, FunctionStrictness::Omitted(d) if d != expected_default) {
-            return Err(RepresentationError::StrictDefault);
+    for tool in r.tools() {
+        if let ToolDefinition::Function(t) = tool {
+            if matches!(t.strict, FunctionStrictness::Omitted(d) if d != expected_default) {
+                return Err(RepresentationError::StrictDefault);
+            }
+            if profile == Profile::Chat && t.output_schema.is_some() {
+                return Err(RepresentationError::Tools);
+            }
+        } else if profile == Profile::Chat {
+            return Err(RepresentationError::Tools);
         }
+    }
+    if profile == Profile::Chat
+        && matches!(
+            r.tool_choice(),
+            Some(ToolChoice::Custom(_) | ToolChoice::Allowed { .. })
+        )
+    {
+        return Err(RepresentationError::Tools);
+    }
+    for (_, item) in r.items() {
+        let parts: Vec<_> = match item {
+            Item::Instruction(i) => i.parts.iter().map(|(id, _)| *id).collect(),
+            Item::Message(m) => m.parts.iter().map(|p| p.id).collect(),
+            Item::ToolResult(r) | Item::CustomResult(r) => match &r.output {
+                ToolOutput::Parts(p) => p.iter().map(|(id, _)| *id).collect(),
+                _ => vec![],
+            },
+            _ => vec![],
+        };
+        if profile == Profile::Chat && parts.iter().any(|id| fidelity.cache_breakpoint(*id)) {
+            return Err(RepresentationError::Controls);
+        }
+        if let Item::Message(m)=item && m.parts.iter().any(|p|matches!(&p.content,ContentPart::Text(t) if !t.is_plain() && (m.role==MessageRole::User || fidelity.cache_breakpoint(p.id)))){return Err(RepresentationError::TextMetadata);}
     }
     validate_wire_ids(r.items(), fidelity, false)?;
     Ok(RequestRepresentation {
@@ -136,6 +197,13 @@ pub fn lower_response<'a>(
     profile: Profile,
     c: GenerationRepresentationContract,
 ) -> Result<ResponseRepresentation<'a>, RepresentationError> {
+    // Cache-write tokens are a reported Responses detail with no Chat wire projection.
+    if profile == Profile::Chat
+        && r.usage()
+            .is_some_and(|usage| usage.input_cache_write_tokens.is_some())
+    {
+        return Err(RepresentationError::UnmigratedSemantic);
+    }
     // Reuse the same pure requirement projection for supported output items.
     if !r.items().is_empty() {
         let request = GenerationRequest::new(r.items().to_vec(), GenerationControls::default())?;
@@ -147,6 +215,7 @@ pub fn lower_response<'a>(
         fidelity,
         profile,
         c.replay_origin.as_ref(),
+        false,
     )?;
     let chat_status = if r.outcome() == Outcome::Incomplete {
         ItemLifecycle::Incomplete
@@ -173,6 +242,8 @@ pub fn lower_response<'a>(
     }
     if profile == Profile::Chat
         && (matches!(r.outcome(), Outcome::Failed | Outcome::Cancelled)
+            || r.outcome() == Outcome::Incomplete
+                && r.details().incomplete != Some(IncompleteReason::MaxOutputTokens)
             || r.details().error.is_some()
             || r.details()
                 .incomplete
@@ -180,6 +251,15 @@ pub fn lower_response<'a>(
                 .is_some_and(|reason| !matches!(reason, IncompleteReason::MaxOutputTokens)))
     {
         return Err(RepresentationError::Terminal);
+    }
+    if metadata.context.validate().is_err()
+        || metadata
+            .created
+            .as_f64()
+            .is_none_or(|v| !v.is_finite() || v < 0.0)
+        || profile == Profile::Chat && metadata.created.as_u64().is_none()
+    {
+        return Err(RepresentationError::Metadata);
     }
     validate_wire_ids(r.items(), fidelity, true)?;
     Ok(ResponseRepresentation {
@@ -195,6 +275,7 @@ fn represent_reasoning(
     fidelity: &FidelityRecords,
     profile: Profile,
     origin: Option<&crate::semantic::value::ReplayOrigin>,
+    request: bool,
 ) -> Result<(), RepresentationError> {
     for (id, item) in items {
         if let Item::Reasoning(reasoning) = item
@@ -202,6 +283,7 @@ fn represent_reasoning(
             && (profile != Profile::Responses
                 || !replay.permits(origin)
                 || replay.value.replay_token().is_none()
+                    && (request || reasoning.status == ItemLifecycle::Completed)
                 || !fidelity.replay_matches(*id, reasoning))
         {
             return Err(RepresentationError::ReplayOrigin);
@@ -210,7 +292,7 @@ fn represent_reasoning(
     let items = items
         .iter()
         .any(|(_, item)| matches!(item, Item::Reasoning(_)));
-    if controls.effort() == Some(ReasoningEffort::Max) {
+    if profile == Profile::Chat && (!controls.context.is_absent() || !controls.mode.is_absent()) {
         return Err(RepresentationError::Reasoning);
     }
     let chat_control = controls.presence() == ReasoningPresence::Present
@@ -228,7 +310,32 @@ fn represent_reasoning(
 }
 fn text_items(items: &[(ItemId, Item)], profile: Profile) -> Result<(), RepresentationError> {
     for (_, i) in items {
+        if profile == Profile::Chat {
+            match i {
+                Item::CustomCall(_) | Item::CustomResult(_) => {
+                    return Err(RepresentationError::Tools);
+                }
+                Item::Instruction(i) if i.parts.len() != 1 => {
+                    return Err(RepresentationError::MessageGrouping);
+                }
+                Item::ToolResult(r)
+                    if !matches!(r.output, ToolOutput::Text(_))
+                        || r.status.is_some_and(|s| s != ItemLifecycle::Completed) =>
+                {
+                    return Err(RepresentationError::Tools);
+                }
+                Item::Message(m)
+                    if m.parts
+                        .iter()
+                        .any(|p| matches!(&p.content,ContentPart::Text(t) if !t.is_plain())) =>
+                {
+                    return Err(RepresentationError::TextMetadata);
+                }
+                _ => {}
+            }
+        }
         if let Item::Message(m) = i {
+            if profile==Profile::Responses && m.parts.iter().any(|p|matches!(&p.content,ContentPart::Text(t) if t.logprobs().value().is_some_and(|v|v.iter().any(|p|p.bytes.is_none() || p.top_logprobs.as_ref().is_none_or(|v|v.iter().any(|p|p.token.is_none()||p.logprob.is_none()||p.bytes.is_none())))))){return Err(RepresentationError::TextMetadata);}
             if m.parts
                 .iter()
                 .any(|p| !matches!(p.content, ContentPart::Text(_) | ContentPart::Refusal(_)))
@@ -294,6 +401,10 @@ pub enum RepresentationError {
     Semantic(#[from] GenerationError),
     #[error(transparent)]
     Event(#[from] EventError),
+    #[error("target cannot represent text metadata")]
+    TextMetadata,
+    #[error("target cannot represent generation controls")]
+    Controls,
     #[error("target cannot represent instructions")]
     Instructions,
     #[error("target cannot represent temperature")]

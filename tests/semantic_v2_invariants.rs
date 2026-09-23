@@ -36,14 +36,20 @@ fn chat_finish_cannot_replace_mixed_message_and_call_status() {
     ));
 }
 #[test]
-fn provider_specific_effort_needs_an_explicit_profile_mapping() {
+fn standard_max_effort_is_representable_but_unknown_labels_fail() {
     let d = responses::decode_generation(
         &json!({"input":[{"role":"user","content":"hello"}],"reasoning":{"effort":"max"}}),
     )
     .unwrap();
     for p in [Profile::Chat, Profile::Responses] {
-        assert!(lower_request(&d.semantic, &d.fidelity, p, Contract::full()).is_err());
+        assert!(lower_request(&d.semantic, &d.fidelity, p, Contract::full()).is_ok());
     }
+    assert!(
+        responses::decode_generation(
+            &json!({"input":"hello","reasoning":{"effort":"unregistered"}})
+        )
+        .is_err()
+    );
 }
 #[test]
 fn empty_message_wire_identity_cannot_collide_with_another_item() {
@@ -63,7 +69,7 @@ fn empty_message_wire_identity_cannot_collide_with_another_item() {
                 status: ItemLifecycle::Completed,
                 parts: vec![Part {
                     id: PartId::new(1),
-                    content: ContentPart::Text(text("hello")),
+                    content: ContentPart::Text(text("hello").into()),
                 }],
             }),
         ),
@@ -94,7 +100,7 @@ fn transformed_total_request_budget_includes_tools_and_history() {
                     status: ItemLifecycle::Completed,
                     parts: vec![Part {
                         id: PartId::new(i),
-                        content: ContentPart::Text(text(&payload)),
+                        content: ContentPart::Text(text(&payload).into()),
                     }],
                 }),
             )
@@ -106,6 +112,7 @@ fn transformed_total_request_budget_includes_tools_and_history() {
             .with_tool_settings(
                 Some(vec![ToolDefinition::Function(FunctionTool {
                     name: text("tool"),
+                    output_schema: None,
                     description: Some(payload),
                     parameters: None,
                     strict: FunctionStrictness::Explicit(false)

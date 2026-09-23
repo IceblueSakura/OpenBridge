@@ -1,7 +1,0 @@
-{
-  "instructions": "You are a coding agent. Follow the user's instructions carefully and use the provided tools when needed.",
-  "store": false,
-  "input": "__fixture:rate-limit__",
-  "model": "upstream-model",
-  "stream": false
-}

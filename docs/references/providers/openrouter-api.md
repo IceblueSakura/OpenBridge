@@ -68,6 +68,6 @@ Models 目录、用户过滤视图和单模型 endpoint 列表是不同资源；
 
 ## 证据边界
 
-统一 API surface 不表示所有模型共享相同能力、数据政策、配额或 SLA。模型能力以 OpenRouter 当前官方页面和 endpoint 详情为准；OpenBridge 当前映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+统一 API surface 不表示所有模型共享相同能力、数据政策、配额或 SLA。模型能力以 OpenRouter 当前官方页面和 endpoint 详情为准；OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。
 
 2026-08-30 的新增内容是官方文档声明，不证明账户默认配置、实际 tool invocation、engine 选择、Provider-native lowering、费用、延迟、stream event 序列或 fallback 行为。升级为兼容性结论前，需要固定账户/模型/Provider/payload，并分别测试显式声明、账户注入、禁用、调用零次、多次、错误和 streaming terminal；不得保存 credential 或未脱敏 transcript。

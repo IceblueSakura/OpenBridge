@@ -17,7 +17,7 @@
 - Chat reasoning 使用 `thinking.type` 的 `enabled`/`disabled` 二态 wire。
 - 官方 Codex 配置使用 Responses wire；具体模型、effort、context 和当前可用性应直接读取 LongCat 官方文档。
 
-OpenBridge 当前映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。
 
 ## 证据边界
 

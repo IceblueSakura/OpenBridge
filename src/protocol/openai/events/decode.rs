@@ -50,6 +50,13 @@ impl EventDecoder {
             }
             bounded(payload)?;
             let o = object(payload)?;
+            if let Some(padding) = o.get("obfuscation")
+                && (self.profile != Profile::Responses
+                    || !string(o, "type")?.ends_with(".delta")
+                    || !padding.as_str().is_some_and(|s| s.len() <= 4096))
+            {
+                return Err(CodecError::Invalid("obfuscation"));
+            }
             if let Some(n) = o.get("sequence_number") {
                 let n = n.as_u64().ok_or(CodecError::Invalid("sequence"))?;
                 if self.sequence.is_some_and(|old| n <= old) {
@@ -67,6 +74,13 @@ impl EventDecoder {
             self.poisoned = true;
         }
         result
+    }
+    /// Available immediately after response.created; no whole-stream buffering is required.
+    pub fn metadata(&self) -> Option<&ResponseMetadata> {
+        self.metadata.as_ref()
+    }
+    pub fn fidelity(&self) -> &FidelityRecords {
+        &self.fidelity
     }
     pub fn finish(&self) -> Result<(), CodecError> {
         if self.poisoned {
@@ -124,14 +138,14 @@ impl EventDecoder {
             self.state.take().ok_or(CodecError::Invalid("state"))?,
             event.clone(),
         )?);
-        if let StreamEvent::ItemFinished {
-            item,
-            replay: Some(replay),
-            ..
-        } = &event
-            && let Item::Reasoning(owner) = self.state()?.item(*item)?.snapshot()?
+        if let StreamEvent::ItemStarted { item, .. } | StreamEvent::ItemFinished { item, .. } =
+            &event
         {
-            self.fidelity.record_replay(*item, replay.clone(), &owner)?;
+            sync_replays(
+                self.state.as_ref().ok_or(CodecError::Invalid("state"))?,
+                &mut self.fidelity,
+                Some(*item),
+            )?;
         }
         out.push(event);
         Ok(())
@@ -153,7 +167,11 @@ impl EventDecoder {
     }
     pub(super) fn observe_metadata(&mut self, o: &Map<String, Value>) -> Result<(), CodecError> {
         let m = super::super::static_response::metadata(o, self.profile)?;
-        if self.metadata.as_ref().is_some_and(|old| old != &m) {
+        if self
+            .metadata
+            .as_ref()
+            .is_some_and(|old| old.id != m.id || old.model != m.model || old.created != m.created)
+        {
             return Err(CodecError::Invalid("metadata changed"));
         }
         self.metadata = Some(m);
@@ -183,20 +201,7 @@ impl EventDecoder {
             "response.created" | "response.in_progress" => {
                 event_fields(o, &["type", "response"])?;
                 let r = object(o.get("response").ok_or(CodecError::Invalid("response"))?)?;
-                event_fields(
-                    r,
-                    &[
-                        "id",
-                        "object",
-                        "created_at",
-                        "model",
-                        "status",
-                        "output",
-                        "usage",
-                        "error",
-                        "incomplete_details",
-                    ],
-                )?;
+                super::super::envelope::response_fields(r)?;
                 if string(r, "object")? != "response"
                     || string(r, "status")? != "in_progress"
                     || r.get("output")
@@ -215,6 +220,7 @@ impl EventDecoder {
                 self.observe_metadata(r)?;
             }
             "response.output_item.added" => self.item_added(o, &mut out)?,
+            "response.output_text.annotation.added" => self.annotation_added(o, &mut out)?,
             "response.content_part.added" | "response.reasoning_summary_part.added" => {
                 self.part_added(o, &mut out)?
             }
@@ -222,12 +228,14 @@ impl EventDecoder {
             | "response.refusal.delta"
             | "response.reasoning_summary_text.delta"
             | "response.reasoning_text.delta"
-            | "response.function_call_arguments.delta" => self.delta(o, &mut out)?,
+            | "response.function_call_arguments.delta"
+            | "response.custom_tool_call_input.delta" => self.delta(o, &mut out)?,
             "response.output_text.done"
             | "response.refusal.done"
             | "response.reasoning_summary_text.done"
             | "response.reasoning_text.done"
-            | "response.function_call_arguments.done" => self.value_done(o, &mut out)?,
+            | "response.function_call_arguments.done"
+            | "response.custom_tool_call_input.done" => self.value_done(o, &mut out)?,
             "response.content_part.done" | "response.reasoning_summary_part.done" => {
                 self.part_done(o, &mut out)?
             }
@@ -250,7 +258,10 @@ impl EventDecoder {
             return Err(CodecError::Invalid("output index"));
         }
         let v = object(o.get("item").ok_or(CodecError::Invalid("item"))?)?;
-        if string(v, "status")? != "in_progress" {
+        if v.get("status")
+            .filter(|v| !v.is_null())
+            .is_some_and(|s| s.as_str() != Some("in_progress"))
+        {
             return Err(CodecError::Invalid("item status"));
         }
         let kind = match string(v, "type")? {
@@ -289,8 +300,42 @@ impl EventDecoder {
                 }
                 ItemKind::Reasoning
             }
+            "custom_tool_call" => {
+                fields(
+                    v,
+                    &[
+                        "type",
+                        "id",
+                        "call_id",
+                        "name",
+                        "input",
+                        "namespace",
+                        "caller",
+                        "async",
+                    ],
+                )?;
+                super::super::responses::direct(v)?;
+                ItemKind::CustomCall {
+                    call_id: text(string(v, "call_id")?, "call id", 256)?,
+                    name: text(string(v, "name")?, "custom name", 128)?,
+                }
+            }
             "function_call" => {
-                fields(v, &["type", "id", "status", "call_id", "name", "arguments"])?;
+                fields(
+                    v,
+                    &[
+                        "type",
+                        "id",
+                        "status",
+                        "call_id",
+                        "name",
+                        "arguments",
+                        "caller",
+                        "namespace",
+                        "async",
+                    ],
+                )?;
+                super::super::responses::direct(v)?;
                 ItemKind::ToolCall {
                     call_id: text(string(v, "call_id")?, "call id", 256)?,
                     name: text(string(v, "name")?, "tool name", 128)?,
@@ -315,23 +360,36 @@ impl EventDecoder {
             },
             out,
         )?;
-        if matches!(kind, ItemKind::ToolCall { .. }) {
+        if kind.call().is_some() {
+            let part_kind = if matches!(kind, ItemKind::CustomCall { .. }) {
+                PartKind::CustomInput
+            } else {
+                PartKind::Arguments
+            };
             let part = self.allocate_part()?;
             self.emit(
                 StreamEvent::PartStarted {
                     item,
                     part,
-                    kind: PartKind::Arguments,
+                    kind: part_kind,
                 },
                 out,
             )?;
-            let fragment = string(v, "arguments")?;
+            let fragment = string(
+                v,
+                if part_kind == PartKind::CustomInput {
+                    "input"
+                } else {
+                    "arguments"
+                },
+            )?;
             if !fragment.is_empty() {
                 self.emit(
                     StreamEvent::Delta {
                         item,
                         part,
                         fragment: fragment.into(),
+                        logprobs: vec![],
                     },
                     out,
                 )?;
@@ -366,6 +424,44 @@ impl EventDecoder {
             .filter(|p| p.kind == kind)
             .map(|p| p.id)
             .ok_or(CodecError::Invalid("part index"))
+    }
+    fn annotation_added(
+        &mut self,
+        o: &Map<String, Value>,
+        out: &mut Vec<StreamEvent>,
+    ) -> Result<(), CodecError> {
+        event_fields(
+            o,
+            &[
+                "type",
+                "item_id",
+                "output_index",
+                "content_index",
+                "annotation_index",
+                "annotation",
+            ],
+        )?;
+        let item = self.owner(o)?;
+        let part = self.part_for(item, PartKind::Text, index(o, "content_index")?)?;
+        if index(o, "annotation_index")? != self.state()?.part(item, part)?.annotations.len() {
+            return Err(CodecError::Invalid("annotation index"));
+        }
+        if let Some(v) = o.get("annotation").filter(|v| !v.is_null()) {
+            let annotation: Annotation =
+                serde_json::from_value(v.clone()).map_err(|_| CodecError::Invalid("annotation"))?;
+            if matches!(annotation, Annotation::FilePath { .. }) {
+                return Err(CodecError::Unsupported("file_path annotation event".into()));
+            }
+            self.emit(
+                StreamEvent::AnnotationAdded {
+                    item,
+                    part,
+                    annotation,
+                },
+                out,
+            )?;
+        }
+        Ok(())
     }
     fn part_added(
         &mut self,
@@ -413,6 +509,14 @@ impl EventDecoder {
         if n != count || !part_text(p, kind)?.is_empty() {
             return Err(CodecError::Invalid("initial part"));
         }
+        if kind == PartKind::Text {
+            let text = super::super::text::read(p)?;
+            if !text.annotations().is_empty()
+                || text.logprobs().value().is_some_and(|v| !v.is_empty())
+            {
+                return Err(CodecError::Invalid("initial text metadata"));
+            }
+        }
         let part = self.allocate_part()?;
         self.emit(StreamEvent::PartStarted { item, part, kind }, out)
     }
@@ -424,7 +528,9 @@ impl EventDecoder {
     ) -> Result<(ItemId, PartId, PartKind), CodecError> {
         let item = self.owner(o)?;
         let t = string(o, "type")?;
-        let (kind, key) = if t.starts_with("response.function_call_arguments.") {
+        let (kind, key) = if t.starts_with("response.custom_tool_call_input.") {
+            (PartKind::CustomInput, None)
+        } else if t.starts_with("response.function_call_arguments.") {
             (PartKind::Arguments, None)
         } else if t.starts_with("response.reasoning_summary_text.") {
             (PartKind::Summary, Some("summary_index"))
@@ -484,14 +590,24 @@ impl EventDecoder {
                 "content_index",
                 "summary_index",
                 "delta",
+                "logprobs",
             ],
         )?;
-        let (item, part, _) = self.value_identity(o, true, out)?;
+        let (item, part, kind) = self.value_identity(o, true, out)?;
+        if o.contains_key("logprobs") && kind != PartKind::Text {
+            return Err(CodecError::Invalid("logprob owner"));
+        }
+        let logprobs = o
+            .get("logprobs")
+            .map(super::super::text::read_logprobs)
+            .transpose()?
+            .unwrap_or_default();
         self.emit(
             StreamEvent::Delta {
                 item,
                 part,
                 fragment: string(o, "delta")?.into(),
+                logprobs,
             },
             out,
         )
@@ -512,15 +628,18 @@ impl EventDecoder {
                 "text",
                 "refusal",
                 "arguments",
+                "input",
+                "logprobs",
             ],
         )?;
         let (item, part, kind) = self.value_identity(o, true, out)?;
         let key = match kind {
             PartKind::Arguments => "arguments",
+            PartKind::CustomInput => "input",
             PartKind::Refusal => "refusal",
             _ => "text",
         };
-        if ["text", "refusal", "arguments"]
+        if ["text", "refusal", "arguments", "input"]
             .iter()
             .any(|k| *k != key && o.contains_key(*k))
         {
@@ -529,8 +648,21 @@ impl EventDecoder {
         if string(o, key)? != self.state()?.part(item, part)?.text {
             return Err(CodecError::Invalid("value snapshot"));
         }
+        if let Some(v) = o.get("logprobs") {
+            if kind != PartKind::Text {
+                return Err(CodecError::Invalid("logprob owner"));
+            }
+            self.emit(
+                StreamEvent::LogprobsSnapshot {
+                    item,
+                    part,
+                    logprobs: super::super::text::read_logprobs(v)?,
+                },
+                out,
+            )?;
+        }
         self.emit(StreamEvent::ValueFinished { item, part }, out)?;
-        if kind == PartKind::Arguments {
+        if matches!(kind, PartKind::Arguments | PartKind::CustomInput) {
             self.emit(StreamEvent::PartFinished { item, part }, out)?;
         }
         Ok(())
@@ -580,6 +712,18 @@ impl EventDecoder {
         if part_text(p, kind)? != self.state()?.part(item, part)?.text {
             return Err(CodecError::Invalid("part snapshot"));
         }
+        if kind == PartKind::Text {
+            let t = super::super::text::read(p)?;
+            self.emit(
+                StreamEvent::TextMetadata {
+                    item,
+                    part,
+                    annotations: t.annotations().to_vec(),
+                    logprobs: t.logprobs().clone(),
+                },
+                out,
+            )?;
+        }
         self.emit(StreamEvent::PartFinished { item, part }, out)
     }
     fn item_done(
@@ -594,7 +738,14 @@ impl EventDecoder {
             .ok_or(CodecError::Invalid("output index"))?;
         let v = o.get("item").ok_or(CodecError::Invalid("item"))?;
         let p = object(v)?;
-        let status = lifecycle(string(p, "status")?)?;
+        let status = if matches!(self.state()?.item(item)?.kind, ItemKind::CustomCall { .. }) {
+            ItemLifecycle::Completed
+        } else {
+            match p.get("status").filter(|v| !v.is_null()) {
+                Some(v) => lifecycle(v.as_str().ok_or(CodecError::Invalid("item status"))?)?,
+                None => ItemLifecycle::Completed,
+            }
+        };
         // Reasoning-text may omit generic content-part.done; its value.done still closes the value.
         let parts = self.state()?.item(item)?.parts.clone();
         for part in parts {
@@ -655,6 +806,11 @@ impl EventDecoder {
         };
         self.observe_metadata(p)?;
         let decoded = super::super::static_response::decode_responses(r)?;
+        sync_replays(
+            self.state.as_ref().ok_or(CodecError::Invalid("state"))?,
+            &mut self.fidelity,
+            None,
+        )?;
         let expected = super::super::responses::encode_items(
             &snapshot_items(self.state()?)?,
             &self.fidelity,

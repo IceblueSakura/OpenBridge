@@ -1,5 +1,0 @@
-{
-  "input": "__fixture:rate-limit__",
-  "model": "public-model",
-  "stream": false
-}

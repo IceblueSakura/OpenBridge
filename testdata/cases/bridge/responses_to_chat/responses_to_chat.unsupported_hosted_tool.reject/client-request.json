@@ -1,9 +1,0 @@
-{
-  "input": "Search the web.",
-  "model": "public-model",
-  "tools": [
-    {
-      "type": "web_search_preview"
-    }
-  ]
-}

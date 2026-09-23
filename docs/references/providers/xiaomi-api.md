@@ -22,7 +22,7 @@
 - [Chat 结构化输出专页](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/structured-output)明确为 MiMo-V2.5/Pro 提供 `json_object`；Chat API reference 同时只列 `text`，两者存在官方文档冲突，因此 executable caps 只保留专页明确的 Chat JSON Object，不提升 JSON Schema。
 - Responses 当前只列 `text` format，也未声明 `prompt_cache_key` 或 `include`；这些 Responses 字段不作为 executable caps 公开。
 
-Models 目录可见性不证明某个 operation、参数、streaming 或媒体任务当前可用。具体模型能力和生命周期应直接读取 MiMo 官方文档；OpenBridge 当前映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+Models 目录可见性不证明某个 operation、参数、streaming 或媒体任务当前可用。具体模型能力和生命周期应直接读取 MiMo 官方文档；OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。
 
 ## 证据边界
 

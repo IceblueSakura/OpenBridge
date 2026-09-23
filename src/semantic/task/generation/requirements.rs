@@ -9,6 +9,11 @@ pub struct GenerationRequirements {
     pub audio_inputs: usize,
     pub file_inputs: usize,
     pub tool_count: usize,
+    pub custom_tools: bool,
+    pub text_metadata: bool,
+    pub top_p: bool,
+    pub logprobs: bool,
+    pub truncation: bool,
     pub tool_choice: Option<super::ToolChoice>,
     pub parallel_tool_calls: Option<bool>,
     pub strict_function_tools: bool,
@@ -24,13 +29,12 @@ impl GenerationRequirements {
         let mut x = Self {
             tool_choice: r.tool_choice().cloned(),
             parallel_tool_calls: r.parallel_tool_calls(),
-            strict_function_tools: r.tools().iter().any(|super::ToolDefinition::Function(t)| {
-                matches!(
-                    t.strict,
-                    super::FunctionStrictness::Explicit(true)
-                        | super::FunctionStrictness::Omitted(super::StrictDefault::NormalizeSchema)
-                )
-            }),
+            instruction_count: usize::from(r.instructions().value().is_some()),
+            custom_tools: r.tools().iter().any(|t|matches!(t,super::ToolDefinition::Custom(_))),
+            top_p: r.controls().top_p().is_some(),
+            logprobs: r.controls().logprobs || r.controls().top_logprobs.is_some(),
+            truncation: r.controls().truncation.is_some(),
+            strict_function_tools: r.tools().iter().any(|t| matches!(t,super::ToolDefinition::Function(t) if matches!(t.strict,super::FunctionStrictness::Explicit(true)|super::FunctionStrictness::Omitted(super::StrictDefault::NormalizeSchema)))),
             max_output_tokens: r.controls().max_output_tokens,
             temperature: r.controls().temperature().is_some(),
             tool_count: r.tools().len(),
@@ -47,7 +51,10 @@ impl GenerationRequirements {
                     x.message_count += usize::from(!m.parts.is_empty());
                     for p in &m.parts {
                         match &p.content {
-                            ContentPart::Text(_) => x.text_part_count += 1,
+                            ContentPart::Text(t) => {
+                                x.text_part_count += 1;
+                                x.text_metadata |= !t.is_plain();
+                            }
                             ContentPart::Refusal(_) => {}
                             ContentPart::Resource(resource) => {
                                 x.resource_count += 1;
@@ -61,6 +68,10 @@ impl GenerationRequirements {
                     }
                 }
                 Item::ToolCall(_) | Item::ToolResult(_) => x.tool_history = true,
+                Item::CustomCall(_) | Item::CustomResult(_) => {
+                    x.tool_history = true;
+                    x.custom_tools = true;
+                }
                 Item::Reasoning(_) => {
                     x.reasoning_items += 1;
                     x.reasoning = true;

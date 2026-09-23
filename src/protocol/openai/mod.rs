@@ -1,12 +1,16 @@
 //! Pure codecs for the explicitly supported Generation migration slice.
 pub mod chat;
 mod common;
+pub mod envelope;
 pub mod events;
 mod function_tools;
 mod reasoning;
 pub mod responses;
+mod settings;
+pub mod sse;
 mod static_response;
 mod terminal;
+mod text;
 
 use crate::{
     protocol::fidelity::FidelityRecords,
@@ -34,7 +38,8 @@ pub struct DecodedResponse {
 pub struct ResponseMetadata {
     pub id: String,
     pub model: String,
-    pub created: u64,
+    pub created: serde_json::Number,
+    pub context: envelope::ResponseContext,
 }
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 pub enum CodecError {

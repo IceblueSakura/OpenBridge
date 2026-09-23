@@ -10,7 +10,17 @@ pub(super) fn decode_details(o: &Map<String, Value>) -> Result<TerminalDetails, 
             let e = object(v)?;
             fields(e, &["code", "message", "param"])?;
             Ok::<_, CodecError>(ResponseError {
-                code: text(string(e, "code")?, "error code", 128)?,
+                code: e
+                    .get("code")
+                    .filter(|v| !v.is_null())
+                    .map(|v| {
+                        text(
+                            v.as_str().ok_or(CodecError::Invalid("error code"))?,
+                            "error code",
+                            128,
+                        )
+                    })
+                    .transpose()?,
                 message: crate::semantic::value::Text::allowing_empty(
                     string(e, "message")?,
                     "error message",
@@ -37,6 +47,9 @@ pub(super) fn decode_details(o: &Map<String, Value>) -> Result<TerminalDetails, 
         .map(|v| {
             let d = object(v)?;
             fields(d, &["reason"])?;
+            if d.get("reason").is_none_or(|v| v.is_null()) {
+                return Ok(IncompleteReason::Unspecified);
+            }
             Ok::<_, CodecError>(match string(d, "reason")? {
                 "max_output_tokens" => IncompleteReason::MaxOutputTokens,
                 "content_filter" => IncompleteReason::ContentFilter,
@@ -49,7 +62,8 @@ pub(super) fn decode_details(o: &Map<String, Value>) -> Result<TerminalDetails, 
 pub(super) fn encode_error(error: Option<&ResponseError>) -> Value {
     error
         .map(|e| {
-            let mut v = json!({"code":e.code.as_str(),"message":e.message.as_str()});
+            let mut v =
+                json!({"code":e.code.as_ref().map(|c|c.as_str()),"message":e.message.as_str()});
             if let Some(p) = &e.param {
                 v["param"] = json!(p.as_str());
             }
@@ -58,5 +72,5 @@ pub(super) fn encode_error(error: Option<&ResponseError>) -> Value {
         .unwrap_or(Value::Null)
 }
 pub(super) fn encode_incomplete(reason: Option<&IncompleteReason>) -> Value {
-    reason.map(|r|json!({"reason":match r {IncompleteReason::MaxOutputTokens=>"max_output_tokens",IncompleteReason::ContentFilter=>"content_filter",IncompleteReason::Other(t)=>t.as_str()}})).unwrap_or(Value::Null)
+    reason.map(|r|json!({"reason":match r {IncompleteReason::Unspecified=>Value::Null,IncompleteReason::MaxOutputTokens=>json!("max_output_tokens"),IncompleteReason::ContentFilter=>json!("content_filter"),IncompleteReason::Other(t)=>json!(t.as_str())}})).unwrap_or(Value::Null)
 }

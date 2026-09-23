@@ -39,7 +39,9 @@ fn independent_text_wire_decodes_empty_and_multiple_parts() {
     assert_eq!(
         m.parts[0].content,
         ContentPart::Text(
-            openbridge::semantic::value::Text::allowing_empty("", "test", 1).unwrap()
+            openbridge::semantic::value::Text::allowing_empty("", "test", 1)
+                .unwrap()
+                .into()
         )
     );
 }
@@ -97,7 +99,7 @@ fn empty_failed_and_cancelled_static_event_closure_keeps_details() {
         let details = match terminal {
             StreamTerminal::Failed => TerminalDetails {
                 error: Some(ResponseError {
-                    code: text("server_error"),
+                    code: Some(text("server_error")),
                     message: text("synthetic error"),
                     param: None,
                 }),
@@ -142,6 +144,7 @@ fn chat_refusal_and_empty_text_survive_usage_and_done() {
             total_tokens: 5,
             reasoning_tokens: Some(1),
             cached_input_tokens: Some(0),
+            input_cache_write_tokens: None,
         }));
         e.push(terminal(StreamTerminal::Completed));
         let wire = encode(&e, Profile::Chat, &FidelityRecords::default());

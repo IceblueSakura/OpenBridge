@@ -38,4 +38,4 @@ Chat 与 Responses 相对入口分别为 `/chat/completions` 和 `/responses`。
 
 2026-08-27 对 `glm-5.2`、`deepseek-v4-flash-0731` 与 `qwen3.8-max` 的真实北京 Responses 对比见[带日期证据记录](../../implementation-status/evidence/2026-08-27-bailian-responses-model-comparison.md)。2026-08-31 又以管理员工具确认 `deepseek-v4-flash-0731` 的有界 Responses JSON/SSE 均成功；该复核不扩张原记录中的 structured output、parallel 或 state 结论。本文不复制动态模型级结果。
 
-OpenBridge 当前映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。

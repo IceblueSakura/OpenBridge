@@ -12,7 +12,8 @@ fn metadata() -> ResponseMetadata {
     ResponseMetadata {
         id: "response_1".into(),
         model: "fixture-model".into(),
-        created: 10,
+        created: 10.into(),
+        context: Default::default(),
     }
 }
 fn chat_refusal() -> Value {

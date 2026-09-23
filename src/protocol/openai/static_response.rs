@@ -21,11 +21,21 @@ pub(super) fn metadata(
     let model = text(string(o, "model")?, "response model", 256)?
         .as_str()
         .to_owned();
-    let created = o
-        .get(created_key)
-        .and_then(Value::as_u64)
-        .ok_or(CodecError::Invalid("created time"))?;
-    Ok(ResponseMetadata { id, model, created })
+    let created = super::envelope::timestamp(
+        o.get(created_key)
+            .ok_or(CodecError::Invalid("created time"))?,
+    )?;
+    let context = if profile == Profile::Responses {
+        super::envelope::ResponseContext::read(o)?
+    } else {
+        Default::default()
+    };
+    Ok(ResponseMetadata {
+        id,
+        model,
+        created,
+        context,
+    })
 }
 pub(super) fn usage(value: Option<&Value>, profile: Profile) -> Result<Option<Usage>, CodecError> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
@@ -61,6 +71,11 @@ pub(super) fn usage(value: Option<&Value>, profile: Profile) -> Result<Option<Us
         output_tokens: count(usage, output_key)?,
         total_tokens: count(usage, "total_tokens")?,
         cached_input_tokens: detail(usage, input_details, "cached_tokens")?,
+        input_cache_write_tokens: if profile == Profile::Responses {
+            detail(usage, input_details, "cache_write_tokens")?
+        } else {
+            None
+        },
         reasoning_tokens: detail(usage, output_details, "reasoning_tokens")?,
     };
     if parsed.input_tokens.checked_add(parsed.output_tokens) != Some(parsed.total_tokens) {
@@ -82,7 +97,11 @@ fn detail(
         None | Some(Value::Null) => Ok(None),
         Some(value) => {
             let details = object(value)?;
-            fields(details, &[field])?;
+            if key == "input_tokens_details" {
+                fields(details, &["cached_tokens", "cache_write_tokens"])?;
+            } else {
+                fields(details, &[field])?;
+            }
             match details.get(field) {
                 None | Some(Value::Null) => Ok(None),
                 Some(value) => Ok(Some(
@@ -113,6 +132,12 @@ pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
             "input_tokens_details"
         };
         object.insert(key.into(), json!({"cached_tokens": cached}));
+    }
+    if let Some(written) = usage.input_cache_write_tokens {
+        let details = object
+            .entry("input_tokens_details")
+            .or_insert_with(|| json!({}));
+        details["cache_write_tokens"] = json!(written);
     }
     if let Some(reasoning) = usage.reasoning_tokens {
         let key = if profile == Profile::Chat {
@@ -181,20 +206,7 @@ pub fn decode_chat(v: &Value) -> Result<DecodedResponse, CodecError> {
 pub fn decode_responses(v: &Value) -> Result<DecodedResponse, CodecError> {
     bounded(v)?;
     let o = object(v)?;
-    fields(
-        o,
-        &[
-            "id",
-            "object",
-            "created_at",
-            "model",
-            "status",
-            "output",
-            "usage",
-            "error",
-            "incomplete_details",
-        ],
-    )?;
+    super::envelope::response_fields(o)?;
     if string(o, "object")? != "response" {
         return Err(CodecError::Invalid("response object"));
     }
@@ -216,13 +228,11 @@ pub fn decode_responses(v: &Value) -> Result<DecodedResponse, CodecError> {
         "incomplete"
     };
     responses::decode_items(&mut b, output, true, item_status)?;
-    let outcome = outcome.unwrap_or(
-        if b.items.iter().any(|(_, i)| matches!(i, Item::ToolCall(_))) {
-            Outcome::Completed(Completion::ToolCalls)
-        } else {
-            Outcome::Completed(Completion::Stop)
-        },
-    );
+    let outcome = outcome.unwrap_or(if b.items.iter().any(|(_, i)| i.is_call()) {
+        Outcome::Completed(Completion::ToolCalls)
+    } else {
+        Outcome::Completed(Completion::Stop)
+    });
     Ok(DecodedResponse {
         semantic: response_with_usage(
             b.items,
@@ -285,6 +295,11 @@ pub fn encode_responses(target: &ResponseRepresentation<'_>) -> Result<Value, Co
     let m = target.metadata;
     let mut value = json!({"id":m.id,"object":"response","created_at":m.created,"model":m.model,"status":status,
         "output":output,"usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Responses))});
+    super::envelope::write_metadata(
+        m,
+        value.as_object_mut().expect("object"),
+        status == "completed",
+    )?;
     if target.semantic.details().error.is_some() {
         value["error"] = encode_error(target.semantic.details().error.as_ref());
     }

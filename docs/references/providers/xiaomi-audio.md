@@ -23,4 +23,4 @@ MiMo 音频理解、ASR 与 TTS 使用 Chat Completions envelope，而不是标�
 
 ## 证据边界
 
-本文不保存真实音频、credential、请求正文或完整响应。当前 OpenBridge 映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+本文不保存真实音频、credential、请求正文或完整响应。OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。

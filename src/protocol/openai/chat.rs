@@ -52,7 +52,8 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
                 id,
                 Item::ToolResult(ToolResult {
                     call_id: text(string(m, "tool_call_id")?, "call_id", 256)?,
-                    output: raw_string(m, "content")?,
+                    output: raw_string(m, "content")?.into(),
+                    status: None,
                 }),
             ));
         }
@@ -60,6 +61,7 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
             if m.contains_key("tool_calls") || m.contains_key("tool_call_id") {
                 return Err(CodecError::Invalid("instruction tool fields"));
             }
+            let part_id = b.part_id()?;
             b.items.push((
                 id,
                 Item::Instruction(Instruction {
@@ -68,7 +70,15 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
                     } else {
                         InstructionAuthority::Developer
                     },
-                    text: text(string(m, "content")?, "instruction", MAX_TEXT_BYTES)?,
+                    parts: vec![(
+                        part_id,
+                        crate::semantic::value::Text::allowing_empty(
+                            string(m, "content")?,
+                            "instruction",
+                            MAX_TEXT_BYTES,
+                        )
+                        .map_err(|_| CodecError::Limit)?,
+                    )],
                 }),
             ));
         }
@@ -131,9 +141,16 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     if target.profile != Profile::Chat {
         return Err(CodecError::ProfileMismatch);
     }
-    let mut v = json!({"messages": encode_items(target.semantic.items())});
+    let mut messages = encode_items(target.semantic.items());
+    if let Some(t) = target.semantic.instructions().value() {
+        messages.insert(0, json!({"role":"developer","content":t.as_str()}));
+    }
+    let mut v = json!({"messages": messages});
     let o = v.as_object_mut().expect("object literal");
     write_controls(target.semantic, o, "max_completion_tokens");
+    if let Some(p) = target.semantic.controls().top_p() {
+        o.insert("top_p".into(), json!(p));
+    }
     function_tools::encode(target.semantic, Profile::Chat, o);
     super::reasoning::write_request(target.semantic.reasoning(), o, Profile::Chat);
     bounded(&v)?;
@@ -149,7 +166,7 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
         match item {
             Item::Instruction(i) => {
                 standalone_calls = false;
-                messages.push(json!({"role":match i.authority { InstructionAuthority::System => "system", InstructionAuthority::Developer => "developer" },"content":i.text.as_str()}));
+                messages.push(json!({"role":match i.authority { InstructionAuthority::System => "system", InstructionAuthority::Developer => "developer" },"content":i.parts[0].1.as_str()}));
             }
             Item::Message(m) => {
                 standalone_calls = false;
@@ -184,11 +201,13 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
                 calls.as_array_mut().expect("calls").push(call_wire(c));
                 standalone_calls = c.message.is_none();
             }
-            Item::Reasoning(_) => unreachable!("lowering rejects reasoning items on chat"),
+            Item::Reasoning(_) | Item::CustomCall(_) | Item::CustomResult(_) => {
+                unreachable!("lowering rejects unsupported Chat items")
+            }
             Item::ToolResult(r) => {
                 standalone_calls = false;
                 messages.push(
-                    json!({"role":"tool","tool_call_id":r.call_id.as_str(),"content":r.output}),
+                    json!({"role":"tool","tool_call_id":r.call_id.as_str(),"content":match &r.output { ToolOutput::Text(s)=>json!(s), ToolOutput::Parts(_)=>unreachable!("lowering rejects Chat tool result parts") }}),
                 );
             }
         }

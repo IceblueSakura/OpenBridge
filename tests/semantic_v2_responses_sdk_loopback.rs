@@ -1,0 +1,335 @@
+//! Explicit, ignored SDK gate. The only HTTP listener is test-owned loopback; no Provider/router.
+#[path = "support/responses_profile.rs"]
+mod wire;
+
+use std::{
+    process::{Child, Command, Stdio},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
+use axum::{
+    Router,
+    body::{Body, Bytes},
+    extract::State,
+    http::{HeaderMap, StatusCode, header::CONTENT_TYPE},
+    response::Response,
+    routing::post,
+};
+use openbridge::{
+    lowering::generation::{GenerationRepresentationContract, lower_request, lower_response},
+    protocol::openai::{
+        Profile, envelope,
+        events::EventDecoder,
+        sse::{Obfuscation, ResponsesSseEncoder, SseLimits},
+    },
+    semantic::{
+        task::generation::{ContentPart, Item, StreamEvent},
+        value::{Presence, ReplayOrigin, Text},
+    },
+};
+use serde_json::Value;
+use tokio::net::TcpListener;
+
+const SCRIPT: &str = "tests/sdk/semantic_v2_responses_text_loop.py";
+
+fn origin() -> ReplayOrigin {
+    ReplayOrigin::new("synthetic-loopback").unwrap()
+}
+
+fn contract() -> GenerationRepresentationContract {
+    let mut contract = GenerationRepresentationContract::full();
+    contract.replay_origin = Some(origin());
+    contract
+}
+
+#[derive(Clone, Default)]
+struct Suite(Arc<Mutex<(usize, Option<&'static str>)>>);
+
+fn failure(code: StatusCode, phase: &'static str, state: &Suite) -> Response {
+    state.0.lock().unwrap().1 = Some(phase);
+    Response::builder()
+        .status(code)
+        .body(Body::empty())
+        .unwrap()
+}
+
+fn response_fixture(turn: u8) -> Value {
+    let mut response = wire::response(turn);
+    // SDK v3's strict response model requires integer timestamps.
+    response["created_at"] = 1.into();
+    response["completed_at"] = 2.into();
+    response
+}
+
+async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> Response {
+    if headers.get("authorization").and_then(|v| v.to_str().ok())
+        != Some("Bearer synthetic-local-token")
+        || headers
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_none_or(|v| !v.starts_with("application/json"))
+    {
+        return failure(StatusCode::UNAUTHORIZED, "local request boundary", &state);
+    }
+    let Ok(v) = serde_json::from_slice::<Value>(&body) else {
+        return failure(StatusCode::BAD_REQUEST, "request JSON", &state);
+    };
+    let mut decoded = match envelope::decode_request(&v) {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            eprintln!("synthetic SDK request rejected: {error}");
+            return failure(StatusCode::BAD_REQUEST, "envelope decode", &state);
+        }
+    };
+    if decoded.context.model != "fixture-model"
+        || decoded.task.fidelity.bind_replay_origin(&origin()).is_err()
+    {
+        return failure(
+            StatusCode::BAD_REQUEST,
+            "fixed model or replay binding",
+            &state,
+        );
+    }
+    let Ok(target) = lower_request(
+        &decoded.task.semantic,
+        &decoded.task.fidelity,
+        Profile::Responses,
+        contract(),
+    ) else {
+        return failure(StatusCode::BAD_REQUEST, "request lowering", &state);
+    };
+    let Ok(encoded) = envelope::encode_request(&target, &decoded.context) else {
+        return failure(StatusCode::BAD_REQUEST, "request encoding", &state);
+    };
+    if encoded["store"] != false
+        || encoded["model"] != "fixture-model"
+        || encoded["input"].is_null()
+    {
+        return failure(StatusCode::BAD_REQUEST, "request projection", &state);
+    }
+    let turn = {
+        let mut seen = state.0.lock().unwrap();
+        seen.0 += 1;
+        seen.0
+    };
+    if turn > 2
+        || turn == 2
+            && encoded["input"].as_array().is_none_or(|items| {
+                !items
+                    .iter()
+                    .any(|item| item["type"] == "custom_tool_call_output")
+                    || !items
+                        .iter()
+                        .any(|item| item["type"] == "function_call_output")
+            })
+    {
+        return failure(StatusCode::BAD_REQUEST, "two-turn tool results", &state);
+    }
+    let response = response_fixture(turn as u8);
+    if !decoded.context.delivery.streaming() {
+        let Ok(mut decoded) = envelope::decode_response(&response) else {
+            return failure(StatusCode::INTERNAL_SERVER_ERROR, "response decode", &state);
+        };
+        decoded.fidelity.bind_replay_origin(&origin()).unwrap();
+        if turn == 2 {
+            let mut items = decoded.semantic.items().to_vec();
+            let Item::Message(message) = &mut items[0].1 else {
+                unreachable!()
+            };
+            let ContentPart::Text(text) = &message.parts[0].content else {
+                unreachable!()
+            };
+            message.parts[0].content = ContentPart::Text(
+                text.clone()
+                    .replace_text(Text::new("{\"ok\":true}", "synthetic", 100).unwrap()),
+            );
+            let completion = decoded.semantic.completion().unwrap();
+            decoded.semantic = decoded.semantic.with_items(items, completion).unwrap();
+        }
+        let Ok(lowered) = lower_response(
+            &decoded.semantic,
+            &decoded.fidelity,
+            &decoded.metadata,
+            Profile::Responses,
+            contract(),
+        ) else {
+            return failure(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "response lowering",
+                &state,
+            );
+        };
+        let Ok(out) = envelope::encode_response(&lowered) else {
+            return failure(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "response encoding",
+                &state,
+            );
+        };
+        return Response::builder()
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(out.to_string()))
+            .unwrap();
+    }
+
+    let mut decoder = EventDecoder::new(Profile::Responses).with_replay_origin(origin());
+    let mut events = Vec::new();
+    for mut payload in wire::events(turn as u8) {
+        if payload["type"] == "response.created" || payload["type"] == "response.completed" {
+            payload["response"]["created_at"] = 1.into();
+            payload["response"]["completed_at"] = if payload["type"] == "response.created" {
+                Value::Null
+            } else {
+                2.into()
+            };
+        }
+        let Ok(mut next) = decoder.push(&payload) else {
+            return failure(StatusCode::INTERNAL_SERVER_ERROR, "event decode", &state);
+        };
+        events.append(&mut next);
+    }
+    if decoder.finish().is_err() {
+        return failure(StatusCode::INTERNAL_SERVER_ERROR, "event closure", &state);
+    }
+    let Ok(mut encoder) = ResponsesSseEncoder::new(
+        decoder.metadata().unwrap().clone(),
+        contract(),
+        SseLimits::default(),
+        Obfuscation::Disabled,
+    ) else {
+        return failure(StatusCode::INTERNAL_SERVER_ERROR, "SSE encoder", &state);
+    };
+    // Capacity one prevents pre-encoding the stream or consuming unbounded producer output.
+    // Dropping the response receiver interrupts a blocked send without emitting a terminal.
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(1);
+    tokio::spawn(async move {
+        for mut event in events {
+            if turn == 2 {
+                match &mut event {
+                    StreamEvent::Delta {
+                        fragment, logprobs, ..
+                    } if fragment == "{\"ok\":false}" => {
+                        *fragment = "{\"ok\":true}".into();
+                        logprobs.clear();
+                    }
+                    StreamEvent::TextMetadata {
+                        annotations,
+                        logprobs,
+                        ..
+                    } => {
+                        annotations.clear();
+                        *logprobs = Presence::Absent;
+                    }
+                    StreamEvent::AnnotationAdded { .. } | StreamEvent::LogprobsSnapshot { .. } => {
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            let Ok(frames) = encoder.encode(&event, decoder.fidelity()) else {
+                return;
+            };
+            for frame in frames {
+                if tx.send(Ok(frame)).await.is_err() {
+                    return;
+                }
+            }
+        }
+        let _ = encoder.finish();
+    });
+    Response::builder()
+        .header(CONTENT_TYPE, "text/event-stream")
+        .body(Body::from_stream(futures_util::stream::unfold(
+            rx,
+            |mut receiver| async move { receiver.recv().await.map(|value| (value, receiver)) },
+        )))
+        .unwrap()
+}
+
+struct ChildGuard(Option<Child>);
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if let Some(child) = &mut self.0 {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+async fn sdk_case(sse: bool) {
+    let suite = Suite::default();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let observed = suite.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            Router::new()
+                .route("/v1/responses", post(handle))
+                .with_state(suite),
+        )
+        .await
+        .unwrap();
+    });
+    let guard = server.abort_handle();
+    let mut command =
+        Command::new(std::env::var_os("OPENBRIDGE_SDK_PYTHON").unwrap_or_else(|| "python3".into()));
+    command
+        .args([
+            SCRIPT,
+            &format!("http://{address}/v1"),
+            if sse { "sse" } else { "json" },
+        ])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for name in [
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "OPENAI_ORG_ID",
+        "OPENAI_PROJECT_ID",
+        "OPENBRIDGE_CONFIG",
+    ] {
+        command.env_remove(name);
+    }
+    let mut child = ChildGuard(Some(
+        command
+            .spawn()
+            .expect("pin openai==3.10.0 outside this test"),
+    ));
+    let deadline = Instant::now() + Duration::from_secs(35);
+    let output = loop {
+        if child.0.as_mut().unwrap().try_wait().unwrap().is_some() {
+            break child.0.take().unwrap().wait_with_output().unwrap();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "SDK loopback exceeded bounded timeout"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    guard.abort();
+    let _ = server.await;
+    assert!(
+        output.status.success(),
+        "SDK rejected synthetic v2 response (phase={:?}): {}",
+        observed.0.lock().unwrap().1,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(observed.0.lock().unwrap().0, 2);
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["turns"], 2);
+    if sse {
+        assert!(report["event_counts"][0].as_u64().unwrap() > 5);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires offline-pinned openai==3.10.0; v2-only JSON/SSE synthetic loopback"]
+async fn sdk_two_turn_text_json_and_sse() {
+    for mode in [false, true] {
+        sdk_case(mode).await;
+    }
+}

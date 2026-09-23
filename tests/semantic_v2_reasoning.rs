@@ -21,27 +21,22 @@ fn reasoning(status: &str) -> Value {
     json!({"id":"rs","type":"reasoning","status":status,"summary":[{"type":"summary_text","text":"summary"}],"content":[{"type":"reasoning_text","text":"reasoning"}],"encrypted_content":"final-synthetic"})
 }
 fn wire_part(output: usize, id: &str, index: usize, summary: bool, s: &str) -> Vec<Value> {
-    let (family, kind, key, stem) = if summary {
-        (
-            "reasoning_summary_part",
-            "summary_text",
-            "summary_index",
-            "reasoning_summary_text",
-        )
+    let (key, stem) = if summary {
+        ("summary_index", "reasoning_summary_text")
     } else {
-        (
-            "content_part",
-            "reasoning_text",
-            "content_index",
-            "reasoning_text",
-        )
+        ("content_index", "reasoning_text")
     };
-    let mut values = vec![
-        json!({"type":format!("response.{family}.added"),"output_index":output,"item_id":id,"part":{"type":kind,"text":""}}),
-        json!({"type":format!("response.{stem}.delta"),"output_index":output,"item_id":id,"delta":s}),
+    let mut values = vec![];
+    if summary {
+        values.push(json!({"type":"response.reasoning_summary_part.added","output_index":output,"item_id":id,"part":{"type":"summary_text","text":""}}));
+    }
+    values.push(json!({"type":format!("response.{stem}.delta"),"output_index":output,"item_id":id,"delta":s}));
+    values.push(
         json!({"type":format!("response.{stem}.done"),"output_index":output,"item_id":id,"text":s}),
-        json!({"type":format!("response.{family}.done"),"output_index":output,"item_id":id,"part":{"type":kind,"text":s}}),
-    ];
+    );
+    if summary {
+        values.push(json!({"type":"response.reasoning_summary_part.done","output_index":output,"item_id":id,"part":{"type":"summary_text","text":s}}));
+    }
     for v in &mut values {
         v[key] = json!(index);
     }
@@ -75,7 +70,7 @@ fn controls_keep_absence_empty_none_disabled_and_encrypted_output_distinct() {
     assert!(lower_request(&none.semantic, &none.fidelity, Profile::Chat, contract()).is_err());
     for bad in [
         json!({"effort":"none","summary":"auto"}),
-        json!({"summary":null}),
+        json!({"summary":[]}),
         json!({"summary":true}),
     ] {
         assert!(responses::decode_generation(&json!({"input":input,"reasoning":bad})).is_err());
@@ -205,7 +200,8 @@ fn partial_final_phases_and_resource_limits_fail_without_panics() {
             StreamEvent::Delta {
                 item: ItemId::new(1),
                 part: PartId::new(1),
-                fragment: "x".repeat(MAX_TEXT_BYTES + 1)
+                fragment: "x".repeat(MAX_TEXT_BYTES + 1),
+                logprobs: vec![]
             }
         ),
         Err(EventError::Limit)
@@ -293,6 +289,7 @@ fn reasoning_parallel_calls_and_results_close_two_turns_without_losing_history()
         total_tokens: 10,
         reasoning_tokens: Some(3),
         cached_input_tokens: Some(0),
+        input_cache_write_tokens: None,
     }));
     events.push(terminal(StreamTerminal::Completed));
     let wire = encode(&events, Profile::Responses, &FidelityRecords::default());

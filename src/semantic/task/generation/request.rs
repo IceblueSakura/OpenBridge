@@ -1,9 +1,6 @@
-//! Validated immutable Generation request and identity-preserving transformations.
-use super::{
-    OutputConstraint, ReasoningRequest, Resource, ToolCall, ToolChoice, ToolDefinition, ToolResult,
-};
-use crate::semantic::value::Text;
-
+//! Validated Generation history and settings. Response echoes reuse settings, never raw request JSON.
+use super::*;
+use crate::semantic::value::{Presence, Text};
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ItemId(u64);
 impl ItemId {
@@ -32,7 +29,7 @@ pub enum InstructionAuthority {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Instruction {
     pub authority: InstructionAuthority,
-    pub text: Text,
+    pub parts: Vec<(PartId, Text)>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MessageRole {
@@ -41,8 +38,7 @@ pub enum MessageRole {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContentPart {
-    Text(Text),
-    /// Assistant refusal, distinct from ordinary text and from a failed terminal.
+    Text(TextContent),
     Refusal(Text),
     Resource(Resource),
 }
@@ -55,7 +51,7 @@ pub struct Part {
 pub struct Message {
     pub role: MessageRole,
     pub parts: Vec<Part>,
-    pub status: super::ItemLifecycle,
+    pub status: ItemLifecycle,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
@@ -63,10 +59,12 @@ pub enum Item {
     Message(Message),
     ToolCall(ToolCall),
     ToolResult(ToolResult),
-    Reasoning(super::ReasoningItem),
+    CustomCall(CustomCall),
+    CustomResult(ToolResult),
+    Reasoning(ReasoningItem),
 }
 impl Item {
-    pub fn lifecycle(&self) -> Option<super::ItemLifecycle> {
+    pub fn lifecycle(&self) -> Option<ItemLifecycle> {
         match self {
             Self::Message(m) => Some(m.status),
             Self::ToolCall(c) => Some(c.status),
@@ -74,11 +72,23 @@ impl Item {
             _ => None,
         }
     }
+    pub fn is_call(&self) -> bool {
+        matches!(self, Self::ToolCall(_) | Self::CustomCall(_))
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Truncation {
+    Auto,
+    Disabled,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenerationControls {
     pub max_output_tokens: Option<u64>,
     temperature_bits: Option<u64>,
+    top_p_bits: Option<u64>,
+    pub top_logprobs: Option<u8>,
+    pub logprobs: bool,
+    pub truncation: Option<Truncation>,
 }
 impl GenerationControls {
     pub fn with_temperature(mut self, v: f64) -> Result<Self, GenerationError> {
@@ -91,49 +101,92 @@ impl GenerationControls {
     pub fn temperature(&self) -> Option<f64> {
         self.temperature_bits.map(f64::from_bits)
     }
+    pub fn with_top_p(mut self, v: f64) -> Result<Self, GenerationError> {
+        if !v.is_finite() || !(0.0..=1.0).contains(&v) {
+            return Err(GenerationError::InvalidControl);
+        }
+        self.top_p_bits = Some(v.to_bits());
+        Ok(self)
+    }
+    pub fn top_p(&self) -> Option<f64> {
+        self.top_p_bits.map(f64::from_bits)
+    }
+}
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct GenerationSettings {
+    pub instructions: Presence<Text>,
+    pub controls: GenerationControls,
+    pub tools: Option<Vec<ToolDefinition>>,
+    pub tool_choice: Option<ToolChoice>,
+    pub parallel_tool_calls: Option<bool>,
+    pub text: TextOptions,
+    pub reasoning: ReasoningRequest,
+}
+impl GenerationSettings {
+    pub fn output(&self) -> &OutputConstraint {
+        self.text.format.value().unwrap_or(&OutputConstraint::Text)
+    }
+    pub fn validate(&self) -> Result<usize, GenerationError> {
+        if self.controls.max_output_tokens == Some(0)
+            || self.controls.top_logprobs.is_some_and(|n| n > 20)
+            || self
+                .controls
+                .temperature()
+                .is_some_and(|v| !(0.0..=2.0).contains(&v))
+        {
+            return Err(GenerationError::InvalidControl);
+        }
+        self.reasoning.validate()?;
+        let instructions = self.instructions.value().map_or(0, |t| t.as_str().len());
+        if instructions > MAX_TEXT_BYTES {
+            return Err(GenerationError::Limit);
+        }
+        let bytes = instructions
+            + super::validate::tools(
+                self.tools.as_deref().unwrap_or_default(),
+                self.tool_choice.as_ref(),
+            )?
+            + super::validate::output(self.output())?;
+        if bytes > MAX_TOTAL_BYTES {
+            return Err(GenerationError::Limit);
+        }
+        Ok(bytes)
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenerationRequest {
     items: Vec<(ItemId, Item)>,
-    controls: GenerationControls,
-    tools: Option<Vec<ToolDefinition>>,
-    tool_choice: Option<ToolChoice>,
-    parallel_tool_calls: Option<bool>,
-    output: OutputConstraint,
-    reasoning: ReasoningRequest,
+    settings: GenerationSettings,
 }
 impl GenerationRequest {
     pub fn new(
         items: Vec<(ItemId, Item)>,
         controls: GenerationControls,
     ) -> Result<Self, GenerationError> {
-        let value = Self {
+        Self::from_settings(
             items,
-            controls,
-            tools: None,
-            tool_choice: None,
-            parallel_tool_calls: None,
-            output: OutputConstraint::Text,
-            reasoning: ReasoningRequest::default(),
-        };
-        value.validate()?;
-        Ok(value)
+            GenerationSettings {
+                controls,
+                ..Default::default()
+            },
+        )
+    }
+    pub fn from_settings(
+        items: Vec<(ItemId, Item)>,
+        settings: GenerationSettings,
+    ) -> Result<Self, GenerationError> {
+        let r = Self { items, settings };
+        r.validate()?;
+        Ok(r)
     }
     pub fn validate(&self) -> Result<(), GenerationError> {
-        if self.controls.max_output_tokens == Some(0) {
-            return Err(GenerationError::InvalidControl);
-        }
-        if self.reasoning.effort() == Some(super::ReasoningEffort::None)
-            && self
-                .reasoning
-                .summary()
-                .is_some_and(|s| s != super::ReasoningSummary::Disabled)
-        {
-            return Err(GenerationError::InvalidControl);
-        }
-        let items = super::validate::items(&self.items, false)?;
-        let tools = super::validate::tools(self.tools(), self.tool_choice.as_ref())?;
-        if items.saturating_add(tools) > super::MAX_TOTAL_BYTES {
+        let settings = self.settings.validate()?;
+        let items = if self.items.is_empty() && self.settings.instructions.value().is_some() {
+            0
+        } else {
+            super::validate::items(&self.items, false)?
+        };
+        if items.saturating_add(settings) > MAX_TOTAL_BYTES {
             return Err(GenerationError::Limit);
         }
         Ok(())
@@ -141,26 +194,40 @@ impl GenerationRequest {
     pub fn items(&self) -> &[(ItemId, Item)] {
         &self.items
     }
-    pub const fn controls(&self) -> &GenerationControls {
-        &self.controls
+    pub fn settings(&self) -> &GenerationSettings {
+        &self.settings
+    }
+    pub fn controls(&self) -> &GenerationControls {
+        &self.settings.controls
     }
     pub fn tools(&self) -> &[ToolDefinition] {
-        self.tools.as_deref().unwrap_or_default()
+        self.settings.tools.as_deref().unwrap_or_default()
     }
-    pub const fn tools_present(&self) -> bool {
-        self.tools.is_some()
+    pub fn tools_present(&self) -> bool {
+        self.settings.tools.is_some()
     }
-    pub const fn tool_choice(&self) -> Option<&ToolChoice> {
-        self.tool_choice.as_ref()
+    pub fn tool_choice(&self) -> Option<&ToolChoice> {
+        self.settings.tool_choice.as_ref()
     }
-    pub const fn parallel_tool_calls(&self) -> Option<bool> {
-        self.parallel_tool_calls
+    pub fn parallel_tool_calls(&self) -> Option<bool> {
+        self.settings.parallel_tool_calls
     }
-    pub const fn output(&self) -> &OutputConstraint {
-        &self.output
+    pub fn output(&self) -> &OutputConstraint {
+        self.settings.output()
     }
-    pub const fn reasoning(&self) -> &ReasoningRequest {
-        &self.reasoning
+    pub fn text_options(&self) -> &TextOptions {
+        &self.settings.text
+    }
+    pub fn instructions(&self) -> &Presence<Text> {
+        &self.settings.instructions
+    }
+    pub fn reasoning(&self) -> &ReasoningRequest {
+        &self.settings.reasoning
+    }
+    pub fn with_settings(mut self, settings: GenerationSettings) -> Result<Self, GenerationError> {
+        self.settings = settings;
+        self.validate()?;
+        Ok(self)
     }
     pub fn with_tool_settings(
         mut self,
@@ -168,9 +235,9 @@ impl GenerationRequest {
         choice: Option<ToolChoice>,
         parallel: Option<bool>,
     ) -> Result<Self, GenerationError> {
-        self.tools = tools;
-        self.tool_choice = choice;
-        self.parallel_tool_calls = parallel;
+        self.settings.tools = tools;
+        self.settings.tool_choice = choice;
+        self.settings.parallel_tool_calls = parallel;
         self.validate()?;
         Ok(self)
     }
@@ -179,18 +246,18 @@ impl GenerationRequest {
         tools: Vec<ToolDefinition>,
         choice: ToolChoice,
     ) -> Result<Self, GenerationError> {
-        let parallel = self.parallel_tool_calls;
+        let parallel = self.parallel_tool_calls();
         self.with_tool_settings(Some(tools), Some(choice), parallel)
     }
     pub fn with_output(mut self, output: OutputConstraint) -> Self {
-        self.output = output;
+        self.settings.text.presence = true;
+        self.settings.text.format = Presence::Value(output);
         self
     }
     pub fn with_reasoning(mut self, reasoning: ReasoningRequest) -> Self {
-        self.reasoning = reasoning;
+        self.settings.reasoning = reasoning;
         self
     }
-    /// Replacement, insertion and reordering are validated together so references cannot dangle.
     pub fn with_items(mut self, items: Vec<(ItemId, Item)>) -> Result<Self, GenerationError> {
         self.items = items;
         self.validate()?;
@@ -203,7 +270,7 @@ impl GenerationRequest {
         let items = self
             .items
             .iter()
-            .filter(|(id, item)| keep(*id, item))
+            .filter(|(id, i)| keep(*id, i))
             .cloned()
             .collect();
         self.with_items(items)
@@ -215,7 +282,7 @@ pub enum GenerationError {
     EmptyInput,
     #[error("duplicate item identity")]
     DuplicateItemId,
-    #[error("user message must contain at least one content part")]
+    #[error("user message must contain a part")]
     EmptyMessage,
     #[error("duplicate part identity")]
     DuplicatePartId,
@@ -225,18 +292,18 @@ pub enum GenerationError {
     InvalidControl,
     #[error("tool call identity is duplicated")]
     DuplicateCall,
-    #[error("tool result has no preceding call or duplicates a result")]
+    #[error("tool result has no matching preceding call or duplicates a result")]
     InvalidToolResult,
-    #[error("tool calls must remain contiguous with their assistant message owner")]
+    #[error("tool calls must remain contiguous with their assistant owner")]
     InvalidMessageGroup,
-    #[error("function definitions must have unique names and bounded object schemas")]
+    #[error("invalid tool definition")]
     InvalidToolDefinition,
-    #[error("tool choice refers to an unavailable function")]
+    #[error("tool choice refers to an unavailable tool")]
     InvalidToolChoice,
-    #[error("semantic value exceeds the supported slice limits")]
+    #[error("semantic value exceeds limits")]
     Limit,
-    #[error("unsupported static response semantics")]
+    #[error("invalid response semantics")]
     InvalidResponse,
-    #[error("refusal content is only valid for assistant messages")]
+    #[error("refusal requires assistant role")]
     RefusalInUserMessage,
 }

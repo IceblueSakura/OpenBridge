@@ -169,6 +169,7 @@ fn non_success_terminals_keep_partial_output_and_error_is_not_materializable() {
                 item: ItemId::new(1),
                 part: PartId::new(1),
                 fragment: "{".into(),
+                logprobs: vec![],
             },
             terminal(t),
         ];
@@ -179,7 +180,7 @@ fn non_success_terminals_keep_partial_output_and_error_is_not_materializable() {
         );
         assert_eq!(
             wire.last().unwrap()["response"]["output"][0]["status"],
-            "incomplete"
+            "in_progress"
         );
         let mut d = EventDecoder::new(Profile::Responses);
         for v in wire {

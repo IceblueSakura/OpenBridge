@@ -1,12 +1,32 @@
-//! Pure validation, shared by request transforms, response construction and lowering.
+//! Pure validation and bounded accounting shared by construction, transforms and lowering.
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
-
 pub const MAX_ITEMS: usize = 1024;
 pub const MAX_TEXT_BYTES: usize = 1 << 20;
 pub const MAX_TOTAL_BYTES: usize = 4 << 20;
 pub const MAX_TOOLS: usize = 128;
-
+fn add(total: &mut usize, value: &str) -> Result<(), GenerationError> {
+    charge(total, value.len())
+}
+fn charge(total: &mut usize, n: usize) -> Result<(), GenerationError> {
+    if n > MAX_TEXT_BYTES {
+        return Err(GenerationError::Limit);
+    }
+    *total = total.checked_add(n).ok_or(GenerationError::Limit)?;
+    if *total > MAX_TOTAL_BYTES {
+        return Err(GenerationError::Limit);
+    }
+    Ok(())
+}
+fn part_id(parts: &mut BTreeSet<PartId>, id: PartId) -> Result<(), GenerationError> {
+    if !parts.insert(id) {
+        return Err(GenerationError::DuplicatePartId);
+    }
+    if parts.len() > MAX_ITEMS {
+        return Err(GenerationError::Limit);
+    }
+    Ok(())
+}
 pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, GenerationError> {
     if items.is_empty() {
         return Err(GenerationError::EmptyInput);
@@ -16,11 +36,10 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
     }
     let mut ids = BTreeSet::new();
     let mut parts = BTreeSet::new();
-    let mut calls = BTreeSet::new();
+    let mut calls = BTreeMap::new();
     let mut results = BTreeSet::new();
-    let mut owners = BTreeMap::new();
     let mut active_owner = None;
-    let mut bytes = 0usize;
+    let mut bytes = 0;
     for (id, item) in items {
         if !ids.insert(*id) {
             return Err(GenerationError::DuplicateItemId);
@@ -31,26 +50,29 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                     return Err(GenerationError::InvalidResponse);
                 }
                 active_owner = None;
-                add(&mut bytes, i.text.as_str())?;
+                for (id, t) in &i.parts {
+                    part_id(&mut parts, *id)?;
+                    add(&mut bytes, t.as_str())?;
+                }
+                if i.parts.is_empty() {
+                    return Err(GenerationError::EmptyMessage);
+                }
             }
             Item::Message(m) => {
                 if response && m.role != MessageRole::Assistant {
                     return Err(GenerationError::InvalidResponse);
                 }
-                active_owner = (m.role == MessageRole::Assistant).then_some(*id);
-                if m.parts.len() > MAX_ITEMS {
-                    return Err(GenerationError::Limit);
+                if m.role == MessageRole::User && m.parts.is_empty() {
+                    return Err(GenerationError::EmptyMessage);
                 }
-                owners.insert(*id, (m.role, m.parts.is_empty(), false));
+                active_owner = (m.role == MessageRole::Assistant).then_some(*id);
                 for p in &m.parts {
-                    if !parts.insert(p.id) {
-                        return Err(GenerationError::DuplicatePartId);
-                    }
-                    if parts.len() > MAX_ITEMS {
-                        return Err(GenerationError::Limit);
-                    }
+                    part_id(&mut parts, p.id)?;
                     match &p.content {
-                        ContentPart::Text(t) => add(&mut bytes, t.as_str())?,
+                        ContentPart::Text(t) => {
+                            t.validate()?;
+                            charge(&mut bytes, t.bytes())?;
+                        }
                         ContentPart::Refusal(t) => {
                             if m.role != MessageRole::Assistant {
                                 return Err(GenerationError::RefusalInUserMessage);
@@ -62,94 +84,126 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                 }
             }
             Item::ToolCall(c) => {
-                if !calls.insert(c.call_id.as_str()) {
-                    return Err(GenerationError::DuplicateCall);
-                }
-                add(&mut bytes, c.call_id.as_str())?;
-                add(&mut bytes, c.name.as_str())?;
-                add(&mut bytes, &c.arguments)?;
-                if c.call_id.as_str().is_empty()
-                    || c.name.as_str().is_empty()
-                    || c.call_id.as_str().len() > 256
-                    || c.name.as_str().len() > 128
-                {
-                    return Err(GenerationError::Limit);
-                }
+                validate_call(
+                    &mut calls,
+                    &mut bytes,
+                    &c.call_id,
+                    &c.name,
+                    &c.arguments,
+                    ToolKind::Function,
+                )?;
                 if let Some(owner) = c.message {
                     if active_owner != Some(owner) {
                         return Err(GenerationError::InvalidMessageGroup);
                     }
-                    let entry = owners
-                        .get_mut(&owner)
-                        .ok_or(GenerationError::InvalidMessageGroup)?;
-                    if entry.0 != MessageRole::Assistant {
-                        return Err(GenerationError::InvalidMessageGroup);
-                    }
-                    if items.iter().any(|(owner_id, item)| {
-                        *owner_id == owner
-                            && matches!(
-                                item,
-                                Item::Message(message) if message.parts.iter().any(|part| {
-                                    matches!(part.content, ContentPart::Refusal(_))
-                                })
-                            )
-                    }) {
-                        return Err(GenerationError::InvalidResponse);
-                    }
-                    entry.2 = true;
+                    if items.iter().any(|(id,item)|*id==owner && matches!(item,Item::Message(m) if m.parts.iter().any(|p|matches!(p.content,ContentPart::Refusal(_))))){return Err(GenerationError::InvalidResponse);}
                 } else {
                     active_owner = None;
                 }
             }
-            Item::Reasoning(reasoning) => {
+            Item::CustomCall(c) => {
                 active_owner = None;
-                if reasoning.parts.len() > MAX_ITEMS {
-                    return Err(GenerationError::Limit);
-                }
-                for (id, part) in &reasoning.parts {
-                    if parts.len() >= MAX_ITEMS {
-                        return Err(GenerationError::Limit);
-                    }
-                    if !parts.insert(*id) {
-                        return Err(GenerationError::DuplicatePartId);
-                    }
-                    let text = match part {
-                        super::ReasoningContent::Summary(text)
-                        | super::ReasoningContent::Text(text) => text,
-                    };
-                    add(&mut bytes, text.as_str())?;
+                validate_call(
+                    &mut calls,
+                    &mut bytes,
+                    &c.call_id,
+                    &c.name,
+                    &c.input,
+                    ToolKind::Custom,
+                )?;
+            }
+            Item::Reasoning(r) => {
+                active_owner = None;
+                for (id, p) in &r.parts {
+                    part_id(&mut parts, *id)?;
+                    let (ReasoningContent::Summary(t) | ReasoningContent::Text(t)) = p;
+                    add(&mut bytes, t.as_str())?;
                 }
             }
-            Item::ToolResult(r) => {
+            Item::ToolResult(r) | Item::CustomResult(r) => {
                 if response {
                     return Err(GenerationError::InvalidResponse);
                 }
                 active_owner = None;
-                if !calls.contains(r.call_id.as_str()) || !results.insert(r.call_id.as_str()) {
+                let kind = if matches!(item, Item::CustomResult(_)) {
+                    ToolKind::Custom
+                } else {
+                    ToolKind::Function
+                };
+                if calls.get(r.call_id.as_str()) != Some(&kind)
+                    || !results.insert(r.call_id.as_str())
+                {
                     return Err(GenerationError::InvalidToolResult);
                 }
                 add(&mut bytes, r.call_id.as_str())?;
-                add(&mut bytes, &r.output)?;
+                match &r.output {
+                    ToolOutput::Text(t) => add(&mut bytes, t)?,
+                    ToolOutput::Parts(p) => {
+                        for (id, t) in p {
+                            part_id(&mut parts, *id)?;
+                            add(&mut bytes, t.as_str())?;
+                        }
+                    }
+                }
             }
         }
     }
-    if !response
-        && owners
-            .values()
-            .any(|(role, empty, calls)| *role == MessageRole::User && *empty && !calls)
-    {
-        return Err(GenerationError::EmptyMessage);
-    }
     Ok(bytes)
 }
-fn add(total: &mut usize, value: &str) -> Result<(), GenerationError> {
-    *total = total
-        .checked_add(value.len())
-        .ok_or(GenerationError::Limit)?;
-    if value.len() > MAX_TEXT_BYTES || *total > MAX_TOTAL_BYTES {
+fn validate_call<'a>(
+    calls: &mut BTreeMap<&'a str, ToolKind>,
+    bytes: &mut usize,
+    id: &'a crate::semantic::value::Text,
+    name: &crate::semantic::value::Text,
+    payload: &str,
+    kind: ToolKind,
+) -> Result<(), GenerationError> {
+    if calls.insert(id.as_str(), kind).is_some() {
+        return Err(GenerationError::DuplicateCall);
+    }
+    if id.as_str().is_empty()
+        || id.as_str().len() > 256
+        || name.as_str().is_empty()
+        || name.as_str().len() > 128
+    {
         return Err(GenerationError::Limit);
     }
-    Ok(())
+    add(bytes, id.as_str())?;
+    add(bytes, name.as_str())?;
+    add(bytes, payload)
+}
+fn schema(value: &serde_json::Value) -> Result<usize, GenerationError> {
+    if !value.is_object() {
+        return Err(GenerationError::InvalidToolDefinition);
+    }
+    crate::semantic::value::json_size(value, MAX_TEXT_BYTES).map_err(|_| GenerationError::Limit)
+}
+pub fn output(value: &OutputConstraint) -> Result<usize, GenerationError> {
+    match value {
+        OutputConstraint::Text | OutputConstraint::JsonObject => Ok(0),
+        OutputConstraint::JsonSchema {
+            name,
+            description,
+            schema: s,
+            ..
+        } => {
+            if name.as_str().is_empty()
+                || name.as_str().len() > 64
+                || !name
+                    .as_str()
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            {
+                return Err(GenerationError::InvalidControl);
+            }
+            let mut bytes = schema(s)?;
+            add(&mut bytes, name.as_str())?;
+            if let Some(d) = description {
+                add(&mut bytes, d.as_str())?;
+            }
+            Ok(bytes)
+        }
+    }
 }
 pub fn tools(
     tools: &[ToolDefinition],
@@ -158,31 +212,57 @@ pub fn tools(
     if tools.len() > MAX_TOOLS {
         return Err(GenerationError::Limit);
     }
-    let mut names = BTreeSet::new();
+    let mut available = BTreeSet::new();
     let mut bytes = 0;
-    for ToolDefinition::Function(t) in tools {
-        if !names.insert(t.name.as_str())
-            || t.name.as_str().is_empty()
-            || t.name.as_str().len() > 128
-        {
+    for t in tools {
+        let n = t.name().as_str();
+        if n.is_empty() || n.len() > 128 || !available.insert((t.kind(), n)) {
             return Err(GenerationError::InvalidToolDefinition);
         }
-        add(&mut bytes, t.name.as_str())?;
-        if let Some(d) = &t.description {
-            add(&mut bytes, d)?;
-        }
-        if let Some(schema) = &t.parameters {
-            if !schema.is_object() {
-                return Err(GenerationError::InvalidToolDefinition);
+        add(&mut bytes, n)?;
+        match t {
+            ToolDefinition::Function(t) => {
+                if let Some(d) = &t.description {
+                    add(&mut bytes, d)?;
+                }
+                for s in [&t.parameters, &t.output_schema].into_iter().flatten() {
+                    charge(&mut bytes, schema(s)?)?;
+                }
             }
-            add(&mut bytes, &schema.to_string())?;
+            ToolDefinition::Custom(t) => {
+                if let Some(d) = &t.description {
+                    add(&mut bytes, d)?;
+                }
+                if let Some(CustomFormat::Grammar { definition, .. }) = &t.format {
+                    add(&mut bytes, definition.as_str())?;
+                }
+            }
         }
     }
     match choice {
-        Some(ToolChoice::Specific(name)) if !names.contains(name.as_str()) => {
-            Err(GenerationError::InvalidToolChoice)
+        Some(ToolChoice::Specific(n)) if !available.contains(&(ToolKind::Function, n.as_str())) => {
+            return Err(GenerationError::InvalidToolChoice);
         }
-        Some(ToolChoice::Required) if names.is_empty() => Err(GenerationError::InvalidToolChoice),
-        _ => Ok(bytes),
+        Some(ToolChoice::Custom(n)) if !available.contains(&(ToolKind::Custom, n.as_str())) => {
+            return Err(GenerationError::InvalidToolChoice);
+        }
+        Some(ToolChoice::Required) if tools.is_empty() => {
+            return Err(GenerationError::InvalidToolChoice);
+        }
+        Some(ToolChoice::Allowed { tools, .. }) => {
+            if tools.is_empty() || tools.len() > MAX_TOOLS {
+                return Err(GenerationError::InvalidToolChoice);
+            }
+            let mut seen = BTreeSet::new();
+            for r in tools {
+                if !available.contains(&(r.kind, r.name.as_str()))
+                    || !seen.insert((r.kind, r.name.as_str()))
+                {
+                    return Err(GenerationError::InvalidToolChoice);
+                }
+            }
+        }
+        _ => {}
     }
+    Ok(bytes)
 }

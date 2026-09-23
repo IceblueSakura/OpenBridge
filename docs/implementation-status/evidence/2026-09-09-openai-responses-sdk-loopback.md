@@ -6,7 +6,7 @@
 - Checkout：`22e3ebbab61cf28a11d8b9392f9674029c3861c1` 加本次未提交的能力收窄、SDK fixture 和资源回归。不是已部署服务验收。
 - 客户端：官方 `openai==3.10.0`；版本来自 [PyPI](https://pypi.org/project/openai/3.10.0/)，运行时检查版本。Python 3.14.7、uv 0.12.5；仅固定 SDK 版本，不声称固定全部传递依赖。
 - 服务端：Rust production Router + synthetic registry、凭据和 socket-backed mock upstream；上下游都由测试绑定 `127.0.0.1:0`，不读取用户私有配置，不调用真实 Provider。
-- 相关实现：`tests/openai_responses_sdk_loopback.rs`、`tests/sdk/openai_responses_tool_loop.py`；运行入口见[开发指南](../../development.md#独立-openai-sdk-responses-验收)。
+- 相关实现：`tests/openai_responses_sdk_loopback.rs`、`tests/sdk/openai_responses_tool_loop.py`；运行入口见[归档开发指南](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/development.md#独立-openai-sdk-responses-验收)。
 
 ## 实际验收
 

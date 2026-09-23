@@ -9,6 +9,7 @@ use crate::semantic::value::Text;
 pub enum ReasoningPresence {
     #[default]
     Absent,
+    Null,
     Present,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -28,48 +29,72 @@ pub enum ReasoningSummary {
     Concise,
     Detailed,
 }
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReasoningContext {
+    Auto,
+    CurrentTurn,
+    AllTurns,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReasoningMode {
+    Standard,
+    Pro,
+}
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ReasoningRequest {
-    presence: ReasoningPresence,
-    effort: Option<ReasoningEffort>,
-    summary: Option<ReasoningSummary>,
+    pub presence: ReasoningPresence,
+    pub effort: crate::semantic::value::Presence<ReasoningEffort>,
+    pub summary: crate::semantic::value::Presence<ReasoningSummary>,
+    pub context: crate::semantic::value::Presence<ReasoningContext>,
+    pub mode: crate::semantic::value::Presence<ReasoningMode>,
     encrypted_output: bool,
 }
 impl ReasoningRequest {
-    pub const fn absent() -> Self {
-        Self {
-            presence: ReasoningPresence::Absent,
-            effort: None,
-            summary: None,
-            encrypted_output: false,
-        }
+    pub fn absent() -> Self {
+        Self::default()
     }
-    pub const fn present(
-        effort: Option<ReasoningEffort>,
-        summary: Option<ReasoningSummary>,
-    ) -> Self {
+    pub fn present(effort: Option<ReasoningEffort>, summary: Option<ReasoningSummary>) -> Self {
+        use crate::semantic::value::Presence;
         Self {
             presence: ReasoningPresence::Present,
-            effort,
-            summary,
-            encrypted_output: false,
+            effort: effort.map_or(Presence::Absent, Presence::Value),
+            summary: summary.map_or(Presence::Absent, Presence::Value),
+            ..Default::default()
         }
     }
     pub fn with_encrypted_output(mut self, enabled: bool) -> Self {
         self.encrypted_output = enabled;
         self
     }
-    pub const fn encrypted_output(self) -> bool {
+    pub fn encrypted_output(&self) -> bool {
         self.encrypted_output
     }
-    pub const fn presence(self) -> ReasoningPresence {
+    pub fn presence(&self) -> ReasoningPresence {
         self.presence
     }
-    pub const fn effort(self) -> Option<ReasoningEffort> {
-        self.effort
+    pub fn effort(&self) -> Option<ReasoningEffort> {
+        self.effort.value().copied()
     }
-    pub const fn summary(self) -> Option<ReasoningSummary> {
-        self.summary
+    pub fn summary(&self) -> Option<ReasoningSummary> {
+        self.summary.value().copied()
+    }
+    pub fn validate(&self) -> Result<(), super::GenerationError> {
+        if self.presence != ReasoningPresence::Present
+            && (!self.effort.is_absent()
+                || !self.summary.is_absent()
+                || !self.context.is_absent()
+                || !self.mode.is_absent())
+        {
+            return Err(super::GenerationError::InvalidControl);
+        }
+        if self.effort() == Some(ReasoningEffort::None)
+            && self
+                .summary()
+                .is_some_and(|s| s != ReasoningSummary::Disabled)
+        {
+            return Err(super::GenerationError::InvalidControl);
+        }
+        Ok(())
     }
 }
 /// Opaque Responses replay token.

@@ -18,7 +18,7 @@
 | OpenAI ChatGPT（订阅/Codex） | [订阅 OAuth 登录路径与信息来源](openai-chatgpt-oauth.md) |
 | Zhipu AI China / Z.AI | [API](zhipu-api.md) |
 
-OpenBridge 当前 Model、Provider Target 与 Public Model 的关系由[实施状态映射](../../implementation-status/model-provider-mapping.md)唯一维护。
+OpenBridge v2 尚无 Provider 注册。旧运行时的 Model、Provider Target 与 Public Model 关系见[固定归档映射](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不表示当前 v2 能力。
 
 ## 内容边界
 

@@ -19,7 +19,8 @@ pub fn metadata() -> ResponseMetadata {
     ResponseMetadata {
         id: "r".into(),
         model: "synthetic".into(),
-        created: 0,
+        created: 0.into(),
+        context: Default::default(),
     }
 }
 pub fn origin() -> ReplayOrigin {
@@ -69,6 +70,7 @@ pub fn part(item: u64, part: u64, kind: PartKind, s: &str) -> Vec<StreamEvent> {
             item,
             part,
             fragment: s.into(),
+            logprobs: vec![],
         },
         StreamEvent::ValueFinished { item, part },
         StreamEvent::PartFinished { item, part },

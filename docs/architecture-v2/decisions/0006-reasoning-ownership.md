@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for the `semantic-v2` rewrite epoch. This defines the offline core; it does not change the predecessor production interface.
+Accepted for the `semantic-v2` rewrite epoch. This defines the offline core. The predecessor production runtime is [archived](../../archive.md); no v2 production interface is implied.
 
 ## Context
 

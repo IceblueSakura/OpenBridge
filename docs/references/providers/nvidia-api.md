@@ -20,7 +20,7 @@
 
 NIM API Reference 描述 Chat Completions、Completions、Responses、Models 与 template render 入口；目录可见不证明某模型支持全部 endpoint。具体模型支持、配额、价格和部署条件应直接读取 NVIDIA 当前官方模型页。
 
-OpenBridge 当前映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。
 
 ## 证据边界
 

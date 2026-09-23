@@ -62,7 +62,9 @@ fn independent_decode_preserves_function_meaning_and_message_ownership() {
             status: ItemLifecycle::Completed,
         }
     );
-    let ToolDefinition::Function(def) = &d.semantic.tools()[0];
+    let ToolDefinition::Function(def) = &d.semantic.tools()[0] else {
+        panic!("function");
+    };
     assert_eq!(def.description.as_deref(), Some(""));
     assert_eq!(def.strict, FunctionStrictness::Explicit(false));
     assert_eq!(
@@ -101,6 +103,7 @@ fn independent_ir_encodes_call_and_empty_result_without_source_wire() {
             Item::ToolResult(ToolResult {
                 call_id: text("call_new"),
                 output: "".into(),
+                status: None,
             }),
         ),
     ];
@@ -189,6 +192,7 @@ fn replacement_insertion_and_reordering_drive_both_encoders() {
         Item::ToolResult(ToolResult {
             call_id: text("call_c"),
             output: "rain".into(),
+            status: None,
         }),
     ));
     d.semantic = d.semantic.with_items(items).unwrap();
@@ -288,7 +292,9 @@ fn strict_omission_is_source_default_not_false_and_cross_profile_fails() {
             responses::decode_generation(&wire)
         }
         .unwrap();
-        let ToolDefinition::Function(t) = &d.semantic.tools()[0];
+        let ToolDefinition::Function(t) = &d.semantic.tools()[0] else {
+            panic!("function");
+        };
         assert_eq!(
             t.strict,
             FunctionStrictness::Omitted(if profile == Profile::Chat {
@@ -383,7 +389,7 @@ fn unmodeled_tool_semantics_invalid_presence_and_missing_associations_are_reject
     w["tools"][0]["type"] = json!("custom");
     cases.push(w);
     let mut w = base.clone();
-    w["tools"][0]["function"]["strict"] = Value::Null;
+    w["tools"][0]["function"]["strict"] = json!("false");
     cases.push(w);
     let mut w = base.clone();
     w["tools"][0]["function"]["parameters"] = json!([]);
@@ -453,6 +459,7 @@ fn static_response_encodes_independent_expectations_and_replays_into_history() {
         Item::ToolResult(ToolResult {
             call_id: text("call_b"),
             output: "rain".into(),
+            status: None,
         }),
     ));
     history.push((
@@ -460,6 +467,7 @@ fn static_response_encodes_independent_expectations_and_replays_into_history() {
         Item::ToolResult(ToolResult {
             call_id: text("call_a"),
             output: "sunny".into(),
+            status: None,
         }),
     ));
     let d = DecodedRequest {
@@ -487,7 +495,8 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
     let metadata = ResponseMetadata {
         id: "r".into(),
         model: "fixture".into(),
-        created: 0,
+        created: 0.into(),
+        context: Default::default(),
     };
     let mut fidelity = FidelityRecords::default();
     fidelity
@@ -514,7 +523,7 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
                     role: MessageRole::Assistant,
                     parts: vec![Part {
                         id: PartId::new(1),
-                        content: ContentPart::Text(text("replaced")),
+                        content: ContentPart::Text(text("replaced").into()),
                     }],
                 }),
             )],
@@ -582,6 +591,7 @@ fn usage_projects_known_totals_across_profiles_without_estimating() {
             total_tokens: 8,
             reasoning_tokens: Some(2),
             cached_input_tokens: None,
+            input_cache_write_tokens: None,
         })
     );
     let chat = lower_response(
@@ -661,6 +671,7 @@ fn semantic_construction_cannot_bypass_identifier_or_control_validation() {
     let d = chat::decode_generation(&chat_history()).unwrap();
     let tool = ToolDefinition::Function(FunctionTool {
         name: empty,
+        output_schema: None,
         description: None,
         parameters: None,
         strict: FunctionStrictness::Explicit(false),

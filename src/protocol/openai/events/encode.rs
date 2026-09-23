@@ -20,6 +20,8 @@ impl EventEncoder {
         {
             return Err(CodecError::Invalid("metadata"));
         }
+        metadata.context.validate()?;
+        super::super::envelope::timestamp(&Value::Number(metadata.created.clone()))?;
         Ok(Self {
             profile,
             metadata,
@@ -29,6 +31,29 @@ impl EventEncoder {
             poisoned: false,
             sequence: 0,
         })
+    }
+    /// Refresh reported settings/completion metadata without changing response identity.
+    pub fn update_metadata(&mut self, metadata: ResponseMetadata) -> Result<(), CodecError> {
+        if self.poisoned {
+            return Err(CodecError::Invalid("rejected stream"));
+        }
+        let result = (|| {
+            if self.state()?.terminal().is_some()
+                || self.metadata.id != metadata.id
+                || self.metadata.model != metadata.model
+                || self.metadata.created != metadata.created
+            {
+                return Err(CodecError::Invalid("metadata changed"));
+            }
+            metadata.context.validate()?;
+            Ok(())
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+        } else {
+            self.metadata = metadata;
+        }
+        result
     }
     pub fn with_contract(mut self, contract: GenerationRepresentationContract) -> Self {
         self.contract = contract;
@@ -62,14 +87,20 @@ impl EventEncoder {
                 event.clone(),
             )?);
             // Replay is event authority, never restored from the source sidecar.
-            if let StreamEvent::ItemFinished {
-                item,
-                replay: Some(replay),
-                ..
-            } = event
-                && let Item::Reasoning(owner) = self.state()?.item(*item)?.snapshot()?
-            {
-                self.fidelity.record_replay(*item, replay.clone(), &owner)?;
+            match event {
+                StreamEvent::ItemStarted { item, .. } | StreamEvent::ItemFinished { item, .. } => {
+                    sync_replays(
+                        self.state.as_ref().ok_or(CodecError::Invalid("state"))?,
+                        &mut self.fidelity,
+                        Some(*item),
+                    )?
+                }
+                StreamEvent::Terminal { .. } => sync_replays(
+                    self.state.as_ref().ok_or(CodecError::Invalid("state"))?,
+                    &mut self.fidelity,
+                    None,
+                )?,
+                _ => {}
             }
             let mut values = if self.profile == Profile::Responses {
                 self.responses(event)?
@@ -120,7 +151,7 @@ impl EventEncoder {
     fn coordinates(&self, item: ItemId, part: PartId) -> Result<Value, CodecError> {
         let kind = self.state()?.part(item, part)?.kind;
         let mut v = json!({"output_index":self.index(item)?,"item_id":self.fidelity.response_item_id(item).ok_or(CodecError::Invalid("wire identity"))?});
-        if kind != PartKind::Arguments {
+        if !matches!(kind, PartKind::Arguments | PartKind::CustomInput) {
             v[if kind == PartKind::Summary {
                 "summary_index"
             } else {
@@ -129,14 +160,20 @@ impl EventEncoder {
         }
         Ok(v)
     }
-    pub(super) fn envelope(&self, status: &str, output: Vec<Value>) -> Value {
-        json!({"id":self.metadata.id,"object":"response","created_at":self.metadata.created,"model":self.metadata.model,"status":status,"output":output})
+    pub(super) fn envelope(&self, status: &str, output: Vec<Value>) -> Result<Value, CodecError> {
+        let mut v = json!({"id":self.metadata.id,"object":"response","created_at":self.metadata.created,"model":self.metadata.model,"status":status,"output":output});
+        super::super::envelope::write_metadata(
+            &self.metadata,
+            v.as_object_mut().expect("object"),
+            status == "completed",
+        )?;
+        Ok(v)
     }
     fn responses(&self, event: &StreamEvent) -> Result<Vec<Value>, CodecError> {
         let result = match event {
             StreamEvent::Started => vec![
-                json!({"type":"response.created","response":self.envelope("in_progress",vec![])}),
-                json!({"type":"response.in_progress","response":self.envelope("in_progress",vec![])}),
+                json!({"type":"response.created","response":self.envelope("in_progress",vec![])?}),
+                json!({"type":"response.in_progress","response":self.envelope("in_progress",vec![])?}),
             ],
             StreamEvent::ItemStarted { item, kind, replay } => {
                 let id = self
@@ -146,6 +183,9 @@ impl EventEncoder {
                 let mut v = match kind {
                     ItemKind::Message => {
                         json!({"id":id,"type":"message","role":"assistant","content":[],"status":"in_progress"})
+                    }
+                    ItemKind::CustomCall { call_id, name } => {
+                        json!({"id":id,"type":"custom_tool_call","call_id":call_id.as_str(),"name":name.as_str(),"input":""})
                     }
                     ItemKind::Reasoning => {
                         json!({"id":id,"type":"reasoning","summary":[],"status":"in_progress"})
@@ -162,7 +202,10 @@ impl EventEncoder {
                 ]
             }
             StreamEvent::PartStarted { item, part, kind } => {
-                if *kind == PartKind::Arguments {
+                if matches!(
+                    kind,
+                    PartKind::Arguments | PartKind::CustomInput | PartKind::ReasoningText
+                ) {
                     vec![]
                 } else {
                     let mut v = self.coordinates(*item, *part)?;
@@ -179,11 +222,15 @@ impl EventEncoder {
                 item,
                 part,
                 fragment,
+                logprobs,
             } => {
                 let kind = self.state()?.part(*item, *part)?.kind;
                 let mut v = self.coordinates(*item, *part)?;
                 v["type"] = json!(format!("response.{}.delta", event_stem(kind)));
                 v["delta"] = json!(fragment);
+                if kind == PartKind::Text {
+                    v["logprobs"] = super::super::text::event_logprobs(logprobs);
+                }
                 vec![v]
             }
             StreamEvent::ValueFinished { item, part } => {
@@ -192,14 +239,23 @@ impl EventEncoder {
                 v["type"] = json!(format!("response.{}.done", event_stem(p.kind)));
                 v[match p.kind {
                     PartKind::Arguments => "arguments",
+                    PartKind::CustomInput => "input",
                     PartKind::Refusal => "refusal",
                     _ => "text",
                 }] = json!(p.text);
+                if p.kind == PartKind::Text {
+                    v["logprobs"] = super::super::text::event_logprobs(
+                        p.logprobs.value().map(Vec::as_slice).unwrap_or_default(),
+                    );
+                }
                 vec![v]
             }
             StreamEvent::PartFinished { item, part } => {
                 let p = self.state()?.part(*item, *part)?;
-                if p.kind == PartKind::Arguments {
+                if matches!(
+                    p.kind,
+                    PartKind::Arguments | PartKind::CustomInput | PartKind::ReasoningText
+                ) {
                     vec![]
                 } else {
                     let mut v = self.coordinates(*item, *part)?;
@@ -208,14 +264,45 @@ impl EventEncoder {
                     } else {
                         "response.content_part.done"
                     });
-                    v["part"] = part_wire(p.kind, &p.text);
+                    v["part"] = if p.kind == PartKind::Text {
+                        let text = crate::semantic::value::Text::allowing_empty(
+                            &p.text,
+                            "text",
+                            MAX_TEXT_BYTES,
+                        )
+                        .map_err(|_| CodecError::Limit)?;
+                        super::super::text::write(
+                            &TextContent::new(text, p.annotations.clone(), p.logprobs.clone())?,
+                            "output_text",
+                            true,
+                        )
+                    } else {
+                        part_wire(p.kind, &p.text)
+                    };
                     vec![v]
                 }
             }
             StreamEvent::ItemFinished { item, .. } => vec![
                 json!({"type":"response.output_item.done","output_index":self.index(*item)?,"item":item_wire(self.state()?,*item,&self.fidelity)?}),
             ],
-            StreamEvent::Usage(_) => vec![],
+            StreamEvent::AnnotationAdded {
+                item,
+                part,
+                annotation,
+            } => {
+                if matches!(annotation, Annotation::FilePath { .. }) {
+                    return Err(CodecError::Unsupported("file_path annotation event".into()));
+                }
+                let mut v = self.coordinates(*item, *part)?;
+                v["type"] = json!("response.output_text.annotation.added");
+                v["annotation_index"] =
+                    json!(self.state()?.part(*item, *part)?.annotations.len() - 1);
+                v["annotation"] = json!(annotation);
+                vec![v]
+            }
+            StreamEvent::LogprobsSnapshot { .. }
+            | StreamEvent::TextMetadata { .. }
+            | StreamEvent::Usage(_) => vec![],
             StreamEvent::Terminal {
                 terminal: StreamTerminal::Error,
                 details,
@@ -258,5 +345,6 @@ fn event_stem(kind: PartKind) -> &'static str {
         PartKind::Summary => "reasoning_summary_text",
         PartKind::ReasoningText => "reasoning_text",
         PartKind::Arguments => "function_call_arguments",
+        PartKind::CustomInput => "custom_tool_call_input",
     }
 }

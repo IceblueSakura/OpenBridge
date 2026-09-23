@@ -1,3 +1,0 @@
-event: error
-data: {"type":"error","code":"invalid_sse_event_type","message":"SSE event field conflicts with payload type.","param":null}
-

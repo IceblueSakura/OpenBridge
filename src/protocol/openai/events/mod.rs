@@ -14,10 +14,9 @@ pub use encode::EventEncoder;
 use serde_json::{Map, Value};
 
 fn event_fields(o: &Map<String, Value>, allowed: &[&str]) -> Result<(), CodecError> {
-    if let Some(key) = o
-        .keys()
-        .find(|k| k.as_str() != "sequence_number" && !allowed.contains(&k.as_str()))
-    {
+    if let Some(key) = o.keys().find(|k| {
+        !matches!(k.as_str(), "sequence_number" | "obfuscation") && !allowed.contains(&k.as_str())
+    }) {
         return Err(CodecError::Unsupported(key.clone()));
     }
     Ok(())
@@ -64,6 +63,7 @@ fn kind_name(kind: PartKind) -> &'static str {
         PartKind::Summary => "summary_text",
         PartKind::ReasoningText => "reasoning_text",
         PartKind::Arguments => "arguments",
+        PartKind::CustomInput => "input",
     }
 }
 fn part_kind(part: &Map<String, Value>) -> Result<PartKind, CodecError> {
@@ -71,7 +71,6 @@ fn part_kind(part: &Map<String, Value>) -> Result<PartKind, CodecError> {
         "output_text" => Ok(PartKind::Text),
         "refusal" => Ok(PartKind::Refusal),
         "summary_text" => Ok(PartKind::Summary),
-        "reasoning_text" => Ok(PartKind::ReasoningText),
         _ => Err(CodecError::Unsupported("part kind".into())),
     }
 }
@@ -80,16 +79,12 @@ fn part_text(part: &Map<String, Value>, kind: PartKind) -> Result<&str, CodecErr
         part,
         if kind == PartKind::Refusal {
             &["type", "refusal"]
+        } else if kind == PartKind::Text {
+            &["type", "text", "annotations", "logprobs"]
         } else {
-            &["type", "text", "annotations"]
+            &["type", "text"]
         },
     )?;
-    if part
-        .get("annotations")
-        .is_some_and(|v| !v.as_array().is_some_and(Vec::is_empty))
-    {
-        return Err(CodecError::Unsupported("annotations".into()));
-    }
     string(
         part,
         if kind == PartKind::Refusal {
@@ -107,6 +102,29 @@ fn part_wire(kind: PartKind, text: &str) -> Value {
     } else {
         serde_json::json!({"type":kind_name(kind),"text":text})
     }
+}
+fn sync_replays(
+    state: &StreamState,
+    fidelity: &mut FidelityRecords,
+    owner: Option<ItemId>,
+) -> Result<(), CodecError> {
+    for item in state
+        .items()
+        .iter()
+        .filter(|i| owner.is_none_or(|id| i.id == id))
+    {
+        if matches!(item.kind, ItemKind::Reasoning) {
+            if let Some(replay) = &item.replay {
+                let Item::Reasoning(semantic) = item.snapshot()? else {
+                    unreachable!("reasoning owner")
+                };
+                fidelity.record_replay(item.id, replay.clone(), &semantic)?;
+            } else {
+                fidelity.remove_replay(item.id);
+            }
+        }
+    }
+    Ok(())
 }
 fn item_wire(
     state: &StreamState,

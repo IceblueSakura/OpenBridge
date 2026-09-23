@@ -6,7 +6,7 @@ This directory defines the architectural authority for the `semantic-v2` epoch. 
 
 ## Current phase
 
-The project has moved from architecture exploration to **staged code migration and validation**.
+The current workspace is the **v2 semantic library and offline validation suite**. The predecessor runtime and its dedicated tests/assets are [archived](../archive.md); there is no runnable gateway binary. Breaking retirement was explicitly accepted before feature parity and does not complete semantic migration.
 
 The architectural baseline is now sufficiently defined. New architecture documents or ADRs are added only when implementation exposes a real semantic ownership problem that the current model cannot resolve.
 
@@ -38,7 +38,7 @@ There is no privileged Native path and no Bridge domain object. Same-protocol an
 1. **M1 — Generation IR:** migrate the supported Generation semantic domains without copying predecessor module boundaries.
 2. **M2 — Chat / Responses codecs:** establish complete supported `Chat <-> IR <-> Responses` mappings.
 3. **M3 — Semantic conformance:** prove convergence, IR authority, fidelity isolation and deterministic representability failures.
-4. **M4 — Legacy replacement assessment:** map predecessor Bridge/Pipeline/Generation-IR responsibilities to v2 and identify code that can be deleted or migrated.
+4. **M4 — Archived responsibility assessment:** map archived Bridge/Pipeline/Generation-IR behavior to v2 owners, intentional omissions and remaining gaps. The old runtime is already retired; removal does not prove parity.
 
 Only after M1-M4 pass should topology, endpoint and execution migration begin.
 
@@ -52,6 +52,7 @@ Only after M1-M4 pass should topology, endpoint and execution migration begin.
 - [rust-layout.md](rust-layout.md) — target module direction.
 - [invariants.md](invariants.md) — architecture gates.
 - [migration.md](migration.md) — active staged migration plan.
+- [responses-text-profile.md](responses-text-profile.md) — offline Responses text admission and ownership map.
 
 ## v2 decisions
 
@@ -67,4 +68,4 @@ The migration is not validated by JSON round-trip alone. Tests must prove:
 - unsupported target semantics fail before encoding rather than being silently dropped;
 - requirements are derived from final IR rather than independently reconstructed from source wire.
 
-The function-tool request, completed static response, function-call events, assistant-text events, and the admitted reasoning subset now have v2 codecs and independent conformance cases. Scope and unresolved replacement gates are recorded in [migration.md](migration.md#function-tool-slice-implementation-boundary). Media and structured output stay outside this slice; this does not complete M1-M4.
+The function-tool request, completed static response, function-call events, assistant-text events, and the admitted reasoning subset now have v2 codecs and independent conformance cases. Scope and unresolved semantic gates are recorded in [migration.md](migration.md#phase-gates). Media remains outside this slice. Structured output is under pure-text Responses acceptance, not production migration; this does not complete M1-M4.

@@ -16,13 +16,14 @@ pub enum Outcome {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IncompleteReason {
+    Unspecified,
     MaxOutputTokens,
     ContentFilter,
     Other(Text),
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResponseError {
-    pub code: Text,
+    pub code: Option<Text>,
     pub message: Text,
     pub param: Option<Text>,
 }
@@ -34,7 +35,7 @@ pub struct TerminalDetails {
 impl TerminalDetails {
     pub fn bytes(&self) -> usize {
         let error = self.error.as_ref().map_or(0, |e| {
-            e.code.as_str().len()
+            e.code.as_ref().map_or(0, |c| c.as_str().len())
                 + e.message.as_str().len()
                 + e.param.as_ref().map_or(0, |p| p.as_str().len())
         });
@@ -52,8 +53,10 @@ impl TerminalDetails {
             return Err(GenerationError::InvalidResponse);
         }
         if let Some(e) = &self.error
-            && (e.code.as_str().is_empty()
-                || e.code.as_str().len() > 128
+            && (e
+                .code
+                .as_ref()
+                .is_some_and(|c| c.as_str().is_empty() || c.as_str().len() > 128)
                 || e.message.as_str().len() > MAX_TEXT_BYTES
                 || e.param.as_ref().is_some_and(|p| p.as_str().len() > 256))
         {
@@ -74,6 +77,7 @@ pub struct Usage {
     pub total_tokens: u64,
     pub reasoning_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
+    pub input_cache_write_tokens: Option<u64>,
 }
 impl Usage {
     pub fn validate(self) -> Result<(), GenerationError> {
@@ -83,6 +87,9 @@ impl Usage {
                 .is_some_and(|n| n > self.output_tokens)
             || self
                 .cached_input_tokens
+                .is_some_and(|n| n > self.input_tokens)
+            || self
+                .input_cache_write_tokens
                 .is_some_and(|n| n > self.input_tokens)
         {
             return Err(GenerationError::InvalidResponse);
@@ -121,11 +128,10 @@ impl GenerationResponse {
             super::validate::items(&items, true)?;
         }
         if let Outcome::Completed(completion) = outcome
-            && (items.iter().any(|(_, i)| matches!(i, Item::ToolCall(_)))
-                != (completion == Completion::ToolCalls)
+            && (items.iter().any(|(_, i)| i.is_call()) != (completion == Completion::ToolCalls)
                 || items
                     .iter()
-                    .any(|(_, i)| i.lifecycle() == Some(ItemLifecycle::Incomplete)))
+                    .any(|(_, i)| i.lifecycle().is_some_and(|s| s != ItemLifecycle::Completed)))
         {
             return Err(GenerationError::InvalidResponse);
         }
@@ -143,6 +149,9 @@ impl GenerationResponse {
     }
     pub fn with_details(mut self, details: TerminalDetails) -> Result<Self, GenerationError> {
         details.validate(self.outcome)?;
+        if details.error.as_ref().is_some_and(|e| e.code.is_none()) {
+            return Err(GenerationError::InvalidResponse);
+        }
         let bytes = if self.items.is_empty() {
             0
         } else {

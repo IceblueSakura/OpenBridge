@@ -97,6 +97,7 @@ impl EventDecoder {
                         item,
                         part,
                         fragment: fragment.into(),
+                        logprobs: vec![],
                     },
                     &mut out,
                 )?;
@@ -170,6 +171,7 @@ impl EventDecoder {
                             item,
                             part,
                             fragment: fragment.into(),
+                            logprobs: vec![],
                         },
                         &mut out,
                     )?;
@@ -258,7 +260,7 @@ impl EventEncoder {
             StreamEvent::ItemStarted{item,kind:ItemKind::ToolCall{call_id,name,..},..}=>vec![self.chunk(json!({"tool_calls":[{"index":self.call_index(*item)?,"id":call_id.as_str(),"type":"function","function":{"name":name.as_str(),"arguments":""}}]}),Value::Null)],
             StreamEvent::PartStarted{kind:PartKind::Text,..}=>vec![self.chunk(json!({"content":""}),Value::Null)],
             StreamEvent::PartStarted{kind:PartKind::Refusal,..}=>vec![self.chunk(json!({"refusal":""}),Value::Null)],
-            StreamEvent::Delta{item,part,fragment}=>{
+            StreamEvent::Delta{item,part,fragment,..}=>{
                 let delta=match self.state()?.part(*item,*part)?.kind{PartKind::Text=>json!({"content":fragment}),PartKind::Refusal=>json!({"refusal":fragment}),PartKind::Arguments=>json!({"tool_calls":[{"index":self.call_index(*item)?,"function":{"arguments":fragment}}]}),_=>return Err(CodecError::Unsupported("Chat reasoning".into()))};vec![self.chunk(delta,Value::Null)]
             }
             StreamEvent::Terminal{terminal,..}=>{

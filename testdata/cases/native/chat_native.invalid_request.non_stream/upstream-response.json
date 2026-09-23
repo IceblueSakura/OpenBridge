@@ -1,8 +1,0 @@
-{
-  "error": {
-    "code": "invalid_request",
-    "message": "The request is invalid.",
-    "param": "messages",
-    "type": "invalid_request_error"
-  }
-}

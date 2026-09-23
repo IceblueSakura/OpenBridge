@@ -1,8 +1,0 @@
-{
-  "error": {
-    "code": "invalid_api_key",
-    "message": "Authentication failed.",
-    "param": null,
-    "type": "authentication_error"
-  }
-}

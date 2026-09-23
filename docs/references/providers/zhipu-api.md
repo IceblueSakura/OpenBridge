@@ -24,4 +24,4 @@
 
 2026-08-31 对已配置 `glm-5.3` 执行 16-token 上限的 Chat/Responses × JSON/SSE probe，四种组合均返回 200；Responses JSON 以 completed response 结束，SSE 产生 typed events 并以 `response.completed` 结束。该 probe 不证明 structured output、reasoning 参数、function tool、state、媒体、外部 SDK/Agent、负载、长期运行、其他账户/地域或未来可达性。
 
-OpenBridge 当前映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。

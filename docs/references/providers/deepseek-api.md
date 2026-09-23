@@ -29,7 +29,7 @@
 - Function-tool strict mode 只在 `/beta` endpoint 有官方保证；当前普通 `https://api.deepseek.com` Target 不公开 function strict schema。Responses output JSON Schema 与 function-tool strict 是不同能力。
 - V4 Pro 与 Flash 的官方 reasoning 档位包含 `low/high/max`；Vision Responses 另明确支持 `max_output_tokens` 与 structured output 参数。
 
-逐模型支持、reasoning 档位、tool 类型和当前发布状态应直接读取 DeepSeek 官方文档。OpenBridge 当前映射见[Model 与 Provider 映射](../../implementation-status/model-provider-mapping.md)。
+逐模型支持、reasoning 档位、tool 类型和当前发布状态应直接读取 DeepSeek 官方文档。OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。
 
 ## 证据边界
 

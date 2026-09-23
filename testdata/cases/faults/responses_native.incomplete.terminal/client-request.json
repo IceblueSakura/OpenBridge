@@ -1,6 +1,0 @@
-{
-  "input": "Stop at limit.",
-  "max_output_tokens": 1,
-  "model": "public-model",
-  "stream": true
-}

@@ -1,244 +1,48 @@
-# OpenBridge 使用手册
+# OpenBridge v2
 
-> `semantic-v2` 分支正在进行破坏性语义迁移。架构与实施顺序以 [v2 总览](docs/architecture-v2/README.md)和[v2 迁移计划](docs/architecture-v2/migration.md)为准；下文运行时使用说明仍描述尚未替换的旧路径。
+OpenBridge 正在重建为以任务语义 IR 为权威的 OpenAI-compatible gateway。**当前工作区是 Rust 库与离线验收，不是可运行网关。**
 
-OpenBridge 是一个面向本地或所有者控制环境的 headless、多 Provider、OpenAI-compatible 网关。它把代码中注册的
-Provider、Upstream Target、Route 和 Public Model 编译为固定下游接口，并使用私有用户表认证本地客户端。
+旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。未提供监听入口，不读取私有配置或凭据。
 
-本 README 负责安装、配置、启动、最小调用和常见排障。理解项目设计请按
-[当前架构](docs/architecture.md) → [ADR](docs/decisions/README.md) → [下一步目标](docs/implementation-plans/next-goal.md)阅读；细分合同和参考资料见[文档总索引](docs/README.md)。
+## 当前范围
 
-当前开发方向是让 Generation 请求与响应统一经过 **decode → 富语义 IR → encode**，以 IR 驱动最终输出，并为之后的工具注入、拦截和分析保留处理位置。已有 IR 与 codec 是基础，但 Native 源对象保留路径尚待收敛；这不是已完成声明，也不承诺任意请求都能跨 Provider 转换。
-
-> OpenBridge 仍是未发布的实验性原型。默认且只允许监听 loopback；不要直接把它作为公网多租户服务部署。
-
-## 1. 当前入口
-
-| 接口 | 认证 | 用途 |
-|---|---|---|
-| `GET /healthz` | 否 | 本地进程与注册表存活检查，不访问 Provider |
-| `GET /openapi.yaml`、`GET /swagger-ui[/]` | 否 | 当前机器可读契约与本地测试页 |
-| `GET /v1/models[/{model}]` | Bearer | 标准 Public Model list/retrieve |
-| `GET /openbridge/v1/models[/{model}]` | Bearer | 带固定接口能力的扩展 Public Model 视图 |
-| `POST /v1/chat/completions` | Bearer | Chat Completions JSON/SSE |
-| `POST /v1/responses` | Bearer | Responses JSON/SSE |
-| `POST /v1/embeddings` | Bearer | Embeddings JSON |
-| `POST /v1/images/generations` | Bearer | Images Generations 同步 JSON URL 结果 |
-| `POST /mcp`；legacy `GET/DELETE /mcp` | Bearer | MCP dual-era discovery、legacy session/SSE lifecycle 与无副作用 `hello` 工具 |
-
-下游客户端只能选择 Public Model，不能提交上游 URL、Provider、Route、credential、认证 header 或转换规则。实际可调用模型取决于
-当前进程中配置态激活的 credential pool 和静态可执行 Route。运行中的 `/v1/models` 是“当前配置会公开哪些模型”的依据，
-但它不探测 credential 是否有效、Provider 是否可达、配额或账号状态；真实可调用性仍需显式 probe 或实际请求验证。
-
-Responses 的默认使用方式是由客户端携带完整历史的无状态请求。正常接入应省略 `store`、`previous_response_id` 和
-`background`，或分别使用 `false`、`null` 和 `false`；当前 Public Model 未公开的状态能力会在 Provider egress 前拒绝。
-
-## 2. 前置条件与私有配置
-
-需要 Rust 2024 edition 工具链和 `cargo`，并从仓库根目录执行命令。
-
-仓库提供可以提交的示例，但不提供可用 credential：
-
-- [config/users.example.toml](config/users.example.toml)：下游用户与 Bearer API key 形状；
-- [config/upstream-credentials.example.toml](config/upstream-credentials.example.toml)：已注册 credential pool、API key 与 OAuth2 文件绑定；
-- [config/bootstrap.example.toml](config/bootstrap.example.toml)：完整 Bootstrap 字段、作用和安全边界。
-
-创建私有文件：
-
-```powershell
-Copy-Item config/users.example.toml config/users.toml
-Copy-Item config/upstream-credentials.example.toml config/upstream-credentials.toml
+```text
+Chat / Responses wire
+ → protocol decode
+ → Generation IR / trusted transform
+ → requirements / lowering
+ → protocol encode
+ → JSON / SSE
 ```
 
-或在 Bash 中：
+- `src/semantic/`：Generation typed request、response、event、验证和 requirements。
+- `src/protocol/`：Chat/Responses codec、表示元数据和 Responses HTTP/SSE 边界。
+- `src/lowering/`：针对固定表示契约的可表示性检查。
+- `src/transport/sse.rs`：有界纯 SSE framing。
+- `tests/semantic_v2_*`、`tests/sse_contract.rs`：独立语义及失败边界测试；SDK/HTTP 只使用 synthetic loopback。
 
-```bash
-cp config/users.example.toml config/users.toml
-cp config/upstream-credentials.example.toml config/upstream-credentials.toml
+Responses 纯文本验收仍在推进，见 [当前焦点](docs/implementation-plans/current-focus.md)和[准入说明](docs/architecture-v2/responses-text-profile.md)。媒体、其他任务、生产执行与 Provider 接入尚未完成；删除旧路线不等于这些功能已迁移。
+
+## 验证
+
+需要 Rust 2024 工具链。已有依赖缓存时运行：
+
+```sh
+cargo test --locked --offline
+cargo clippy --locked --offline -- -D warnings
+cargo fmt -- --check
+git diff --check
 ```
 
-复制 upstream 示例后必须删除所有未使用的 `[[credential_pools]]`，或把对应 API-key pool 改成 `api_keys = []`；不得保留任何
-`replace-with-*` placeholder。ChatGPT binding 只有在按第 6 节完成显式登录、生成有效 auth 文件后才能启用；暂不使用时应删除该
-pool，而不是保留不存在的 `auth_json_file`。
+固定 OpenAI SDK gate 单独显式运行，命令与安全边界见[开发指南](docs/development.md)。`cargo run` 不再提供旧服务入口。
 
-然后只填写实际需要启用的 pool。`config/users.toml`、`config/upstream-credentials.toml` 和 OAuth auth 文件都是私有数据，
-不得提交、打印或复制到日志、fixture、文档和问题报告。OpenBridge 不从 `.env`、上游 API-key 环境变量或本机 Codex auth cache
-导入 credential。
+## 文档
 
-未配置、没有 source 或 `api_keys = []` 的 pool 会禁用引用它的 Target；它不会删除代码中的 Provider、Model 或注册事实。
-修改 Bootstrap、用户或 credential binding 后需要重启；修改编译期 Provider、Model 或 Route catalog 后需要重新构建并重启。
+- [文档索引](docs/README.md)
+- [当前结构](docs/architecture.md)
+- [v2 设计](docs/architecture-v2/README.md)
+- [迁移与未完成边界](docs/architecture-v2/migration.md)
+- [下一步目标](docs/implementation-plans/next-goal.md)
+- [外部协议参考](docs/references/README.md)
 
-## 3. 构建与启动
-
-构建：
-
-```powershell
-cargo build --locked
-```
-
-启动默认配置：
-
-```powershell
-cargo run --locked --bin openbridge
-```
-
-默认读取 `config/bootstrap.toml`，监听 `http://127.0.0.1:8080`。如需选择另一份 Bootstrap，只能通过
-`OPENBRIDGE_CONFIG` 指定文件位置：
-
-```powershell
-$env:OPENBRIDGE_CONFIG = "config/bootstrap.local.toml"
-$env:RUST_LOG = "info"
-cargo run --locked --bin openbridge
-```
-
-服务不提供 `--listen`、`--provider`、`--endpoint` 或 credential 覆盖参数。启动成功后检查：
-
-```powershell
-curl.exe -i http://127.0.0.1:8080/healthz
-```
-
-`/healthz` 只证明本地进程和编译注册表可用，不证明真实 Provider、账号、配额或网络可用。
-
-## 4. 最小调用
-
-先查询当前配置态公开且具有静态执行候选的模型：
-
-```powershell
-curl.exe http://127.0.0.1:8080/v1/models `
-  -H "Authorization: Bearer replace-with-a-local-client-token"
-```
-
-再把 `<public-model>` 替换为返回列表中的模型：
-
-```powershell
-curl.exe http://127.0.0.1:8080/v1/chat/completions `
-  -H "Authorization: Bearer replace-with-a-local-client-token" `
-  -H "Content-Type: application/json" `
-  -d '{"model":"<public-model>","messages":[{"role":"user","content":"hello"}]}'
-```
-
-Bash 使用相同 URL、header 和 JSON 即可。PowerShell 中请显式使用 `curl.exe`，避免 Windows PowerShell 的 `curl` alias 改变参数语义。
-
-请求是否支持 streaming、reasoning、tools、structured output、图片、音频或 Embeddings 特定字段，以
-`/openbridge/v1/models/{model}` 返回的固定接口契约为准。该契约是所有固定可执行候选的保守交集，不会按请求跳过较弱 Route。
-
-## 5. Bootstrap、日志与遥测
-
-Bootstrap 拥有 listener、私有文件路径、请求/响应/SSE 上限、共享 HTTP client、默认 generation instructions、本地下游内容日志和
-OTLP/HTTP exporter 配置。完整字段与注释以 [config/bootstrap.example.toml](config/bootstrap.example.toml) 为准。
-
-### 本地下游内容日志
-
-`[logging]` 包含 JSONL 目录和四个彼此独立的布尔字段：
-
-```toml
-[logging]
-http_jsonl_directory = "/var/lib/openbridge/http-logs"
-request_headers = true
-request_body = true
-response_headers = true
-response_body = true
-```
-
-随附的 `config/bootstrap.toml` 和 `config/bootstrap.example.toml` 是受控开发 profile，显式把四项全部设为 `true`；自定义配置省略
-整个表或任一布尔字段时，对应值解析为 `false`。启用任一开关时目录必须是绝对路径，OpenBridge 会在监听前创建并验证按 UTC 日期滚动的
-`http-YYYY-MM-DD.jsonl`；普通运行日志仍写 stdout/journald，历史内容文件不自动删除。这些开关只观察通过 Bearer 认证后的最终下游
-客户端边界，不是原始 Provider wire dump。
-
-认证、Cookie、token、key、secret、password、session、credential 和 signature header 值始终脱敏。请求和响应正文捕获有界，
-每个方向最多产生一个终态 snapshot，SSE 不按 chunk 记录。正文仍可能包含敏感业务内容，生产所有者必须在接入敏感流量前关闭或收窄
-这些开发开关。
-
-### OpenTelemetry
-
-schema 省略对应 `[telemetry.*]` table 时，traces 或 metrics exporter 分别禁用；仓库随附的两个开发 Bootstrap profile 则显式
-启用二者并指向 `http://127.0.0.1:4318`。collector base URL 必须是无用户信息、path、query 或 fragment 的绝对 `http` URL。
-OpenBridge 固定发送到 `/v1/traces` 和 `/v1/metrics`，不提供请求级 exporter 覆盖、内置 Prometheus、metrics 查询 API、持久化或
-分布式聚合。collector 故障不会改变业务响应或 Route 选择。
-
-指标口径与敏感属性边界见[当前实现](docs/implementation-status/current-state.md)和
-[当前状态边界](docs/implementation-status/current-boundaries.md#5-观测配置与生产边界)。
-
-## 6. 订阅 OAuth2（ChatGPT / Grok，可选）
-
-在 `config/upstream-credentials.toml` 的 `chatgpt-codex` binding 中设置 OpenBridge-owned `auth_json_file`，然后执行：
-
-```powershell
-cargo run --locked --bin openbridge-auth -- login chatgpt
-```
-
-命令会显示固定 verification URI 与一次性 user code（验证码）；私有 device code 不会显示。完成 private device interaction 和
-PKCE exchange 后，命令事务性写入配置指定的 auth 文件。不要分享验证码，也不要导入或复制本机 Codex auth cache。
-
-Grok 订阅路径同构：在 `grok-cli` binding 中设置 `auth_json_file`，然后执行：
-
-```powershell
-cargo run --locked --bin openbridge-auth -- login grok
-```
-
-Grok 登录使用 authority 官方的标准 RFC 8628 device flow：命令显示固定 verification URI 与一次性 user code，管理员在浏览器
-人工批准后，CLI 按 authority 给定的 `interval` 轮询 token endpoint，成功后事务性写入 auth 文件。不实现任何自动批准或非标准
-旁路。
-
-常驻服务可在固定账户绑定内执行到期驱动 refresh、guarded reload 和一次有界的预提交 `401` recovery，但不提供运行时切换账户或
-自动交互登录。登录后重启服务，再以 `/v1/models` 确认当前配置会公开哪些订阅-backed Public Model；真实可调用性仍由 probe
-或实际请求确认。
-
-详细边界见[当前实现](docs/implementation-status/current-state.md)、
-[配置与凭证合同](docs/functional-requirements/configuration/credentials.md)、
-[ChatGPT 接入进度](docs/implementation-status/providers/chatgpt.md)和
-[Grok 接入进度](docs/implementation-status/providers/grok.md)。
-
-## 7. 显式 Provider 探测
-
-`openbridge-probe` 由管理员显式运行，使用已经注册且启用的 trusted Target，不启动下游网关、不修改注册表。
-Models 查询与固定 Generation case 的参数、结果解释和请求编排见 [Provider 探测指南](docs/guides/provider-probing.md)。
-真实请求可能计费，应先确认请求范围；一次成功不证明完整 SDK/Agent 兼容、负载或长期稳定性。
-
-## 8. OpenAPI 与 Swagger UI
-
-服务启动后可以访问：
-
-- [Swagger UI](http://127.0.0.1:8080/swagger-ui/)；
-- [OpenAPI YAML](http://127.0.0.1:8080/openapi.yaml)。
-
-Swagger UI 是本地测试页，页面脚本来自固定版本的 jsDelivr；规范本身由 OpenBridge 提供。OpenAPI 覆盖 system 与
-OpenAI-compatible HTTP surface，不描述 MCP dual-era transport；MCP 合同见
-[网关 API 需求](docs/functional-requirements/gateway-api.md)。仓库中的 [docs/openapi.yaml](docs/openapi.yaml)和
-[docs/swagger-ui.html](docs/swagger-ui.html)会被编译进服务，是运行时契约资产，不是派生输出。
-
-## 9. 常见问题
-
-| 现象 | 检查方式 |
-|---|---|
-| 服务在监听前退出 | 检查 Bootstrap schema、私有文件路径、loopback listener、非零 limit 和 replay/request 上限关系 |
-| 请求返回 `401` | 检查是否使用 `users.toml` 中已启用用户的完整 Bearer key |
-| 模型不在 `/v1/models` | 检查引用的 credential pool 是否存在有效 source；ChatGPT/Grok 订阅 Provider 还需完成显式登录并重启 |
-| 参数在上游调用前被拒绝 | 查看扩展 Models；能力属于所选 Public Model 的固定接口契约 |
-| `/healthz` 正常但业务失败 | 健康检查不访问 Provider；继续检查上游 credential、网络和脱敏 request id |
-| probe 报 target disabled | 检查 target ID 及其 pool 是否有有效 API key 或 OAuth auth 文件 |
-| collector 没有数据 | 检查相应 telemetry signal 是否启用，以及 collector 是否接受 OTLP/HTTP protobuf |
-| 端口被占用 | 在 Bootstrap 中改为另一 loopback 地址/端口后重启，不能改为公网监听 |
-
-## 10. 维护者验证
-
-变更流程、Rust 与 corpus 验证命令、证据分层和交付要求见[开发指南](docs/development.md)。
-纯文档修改通常只检查内容、链接和 diff；协议或运行时资产变更需要对应测试。
-
-## 11. 进一步阅读
-
-- [文档总索引](docs/README.md)
-- [功能需求](docs/functional-requirements/README.md)
-- [当前架构](docs/architecture.md)
-- [架构决策（ADR）](docs/decisions/README.md)
-- [下一步目标：多任务 IR 与离线 codec 验收](docs/implementation-plans/next-goal.md)
-- [开发指南](docs/development.md)
-- [实施现状](docs/implementation-status/README.md)
-- [当前开发焦点](docs/implementation-plans/current-focus.md)
-- [外部参考资料](docs/references/README.md)
-- [安全配置模板](config/bootstrap.example.toml)
-
-## 开源协议
-
-原创源代码与仓库文档采用 [MIT License](LICENSE)。参考项目只用于协议、行为和实现边界调研；引入外部代码、测试或资源时，必须同时
-保留其许可证、版权声明和适用通知。
+原创代码和文档采用 [MIT License](LICENSE)。外部资料保留各自来源与必要 attribution。

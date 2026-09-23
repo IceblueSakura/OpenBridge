@@ -1,10 +1,4 @@
-//! Upstream network transport and SSE framing boundaries.
-//!
-//! `sse` assembles byte streams into events, while `upstream` sends adapter-generated relative
-//! requests to validated endpoints. Higher layers own protocol semantics, authentication, and retry decisions.
+//! Pure byte framing shared by protocol codecs and offline transport tests.
+//! Socket I/O, authentication, provider execution and retry are outside this crate's current scope.
 
-mod error;
 pub mod sse;
-pub mod upstream;
-
-pub(crate) use error::is_timeout_error;

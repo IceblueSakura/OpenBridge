@@ -1,5 +1,32 @@
 //! Shared semantic leaf values.
+/// Measure JSON without allocating an unbounded serialized copy.
+pub fn json_size(value: &impl serde::Serialize, max: usize) -> Result<usize, ValueError> {
+    struct Counter {
+        bytes: usize,
+        max: usize,
+    }
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.bytes = self.bytes.saturating_add(bytes.len());
+            if self.bytes > self.max {
+                return Err(std::io::Error::other("JSON limit"));
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Counter { bytes: 0, max };
+    serde_json::to_writer(&mut count, value).map_err(|_| ValueError::TooLarge {
+        kind: "JSON",
+        max_bytes: max,
+    })?;
+    Ok(count.bytes)
+}
+mod presence;
 mod replay;
+pub use presence::Presence;
 pub use replay::ReplayOrigin;
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 pub enum ValueError {

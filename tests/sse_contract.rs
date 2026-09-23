@@ -96,8 +96,7 @@ fn decoder_rejects_complete_events_and_incomplete_lines_over_the_limit() {
 fn decoder_applies_wpt_inspired_case_sensitive_field_and_data_joining_rules() {
     // Informed by web-platform-tests EventSource field parsing at
     // 269bca0dd35c303639f3c9cf1d8bcb3d911bdb60 (BSD-3-Clause). The fixture
-    // is reduced to LF/CRLF because OpenBridge's transport contract does not
-    // currently claim bare-CR framing parity with browser EventSource.
+    // is reduced to LF/CRLF here; bare CR is checked independently below.
     let payload = concat!(
         "Data: ignored\r\n",
         "datax: ignored\n",
@@ -115,4 +114,39 @@ fn decoder_applies_wpt_inspired_case_sensitive_field_and_data_joining_rules() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event(), None);
     assert_eq!(events[0].data(), " leading-space\n\ntail");
+}
+
+#[test]
+fn decoder_handles_bom_bare_cr_and_exact_crlf_event_budget() {
+    let mut decoder = SseDecoder::new(31);
+    let events = decoder.push("\u{feff}data: 🧪\r\r".as_bytes()).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].data(), "🧪");
+    decoder.finish_strict().unwrap();
+
+    let frame = b"data: x\r\n\r\n";
+    assert_eq!(frame.len(), 11);
+    let mut exact = SseDecoder::new(frame.len());
+    assert_eq!(exact.push(frame).unwrap()[0].data(), "x");
+    exact.finish_strict().unwrap();
+    let mut under = SseDecoder::new(frame.len() - 1);
+    assert_eq!(
+        under.push(frame).unwrap_err(),
+        SseDecodeError::EventTooLarge
+    );
+    assert_eq!(
+        under.push(b"data: y\n\n").unwrap_err(),
+        SseDecodeError::Closed
+    );
+}
+
+#[test]
+fn strict_eof_requires_a_blank_line_even_after_a_completed_data_line() {
+    let mut decoder = SseDecoder::new(64);
+    decoder.push(b"data: last\n").unwrap();
+    assert_eq!(
+        decoder.finish_strict().unwrap_err(),
+        SseDecodeError::UnexpectedEof
+    );
+    assert_eq!(decoder.finish().unwrap_err(), SseDecodeError::Closed);
 }

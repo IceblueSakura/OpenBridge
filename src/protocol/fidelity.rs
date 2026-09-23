@@ -6,12 +6,34 @@ use crate::semantic::{
 };
 use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FidelityRecords {
     response_item_ids: BTreeMap<ItemId, Text>,
+    cache_breakpoints: std::collections::BTreeSet<PartId>,
+    input_text_forms: std::collections::BTreeSet<PartId>,
     encrypted_reasoning: BTreeMap<ItemId, (ReasoningReplay, [u8; 32])>,
 }
 impl FidelityRecords {
+    pub fn record_input_text(&mut self, owner: PartId) -> Result<(), CodecError> {
+        if self.input_text_forms.len() >= MAX_ITEMS {
+            return Err(CodecError::Limit);
+        }
+        self.input_text_forms.insert(owner);
+        Ok(())
+    }
+    pub fn input_text_form(&self, owner: PartId) -> bool {
+        self.input_text_forms.contains(&owner)
+    }
+    pub fn record_cache_breakpoint(&mut self, owner: PartId) -> Result<(), CodecError> {
+        if self.cache_breakpoints.len() >= MAX_ITEMS {
+            return Err(CodecError::Limit);
+        }
+        self.cache_breakpoints.insert(owner);
+        Ok(())
+    }
+    pub fn cache_breakpoint(&self, owner: PartId) -> bool {
+        self.cache_breakpoints.contains(&owner)
+    }
     pub fn record_response_item_id(
         &mut self,
         owner: ItemId,
@@ -114,6 +136,7 @@ fn fingerprint(item: &ReasoningItem) -> [u8; 32] {
     hash.update([match item.status {
         ItemLifecycle::Completed => 0,
         ItemLifecycle::Incomplete => 1,
+        ItemLifecycle::InProgress => 2,
     }]);
     for (id, part) in &item.parts {
         hash.update(id.get().to_le_bytes());

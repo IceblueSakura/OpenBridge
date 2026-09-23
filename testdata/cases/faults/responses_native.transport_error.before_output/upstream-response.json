@@ -1,8 +1,0 @@
-{
-  "error": {
-    "code": "upstream_unavailable",
-    "message": "candidate unavailable",
-    "param": null,
-    "type": "server_error"
-  }
-}

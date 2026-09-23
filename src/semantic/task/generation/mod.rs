@@ -6,22 +6,28 @@ mod request;
 mod requirements;
 mod resource;
 mod response;
+mod text;
 mod tool;
 mod validate;
-pub use output::OutputConstraint;
+pub use output::{OutputConstraint, TextOptions, Verbosity};
 pub use reasoning::{
-    EncryptedReasoning, ReasoningContent, ReasoningEffort, ReasoningItem, ReasoningPresence,
-    ReasoningReplay, ReasoningRequest, ReasoningSummary,
+    EncryptedReasoning, ReasoningContent, ReasoningContext, ReasoningEffort, ReasoningItem,
+    ReasoningMode, ReasoningPresence, ReasoningReplay, ReasoningRequest, ReasoningSummary,
 };
 pub use request::{
-    ContentPart, GenerationControls, GenerationError, GenerationRequest, Instruction,
-    InstructionAuthority, Item, ItemId, Message, MessageRole, Part, PartId,
+    ContentPart, GenerationControls, GenerationError, GenerationRequest, GenerationSettings,
+    Instruction, InstructionAuthority, Item, ItemId, Message, MessageRole, Part, PartId,
+    Truncation,
 };
 pub use requirements::GenerationRequirements;
 pub use resource::{Resource, ResourceKind, ResourceLocation};
+pub use text::{
+    Annotation, Logprob, TextContent, TopLogprob, compatible_logprobs, validate_logprobs,
+};
 pub use tool::{
-    FunctionStrictness, FunctionTool, ItemLifecycle, StrictDefault, ToolCall, ToolChoice,
-    ToolDefinition, ToolResult,
+    CustomCall, CustomFormat, CustomTool, FunctionStrictness, FunctionTool, GrammarSyntax,
+    ItemLifecycle, StrictDefault, ToolCall, ToolChoice, ToolDefinition, ToolKind, ToolOutput,
+    ToolReference, ToolResult,
 };
 
 pub use event::{
