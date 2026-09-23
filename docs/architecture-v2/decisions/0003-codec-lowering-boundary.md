@@ -6,10 +6,10 @@ Accepted.
 
 ## Decision
 
-Protocol codecs own wire syntax and protocol semantics. Endpoint lowering owns representability, explicit mappings and conversion policy for a fixed endpoint.
+Protocol/profile codecs own wire syntax, standard field admission and declared extension mappings. Generation semantics use the Responses-first baseline; endpoint lowering owns representability, explicit mappings and conversion policy for a fixed endpoint. A narrow target cannot redefine the IR's standard expressiveness.
 
 Encoding cannot silently drop unsupported Task IR. Provider code cannot mutate modeled semantic JSON after protocol encoding.
 
 ## Consequences
 
-The predecessor `bridge` abstraction is superseded. Same-protocol and cross-protocol paths use identical semantic stages. Provider request-body hooks that affect modeled semantics must migrate into typed endpoint contracts/lowering or protocol profiles before the legacy path is removed.
+The predecessor `bridge` abstraction and runtime are archived. Same-protocol and cross-protocol paths use identical semantic stages. Any future Provider adaptation that affects modeled values must use typed contracts/lowering or an explicit profile, never a post-encode body hook. Complete responses, request shorthand and SDK-derived views require distinct validation boundaries.

@@ -1,6 +1,6 @@
 # Proposed Rust Layout
 
-This layout is intentionally allowed to break predecessor crate paths.
+This layout is intentionally allowed to break predecessor crate paths. It describes ownership direction, not a finalized file inventory. Generation follows [Responses-first IR and scoped extensions](semantic-ir.md); typed request context and attachment-specific extensions must have explicit homes before implementation. Do not mirror the SDK source tree or create speculative empty modules.
 
 ```text
 src/

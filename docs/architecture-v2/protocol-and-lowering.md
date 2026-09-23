@@ -2,7 +2,7 @@
 
 ## Two distinct projections
 
-OpenBridge separates protocol translation from endpoint-specific lowering.
+OpenBridge separates protocol translation from endpoint-specific lowering. Generation IR takes OpenAI Responses standard semantics as its main design reference, plus scoped extensions; it is neither raw Responses JSON nor a Chat-compatible lowest common denominator. [The fixed upstream baseline](../references/upstream-sync.md) distinguishes public standard, SDK consumer and Codex product profile.
 
 ### Protocol codec
 
@@ -13,7 +13,7 @@ decode(profile, task, wire) -> Decoded<TaskIR>
 encode(profile, task, representation) -> wire
 ```
 
-A codec knows Chat vs Responses shapes, field names, SSE event grammar and protocol-level presence rules. It does not know credentials, routes or provider selection.
+A codec knows wire shapes, field names, event grammar and profile-level presence rules. Standard fields have typed owners; extensions require a declared schema, attachment and scope. Known unsupported standard branches must not be relabeled arbitrary extensions. A codec does not access credentials, routes or provider selection.
 
 ### Target lowering
 
@@ -27,7 +27,7 @@ lower(final_ir, source_records, endpoint_contract)
 
 It owns explicit target mappings such as supported reasoning-level mapping, approved omission of semantically inactive hints, and endpoint-specific representation restrictions.
 
-It cannot mutate the shared final IR.
+It cannot mutate the shared final IR. Context/extension mappings use the same rule: a candidate may project an admitted session fact or source-bound resource only where its profile permits, not create a second semantic authority. Pure codecs must validate complete envelopes separately from permissive input abbreviations and low-level snapshots.
 
 ## Why encode does not consume raw IR blindly
 

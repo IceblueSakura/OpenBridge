@@ -4,6 +4,8 @@
 
 用户授权补全 Responses 的纯文本协议，包含 instructions、content、reasoning、tools，然后完善 HTTP/SSE；本阶段不接实际 Provider。允许破坏性修订 v2 内部接口，不保留无意义兼容层，不自动提交或推送。
 
+设计依据现为 [Responses-first 标准 + scoped extensions](../architecture-v2/semantic-ir.md)，相关历史研究已按主题整合并完成[上游文档/源码同步](../references/upstream-sync.md)。这不是代码实现或全部协议验收完成；以下纯文本范围和未完成门槛仍保留，未来扩展/媒体/state 按单独切片推进。
+
 当前只有 v2 语义库和独立验收；旧运行时已按用户决定[整体归档](../archive.md)，不要求恢复旧服务可用性。离线测试和固定 SDK synthetic loopback 是局部证据，不等于全部字段/事件准入或本切片完成。继续完成字段覆盖审查及生命周期/资源反例后，才可清空焦点。生产执行不属于本切片完成条件。
 
 ### 验收目标
@@ -22,10 +24,10 @@
 
 按以下依赖顺序推进：
 
-1. **恢复可执行检查并固定准入矩阵。** 先编译、执行新 profile 测试及受影响的 `semantic_v2_*` 测试，区分实现缺陷与旧子集预期。基于 SDK `3.10.0` 类型和仓库固定资料，逐项确认字段/事件的 owner、支持形态、缺失/null/空值/默认值归一化及明确拒绝项；不能把 SDK 类型存在或宽松解析成功当作已支持。覆盖矩阵应有规范落点，本页不复制另一套 schema。
+1. **恢复可执行检查并固定准入矩阵。** 先编译、执行新 profile 测试及受影响的 `semantic_v2_*` 测试，区分实现缺陷与旧子集预期。基于本轮固定的官方 Responses 文档与 SDK `3.19.0` 源码基线，逐项确认字段/事件的 owner、支持形态、缺失/null/空值/默认值归一化及明确拒绝项；现有 `3.10.0` 是消费者测试锚点，升级必须单独比较并验证，不能自动替换；不能把 SDK 类型存在或宽松解析成功当作已支持。覆盖矩阵应有规范落点，本页不复制另一套 schema。
 2. **关闭静态与事件语义缺口。** 复核 instructions 字符串、分段消息及响应中的 instruction echo；function/custom 定义、选择、调用和文本数组结果；Structured Output、reasoning 控制、refusal、annotations/logprobs、usage 和完整 envelope。为准入语义补独立 decode/encode 预期及插入、替换、删除测试，并检查最终 requirements 与 lowering 拒绝边界同步变化。
    - 完整 HTTP envelope 与低层 task snapshot 的职责须明确；缺失的 reported settings、usage 明细或概率字节不能靠猜默认值补齐。
-   - SDK 的 readable reasoning text 使用 delta/done，不应生成 message 的 `content_part` 事件；当前修订仍须通过 SDK 验证。
+   - readable reasoning 与 message text 分开；reasoning_text delta/done 及允许的 content_part 分支需按固定 schema/profile 验证，不把旧 fixture 的事件组合当成唯一标准语法。
    - 区分增量 logprobs 与静态概率记录的字段要求，允许有证据的缺失详情补全，不允许最终 snapshot 改写已观察概率。核对 `file_path` 的静态 annotation 与 annotation-added 事件准入差异。
    - 正文替换必须清除依赖旧正文的引用/概率；cache breakpoint、wire identity 和 replay 不得重新附着到已删除或错配的 owner。partial encrypted replay 可观察不等于可用于后续请求。
    - 补齐 malformed/null、身份和状态冲突、未知字段、累计预算与嵌套 schema 等资源反例；检查错误后是否仍可继续使用 decoder/encoder。
@@ -48,7 +50,7 @@
 - 不执行 hosted tools、remote MCP、服务端 conversation/background、moderation、prompt templates 或 compaction；不接真实 Provider，不部署。媒体和独立推理任务不在本次范围。
 - Structured Output 是纯文本控制的相关独立语义域，需在覆盖矩阵中明确准入，不能用 schema 字段透传冒充实现。
 
-剩余准入审查以 [Responses text profile](../architecture-v2/responses-text-profile.md)为落点；SSE padding 独立预算的当前规则由该页和 `semantic_v2_responses_sse` 维护，不在本页重复 schema。
+优先处理[已复现的 codec 缺口](../architecture-v2/migration.md#当前已知闭合缺口)，再完善标准分支；不能以当前支持域反向缩减 IR 目标。剩余准入审查以 [Responses text profile](../architecture-v2/responses-text-profile.md)为落点；SSE padding 独立预算的当前规则由该页和 `semantic_v2_responses_sse` 维护，不在本页重复 schema。
 
 ### 验证门槛
 

@@ -28,9 +28,9 @@ Task identity is determined from the trusted public contract before semantic dec
 
 ### Task IR
 
-Each Task owns request, response, and where applicable event semantics.
+Each Task owns request, response, and where applicable event semantics. Generation follows the OpenAI Responses standard semantic surface, not the intersection of supported wire protocols; other tasks retain their own contracts.
 
-IR is the sole owner of modeled semantic values. It contains no route, provider, endpoint, credential, retry state, HTTP state, or downstream commit state.
+The overall internal representation includes task semantics, typed request/response context, delivery intent, scoped extensions and fidelity as defined in [semantic-ir.md](semantic-ir.md). Task content does not own sockets, selected routes/endpoints, credentials, retry state or downstream commit state. Context extensions may own session/thread/turn facts without becoming runtime handles.
 
 Shared value types are allowed only where they preserve task invariants: bounded text, resources, media descriptors, stable identities, schema values, usage and extensions.
 
@@ -46,7 +46,7 @@ Protocol codecs translate between a known Task contract and Task IR. A protocol 
 
 A Provider is a trusted upstream service implementation/domain. It owns service-specific authentication, error classification, trusted origins and provider-specific representation constraints.
 
-Provider identity must not leak into semantic IR.
+A selected Provider/endpoint or credential must not become task semantics. A typed extension namespace or trusted opaque origin may identify provenance and constrain representability; it cannot choose or authorize an upstream target.
 
 ### Endpoint
 
@@ -111,9 +111,10 @@ Public Model
 
 For every meaningful datum, the architecture must be able to answer exactly one of:
 
-- semantic IR owns it;
+- standard task semantics own it;
+- typed request/response context or an owner-bound extension owns it;
 - source/fidelity metadata owns its representation-only preservation;
 - target lowering owns target-specific representation;
-- execution context owns operational state.
+- execution owns runtime resources and operational state.
 
 No datum may have two independent authorities.

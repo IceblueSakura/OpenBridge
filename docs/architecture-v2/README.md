@@ -1,71 +1,50 @@
 # OpenBridge Semantic Architecture v2
 
-Status: **architecture baseline frozen; Generation semantic migration and validation in progress.**
+**设计基线：Responses-first 标准语义 + scoped extensions。** 当前实现仍为 Rust 语义库与离线验收，不是完整标准实现或可运行网关。
 
-This directory defines the architectural authority for the `semantic-v2` epoch. Internal source compatibility with the predecessor implementation is not a goal. Existing code, ADRs, tests, provider evidence and protocol samples are migration evidence, not module-layout authorities.
+## 当前方向
 
-## Current phase
+Generation 主要参考 OpenAI Responses 的 request、ordered item/content、tool、reasoning、state 和 event 定义。Chat 及其他协议是目标映射，不以多协议最小交集限制 IR。Codex session/context 与特殊多模态通过有明确 owner、schema、来源和生命周期的扩展承载，不走任意 JSON/header 透传。
 
-The current workspace is the **v2 semantic library and offline validation suite**. The predecessor runtime and its dedicated tests/assets are [archived](../archive.md); there is no runnable gateway binary. Breaking retirement was explicitly accepted before feature parity and does not complete semantic migration.
+[IR 设计](semantic-ir.md)拥有结构与扩展准入；[主题化历史综合](../references/semantic-baseline.md)提供设计依据；[上游同步](../references/upstream-sync.md)固定本次官方语义、SDK 和 Codex 版本。
 
-The architectural baseline is now sufficiently defined. New architecture documents or ADRs are added only when implementation exposes a real semantic ownership problem that the current model cannot resolve.
-
-The active scope is deliberately narrow:
-
-> Migrate Generation semantics from the predecessor implementation into the v2 Semantic Core and prove the migration with offline semantic conformance tests.
-
-Until this phase passes its acceptance gates, do not expand work into Embedding, Image Generation, Speech, provider routing, credential redesign, execution rewrite, MCP, observability redesign, or a general hook/plugin system.
-
-## Frozen processing model
+## 处理模型
 
 ```text
-Wire
+Wire + trusted admission context
  -> Protocol Codec
- -> Task IR
- -> Semantic Validation / Trusted Transform
+ -> Responses-oriented Generation semantics + context/delivery/extensions
+ -> Validation / Trusted Transform
  -> Requirements
- -> Representability / Lowering
+ -> Fixed Candidate Representability / Lowering
  -> Protocol Codec
  -> Wire
 ```
 
-Provider, route, credential and HTTP execution are intentionally outside the current migration slice.
+没有 Native 语义旁路，也没有 Bridge 领域对象。纯 codec/lowering 不访问 credential、registry 或网络；上下文扩展可表达 session 等事实，但不能包含选定路由、socket、真实凭据或任意执行脚本。
 
-There is no privileged Native path and no Bridge domain object. Same-protocol and cross-protocol requests pass through the same semantic authority.
+## 设计与实现边界
 
-## Current migration milestones
+- 旧运行时已[归档](../archive.md)，不要求功能对等或保留旧 crate path。
+- 当前源码只实现 Generation 的部分 Responses/Chat 语义、lowering 和纯 SSE。
+- Responses 标准全景是目标；stateless text 是现有实施子集，不是长期 IR 表达力上限。
+- 本轮同步只改文档，不升级 SDK gate、不迁移 Rust、不实现 hosted tools、state/WS 或真实 Provider。
+- 后续先按[迁移基线](migration.md)修正核心闭合缺口，再按域推进。独立任务、topology/execution、credentials、MCP 和观测按各自获准切片实施，不创建通用插件框架。
 
-1. **M1 — Generation IR:** migrate the supported Generation semantic domains without copying predecessor module boundaries.
-2. **M2 — Chat / Responses codecs:** establish complete supported `Chat <-> IR <-> Responses` mappings.
-3. **M3 — Semantic conformance:** prove convergence, IR authority, fidelity isolation and deterministic representability failures.
-4. **M4 — Archived responsibility assessment:** map archived Bridge/Pipeline/Generation-IR behavior to v2 owners, intentional omissions and remaining gaps. The old runtime is already retired; removal does not prove parity.
+## 文档所有权
 
-Only after M1-M4 pass should topology, endpoint and execution migration begin.
+- [semantic-ir.md](semantic-ir.md)：标准主干、整体内部表示、扩展 attachment、身份和 presence。
+- [domain-model.md](domain-model.md)：task/model/profile/endpoint 等维度与运行时边界。
+- [protocol-and-lowering.md](protocol-and-lowering.md)：codec、fidelity、固定 profile 和目标可表示性。
+- [capability-model.md](capability-model.md)：标准可表达、模型支持、表示与执行能力分开。
+- [invariants.md](invariants.md)：语义、扩展、安全与资源不变量。
+- [execution-model.md](execution-model.md)：后续执行目标，不是当前已实现模块。
+- [rust-layout.md](rust-layout.md)：职责布局方向，不复制 SDK 文件树。
+- [migration.md](migration.md)：目标相对当前代码的差距和实施顺序。
+- [responses-text-profile.md](responses-text-profile.md)：当前 stateless text 的实现准入，不代表完整标准。
 
-## Core design documents
+既有 decisions 维护其当前有效规则，不添加完成日志或平行 schema；reasoning 的 owner/origin/finality 见[专项规则](decisions/0006-reasoning-ownership.md)。新文档与历史来源有冲突时，应按当前用户目标及固定一手证据显式修正，不能让旧“基线冻结”阻止必要设计调整。
 
-- [domain-model.md](domain-model.md) — ontology.
-- [semantic-ir.md](semantic-ir.md) — task IR and semantic ownership.
-- [protocol-and-lowering.md](protocol-and-lowering.md) — codec, fidelity and lowering boundaries.
-- [capability-model.md](capability-model.md) — capability dimensions.
-- [execution-model.md](execution-model.md) — later execution target model; not current implementation scope.
-- [rust-layout.md](rust-layout.md) — target module direction.
-- [invariants.md](invariants.md) — architecture gates.
-- [migration.md](migration.md) — active staged migration plan.
-- [responses-text-profile.md](responses-text-profile.md) — offline Responses text admission and ownership map.
+## 验收原则
 
-## v2 decisions
-
-ADR-v2-0001 through ADR-v2-0005 remain the accepted baseline. [ADR-v2-0006](decisions/0006-reasoning-ownership.md) owns reasoning separation and its admitted Responses subset. Do not add another ADR merely to describe implementation progress.
-
-## Current acceptance principle
-
-The migration is not validated by JSON round-trip alone. Tests must prove:
-
-- semantically equivalent Chat and Responses inputs converge;
-- changing final IR changes every applicable target encoding;
-- deleting semantic IR cannot be undone by fidelity/source records;
-- unsupported target semantics fail before encoding rather than being silently dropped;
-- requirements are derived from final IR rather than independently reconstructed from source wire.
-
-The function-tool request, completed static response, function-call events, assistant-text events, and the admitted reasoning subset now have v2 codecs and independent conformance cases. Scope and unresolved semantic gates are recorded in [migration.md](migration.md#phase-gates). Media remains outside this slice. Structured output is under pure-text Responses acceptance, not production migration; this does not complete M1-M4.
+独立 decode/encode 预期、IR 修改/删除、扩展来源隔离和 Static/Event 一致性是主要门槛。round trip、SDK 宽松解析或类型存在不证明完成。当前具体反例见[迁移缺口](migration.md#当前已知闭合缺口)，方法见[验收基线](../references/conformance-baseline.md)，批准范围见[current focus](../implementation-plans/current-focus.md)。

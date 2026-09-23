@@ -1,5 +1,7 @@
 # Codex Responses HTTP / WebSocket Header 行为基线
 
+> 本页保留固定历史源码研究，不再拥有当前 OpenBridge IR 设计。已整合并重新核对的结论见[扩展与上下文](../extensions-and-context.md)和[上游同步](../upstream-sync.md)；session/context 可进入整体 IR 的上下文扩展层，但不是 task content 或 credential。
+
 ## 状态与证据
 
 | 项目 | 值 |

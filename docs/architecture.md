@@ -1,6 +1,6 @@
 # 当前架构
 
-当前 crate 是 **v2 语义库**，不含网关运行时或 binary target。[v2 设计](architecture-v2/README.md)描述目标结构；尚未落地的 topology、execution、credential 与 ingress 不应据此被视为已实现。
+当前 crate 是 **v2 语义库**，不含网关运行时或 binary target。目标已明确为[Responses-first 标准语义 + scoped extensions](architecture-v2/semantic-ir.md)；本页只记录现有源码，不把目标误写成已经实现的扩展/媒体/状态能力。[v2 设计](architecture-v2/README.md)描述目标结构；尚未落地的 topology、execution、credential 与 ingress 不应据此被视为已实现。
 
 ```text
 JSON / SSE payload

@@ -1,5 +1,7 @@
 # OpenAI Responses WebSocket mode 调研
 
+> 历史快照，仅保留出处。2026-09-23 官方指南已支持 `stream_id` 多路复用；本文旧“单连接仅一个 in-flight”不能作为当前基线。当前结论见[上游同步](../upstream-sync.md#本次同步影响)，不在本页继续维护另一份合同。
+
 ## 来源、范围与快照
 
 本文只记录 Responses API 的 persistent WebSocket mode。HTTP JSON、HTTP SSE、Realtime WebSocket 和 resource CRUD 分别由其他 owner

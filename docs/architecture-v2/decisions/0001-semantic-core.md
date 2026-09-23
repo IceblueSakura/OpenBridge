@@ -1,41 +1,26 @@
-# ADR-v2-0001: Semantic Core Is the Architectural Center
+# ADR-v2-0001: Responses-first Semantic Authority
 
 ## Status
 
-Accepted for the `semantic-v2` rewrite epoch.
-
-## Context
-
-The predecessor architecture introduced a Generation IR while production behavior still evolved through wire analysis, JSON normalization, Native/Bridge distinctions, provider hooks and source-envelope preservation. This was a rational migration path, but it makes the implementation order visible in the architecture.
-
-The project is pre-release and can accept breaking changes. Internal API continuity is therefore not a design objective.
+Accepted design direction. Current implementation remains a partial offline Generation library, not a complete Responses gateway.
 
 ## Decision
 
-OpenBridge v2 is organized around typed task semantics.
+Generation IR uses the fixed OpenAI Responses standard as its principal semantic reference, with scoped extensions for capabilities outside that standard. It is not a Chat/common-denominator model and is not a raw SDK DTO or JSON clone.
 
-The canonical processing model is:
+The authority boundary is:
 
 ```text
-Wire -> Codec -> Task IR -> Policy/Validation -> Requirements
-     -> Fixed Route -> Candidate Lowering -> Codec -> Wire -> Execution
+Wire + trusted admission context
+ -> Codec -> typed semantics/context/extensions
+ -> Validation / Trusted Transform -> Requirements
+ -> Fixed Candidate Lowering -> Codec -> Wire
 ```
 
-The response direction follows the inverse semantic boundary.
+Same-protocol encoding has no Native bypass. Cross-protocol conversion is composition through the same final IR, not a separate Bridge object. Chat representability cannot reduce the Responses semantic model.
 
-The following consequences are intentional:
-
-- `bridge` is not a domain concept. Cross-protocol conversion is composition of decode, semantic representation, lowering and encode.
-- `native` does not bypass semantic processing.
-- wire-fact analysis may exist for bounded admission, but it cannot become a parallel semantic model.
-- requirements are projections of final IR plus delivery constraints, not independently accumulated interpretations of the original body.
-- provider-specific code may define endpoint contracts and representation mapping but cannot own generic task semantics.
-- internal Rust compatibility with predecessor modules is explicitly not required.
+The authoritative structural contract is [semantic-ir.md](../semantic-ir.md); fixed sources and evidence limits are in [upstream-sync.md](../../references/upstream-sync.md). Provider code cannot perform semantic JSON mutation after encoding. Runtime secrets, endpoints, retry and commit state remain outside IR.
 
 ## Consequences
 
-The rewrite will initially duplicate some implementation while legacy production paths remain present. This is preferable to forcing new semantics through predecessor abstractions.
-
-Migration is complete when the legacy semantic path can be deleted rather than wrapped.
-
-Existing evidence and tests remain authoritative evidence of observed behavior, but predecessor module boundaries and type names do not constrain v2.
+The predecessor runtime is [archived](../../archive.md). No compatibility wrapper or duplicate legacy path is required. Current implementation gaps are tracked in [migration.md](../migration.md), not converted into permanent model limitations. Internal Rust compatibility is not an objective.

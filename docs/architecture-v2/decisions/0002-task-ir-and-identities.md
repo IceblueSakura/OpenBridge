@@ -1,21 +1,19 @@
-# ADR-v2-0002: Task IR, Identity and Presence
+# ADR-v2-0002: Task IR, Identity, Presence and Extensions
 
 ## Status
 
-Accepted.
+Accepted design direction; extension wire syntax and remaining task types are not yet implemented.
 
 ## Decision
 
-OpenBridge uses a closed task family with task-specific request/response/event types. There is no universal inference request.
+Generation follows Responses ordered item/content semantics. Other tasks retain task-specific request/response/event contracts; a Chat-shaped speech endpoint is not necessarily conversation generation.
 
-Semantic entities use explicit scoped identities rather than array position. Presence is modeled according to semantics, not uniformly collapsed into `Option<T>`.
+The overall internal representation separates standard task semantics, typed context, delivery intent, scoped extensions and bounded fidelity. Session/context extensions are part of this representation without entering message content or acquiring runtime authority. Attachment, schema, origin, lifecycle, visibility and target requirements follow [semantic-ir.md](../semantic-ir.md).
 
-Protocol/provider-specific opaque information is kept in bounded fidelity records outside task request/response item semantics. Lifecycle events can carry typed sidecar updates without making opaque state a readable content part; origin, finality and ownership follow [ADR-v2-0006](0006-reasoning-ownership.md).
+Stable local identities are distinct from wire IDs and indexes. Presence follows each field's semantics; contradictory outer absence and inner values are invalid. Standardized fields have standard owners rather than duplicate extension copies.
 
-## Rationale
-
-Task-specific types make illegal combinations difficult to represent and prevent endpoint shape from becoming the domain model. Stable identity is required for transformations, annotations, streaming deltas and source-record validity. Explicit presence prevents a codec from accidentally equating omission, null, empty and explicit defaults.
+Opaque replay retains a typed owner and trusted source scope. Representation-only preservation stays in fidelity; modeled special capability lives in a typed extension, not arbitrary raw JSON. Reasoning finality and dependency checks follow [reasoning ownership](0006-reasoning-ownership.md).
 
 ## Consequences
 
-Existing `src/ir/generation` is design input, not the required v2 module/API. Its useful semantic types may be ported selectively after the new ownership rules are applied.
+Transforms preserve or explicitly replace identities and invalidate dependent metadata. Schema key ordering, media source semantics and context lifetime cannot be erased by generic normalization. Old source layout does not constrain the implementation; current scope and acceptance are explicit per slice.

@@ -1,6 +1,6 @@
 # OpenBridge v2
 
-OpenBridge 正在重建为以任务语义 IR 为权威的 OpenAI-compatible gateway。**当前工作区是 Rust 库与离线验收，不是可运行网关。**
+OpenBridge 正在重建为以任务语义 IR 为权威的 OpenAI-compatible gateway。Generation IR **以 OpenAI Responses 标准语义为主干，结合有明确归属和生命周期的扩展字段**，而非多协议最小公分母。设计依据见[主题化调研与上游同步](docs/references/README.md)。**当前工作区是 Rust 库与离线验收，不是完整标准实现或可运行网关。**
 
 旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。未提供监听入口，不读取私有配置或凭据。
 

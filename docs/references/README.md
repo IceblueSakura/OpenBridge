@@ -1,88 +1,33 @@
-# 参考文档
+# 协议与设计参考
 
-本目录只保存外部协议、SDK、目标客户端、Provider 和参考项目的固定调研。外部事实以各叶文档记录的 URL、日期、版本或
-commit 为准；目录索引只负责导航和维护规则，不用较新的索引日期覆盖原始快照。
+**当前参考按语义主题维护，不再按项目／Provider 分块撰写。** Generation 以 OpenAI Responses 标准为主要参考，再以 scoped extensions 承载特殊能力。事实综合、接受的设计、当前实现和执行证据仍分开。
 
-本目录不记录 OpenBridge 当前实现、源码结构、已执行测试或实施方案。当前事实和授权范围分别由
-[implementation status](../implementation-status/README.md) 和 [current focus](../implementation-plans/current-focus.md) 维护；
-当前设计与下一步方向由 [v2 架构](../architecture-v2/README.md) 与 [next-goal](../implementation-plans/next-goal.md) 维护。
-旧运行时合同和注册关系在 [Git 归档](../archive.md)中；旧路径引用按归档版本解释。整理这些指针不刷新外部快照日期。参考资料和计划文件都不独立授予实施权限。
+## 当前主题入口
 
-## 1. 分类入口
-
-| 类别 | 入口 | 内容 |
-|---|---|---|
-| OpenAI 协议与 SDK | [OpenAI 调研索引](openai/README.md) | API operation、SDK consumer、gpt-oss 与 Open Responses 测试资产 |
-| Provider | [Provider 调研索引](providers/README.md) | 各上游 API、认证、固定 wire 与专项媒体观察 |
-| MCP | [MCP Rust 生态索引](mcp/README.md) | MCP 规范、远程访问模式与 Rust SDK |
-| 参考项目 | [参考项目总览](project-comparison.md) | 项目证据角色、互证关系与局限 |
-| Protocol gateway / semantic model | [生态调研索引](protocol-gateways/README.md) | Bifrost、LiteLLM、TensorZero、Vercel AI SDK、Portkey、Helicone及IR架构/测试参考 |
-| Codex | [Codex 调研索引](codex/README.md) | SSE、tool lifecycle、OAuth 与测试资产 |
-| Hermes Agent | [Hermes 调研索引](hermes/README.md) | Chat/Responses consumer、credential lifecycle 与插件能力 |
-| LiteLLM | [LiteLLM 调研索引](litellm/README.md) | Proxy、转换、observability、retry 与 OAuth |
-| new-api | [new-api 调研索引](new-api/README.md) | 多协议转换、渠道路由、计费与运维机制 |
-| cc-switch | [Chat/Responses tool conversion](cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)、[retry/failover](cc-switch/cc-switch-retry-failover-analysis.md) | 桌面客户端 bridge 与 Provider failover |
-| sub2api | [Antigravity 订阅 OAuth](providers/antigravity-oauth.md)、[Grok 订阅 OAuth](providers/grok-oauth.md)、[ChatGPT 订阅 OAuth](providers/openai-chatgpt-oauth.md) | 订阅 entitlement OAuth 登录路径、协议对抗时间线与逆向信息来源链 |
-| CLIProxyAPI | [stateful bridge](cliproxyapi/cliproxyapi-stateful-bridge-analysis.md)、[credential retry](cliproxyapi/cliproxyapi-credential-pool-retry-analysis.md)、[OAuth scheduler](cliproxyapi/cliproxyapi-codex-oauth-refresh-analysis.md) | 订阅账号代理的 state、cooldown 与 OAuth lifecycle |
-| 跨项目综合 | [综合调研索引](cross-project/README.md) | 只汇总已经存在项目级前置文档的比较 |
-| 语义评测方法 | [Semantic evaluation methods](semantic-testing-methods.md) | 长上下文、function-tool 与 structured-output 方法和采用边界 |
-| 设计关注点导航 | [设计关注点矩阵](topics/design-concerns.md) | 按关注点跨类别查阅已有事实；纯指针，不拥有事实 |
-| 测试资产吸收 | [测试资产登记表](topics/test-assets-registry.md) | 外部测试资产登记、可吸收场景与采用义务 |
-
-语音资料按证据所有权分开：标准 Audio/Speech、Chat audio 与 Realtime wire 见
-[OpenAI 音频与语音索引](openai/README.md#6-音频与语音)；MiMo wire 见
-[Xiaomi MiMo 语音协议](providers/xiaomi-audio.md)。模型具备音频能力不等于兼容某个标准 endpoint。
-
-## 2. 叶文档元数据合同
-
-新建或实质更新的研究叶文档必须明确维护下列五项。可以使用表格、列表或等价小节；目录 README 可以聚合导航，不必复制每个叶文档的元数据。
-
-| 字段 | 必须回答的问题 |
+| 入口 | 责任 |
 |---|---|
-| Source snapshot | 使用了哪些官方 URL、仓库 commit、版本或脱敏响应快照？ |
-| Last reverified | 最后核对的是外部来源、固定本地 checkout，还是仅本文综合与链接？日期是什么？ |
-| Scope | 本文实际阅读、请求或比较了哪些 endpoint、模块、模型或场景？ |
-| Evidence boundary | 这些证据不能证明哪些 Provider、账户、SDK、负载、长期运行或产品实现事实？ |
-| Recheck trigger | 哪些 SDK/Provider/协议/目录变化，或哪类采用决定，会要求重新固定证据？ |
+| [语义模型综合](semantic-baseline.md) | 汇总历史 IR、转换、tools、state、runtime 与测试经验；按问题组织而不是逐项目比较 |
+| [Responses 标准语义](responses-standard.md) | request/item/output/event、Schema、状态与 operation 的目标边界 |
+| [扩展与上下文](extensions-and-context.md) | Codex session/cache/thread/turn、扩展 scope、信任与 replay |
+| [多模态与资源](multimodal-and-resources.md) | 标准 image/file、特殊媒体、task/modality/wire 和资源边界 |
+| [Codec 验收](conformance-baseline.md) | 准入矩阵、独立 oracle、SDK 和失败/资源边界方法；当前缺口链接到实现 owner |
+| [上游同步](upstream-sync.md) | 官方页面日期、SDK/Codex commit、同步差异、证据冲突和重核入口 |
 
-“Last reverified”不得把本地链接检查或文档整理写成外部实时复核。动态网页、模型目录和真实请求必须保留采集日期；固定源码结论必须保留
-commit。真实观察还应说明账户、网络、payload 与敏感数据边界，不保存 credential、Authorization 值或未脱敏 production transcript。
+采用决定由 [IR 设计](../architecture-v2/semantic-ir.md)拥有；[迁移基线](../architecture-v2/migration.md)记录当前缺口，[current focus](../implementation-plans/current-focus.md)只记录已批准范围，不自动授权执行。
 
-## 3. 所有权规则
+## 历史材料的角色
 
-1. 单一项目或 Provider 的事实先进入对应目录；跨项目结论只进入 [cross-project](cross-project/README.md)，并链接全部项目级前置。
-2. 外部目录字段、endpoint 供应状态与一次真实请求是不同证据层，不能互相替代。
-3. OpenBridge 需求、当前代码、配置、测试结果和目标数据类型不写入参考叶文档；需要比较时只保留中性的采用边界。
-4. 原始 JSON 等非 Markdown 资产必须有一个明确的 Markdown owner，记录采集、脱敏、大小/校验或复核边界。
-5. 不为只有少量叶文档的目录机械增加 README；本页直接导航 cc-switch 与 CLIProxyAPI。
-6. [topics/](topics/design-concerns.md) 是按关注点查阅的纯指针导航层：只链接已有事实，不引入新事实或结论；比较性结论属于 [cross-project](cross-project/README.md)。
-7. 吸收外部调研的固定流程：先在对应来源目录新建或更新叶文档并补齐元数据合同，再在 [设计关注点矩阵](topics/design-concerns.md) 登记入口；外部测试资产同时登记进 [测试资产登记表](topics/test-assets-registry.md)，采用决定落地后更新其状态与去向记录。
-8. 对 official website 或 OpenRouter 可直接取得的模型信息，只记录来源 URL、来源身份、`Last reverified` 与 `Recheck trigger`；不保存完整 capability metadata、字段表、价格表、Provider 全量 Models 响应或原始 payload。
-9. 当前 v2 没有 Model↔Provider 注册或扩展 Models 服务；旧注册关系只在 Git 归档中查阅。未来能力字段由实际代码与固定接口契约拥有，外部资料不充当已实现声明。有独立价值的实际接入验收由 [implementation evidence](../implementation-status/evidence/README.md) 保存；其中差异记录必须基于执行测试与引用来源的矛盾。来源之间的静态字段差异本身不构成已验证行为差异。
+现有 `openai/`、`codex/`、`protocol-gateways/`、`providers/` 等来源目录保留为**固定研究原文与出处**，不再作为当前设计的分块入口，不要求继续逐来源维护。旧页面中的“当前”、建议和维护流程只适用于其原快照；当前结论以主题综合和上游同步为准。精确原文可查[整合前 Git 快照](https://github.com/IceblueSakura/OpenBridge/tree/5924f80d9af5a68dbf13185c56942ff9102b3361/docs/references)。
 
-## 4. 固定项目基线
+本轮整合的是与 IR/codec 设计相关的研究，不声称重新审计 OAuth grant、MCP server 框架、计费或运营实现。那些既有原文及[历史测试资产登记](topics/test-assets-registry.md)、[语义评测方法](semantic-testing-methods.md)按原版本保留，不因重组刷新外部验证日期。
 
-下表只汇总已经记录的本地 checkout 复核位置，不刷新叶文档的原始逐行快照。许可证以各项目仓库根文件为准，此处不是法律意见。
+## 维护规则
 
-| 项目 | 许可证 | 汇总复核位置 | 已复核主题 |
-|---|---|---|---|
-| Codex | [Apache-2.0](https://github.com/openai/codex/blob/main/LICENSE) | `main` @ `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` | device/browser auth、refresh、Responses SSE/tool tests |
-| Hermes Agent | [MIT](https://github.com/NousResearch/hermes-agent/blob/main/LICENSE) | `main` @ `a31be48030f60383bf4c1d96ba46bd4b48430218` | Chat/Responses mode 与上游请求；credential lifecycle 见专项快照 |
-| LiteLLM | [MIT；enterprise subtree另有条款](https://github.com/BerriAI/litellm/blob/main/LICENSE) | `litellm_internal_staging` @ `5e4b3838aabf00d135be800404d03728c8afa506` | Responses bridge、reasoning/state、server-tool interception与回归资产；旧叶文档保留各自快照 |
-| Bifrost | [Apache-2.0](https://github.com/maximhq/bifrost/blob/dev/LICENSE) | `dev` @ `7e26cffbd47cd295f35b64176bfbb721fdd0924a` | operation-specific schemas、Provider converters、Responses/server-tool/stream tests |
-| TensorZero | [Apache-2.0](https://github.com/tensorzero/tensorzero/blob/main/LICENSE) | `main` @ `62eb8f63e8ec62018d70420dbf1a8c5d1c026315` | semantic content、Provider tools、opaque reasoning与capability gate |
-| Vercel AI SDK | [Apache-2.0](https://github.com/vercel/ai/blob/main/LICENSE) | `main` @ `69428b1f8b037e4d118fb4853428d5c4e620493c` | provider-neutral static/event types、Provider extensions与warnings |
-| Portkey Gateway | [MIT](https://github.com/Portkey-AI/gateway/blob/main/LICENSE) | `main` @ `669825cbe89ee51569918b8f78a9db486fd69dd4` | Provider config/adapter、request/response/stream/error transforms |
-| Helicone AI Gateway | [GPL-3.0](https://github.com/Helicone/ai-gateway/blob/main/LICENSE) | `main` @ `9649b27bdc9fb0907d359e899894102a15f3a085` | Rust routing、retry、cache、latency与observability tests |
-| new-api | [GNU AGPL v3](https://github.com/QuantumNous/new-api/blob/2d8e50bf36e94200b809dfb39e73624ec48b1e23/LICENSE) | `main` @ `2d8e50bf36e94200b809dfb39e73624ec48b1e23` | 请求主链、converter registry、渠道路由、计费与后台任务 |
-| cc-switch | [MIT](https://github.com/farion1231/cc-switch/blob/main/LICENSE) | `main` @ `ebbf141fc71547a99f669df1be8e345130d1d890` | bridge state、history、retry/failover |
-| CLIProxyAPI | [MIT](https://github.com/router-for-me/CLIProxyAPI/blob/main/LICENSE) | `main` @ `bc71c77f5cc42f3fbe1bf040cf14d4f166894835` | stateful translator、credential retry、OAuth scheduler |
-| sub2api | [LGPL-3.0](https://github.com/Wei-Shaw/sub2api/blob/main/LICENSE) | `main` @ `5097b31457e6dc9f49e5f5c9c72b925ce79543b3` | Antigravity、Grok 与 ChatGPT 订阅 OAuth 登录路径与信息来源链 |
-
-## 5. 维护检查
-
-- 相对链接、锚点和非 Markdown 资产 owner 可达；topics/ 深链接锚点随被链接标题调整同步更新；
-- 叶文档元数据按 §2 合同完整；观察事实、推论、未知项和采用边界分开；
-- 综合文档链接全部项目级前置，不在综合页首次引入项目事实；
-- 动态官方事实在升级兼容结论前重新固定，不把目录、SDK 或一次请求提升为长期保证；
-- 不包含 credential、私有配置、敏感请求正文或未脱敏 transcript。
+1. 新调研直接进入所属主题，同行引用来源 URL、commit/release、读取日期、适用范围与未知项；不再要求先建来源专页或 cross-project 前置页。
+2. 新标准字段进入标准语义，特殊能力才进入扩展。SDK、独立开放规范、Codex 产品私有协议和其他 gateway 的容错不能混作 OpenAI 标准。
+3. 一个事实只保留一个当前 owner。类型表达、codec 映射、生产接线、实际执行分别举证；不建立按项目重复维护的设计 schema。
+4. 上游同步必须固定版本并处理冲突，不把网页整理日期写成外部执行日期；新增领域先核对相关一手 schema，不根据名字猜形状。
+5. 保留必要 attribution 与 license。默认提炼场景并自主写 synthetic fixture，不复制企业代码、限制商业使用的数据、敏感 payload 或大段第三方源码。
+6. 模型目录、价格和 capability metadata 直接引用官方来源，不维护冗余全量镜像；本地类型不证明真实 Provider 支持。
+7. 扩展不能承载 auth/target/script override 或绕过资源与信任边界。真实凭据、私人配置与会话不得进入文档、工具参数或输出。
+8. 维护相对链接和锚点；已执行的独立外部证据仍由 [evidence](../implementation-status/evidence/README.md)保存，不把静态规范差异称为实测 discrepancy。

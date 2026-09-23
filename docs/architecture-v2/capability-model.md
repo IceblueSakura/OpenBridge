@@ -15,7 +15,7 @@ v2 keeps these dimensions separate.
 
 A task semantic contract describes meaningful supported behavior independent of wire syntax.
 
-For Generation this may include:
+Generation starts from the fixed OpenAI Responses standard plus declared task extensions, rather than a common subset inferred from currently implemented codecs. Standard expressiveness, local implementation and model support are separately tracked. This includes:
 
 - input resource kinds;
 - tool kinds and tool-choice semantics;
@@ -70,7 +70,7 @@ TaskRequirements {
 }
 ```
 
-Semantic and resource requirements are pure projections of final IR. Delivery requirements come from the downstream interaction contract, e.g. requested streaming.
+Semantic and resource requirements are pure projections of final IR, including admitted extension requirements. Delivery requirements come from the downstream interaction contract, e.g. requested streaming or a WebSocket lane. Typed context/state references may constrain execution affinity without selecting an endpoint. Standard tools, schema dialect and media source variants need value-sensitive checks; a broad `tools` or `media` bit is not full support.
 
 Requirements contain no ProviderId, EndpointId or route choice.
 

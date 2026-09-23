@@ -1,5 +1,7 @@
 # Protocol gateway 生态与富语义 IR 调研综合
 
+> 固定历史研究。当前按语义域整合于[语义模型综合](../semantic-baseline.md)，设计采用 Responses-first + scoped extensions。本文项目比较与旧开放问题不再充当当前设计准入或要求先写来源分页的流程。
+
 ## 文档元数据
 
 | 字段 | 值 |
