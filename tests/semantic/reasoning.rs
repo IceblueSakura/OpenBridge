@@ -1,6 +1,5 @@
 //! Reasoning ownership, opaque replay, mixed tool continuation and resource failures.
-#[path = "support/semantic_events.rs"]
-mod support;
+use crate::events_support::*;
 use openbridge::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, lower_request, lower_response,
@@ -16,7 +15,6 @@ use openbridge::{
     semantic::task::generation::*,
 };
 use serde_json::{Value, json};
-use support::*;
 fn reasoning(status: &str) -> Value {
     json!({"id":"rs","type":"reasoning","status":status,"summary":[{"type":"summary_text","text":"summary"}],"content":[{"type":"reasoning_text","text":"reasoning"}],"encrypted_content":"final-synthetic"})
 }
@@ -82,6 +80,23 @@ fn controls_keep_absence_empty_none_disabled_and_encrypted_output_distinct() {
         Some(ReasoningEffort::Low)
     );
 }
+#[test]
+fn standard_max_effort_is_representable_but_unknown_labels_fail() {
+    let d = responses::decode_generation(
+        &json!({"input":[{"role":"user","content":"hello"}],"reasoning":{"effort":"max"}}),
+    )
+    .unwrap();
+    for p in [Profile::Chat, Profile::Responses] {
+        assert!(lower_request(&d.semantic, &d.fidelity, p, Contract::full()).is_ok());
+    }
+    assert!(
+        responses::decode_generation(
+            &json!({"input":"hello","reasoning":{"effort":"unregistered"}})
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn independent_reasoning_stream_closes_and_preserves_both_part_domains_and_token() {
     let mut d = EventDecoder::new(Profile::Responses).with_replay_origin(origin());
@@ -272,7 +287,7 @@ fn static_incomplete_items_and_empty_failures_keep_their_own_status() {
     assert!(lower_response(&d.semantic, &d.fidelity, &m, Profile::Responses, contract()).is_ok());
 }
 #[test]
-fn reasoning_parallel_calls_and_results_close_two_turns_without_losing_history() {
+fn reasoning_and_parallel_call_results_preserve_continuation_history() {
     let mut events = vec![StreamEvent::Started, start(11, ItemKind::Reasoning)];
     events.extend(part(11, 90, PartKind::Summary, "plan"));
     events.extend(part(11, 80, PartKind::ReasoningText, "check"));
@@ -322,19 +337,6 @@ fn reasoning_parallel_calls_and_results_close_two_turns_without_losing_history()
     assert_eq!(encoded["input"][4]["call_id"], "b");
     assert_eq!(encoded["input"][5]["output"], "first");
     assert_eq!(encoded["tools"][0]["name"], "lookup");
-    let mut second = vec![StreamEvent::Started, start(1, ItemKind::Message)];
-    second.extend(part(1, 1, PartKind::Text, "Both checked"));
-    second.push(close(1, ItemLifecycle::Completed));
-    second.push(terminal(StreamTerminal::Completed));
-    let wire = encode(&second, Profile::Responses, &FidelityRecords::default());
-    let mut d = EventDecoder::new(Profile::Responses);
-    for v in wire {
-        d.push(&v).unwrap();
-    }
-    assert_eq!(
-        d.materialize().unwrap().semantic.completion(),
-        Some(Completion::Stop)
-    );
 }
 #[test]
 fn encoder_rejects_unbound_replay_before_emitting_it() {

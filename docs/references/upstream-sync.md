@@ -9,7 +9,7 @@
 | OpenAI 官方 API Reference / guides | 本日页面快照，URL 见下节 | 公开协议语义；动态页面不是永不变化的版本号 |
 | `openai/openai-python` | [`be9d66628ad7377bd36fe5a76ae6d735843f0e76`](https://github.com/openai/openai-python/tree/be9d66628ad7377bd36fe5a76ae6d735843f0e76)，commit time `2026-09-23T06:12:58Z`，`_version.py` 为 `3.19.0` | 生成类型与可空/可选/union 的交叉证据；固定提交 LICENSE 为 Apache-2.0；不是 SDK 完整运行验证 |
 | `openai/codex` | [`a69d757cd8ef8310001186865911b69e4b4175e5`](https://github.com/openai/codex/tree/a69d757cd8ef8310001186865911b69e4b4175e5)，commit time `2026-09-23T10:18:21Z` | session/header/body、turn-state 和模型 item 扩展；Apache-2.0；不是 OpenAI 公共 API 标准 |
-| 当前 OpenBridge 消费者 gate | `openai==3.10.0` | 现有固定离线验收；本轮未升级测试依赖 |
+| OpenBridge 消费者 gate | 由 [`tests/sdk/pyproject.toml`](../../tests/sdk/pyproject.toml) 与 `uv.lock` 固定 | 执行入口和局部验收范围见[开发指南](../development.md)；与本页研究快照分开维护 |
 | 历史项目调研 | 各历史页原 commit、日期、许可 | 按[主题综合](semantic-baseline.md)吸收；不宣称本轮全部上游重新同步 |
 
 官方 reference 与 guide 优先定义目标语义，SDK 用于交叉检查 required/default 与真实 consumer 形状；不同证据冲突时显式列项，不默默选择更方便实现的一份。Open Responses compliance、Codex tolerant parser 和其他 gateway 的兼容策略不是官方标准替代品。

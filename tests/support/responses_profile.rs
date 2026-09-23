@@ -1,5 +1,4 @@
-//! Synthetic, independently authored SDK-3.10.0 wire oracle. No provider or credentials.
-#![allow(dead_code)]
+//! Synthetic, independently authored Responses wire oracle. No provider or credentials.
 use serde_json::{Value, json};
 pub fn tools() -> Value {
     json!([

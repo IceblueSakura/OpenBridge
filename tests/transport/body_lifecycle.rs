@@ -1,6 +1,5 @@
 //! Bounded loopback body lifecycle; no OpenBridge service, Provider, or private config.
-#[path = "support/responses_profile.rs"]
-mod wire;
+use crate::wire;
 use axum::{
     Router,
     body::{Body, Bytes},

@@ -19,17 +19,17 @@ Chat / Responses wire
 - `src/protocol/`：Chat/Responses codec、表示元数据和 Responses HTTP/SSE 边界。
 - `src/lowering/`：针对固定表示契约的可表示性检查。
 - `src/transport/sse.rs`：有界纯 SSE framing。
-- `tests/semantic_v2_*`、`tests/sse_contract.rs`：独立语义及失败边界测试；SDK/HTTP 只使用 synthetic loopback。
+- `tests/semantic.rs`、`tests/transport.rs`、`tests/sdk_loopback.rs`：语义、transport 与固定 SDK 三个验收入口；SDK/HTTP 只使用 synthetic loopback。
 
 Responses 纯文本验收仍在推进，见 [当前焦点](docs/implementation-plans/current-focus.md)和[准入说明](docs/architecture-v2/responses-text-profile.md)。媒体、其他任务、生产执行与 Provider 接入尚未完成；删除旧路线不等于这些功能已迁移。
 
 ## 验证
 
-需要 Rust 2024 工具链。已有依赖缓存时运行：
+Rust/Cargo 由 [`rust-toolchain.toml`](rust-toolchain.toml) 固定。已有工具链与依赖缓存时运行：
 
 ```sh
 cargo test --locked --offline
-cargo clippy --locked --offline -- -D warnings
+cargo clippy --locked --offline --all-targets -- -D warnings
 cargo fmt -- --check
 git diff --check
 ```

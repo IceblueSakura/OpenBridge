@@ -48,7 +48,7 @@ JSON object 通常无语义顺序，但 Structured Outputs 官方明确承诺按
 
 ## 5. SDK 升级门槛
 
-当前自动化仍固定 `openai==3.10.0`。上游 `3.19.0` 在本轮只作为类型/语义对照，没有安装、运行或宣布新版本兼容。未来升级应比较 required/null/default、derived views、items/events 和输出 schema，再显式更新固定测试依赖。
+当前消费者与传递依赖在 `tests/sdk/pyproject.toml` 和 `uv.lock` 固定；版本与执行入口见[开发指南](../development.md)。升级应比较 required/null/default、derived views、items/events 和输出 schema，再更新锁文件并执行严格两轮 JSON/SSE gate；其通过不消除其他未覆盖分支的验收缺口。
 
 SDK 宽松解析成功不证明完整 wire 正确；严格模型验证也不证明 gateway state machine。新版本 type union 可包含尚无完整 endpoint 参数/资源语义闭环的分支，需要记录冲突而非补猜。
 

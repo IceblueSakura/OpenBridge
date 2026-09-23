@@ -1,6 +1,5 @@
 //! Offline HTTP/SSE framing acceptance for the stateless Responses text profile.
-#[path = "support/responses_profile.rs"]
-mod wire;
+use crate::wire;
 
 use openbridge::{
     lowering::generation::GenerationRepresentationContract,

@@ -18,7 +18,7 @@ JSON / SSE payload
 | `src/protocol/` | Chat/Responses 语法、bounded fidelity、完整 envelope 与 Responses SSE adapter；不访问网络、私有配置或 credential |
 | `src/lowering/` | 从不可变最终 IR 验证固定目标表示；不选择 Provider，不恢复已删除源值 |
 | `src/transport/sse.rs` | 有界字节 framing；strict EOF 与 permissive EOF 调用边界分开 |
-| `tests/semantic_v2_*` | 独立语义、变换与失败边界；测试专用 HTTP/SDK 使用临时 loopback 和 synthetic 数据 |
+| `tests/semantic.rs`、`tests/transport.rs`、`tests/sdk_loopback.rs` | 按语义、transport 和 SDK 分层的测试入口；内部按职责组织模块，HTTP/SDK 使用临时 loopback 和 synthetic 数据 |
 
 `src/lib.rs` 只公开上述四个模块。Axum、Tokio、reqwest 等只作为测试依赖；库没有认证、配置加载、Provider HTTP client、重试或服务监听入口。现存私人配置不被库或测试读取。
 

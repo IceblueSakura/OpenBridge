@@ -6,7 +6,7 @@
 
 当前 workspace 是 v2 `semantic`、`protocol`、`lowering` 和纯 SSE 库，旧 runtime 已[归档](../archive.md)。无生产 Provider/registry、credential、服务入口、state resource 或 WebSocket execution。内部兼容性不要求保留。
 
-当前有序文本/function/custom/reasoning、部分控制、annotations/logprobs、usage、Static/Event 与 HTTP/SSE 测试已有 owner，但仍是受限 stateless text profile。`openai==3.10.0` 继续是现有 SDK gate；本轮研究 `3.19.0` 不表示升级验收已完成。
+当前有序文本/function/custom/reasoning、部分控制、annotations/logprobs、usage、Static/Event 与 HTTP/SSE 测试已有 owner，但仍是受限 stateless text profile。SDK gate 及其 Python 依赖由 `tests/sdk/pyproject.toml` 和 `uv.lock` 固定，当前 `openai==3.19.0` 的 synthetic 两轮 JSON/SSE 通过；不表示下列标准分支或已知缺口已验收。
 
 ## 标准目标与实现映射
 

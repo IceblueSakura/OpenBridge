@@ -1,5 +1,4 @@
 //! Synthetic offline event builders, not wire or semantic oracles.
-#![allow(dead_code)]
 use openbridge::{
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::{

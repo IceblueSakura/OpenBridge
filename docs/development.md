@@ -12,11 +12,30 @@
 
 ## Rust 检查
 
-先运行受影响的 `semantic_v2_*` / `sse_contract` 测试，再执行：
+Rust/Cargo 由根 `rust-toolchain.toml` 固定；rustfmt/clippy 随该工具链安装。不要保留覆盖这个文件的旧目录级 rustup override，也不要为项目更新全局默认工具链。
+
+集成测试收敛为三个入口，按职责筛选，不再按迁移批次增加 binary：
+
+| Target | 模块与边界 |
+|---|---|
+| `semantic` | `tests/semantic/`：instructions、tools、reasoning、text profile/events、function events、response；纯语义与 codec/lowering |
+| `transport` | `tests/transport/`：framing、Responses SSE、body lifecycle；基础 framer 和真实 body I/O 各自验证 |
+| `sdk_loopback` | 显式 ignored 的固定 Python SDK 两轮 JSON/SSE gate，不进入默认外部依赖检查 |
+
+`tests/support/` 只共享 synthetic builders 和独立 wire 预期，不从被测 encoder 生成 oracle。相同字段的 decode、独立 encode、变换、失败和 I/O 可能保护不同边界，不按测试数量裁剪；删除重复 smoke/自比较检查前，确认剩余独立预期覆盖其有效断言。
+
+先运行受影响模块，例如：
+
+```sh
+cargo test --locked --offline --test semantic reasoning::
+cargo test --locked --offline --test transport
+```
+
+再执行完整基线（clippy 的 `--all-targets` 也检查测试与 helper）：
 
 ```sh
 cargo test --locked --offline
-cargo clippy --locked --offline -- -D warnings
+cargo clippy --locked --offline --all-targets -- -D warnings
 cargo fmt -- --check
 git diff --check
 ```
@@ -27,13 +46,19 @@ git diff --check
 
 ## 固定 OpenAI SDK loopback
 
+Python 版本由 `tests/sdk/.python-version` 固定；OpenAI SDK 与测试环境 pip 在 `tests/sdk/pyproject.toml` 声明，全部传递依赖和下载 hash 由 `tests/sdk/uv.lock` 固定。环境只安装到被忽略的 `tests/sdk/.venv/`，不向系统 Python 安装 pip/package。不要直接 `pip install -U` 让环境偏离锁文件。
+
+首次准备需要依赖下载；已有缓存可为 sync 加 `--offline`：
+
 ```sh
-uv run --offline --no-project --with openai==3.10.0 cargo test --locked --offline --test semantic_v2_responses_sdk_loopback -- --ignored --test-threads=1
+uv sync --project tests/sdk --locked
+uv run --project tests/sdk --locked --offline python -m pip check
+uv run --project tests/sdk --locked --offline cargo test --locked --offline --test sdk_loopback -- --ignored --test-threads=1
 ```
 
-这个显式 ignored gate 需要本地已有固定 SDK。测试专用 Router 只访问临时 literal loopback，以 synthetic Bearer 做两轮 JSON/SSE；不读取私有配置、不继承 Provider credential，不执行真实工具、环境代理或自动重试。不启动旧 OpenBridge 服务，也不证明真实 Provider、完整 Agent 或生产接线兼容。
+这个 gate 使用严格响应验证，覆盖两轮 function/custom/reasoning 历史，以及 JSON/SSE 中最终正文由修改后的 IR 决定。它不是全部 SDK create/parse/replay 分支的验收。测试专用 Router 只访问临时 literal loopback，使用 synthetic Bearer；不读取私有配置、不继承 Provider credential，不执行真实工具、环境代理或自动重试。不启动旧 OpenBridge 服务，也不证明真实 Provider、完整 Agent 或生产接线兼容。
 
-`semantic_v2_body_lifecycle` 保护首帧、取消、背压与异常 body；`semantic_v2_responses_sse` 和 `sse_contract` 保护 framing 与终态。生命周期场景使用 channel/readiness 和有界 timeout，不用 sleep 隐藏竞争。子进程/listener/producer 需要失败路径清理。
+`transport::body_lifecycle` 保护首帧、取消、背压与异常 body；`transport::responses_sse` 和 `transport::framing` 保护协议 adapter 与共用 framer 的终态。生命周期场景使用 channel/readiness 和有界 timeout，不用 sleep 隐藏竞争。子进程/listener/producer 需要失败路径清理。
 
 ## 文档与边界
 

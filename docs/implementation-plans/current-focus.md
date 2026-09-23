@@ -18,13 +18,13 @@
 
 - 任务类型与 reducer：`src/semantic/task/generation/`、`src/semantic/value/presence.rs`。
 - 静态/事件 codec 与完整 envelope：`src/protocol/openai/`，重点是新增的 `envelope.rs`、`settings.rs`、`text.rs`、`sse.rs`；同时检查 `src/lowering/` 和 `src/protocol/fidelity.rs`。
-- 纯 framing：`src/transport/sse.rs`。保留独立 `sse_contract` 验证，不能只验证 Responses 新入口；旧运行时消费者已归档。
-- 离线验收：`tests/semantic_v2_text_profile.rs`、`tests/semantic_v2_responses_sse.rs`、`tests/semantic_v2_body_lifecycle.rs` 和 `tests/support/responses_profile.rs`；后者是独立编写的 synthetic wire 预期，不由 Rust encoder 生成。SDK 专用入口为 `tests/semantic_v2_responses_sdk_loopback.rs` 和 `tests/sdk/semantic_v2_responses_text_loop.py`，不经过生产 Router。
+- 纯 framing：`src/transport/sse.rs`。保留 `transport` target 内独立的 `framing` 模块验证，不能只验证 Responses 新入口；旧运行时消费者已归档。
+- 离线验收：`tests/semantic/text_profile.rs`、`tests/transport/responses_sse.rs`、`tests/transport/body_lifecycle.rs` 和 `tests/support/responses_profile.rs`；后者是独立编写的 synthetic wire 预期，不由 Rust encoder 生成。SDK 专用入口为 `tests/sdk_loopback.rs` 和 `tests/sdk/responses_text_loop.py`，不经过生产 Router。测试 target 与锁定环境命令见[开发指南](../development.md)。
 - `Cargo.toml` 与 `Cargo.lock` 已加入直接 `mime` 依赖，用于 HTTP media type 解析；后续继续使用 locked 检查。
 
 按以下依赖顺序推进：
 
-1. **恢复可执行检查并固定准入矩阵。** 先编译、执行新 profile 测试及受影响的 `semantic_v2_*` 测试，区分实现缺陷与旧子集预期。基于本轮固定的官方 Responses 文档与 SDK `3.19.0` 源码基线，逐项确认字段/事件的 owner、支持形态、缺失/null/空值/默认值归一化及明确拒绝项；现有 `3.10.0` 是消费者测试锚点，升级必须单独比较并验证，不能自动替换；不能把 SDK 类型存在或宽松解析成功当作已支持。覆盖矩阵应有规范落点，本页不复制另一套 schema。
+1. **恢复可执行检查并固定准入矩阵。** 先编译、执行 profile 测试及 `semantic` / `transport` 中受影响的模块，区分实现缺陷与旧子集预期。基于本轮固定的官方 Responses 文档与 SDK `3.19.0` 源码基线，逐项确认字段/事件的 owner、支持形态、缺失/null/空值/默认值归一化及明确拒绝项；消费者版本与全部传递依赖由 `tests/sdk/` 锁定，升级必须单独比较并验证，不能自动替换；不能把 SDK 类型存在或宽松解析成功当作已支持。覆盖矩阵应有规范落点，本页不复制另一套 schema。
 2. **关闭静态与事件语义缺口。** 复核 instructions 字符串、分段消息及响应中的 instruction echo；function/custom 定义、选择、调用和文本数组结果；Structured Output、reasoning 控制、refusal、annotations/logprobs、usage 和完整 envelope。为准入语义补独立 decode/encode 预期及插入、替换、删除测试，并检查最终 requirements 与 lowering 拒绝边界同步变化。
    - 完整 HTTP envelope 与低层 task snapshot 的职责须明确；缺失的 reported settings、usage 明细或概率字节不能靠猜默认值补齐。
    - readable reasoning 与 message text 分开；reasoning_text delta/done 及允许的 content_part 分支需按固定 schema/profile 验证，不把旧 fixture 的事件组合当成唯一标准语法。
@@ -36,7 +36,7 @@
    - 默认每次消费有界帧并增量产出，不先收集整条 wire 流再转换。
 4. **建立独立固定 SDK 的两轮 loopback。** 维护只调用 v2 的专用测试 Router/handler，不恢复已归档的 predecessor Router gate。先绑定固定 synthetic model，再做 envelope decode → IR → lowering/encode；响应来源使用独立 JSON/SSE fixture。覆盖 reasoning → 并行 function/custom calls → 客户端合成工具结果 → 最终文本/Structured Output 的两轮 JSON 与 SSE 交互，检查 SDK 的最终响应和关键事件。
    - 在 v2 IR 中修改最终正文（例如将 fixture 的 `{"ok":false}` 改为 `{"ok":true}`），并清除旧引用/概率；SDK 观察结果必须来自最终 IR，而非源 snapshot 或原 JSON 透传。
-   - 固定 `openai==3.10.0`，使用严格响应验证；所有 HTTP 仅到临时 loopback listener，禁用自动重试和环境代理，使用 synthetic Bearer，不继承 Provider credential、组织/项目等私有环境配置，不读取认证缓存或隐式启动实际 OpenBridge 服务。
+   - 使用 `tests/sdk/` 的固定 OpenAI SDK 和严格响应验证；所有 HTTP 仅到临时 loopback listener，禁用自动重试和环境代理，使用 synthetic Bearer，不继承 Provider credential、组织/项目等私有环境配置，不读取认证缓存或隐式启动实际 OpenBridge 服务。
 5. **用实际 body 生命周期验证取消、背压和失败。** 先用 channel/readiness 和有界 timeout 建立确定性测试，再让专用 loopback 覆盖：首帧之后可立即消费、慢消费者不导致无限预取、客户端提前关闭后生产者被丢弃、截断/非法帧/超限不能补发成功终态。SDK 子进程、listener 和 body producer 都须有有界等待与清理；不能用 sleep 隐藏竞争，也不能以 codec 单测替代这些 I/O 证据。
 6. **收敛文档并执行最终门槛。** 审查全部 diff，修复本次引入的失败，更新受影响的 v2 所有权/协议说明和具体迁移边界；不要把此专用测试接线写成生产 Router 已迁移。通过下述门槛并确认本切片完成后才清空 current focus；未完成时保留明确缺口，不自动提交或推送。
 
@@ -50,10 +50,10 @@
 - 不执行 hosted tools、remote MCP、服务端 conversation/background、moderation、prompt templates 或 compaction；不接真实 Provider，不部署。媒体和独立推理任务不在本次范围。
 - Structured Output 是纯文本控制的相关独立语义域，需在覆盖矩阵中明确准入，不能用 schema 字段透传冒充实现。
 
-优先处理[已复现的 codec 缺口](../architecture-v2/migration.md#当前已知闭合缺口)，再完善标准分支；不能以当前支持域反向缩减 IR 目标。剩余准入审查以 [Responses text profile](../architecture-v2/responses-text-profile.md)为落点；SSE padding 独立预算的当前规则由该页和 `semantic_v2_responses_sse` 维护，不在本页重复 schema。
+优先处理[已复现的 codec 缺口](../architecture-v2/migration.md#当前已知闭合缺口)，再完善标准分支；不能以当前支持域反向缩减 IR 目标。剩余准入审查以 [Responses text profile](../architecture-v2/responses-text-profile.md)为落点；SSE padding 独立预算的当前规则由该页和 `tests/transport/responses_sse.rs` 维护，不在本页重复 schema。
 
 ### 验证门槛
 
 每个准入字段/事件须有 owner、独立 decode/encode 预期、变换与删除规则、不可表示结果、资源边界。正常/异常 SSE 和 JSON materialize 保持一致；unknown fields、非法序列、错配 identity、超限、缺失 terminal 必须失败关闭。
 
-先执行 focused tests，再执行 `cargo fmt -- --check`、`cargo test --locked --offline`、`cargo clippy --locked --offline -- -D warnings`、相关文档链接及 `git diff --check`。本机 linker 如需覆盖，仅使用当前命令环境。SDK 依赖固定版本，所有业务 HTTP 仅使用 synthetic loopback，不读取私有配置或认证缓存。
+先执行 focused tests，再执行 `cargo fmt -- --check`、`cargo test --locked --offline`、`cargo clippy --locked --offline --all-targets -- -D warnings`、相关文档链接及 `git diff --check`。本机 linker 如需覆盖，仅使用当前命令环境。SDK 依赖固定版本，所有业务 HTTP 仅使用 synthetic loopback，不读取私有配置或认证缓存。

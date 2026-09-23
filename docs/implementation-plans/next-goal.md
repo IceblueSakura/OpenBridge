@@ -12,7 +12,7 @@
 
 ## 范围与未决项
 
-[当前纯文本焦点](current-focus.md)仍未通过全部门槛。本轮调研整合与上游同步没有修复 Rust，也没有把 SDK gate 从 `3.10.0` 升到研究版本 `3.19.0`。
+[当前纯文本焦点](current-focus.md)仍未通过全部门槛。测试组织与依赖准备不修复已有语义缺口；当前固定 SDK 的局部验收范围见[开发指南](../development.md)。
 
 downstream 扩展字段位置/版本、Codex turn 管理模式、特殊媒体具体 profile 和各状态资源的执行 owner 需在对应实现前定稿；不可先做通用插件框架再找使用场景。Embedding、专用 Speech 等继续有独立任务合同。
 

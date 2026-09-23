@@ -1,6 +1,5 @@
 //! Independent field and transformation contracts for stateless Responses text.
-#[path = "support/responses_profile.rs"]
-mod wire;
+use crate::wire;
 use openbridge::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, lower_request, lower_response,

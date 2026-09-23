@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["openai==3.10.0"]
-# ///
 """Exercise two stateless Responses turns through the v2-only synthetic listener."""
 import ipaddress
 import json
@@ -13,8 +9,8 @@ import openai
 
 def run(base_url: str, stream: bool) -> dict[str, object]:
     """Reject non-loopback targets and private client defaults before making requests."""
-    if openai.__version__ != "3.10.0":
-        raise RuntimeError("expected pinned openai==3.10.0")
+    if openai.__version__ != "3.19.0":
+        raise RuntimeError("expected pinned openai==3.19.0")
     parsed = urlsplit(base_url)
     if (parsed.scheme != "http" or not parsed.hostname or not parsed.port
             or not ipaddress.ip_address(parsed.hostname).is_loopback
@@ -67,7 +63,7 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
 
 if __name__ == "__main__":
     if len(sys.argv) != 3 or sys.argv[2] not in ("json", "sse"):
-        raise SystemExit("usage: semantic_v2_responses_text_loop.py LOOPBACK_BASE_URL json|sse")
+        raise SystemExit("usage: responses_text_loop.py LOOPBACK_BASE_URL json|sse")
     try:
         print(json.dumps(run(sys.argv[1], sys.argv[2] == "sse")))
     except Exception as exc:

@@ -1,10 +1,11 @@
 //! Refusal and non-success terminals for the text and function-call path.
 use openbridge::{
     lowering::generation::{
-        GenerationRepresentationContract as Contract, RepresentationError, lower_response,
+        GenerationRepresentationContract as Contract, RepresentationError, lower_request,
+        lower_response,
     },
     protocol::openai::{Profile, ResponseMetadata, chat, responses},
-    semantic::task::generation::{ContentPart, Item, ItemId, Outcome},
+    semantic::task::generation::*,
 };
 use serde_json::{Value, json};
 
@@ -150,6 +151,71 @@ fn chat_length_has_the_same_partial_semantics_in_json_and_events() {
     assert_eq!(
         expected.details().incomplete,
         Some(openbridge::semantic::task::generation::IncompleteReason::MaxOutputTokens)
+    );
+}
+
+#[test]
+fn partial_history_cannot_lose_item_status_on_chat() {
+    let d = responses::decode_generation(
+        &json!({"input":[crate::events_support::call_item("fc","c","{","incomplete")]}),
+    )
+    .unwrap();
+    assert!(lower_request(&d.semantic, &d.fidelity, Profile::Chat, Contract::full()).is_err());
+}
+
+#[test]
+fn chat_finish_cannot_replace_mixed_message_and_call_status() {
+    use crate::events_support::{call_item, envelope};
+    let d=responses::decode_response(&envelope("incomplete",json!([{"id":"m","type":"message","role":"assistant","status":"completed","content":[]},call_item("fc","c","{","incomplete")]))).unwrap();
+    let m = metadata();
+    let mut items = d.semantic.items().to_vec();
+    let owner = items[0].0;
+    let Item::ToolCall(call) = &mut items[1].1 else {
+        panic!("call");
+    };
+    call.message = Some(owner);
+    let response = GenerationResponse::unfinished(items, Outcome::Incomplete).unwrap();
+    assert!(matches!(
+        lower_response(&response, &d.fidelity, &m, Profile::Chat, Contract::full()),
+        Err(RepresentationError::Terminal)
+    ));
+}
+
+#[test]
+fn empty_message_wire_identity_cannot_collide_with_another_item() {
+    let items = vec![
+        (
+            ItemId::new(1),
+            Item::Message(Message {
+                role: MessageRole::Assistant,
+                status: ItemLifecycle::Completed,
+                parts: vec![],
+            }),
+        ),
+        (
+            ItemId::new(2),
+            Item::Message(Message {
+                role: MessageRole::Assistant,
+                status: ItemLifecycle::Completed,
+                parts: vec![Part {
+                    id: PartId::new(1),
+                    content: ContentPart::Text(crate::events_support::text("hello").into()),
+                }],
+            }),
+        ),
+    ];
+    let response = GenerationResponse::new(items, Completion::Stop).unwrap();
+    let mut f = openbridge::protocol::fidelity::FidelityRecords::default();
+    f.record_response_item_id(ItemId::new(2), "item_1").unwrap();
+    assert!(
+        lower_response(
+            &response,
+            &f,
+            &metadata(),
+            Profile::Responses,
+            Contract::full()
+        )
+        .is_err()
     );
 }
 

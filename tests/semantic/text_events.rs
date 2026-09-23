@@ -1,6 +1,5 @@
 //! Text/refusal parts preserve boundaries, empty values and independent item lifecycle.
-#[path = "support/semantic_events.rs"]
-mod support;
+use crate::events_support::*;
 use openbridge::{
     protocol::{
         fidelity::FidelityRecords,
@@ -9,7 +8,6 @@ use openbridge::{
     semantic::task::generation::*,
 };
 use serde_json::json;
-use support::*;
 #[test]
 fn independent_text_wire_decodes_empty_and_multiple_parts() {
     let mut d = EventDecoder::new(Profile::Responses);

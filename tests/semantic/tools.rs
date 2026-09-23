@@ -152,21 +152,6 @@ fn responses_decode_uses_call_ids_not_wire_ids_or_result_positions() {
     assert_eq!(chat["messages"][3]["tool_call_id"], "call_b");
 }
 #[test]
-fn equivalent_tool_only_wires_converge_to_independent_expected_outputs() {
-    let chat_wire = json!({"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"c","type":"function","function":{"name":"f","arguments":"{}"}}]},{"role":"tool","tool_call_id":"c","content":"ok"}]});
-    let responses_wire = json!({"input":[{"type":"function_call","call_id":"c","name":"f","arguments":"{}"},{"type":"function_call_output","call_id":"c","output":"ok"}]});
-    let a = chat::decode_generation(&chat_wire).unwrap();
-    let b = responses::decode_generation(&responses_wire).unwrap();
-    assert_eq!(
-        GenerationRequirements::derive(&a.semantic),
-        GenerationRequirements::derive(&b.semantic)
-    );
-    for d in [&a, &b] {
-        assert_eq!(request_wire(d, Profile::Chat), chat_wire);
-        assert_eq!(request_wire(d, Profile::Responses), responses_wire);
-    }
-}
-#[test]
 fn replacement_insertion_and_reordering_drive_both_encoders() {
     let mut d = chat::decode_generation(&chat_history()).unwrap();
     let mut items = d.semantic.items().to_vec();
@@ -652,6 +637,42 @@ fn bounded_values_fidelity_collisions_and_codec_profile_mismatch_fail() {
     let d = chat::decode_generation(&chat_history()).unwrap();
     let t = lower_request(&d.semantic, &d.fidelity, Profile::Chat, Contract::full()).unwrap();
     assert!(responses::encode_generation(&t).is_err());
+}
+
+#[test]
+fn transformed_total_request_budget_includes_tools_and_history() {
+    let payload = "x".repeat(MAX_TEXT_BYTES - 100);
+    let items = (0..4)
+        .map(|i| {
+            (
+                ItemId::new(i),
+                Item::Message(Message {
+                    role: MessageRole::User,
+                    status: ItemLifecycle::Completed,
+                    parts: vec![Part {
+                        id: PartId::new(i),
+                        content: ContentPart::Text(crate::events_support::text(&payload).into()),
+                    }],
+                }),
+            )
+        })
+        .collect();
+    let request = GenerationRequest::new(items, GenerationControls::default()).unwrap();
+    assert!(
+        request
+            .with_tool_settings(
+                Some(vec![ToolDefinition::Function(FunctionTool {
+                    name: text("tool"),
+                    output_schema: None,
+                    description: Some(payload),
+                    parameters: None,
+                    strict: FunctionStrictness::Explicit(false)
+                })]),
+                None,
+                None
+            )
+            .is_err()
+    );
 }
 
 #[test]

@@ -1,6 +1,5 @@
 //! Function argument, mixed-item identity, snapshot and terminal conformance.
-#[path = "support/semantic_events.rs"]
-mod support;
+use crate::events_support::*;
 use openbridge::{
     protocol::{
         fidelity::FidelityRecords,
@@ -12,7 +11,6 @@ use openbridge::{
     semantic::task::generation::*,
 };
 use serde_json::json;
-use support::*;
 
 #[test]
 fn exact_arguments_and_deleted_fragments_drive_static_and_event_output() {

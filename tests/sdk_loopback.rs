@@ -31,7 +31,7 @@ use openbridge::{
 use serde_json::Value;
 use tokio::net::TcpListener;
 
-const SCRIPT: &str = "tests/sdk/semantic_v2_responses_text_loop.py";
+const SCRIPT: &str = "tests/sdk/responses_text_loop.py";
 
 fn origin() -> ReplayOrigin {
     ReplayOrigin::new("synthetic-loopback").unwrap()
@@ -297,7 +297,7 @@ async fn sdk_case(sse: bool) {
     let mut child = ChildGuard(Some(
         command
             .spawn()
-            .expect("pin openai==3.10.0 outside this test"),
+            .expect("run with the locked tests/sdk Python environment"),
     ));
     let deadline = Instant::now() + Duration::from_secs(35);
     let output = loop {
@@ -327,7 +327,7 @@ async fn sdk_case(sse: bool) {
 }
 
 #[tokio::test]
-#[ignore = "requires offline-pinned openai==3.10.0; v2-only JSON/SSE synthetic loopback"]
+#[ignore = "requires locked tests/sdk Python environment; JSON/SSE synthetic loopback"]
 async fn sdk_two_turn_text_json_and_sse() {
     for mode in [false, true] {
         sdk_case(mode).await;
