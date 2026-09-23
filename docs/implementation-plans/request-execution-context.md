@@ -389,7 +389,34 @@ Execution Context 中不出现 Provider header 名。
 
 对 OpenRouter，优先使用 `x-session-id` 而不是 body `session_id` 的理由是：它本质属于 routing/execution metadata，不是模型输入语义。官方同时支持 body 和 header，若未来 OpenRouter profile 对某 endpoint 有不同约束，再由 Adapter 决定。
 
-### 9.2 Header 组装顺序
+### 9.2 ChatGPT / Codex Responses 映射
+
+截至 2026-09-22 对 openai/codex 提交 44b857c00e5803adedbc5b2e94c4a33574a157fe 的固定复核表明，ChatGPT Responses 的 HTTP session-id 不能简单建模为 logical session：
+
+- Codex 先得到 effective prompt cache key：显式 override 优先；特定 internal child 场景可按 parent thread 派生；否则回退到真实 metadata.session_id。
+- Responses body 的 prompt_cache_key 使用该 effective key。
+- 对 root agent，ChatGPT HTTP session-id 同样使用 effective prompt cache key，Codex 源码明确说明 ChatGPT 从该 Header 派生 cache affinity。
+- 对 non-root agent，session-id 保留真实 metadata.session_id；parent/thread/subagent 等 lineage 另有独立 metadata。
+- thread-id 与 x-client-request-id 当前跟随真实 thread identity，不应由 cache key 代替。
+- x-codex-turn-state 是服务器签发的 turn-scoped sticky-routing token，只能在同一 turn 接收并原样重放，不能由 Gateway hash/UUID 生成。
+
+因此 Provider-neutral context 需要进一步区分：
+
+    LogicalSession
+    CacheAffinity
+    ThreadIdentity
+    TurnState
+
+对没有 session 扩展的普通 Responses 客户端，OpenBridge 可以从 final IR 的稳定 prompt prefix 派生 CacheAffinityKey K；ChatGPT Adapter 在证据支持的 profile 中可以映射：
+
+    body.prompt_cache_key = K
+    HTTP session-id       = K
+
+这不表示 OpenBridge 已经识别出真实 logical session。没有真实 runtime identity 时，不自动制造 thread-id、parent-thread-id、x-openai-subagent 或 x-codex-turn-state。
+
+完整固定证据与 Header 生命周期见 [Codex Responses HTTP / WebSocket Header 行为基线](../references/codex/codex-responses-http-header-behavior.md)。
+
+### 9.3 Header 组装顺序
 
 现有结构可以演化为：
 
@@ -408,7 +435,7 @@ base safe headers
 - credential 永远最后追加；
 - downstream Provider-specific header 不能覆盖 Gateway-managed key。
 
-### 9.3 Body 映射
+### 9.4 Body 映射
 
 如果某 Provider 只能通过 JSON body 接收 session/cache metadata：
 
