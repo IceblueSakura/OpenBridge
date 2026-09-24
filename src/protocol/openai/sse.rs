@@ -135,8 +135,7 @@ impl ResponsesSseDecoder {
         if frame.data().is_empty() {
             return Ok(vec![]);
         }
-        let mut payload: Value =
-            serde_json::from_str(frame.data()).map_err(|_| CodecError::Invalid("SSE JSON"))?;
+        let mut payload = super::json::decode(frame.data().as_bytes())?;
         let object = payload
             .as_object_mut()
             .ok_or(CodecError::Invalid("SSE payload"))?;

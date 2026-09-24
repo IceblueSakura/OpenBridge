@@ -231,6 +231,12 @@ impl RequestContext {
     }
 }
 /// `model` is a public binding label, not an upstream address. The caller resolves it outside IR.
+/// Decode a bounded raw JSON request, rejecting duplicate keys before constructing IR.
+/// Callers must separately bound body collection; this function receives an existing slice.
+pub fn decode_request_bytes(bytes: &[u8]) -> Result<DecodedResponsesRequest, CodecError> {
+    decode_request(&super::json::decode(bytes)?)
+}
+/// Decode a pre-parsed value; original duplicate keys and raw byte size cannot be checked here.
 pub fn decode_request(v: &Value) -> Result<DecodedResponsesRequest, CodecError> {
     bounded(v)?;
     let o = object(v)?;
@@ -409,7 +415,12 @@ impl ResponseContext {
         Ok(())
     }
 }
-/// Full JSON HTTP boundary, unlike the lower-level task snapshot codec.
+/// Decode a bounded raw JSON response with strict syntax and complete envelope validation.
+pub fn decode_response_bytes(bytes: &[u8]) -> Result<super::DecodedResponse, CodecError> {
+    decode_response(&super::json::decode(bytes)?)
+}
+/// Full envelope validation, unlike the lower-level task snapshot codec.
+/// A pre-parsed value cannot prove original JSON syntax, duplicate-key or raw-byte validity.
 pub fn decode_response(v: &Value) -> Result<super::DecodedResponse, CodecError> {
     bounded(v)?;
     validate_complete_response(v)?;

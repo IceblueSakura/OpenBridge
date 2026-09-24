@@ -17,7 +17,7 @@
 | Function/custom | 定义、choice、calls、文本/文本数组 outputs、事件 | namespace、caller/programmatic/async/deferred、标准工具多模态结果及 SDK parsed text 回放 |
 | Reasoning | effort/context/mode、readable summary/text、origin-bound replay | 标准 configuration update；当前 `summary:false` 与标准 profile 的区分；更完整 snapshot/event 准入 |
 | Full response | identity、settings echo、usage、status/details | 其余标准 item 分支必填性审查；request hints 与 effective response context 的分支合同 |
-| Events/SSE | reducer、framing、byte/event/semantic/padding budgets | 严格 JSON 重复键；完整标准事件矩阵；本地 cancelled event 的 profile 分类 |
+| Events/SSE | reducer、framing、byte/event/semantic/padding budgets | 完整标准事件矩阵；本地 cancelled event 的 profile 分类 |
 | 标准媒体 | 仅基础 Resource 类型；codec 拒绝 | image/file source、detail、filename、cache boundary、media tool result 的双向映射 |
 | 标准 hosted/state | 当前明确拒绝或只允许 inactive | 标准 tools/items/approval/progress；previous/conversation/store/background、prompt、compaction/reference 的表示与独立执行 |
 | Request context | 当前 `ExecutionHints` 仅部分 typed 标准字段 | state unit stubs、cache prewarm、新标准分支；不应把所有 context 称为“无需 IR 的执行杂项” |
@@ -30,12 +30,11 @@
 
 以下缺口仍存在；准入规则与已实现拒绝边界由 [text profile](responses-text-profile.md) 和独立测试维护。
 
-1. SSE `serde_json::from_str::<Value>` 接受重复 key；静态测试 handler 同样没有严格 bytes parser。重复键检测必须早于 Value。
-2. schema 只检查 object/bytes，非法 nested keywords 可通过。入口：`validate.rs::schema`。另据固定规范对照，Structured Outputs 按 schema key 顺序生成，当前 `serde_json` 未启用 preserve-order，需要专门验证顺序保持与 strict 方言。
-3. SDK parsed text 派生 `parsed` 回放被 `text.rs` 拒绝；已有 `parsed_arguments` 规则不覆盖它。
-4. 标准 phase/configuration update、更多 media/tool/event/state 分支没有实现；`summary:false`、cancelled event 等现有兼容分支需 profile 分类。
+1. schema 只检查 object/bytes，非法 nested keywords 可通过。入口：`validate.rs::schema`。另据固定规范对照，Structured Outputs 按 schema key 顺序生成，当前 `serde_json` 未启用 preserve-order，需要专门验证顺序保持与 strict 方言。
+2. SDK parsed text 派生 `parsed` 回放被 `text.rs` 拒绝；已有 `parsed_arguments` 规则不覆盖它。
+3. 标准 phase/configuration update、更多 media/tool/event/state 分支没有实现；`summary:false`、cancelled event 等现有兼容分支需 profile 分类。
 
-前三项的重复键、非法 schema 与 parsed 回放曾在 `5924f80` 执行最小反例，相关实现尚未修改。属性顺序及标准分支缺失来自源码/规范对照，尚未补项目测试；均不称为 Provider 实测差异。
+非法 schema 与 parsed 回放曾在 `5924f80` 执行最小反例，相关实现尚未修改。属性顺序及标准分支缺失来自源码/规范对照，尚未补项目测试；均不称为 Provider 实测差异。
 
 ## Phase gates
 
@@ -45,7 +44,7 @@
 
 ### B. 已支持子集的正确性
 
-保持 IR 权威、完整 message 必填性和已实现的显式拒绝规则；继续完成严格 JSON、Schema 与派生 SDK view，并审查其余字段/事件分支。每项先独立失败用例，再同步 semantic、requirements、lowering、codec。保留当前 Responses text 验收，不从零重写正常工作机制。
+保持 IR 权威、完整 message 必填性和已实现的显式拒绝规则；继续完成 Schema 与派生 SDK view，并审查其余字段/事件分支。每项先独立失败用例，再同步 semantic、requirements、lowering、codec。保留当前 Responses text 验收，不从零重写正常工作机制。
 
 ### C. 标准表达力扩展
 

@@ -56,7 +56,7 @@ uv run --project tests/sdk --locked --offline python -m pip check
 uv run --project tests/sdk --locked --offline cargo test --locked --offline --test sdk_loopback -- --ignored --test-threads=1
 ```
 
-这个 gate 使用严格响应验证，覆盖两轮 function/custom/reasoning 历史，以及 JSON/SSE 中最终正文由修改后的 IR 决定。它不是全部 SDK create/parse/replay 分支的验收。测试专用 Router 只访问临时 literal loopback，使用 synthetic Bearer；不读取私有配置、不继承 Provider credential，不执行真实工具、环境代理或自动重试。不启动旧 OpenBridge 服务，也不证明真实 Provider、完整 Agent 或生产接线兼容。
+这个 gate 的请求使用完整 envelope bytes 入口，synthetic 响应经静态 bytes / SSE 字节 decoder；SDK 使用严格响应验证，覆盖两轮 function/custom/reasoning 历史，以及 JSON/SSE 中最终正文由修改后的 IR 决定。它不是全部 SDK create/parse/replay 分支的验收。测试专用 Router 只访问临时 literal loopback，使用 synthetic Bearer；不读取私有配置、不继承 Provider credential，不执行真实工具、环境代理或自动重试。不启动旧 OpenBridge 服务，也不证明真实 Provider、完整 Agent 或生产接线兼容。
 
 `transport::body_lifecycle` 保护首帧、取消、背压与异常 body；`transport::responses_sse` 和 `transport::framing` 保护协议 adapter 与共用 framer 的终态。生命周期场景使用 channel/readiness 和有界 timeout，不用 sleep 隐藏竞争。子进程/listener/producer 需要失败路径清理。
 

@@ -37,6 +37,38 @@ fn request_wire(d: &DecodedRequest) -> Value {
     .unwrap()
 }
 #[test]
+fn raw_envelopes_reject_duplicate_keys_before_task_decode() {
+    let request = wire::request(false).to_string();
+    assert_eq!(
+        envelope::decode_request_bytes(request.as_bytes())
+            .unwrap()
+            .context
+            .model,
+        "fixture-model"
+    );
+    let duplicate = format!("{{\"model\":\"discarded\",{}", &request[1..]);
+    assert!(envelope::decode_request_bytes(duplicate.as_bytes()).is_err());
+    let nested = request.replace(
+        "\"suite\":\"v2-local\"",
+        "\"suite\":\"discarded\",\"suite\":\"v2-local\"",
+    );
+    assert_ne!(nested, request);
+    assert!(envelope::decode_request_bytes(nested.as_bytes()).is_err());
+
+    let response = wire::response(2).to_string();
+    let d = envelope::decode_response_bytes(response.as_bytes()).unwrap();
+    assert_eq!(d.fidelity.response_item_id(ItemId::new(1)), Some("answer"));
+    let duplicate = response.replace(
+        "\"id\":\"answer\"",
+        "\"id\":\"discarded\",\"id\":\"answer\"",
+    );
+    assert_ne!(duplicate, response);
+    assert!(envelope::decode_response_bytes(duplicate.as_bytes()).is_err());
+    assert!(envelope::decode_response_bytes(format!("{response} null").as_bytes()).is_err());
+    assert!(envelope::decode_request_bytes(format!("{request} null").as_bytes()).is_err());
+}
+
+#[test]
 fn absent_text_container_cannot_hide_present_children() {
     let d = responses::decode_generation(&json!({"input":"hello"})).unwrap();
     for (format, verbosity) in [

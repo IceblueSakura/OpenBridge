@@ -51,6 +51,52 @@ fn consume_all(d: &mut ResponsesSseDecoder, bytes: &[u8], chunk_len: usize) -> u
 }
 
 #[test]
+fn strict_json_rejection_and_poisoning_survive_fragmentation() {
+    use openbridge::protocol::openai::{CodecError, sse::SseError};
+    let values = wire::events(2);
+    let first = encode_frame(&values[0], SseLimits::default().max_event_bytes).unwrap();
+    let item = values[1].to_string();
+    let duplicate = item.replace(
+        "\"id\":\"answer\"",
+        "\"id\":\"discarded\",\"id\":\"answer\"",
+    );
+    assert_ne!(duplicate, item);
+    for (payload, expected) in [
+        (duplicate, CodecError::Invalid("JSON")),
+        (
+            format!("{{\"type\":\"response.output_item.added\",{}", &item[1..]),
+            CodecError::Invalid("JSON"),
+        ),
+        (format!("{item} null"), CodecError::Invalid("JSON")),
+        (
+            format!("{}0{}", "[".repeat(65), "]".repeat(65)),
+            CodecError::Limit,
+        ),
+    ] {
+        let frame = format!("event: response.output_item.added\ndata: {payload}\n\n");
+        for fragment in [1, frame.len()] {
+            let mut d = decoder(SseLimits::default());
+            consume_all(&mut d, &first, fragment);
+            let mut rejected = false;
+            for chunk in frame.as_bytes().chunks(fragment) {
+                match d.consume(chunk) {
+                    Ok((used, _)) => assert_eq!(used, chunk.len()),
+                    Err(error) => {
+                        assert!(matches!(error, SseError::Codec(actual) if actual == expected));
+                        rejected = true;
+                        break;
+                    }
+                }
+            }
+            assert!(rejected);
+            assert!(d.consume(&wire_events()).is_err());
+            assert!(d.finish().is_err());
+            assert!(d.materialize().is_err());
+        }
+    }
+}
+
+#[test]
 fn complete_sse_message_snapshots_cannot_default_missing_identity_or_status() {
     for kind in [
         "response.output_item.added",

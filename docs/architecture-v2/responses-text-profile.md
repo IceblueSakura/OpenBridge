@@ -14,6 +14,14 @@ This is the ownership and admission map for the **currently implemented offline 
 | Public model, state, service/cache/safety metadata | Request `RequestContext` / execution hints, **not Task IR** | Public model is fixed outside codec; `store` is emitted false. Only inactive server-side state forms are admitted | Non-inactive state, prompt templates, moderation and compaction fail before any Provider request |
 | `stream`, stream options, HTTP and SSE | Delivery context and bounded transport framer | HTTP 200 + `text/event-stream`; BOM, LF/CRLF/CR and UTF-8 fragment handling; obfuscation is explicit | Bytes, events and aggregate semantic state have independent limits; malformed frames, wrong event type, missing delimiter/terminal and post-terminal events fail closed |
 
+## Raw JSON admission
+
+Use `envelope::decode_request_bytes` and `envelope::decode_response_bytes` for raw static bodies. `ResponsesSseDecoder` uses the same strict parser for each framed data payload. All reject duplicate object keys at any depth (including escape-equivalent names), invalid UTF-8/JSON and trailing non-whitespace data before semantic decoding. Embedded tool argument strings remain opaque; they are not recursively parsed as envelopes.
+
+The parser admits at most `MAX_TOTAL_BYTES` (4 MiB) of input, including whitespace, before parsing. During parsing it permits at most 64 nested containers and 65,536 nodes, counting every value and object key. It does not allocate from collection size hints. Limits produce `CodecError::Limit`; syntax failures produce `CodecError::Invalid("JSON")` without echoing input. SSE failures poison the stream; fragmentation cannot bypass admission. SSE framing, aggregate wire and semantic budgets still apply independently.
+
+Callers must separately bound HTTP body collection before passing an existing slice. Value-based codecs remain available for trusted/pre-parsed data but cannot prove original duplicate-key or raw-byte validity. These parser limits are not Schema dialect/reference validation or schema property-order preservation; those remain separate gaps.
+
 ## Control, message and annotation admission details
 
 These rules apply to the current text subset; they do not admit additional standard branches.

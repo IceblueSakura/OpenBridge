@@ -15,6 +15,8 @@ encode(profile, task, representation) -> wire
 
 A codec knows wire shapes, field names, event grammar and profile-level presence rules. Standard fields have typed owners; extensions require a declared schema, attachment and scope. Known unsupported standard branches must not be relabeled arbitrary extensions. A codec does not access credentials, routes or provider selection.
 
+Raw Responses JSON enters through `envelope::decode_request_bytes` / `decode_response_bytes`; SSE data uses the same bounded, duplicate-rejecting parser before event decoding. Existing Value APIs validate envelope/task semantics, not the lost raw JSON representation. Caller-side body collection remains independently bounded. Exact admission and limits are in the [text profile](responses-text-profile.md#raw-json-admission).
+
 ### Target lowering
 
 Lowering answers whether a final semantic request can be represented by one fixed endpoint:

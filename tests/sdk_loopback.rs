@@ -20,8 +20,7 @@ use openbridge::{
     lowering::generation::{GenerationRepresentationContract, lower_request, lower_response},
     protocol::openai::{
         Profile, envelope,
-        events::EventDecoder,
-        sse::{Obfuscation, ResponsesSseEncoder, SseLimits},
+        sse::{Obfuscation, ResponsesSseDecoder, ResponsesSseEncoder, SseLimits, encode_frame},
     },
     semantic::{
         task::generation::{ContentPart, Item, StreamEvent},
@@ -72,10 +71,7 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
     {
         return failure(StatusCode::UNAUTHORIZED, "local request boundary", &state);
     }
-    let Ok(v) = serde_json::from_slice::<Value>(&body) else {
-        return failure(StatusCode::BAD_REQUEST, "request JSON", &state);
-    };
-    let mut decoded = match envelope::decode_request(&v) {
+    let mut decoded = match envelope::decode_request_bytes(&body) {
         Ok(decoded) => decoded,
         Err(error) => {
             eprintln!("synthetic SDK request rejected: {error}");
@@ -128,7 +124,9 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
     }
     let response = response_fixture(turn as u8);
     if !decoded.context.delivery.streaming() {
-        let Ok(mut decoded) = envelope::decode_response(&response) else {
+        let Ok(mut decoded) =
+            envelope::decode_response_bytes(&serde_json::to_vec(&response).unwrap())
+        else {
             return failure(StatusCode::INTERNAL_SERVER_ERROR, "response decode", &state);
         };
         decoded.fidelity.bind_replay_origin(&origin()).unwrap();
@@ -173,7 +171,13 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
             .unwrap();
     }
 
-    let mut decoder = EventDecoder::new(Profile::Responses).with_replay_origin(origin());
+    let mut decoder = ResponsesSseDecoder::new(
+        200,
+        "text/event-stream",
+        SseLimits::default(),
+        Some(origin()),
+    )
+    .unwrap();
     let mut events = Vec::new();
     for mut payload in wire::events(turn as u8) {
         if payload["type"] == "response.created" || payload["type"] == "response.completed" {
@@ -184,10 +188,16 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
                 2.into()
             };
         }
-        let Ok(mut next) = decoder.push(&payload) else {
-            return failure(StatusCode::INTERNAL_SERVER_ERROR, "event decode", &state);
-        };
-        events.append(&mut next);
+        let frame = encode_frame(&payload, SseLimits::default().max_event_bytes).unwrap();
+        let mut rest = frame.as_ref();
+        while !rest.is_empty() {
+            let Ok((used, mut next)) = decoder.consume(rest) else {
+                return failure(StatusCode::INTERNAL_SERVER_ERROR, "event decode", &state);
+            };
+            assert!(used > 0);
+            rest = &rest[used..];
+            events.append(&mut next);
+        }
     }
     if decoder.finish().is_err() {
         return failure(StatusCode::INTERNAL_SERVER_ERROR, "event closure", &state);
