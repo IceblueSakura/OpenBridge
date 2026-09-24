@@ -463,9 +463,18 @@ pub(super) fn validate_stream_payload(v: &Value) -> Result<(), CodecError> {
     Ok(())
 }
 pub(super) fn validate_item_snapshot(v: &Value) -> Result<(), CodecError> {
-    if v.get("type").and_then(Value::as_str) == Some("message")
-        && let Some(parts) = v.get("content").and_then(Value::as_array)
-    {
+    let o = object(v)?;
+    if string(o, "type")? == "message" {
+        // Full wire snapshots report identity/lifecycle; only task codecs allow defaults.
+        text(string(o, "id")?, "wire item id", 256)?;
+        if string(o, "role")? != "assistant" || !o.contains_key("status") {
+            return Err(CodecError::Invalid("output message headers"));
+        }
+        super::responses::status(o, ItemLifecycle::Completed)?;
+        let parts = o
+            .get("content")
+            .and_then(Value::as_array)
+            .ok_or(CodecError::Invalid("output content"))?;
         for p in parts {
             validate_part_snapshot(p)?;
         }

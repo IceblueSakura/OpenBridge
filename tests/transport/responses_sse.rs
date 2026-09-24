@@ -51,6 +51,50 @@ fn consume_all(d: &mut ResponsesSseDecoder, bytes: &[u8], chunk_len: usize) -> u
 }
 
 #[test]
+fn complete_sse_message_snapshots_cannot_default_missing_identity_or_status() {
+    for kind in [
+        "response.output_item.added",
+        "response.output_item.done",
+        "response.completed",
+    ] {
+        for key in ["id", "status"] {
+            for replacement in [None, Some(Value::Null), Some(json!(false))] {
+                let mut values = wire::events(2);
+                let index = values.iter().position(|v| v["type"] == kind).unwrap();
+                let item = if kind == "response.completed" {
+                    &mut values[index]["response"]["output"][0]
+                } else {
+                    &mut values[index]["item"]
+                }
+                .as_object_mut()
+                .unwrap();
+                if let Some(value) = replacement {
+                    item.insert(key.into(), value);
+                } else {
+                    item.remove(key);
+                }
+                let mut d = decoder(SseLimits::default());
+                for value in &values[..index] {
+                    let frame = encode_frame(value, SseLimits::default().max_event_bytes).unwrap();
+                    consume_all(&mut d, &frame, 1);
+                }
+                let frame =
+                    encode_frame(&values[index], SseLimits::default().max_event_bytes).unwrap();
+                assert!(d.consume(&frame).is_err(), "{kind} {key}");
+                let terminal = encode_frame(
+                    wire::events(2).last().unwrap(),
+                    SseLimits::default().max_event_bytes,
+                )
+                .unwrap();
+                assert!(d.consume(&terminal).is_err());
+                assert!(d.finish().is_err());
+                assert!(d.materialize().is_err());
+            }
+        }
+    }
+}
+
+#[test]
 fn fragmented_utf8_and_bare_cr_preserve_the_same_terminal_and_output() {
     let lf = wire_events();
     let mut fragmented = decoder(SseLimits::default());

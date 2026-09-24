@@ -51,7 +51,7 @@ Message 保留 role、phase、item status、ordered content；Instruction author
 
 ### 控制与 presence
 
-按字段表达 Absent、Null、Value，以及显式空/false/default 的差别。只有来源证明等价时才规范化。不能同时存在可矛盾的“容器不存在”与“子字段有效值”，如当前 TextOptions 的独立 presence bool 与 format。
+按字段表达 Absent、Null、Value，以及显式空/false/default 的差别。只有来源证明等价时才规范化。受验证的设置不能同时声明“容器不存在”与“子字段存在”；TextOptions 的 presence=false 必须同时要求 format 和 verbosity 为 Absent，包括不能隐藏显式 Null。
 
 Schema 不是通用无序 JSON：保留定义的属性顺序、strictness、固定方言、局部引用和有界图结构；不在 pure codec 下载 `$ref` 或执行 schema 程序。声明结构验证、目标 strict 子集准入与最终输出 adherence 各有独立责任。
 

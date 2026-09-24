@@ -136,6 +136,12 @@ impl GenerationSettings {
         {
             return Err(GenerationError::InvalidControl);
         }
+        // An absent container cannot hide explicit values or null children.
+        if !self.text.presence
+            && (!self.text.format.is_absent() || !self.text.verbosity.is_absent())
+        {
+            return Err(GenerationError::InvalidControl);
+        }
         self.reasoning.validate()?;
         let instructions = self.instructions.value().map_or(0, |t| t.as_str().len());
         if instructions > MAX_TEXT_BYTES {

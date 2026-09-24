@@ -270,6 +270,10 @@ pub(super) fn decode_items(
                     return Err(CodecError::Limit);
                 }
                 if role == "system" || role == "developer" {
+                    // Instruction IR has no lifecycle owner; only complete forms normalize.
+                    if status(o, ItemLifecycle::Completed)? != ItemLifecycle::Completed {
+                        return Err(CodecError::Unsupported("instruction lifecycle".into()));
+                    }
                     let mut parts = vec![];
                     for v in &values {
                         let p = object(v)?;

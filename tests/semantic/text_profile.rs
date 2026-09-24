@@ -37,6 +37,271 @@ fn request_wire(d: &DecodedRequest) -> Value {
     .unwrap()
 }
 #[test]
+fn absent_text_container_cannot_hide_present_children() {
+    let d = responses::decode_generation(&json!({"input":"hello"})).unwrap();
+    for (format, verbosity) in [
+        (
+            Presence::Value(OutputConstraint::JsonObject),
+            Presence::Absent,
+        ),
+        (Presence::Value(OutputConstraint::Text), Presence::Absent),
+        (Presence::Null, Presence::Absent),
+        (Presence::Absent, Presence::Value(Verbosity::Low)),
+        (Presence::Absent, Presence::Null),
+    ] {
+        let mut settings = d.semantic.settings().clone();
+        settings.text = TextOptions {
+            presence: false,
+            format,
+            verbosity,
+        };
+        assert_eq!(settings.validate(), Err(GenerationError::InvalidControl));
+        assert!(
+            GenerationRequest::from_settings(d.semantic.items().to_vec(), settings.clone())
+                .is_err()
+        );
+        assert!(d.semantic.clone().with_settings(settings.clone()).is_err());
+        let mut response = envelope::decode_response(&wire::response(2)).unwrap();
+        response.metadata.context.settings.as_mut().unwrap().text = settings.text;
+        assert!(
+            lower_response(
+                &response.semantic,
+                &response.fidelity,
+                &response.metadata,
+                Profile::Responses,
+                contract()
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn text_presence_and_final_requirements_match_independent_wire_expectations() {
+    let mut d = responses::decode_generation(&json!({"input":"hello"})).unwrap();
+    for (options, expected, structured) in [
+        (
+            TextOptions {
+                presence: true,
+                ..Default::default()
+            },
+            Some(json!({})),
+            false,
+        ),
+        (
+            TextOptions {
+                presence: true,
+                format: Presence::Null,
+                verbosity: Presence::Null,
+            },
+            Some(json!({"format":null,"verbosity":null})),
+            false,
+        ),
+        (
+            TextOptions {
+                presence: true,
+                format: Presence::Value(OutputConstraint::Text),
+                verbosity: Presence::Value(Verbosity::Medium),
+            },
+            Some(json!({"format":{"type":"text"},"verbosity":"medium"})),
+            false,
+        ),
+        (
+            TextOptions {
+                presence: true,
+                format: Presence::Value(OutputConstraint::JsonObject),
+                verbosity: Presence::Absent,
+            },
+            Some(json!({"format":{"type":"json_object"}})),
+            true,
+        ),
+        (TextOptions::default(), None, false),
+    ] {
+        let mut source = json!({"input":"hello"});
+        if let Some(expected) = &expected {
+            source["text"] = expected.clone();
+        }
+        assert_eq!(
+            responses::decode_generation(&source)
+                .unwrap()
+                .semantic
+                .text_options(),
+            &options
+        );
+        let mut settings = d.semantic.settings().clone();
+        settings.text = options;
+        d.semantic = d.semantic.with_settings(settings).unwrap();
+        assert_eq!(
+            GenerationRequirements::derive(&d.semantic).structured_output,
+            structured
+        );
+        assert_eq!(request_wire(&d).get("text"), expected.as_ref());
+        let mut limited = contract();
+        limited.structured_output = false;
+        assert_eq!(
+            lower_request(&d.semantic, &d.fidelity, Profile::Responses, limited).is_err(),
+            structured
+        );
+    }
+}
+
+#[test]
+fn complete_messages_require_headers_but_task_snapshots_keep_abbreviations() {
+    let source = wire::response(2);
+    for key in ["type", "id", "status", "role", "content"] {
+        for replacement in [None, Some(Value::Null), Some(json!(false))] {
+            let mut bad = source.clone();
+            let item = bad["output"][0].as_object_mut().unwrap();
+            if let Some(value) = replacement {
+                item.insert(key.into(), value);
+            } else {
+                item.remove(key);
+            }
+            assert!(envelope::decode_response(&bad).is_err(), "{key}");
+        }
+    }
+    for (key, value) in [("id", ""), ("status", "unknown"), ("role", "user")] {
+        let mut bad = source.clone();
+        bad["output"][0][key] = json!(value);
+        assert!(envelope::decode_response(&bad).is_err(), "{key}");
+    }
+    for (status, lifecycle) in [
+        ("completed", ItemLifecycle::Completed),
+        ("incomplete", ItemLifecycle::Incomplete),
+        ("in_progress", ItemLifecycle::InProgress),
+    ] {
+        let mut value = source.clone();
+        value["status"] = json!("incomplete");
+        value["incomplete_details"] = json!({"reason":"max_output_tokens"});
+        value["output"][0]["status"] = json!(status);
+        let d = envelope::decode_response(&value).unwrap();
+        assert_eq!(d.semantic.items()[0].1.lifecycle(), Some(lifecycle));
+        let encoded = envelope::encode_response(
+            &lower_response(
+                &d.semantic,
+                &d.fidelity,
+                &d.metadata,
+                Profile::Responses,
+                contract(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(encoded["output"][0]["id"], "answer");
+        assert_eq!(encoded["output"][0]["status"], status);
+    }
+    let mut abbreviated = source;
+    for key in ["id", "status"] {
+        abbreviated["output"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove(key);
+    }
+    let decoded = responses::decode_response(&abbreviated).unwrap();
+    let encoded = envelope::encode_response(
+        &lower_response(
+            &decoded.semantic,
+            &decoded.fidelity,
+            &decoded.metadata,
+            Profile::Responses,
+            contract(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(encoded["output"][0]["id"], "item_1");
+    assert_eq!(encoded["output"][0]["status"], "completed");
+    let input = responses::decode_generation(&json!({"input":[{"role":"user","content":"hello"}]}))
+        .unwrap();
+    assert_eq!(
+        request_wire(&input)["input"],
+        json!([{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}])
+    );
+}
+
+#[test]
+fn instruction_status_is_checked_in_history_and_reported_echoes() {
+    for role in ["system", "developer"] {
+        for status in [
+            None,
+            Some(json!("completed")),
+            Some(Value::Null),
+            Some(json!(false)),
+            Some(json!("unknown")),
+            Some(json!("in_progress")),
+            Some(json!("incomplete")),
+        ] {
+            let accepted = status.is_none() || status == Some(json!("completed"));
+            let mut item = json!({"type":"message","role":role,"content":[{"type":"input_text","text":"Be precise"}]});
+            if let Some(status) = status {
+                item["status"] = status;
+            }
+            let decoded = responses::decode_generation(&json!({"input":[item.clone()]}));
+            assert_eq!(decoded.is_ok(), accepted, "{item}");
+            if let Ok(d) = decoded {
+                assert_eq!(
+                    request_wire(&d)["input"],
+                    json!([{"role":role,"content":"Be precise"}])
+                );
+            }
+            let mut response = wire::response(2);
+            response["instructions"] = json!([item]);
+            let decoded = envelope::decode_response(&response);
+            assert_eq!(decoded.is_ok(), accepted);
+            if let Ok(d) = decoded {
+                let output = envelope::encode_response(
+                    &lower_response(
+                        &d.semantic,
+                        &d.fidelity,
+                        &d.metadata,
+                        Profile::Responses,
+                        contract(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    output["instructions"],
+                    json!([{"role":role,"content":"Be precise"}])
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn annotation_payload_rejection_cannot_be_followed_by_success() {
+    for annotation in [
+        None,
+        Some(Value::Null),
+        Some(json!({})),
+        Some(json!("invalid")),
+    ] {
+        let values = wire::events(2);
+        let index = values
+            .iter()
+            .position(|v| v["type"] == "response.output_text.annotation.added")
+            .unwrap();
+        let mut decoder = EventDecoder::new(Profile::Responses);
+        for value in &values[..index] {
+            decoder.push(value).unwrap();
+        }
+        let mut bad = values[index].clone();
+        if let Some(annotation) = annotation {
+            bad["annotation"] = annotation;
+        } else {
+            bad.as_object_mut().unwrap().remove("annotation");
+        }
+        assert!(decoder.push(&bad).is_err(), "{bad}");
+        for value in &values[index..] {
+            assert!(decoder.push(value).is_err());
+        }
+        assert!(decoder.finish().is_err());
+        assert!(decoder.materialize().is_err());
+    }
+}
+
+#[test]
 fn string_input_and_top_level_instructions_are_task_semantics() {
     let mut d = responses::decode_generation(&json!({"input":"hello","instructions":"Be precise"}))
         .unwrap();

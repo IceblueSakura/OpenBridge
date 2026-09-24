@@ -446,21 +446,22 @@ impl EventDecoder {
         if index(o, "annotation_index")? != self.state()?.part(item, part)?.annotations.len() {
             return Err(CodecError::Invalid("annotation index"));
         }
-        if let Some(v) = o.get("annotation").filter(|v| !v.is_null()) {
-            let annotation: Annotation =
-                serde_json::from_value(v.clone()).map_err(|_| CodecError::Invalid("annotation"))?;
-            if matches!(annotation, Annotation::FilePath { .. }) {
-                return Err(CodecError::Unsupported("file_path annotation event".into()));
-            }
-            self.emit(
-                StreamEvent::AnnotationAdded {
-                    item,
-                    part,
-                    annotation,
-                },
-                out,
-            )?;
+        let v = o
+            .get("annotation")
+            .ok_or(CodecError::Invalid("annotation"))?;
+        let annotation: Annotation =
+            serde_json::from_value(v.clone()).map_err(|_| CodecError::Invalid("annotation"))?;
+        if matches!(annotation, Annotation::FilePath { .. }) {
+            return Err(CodecError::Unsupported("file_path annotation event".into()));
         }
+        self.emit(
+            StreamEvent::AnnotationAdded {
+                item,
+                part,
+                annotation,
+            },
+            out,
+        )?;
         Ok(())
     }
     fn part_added(
