@@ -15,7 +15,7 @@
 | 域 | 当前实现 | 相对目标的缺口 |
 |---|---|---|
 | Instructions/messages | `GenerationSettings`、ordered Item、text/refusal | assistant phase；非完成 instruction lifecycle 的表示；其余标准 input/output 分支准入 |
-| Controls/Schema | typed 外层控制，schema 为有序 bounded Value | strict 方言、嵌套/reference 预算；null/default 逐字段规则 |
+| Controls/Schema | typed 外层控制、有序 schema、结构/strict/default 准入、本地引用和独立预算 | regex/format 语法与模型级限制；当前 schema profile 之外的词汇；其余控制的 null/default 规则 |
 | Function/custom | 定义、choice、calls、文本/文本数组 outputs、事件 | namespace、caller/programmatic/async/deferred、标准工具多模态结果及 SDK parsed text 回放 |
 | Reasoning | effort/context/mode、readable summary/text、origin-bound replay | 标准 configuration update；当前 `summary:false` 与标准 profile 的区分；更完整 snapshot/event 准入 |
 | Full response | identity、settings echo、usage、status/details | 其余标准 item 分支必填性审查；request hints 与 effective response context 的分支合同 |
@@ -32,11 +32,11 @@
 
 以下缺口仍存在；准入规则与已实现拒绝边界由 [text profile](responses-text-profile.md) 和独立测试维护。
 
-1. schema 只检查 object/bytes，非法 nested keywords 可通过。入口：`validate.rs::schema`。属性保序规则与独立变换验收见 [text profile](responses-text-profile.md#schema-property-order)，不等于 strict 方言或引用图验证。
+1. Schema 的当前有限准入由 [schema profile](schema-profile.md)定义；不执行 regex/format，不验证模型输出 adherence，也不保证所有模型接受。未知方言、动态/远程引用及未准入词汇明确拒绝；不能把局部验证当成完整 JSON Schema 引擎。
 2. SDK parsed text 派生 `parsed` 回放被 `text.rs` 拒绝；已有 `parsed_arguments` 规则不覆盖它。
 3. 标准 phase/configuration update、更多 media/tool/event/state 分支没有实现；`summary:false`、cancelled event 等现有兼容分支需 profile 分类。
 
-非法 schema 与 parsed 回放曾在 `5924f80` 执行最小反例，相关实现尚未修改。标准分支缺失来自源码/规范对照；这些证据均不称为 Provider 实测差异。
+parsed 回放缺口曾在 `5924f80` 执行最小反例，相关实现尚未修改。标准分支缺失与 Schema 范围限制来自源码/规范对照；这些证据均不称为 Provider 实测差异。
 
 ## Phase gates
 
@@ -46,7 +46,7 @@
 
 ### B. 已支持子集的正确性
 
-保持 IR 权威、完整 message 必填性和已实现的显式拒绝规则；继续完成 Schema 与派生 SDK view，并审查其余字段/事件分支。每项先独立失败用例，再同步 semantic、requirements、lowering、codec。保留当前 Responses text 验收，不从零重写正常工作机制。
+保持 IR 权威、完整 message 必填性和已实现的显式拒绝规则；继续补齐 Chat response_format 与派生 SDK view，并按实际目标完善 Schema profile、审查其余字段/事件分支。每项先独立失败用例，再同步 semantic、requirements、lowering、codec。保留当前 Responses text 验收，不从零重写正常工作机制。
 
 ### C. 标准表达力扩展
 

@@ -172,12 +172,6 @@ fn validate_call<'a>(
     add(bytes, name.as_str())?;
     add(bytes, payload)
 }
-fn schema(value: &serde_json::Value) -> Result<usize, GenerationError> {
-    if !value.is_object() {
-        return Err(GenerationError::InvalidToolDefinition);
-    }
-    crate::semantic::value::json_size(value, MAX_TEXT_BYTES).map_err(|_| GenerationError::Limit)
-}
 pub fn output(value: &OutputConstraint) -> Result<usize, GenerationError> {
     match value {
         OutputConstraint::Text | OutputConstraint::JsonObject => Ok(0),
@@ -185,7 +179,7 @@ pub fn output(value: &OutputConstraint) -> Result<usize, GenerationError> {
             name,
             description,
             schema: s,
-            ..
+            strict,
         } => {
             if name.as_str().is_empty()
                 || name.as_str().len() > 64
@@ -196,7 +190,12 @@ pub fn output(value: &OutputConstraint) -> Result<usize, GenerationError> {
             {
                 return Err(GenerationError::InvalidControl);
             }
-            let mut bytes = schema(s)?;
+            let mode = if *strict == Some(true) {
+                super::schema::Mode::Explicit
+            } else {
+                super::schema::Mode::General
+            };
+            let mut bytes = super::schema::validate(s, mode)?;
             add(&mut bytes, name.as_str())?;
             if let Some(d) = description {
                 add(&mut bytes, d.as_str())?;
@@ -225,8 +224,21 @@ pub fn tools(
                 if let Some(d) = &t.description {
                     add(&mut bytes, d)?;
                 }
-                for s in [&t.parameters, &t.output_schema].into_iter().flatten() {
-                    charge(&mut bytes, schema(s)?)?;
+                if let Some(s) = &t.parameters {
+                    let mode = match t.strict {
+                        FunctionStrictness::Explicit(true) => super::schema::Mode::Explicit,
+                        FunctionStrictness::Omitted(StrictDefault::NormalizeSchema) => {
+                            super::schema::Mode::Normalize
+                        }
+                        _ => super::schema::Mode::General,
+                    };
+                    charge(&mut bytes, super::schema::validate(s, mode)?)?;
+                }
+                if let Some(s) = &t.output_schema {
+                    charge(
+                        &mut bytes,
+                        super::schema::validate(s, super::schema::Mode::General)?,
+                    )?;
                 }
             }
             ToolDefinition::Custom(t) => {

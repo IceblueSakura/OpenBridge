@@ -311,6 +311,10 @@ fn explicit_false_true_and_tool_controls_keep_presence() {
         ] {
             let mut wire = chat_history();
             wire["tools"][0]["function"]["strict"] = json!(strict);
+            if strict {
+                wire["tools"][0]["function"]["parameters"]["required"] = json!(["city"]);
+                wire["tools"][0]["function"]["parameters"]["additionalProperties"] = json!(false);
+            }
             wire["tool_choice"] = choice;
             let d = chat::decode_generation(&wire).unwrap();
             assert_eq!(request_wire(&d, Profile::Chat), wire);
@@ -331,6 +335,8 @@ fn target_failure_is_local_and_unsupported_domains_cannot_reach_encoding() {
     let mut wire = chat_history();
     wire["parallel_tool_calls"] = json!(true);
     wire["tools"][0]["function"]["strict"] = json!(true);
+    wire["tools"][0]["function"]["parameters"]["required"] = json!(["city"]);
+    wire["tools"][0]["function"]["parameters"]["additionalProperties"] = json!(false);
     let d = chat::decode_generation(&wire).unwrap();
     for (contract, expected) in [
         (

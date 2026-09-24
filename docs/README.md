@@ -10,6 +10,7 @@
 | [迁移计划](architecture-v2/migration.md) | 语义迁移阶段、具体剩余缺口 |
 | [Responses text profile](architecture-v2/responses-text-profile.md) | 当前 Responses 纯文本准入与字段归属 |
 | [Chat text profile](architecture-v2/chat-text-profile.md) | 单候选 Chat envelope/SSE 准入与双协议验证边界 |
+| [Schema profile](architecture-v2/schema-profile.md) | Schema 结构、strict/default 模式、本地引用与独立资源预算 |
 | [当前焦点](implementation-plans/current-focus.md) | 已获准切片及验收缺口，不自动授权 |
 | [下一步目标](implementation-plans/next-goal.md) | 推进顺序，不写完成日志 |
 | [开发指南](development.md) | 本地与固定 SDK 验证入口 |

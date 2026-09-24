@@ -417,7 +417,7 @@ fn annotated_output_and_probabilities_are_owned_by_the_current_text() {
 }
 #[test]
 fn structured_output_and_reasoning_context_are_real_controls() {
-    let mut d=responses::decode_generation(&json!({"input":[{"role":"user","content":"hello"}],"top_p":0.8,"top_logprobs":2,"text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object"},"strict":true},"verbosity":"low"},"reasoning":{"effort":"max","context":"all_turns","mode":"pro"}})).unwrap();
+    let mut d=responses::decode_generation(&json!({"input":[{"role":"user","content":"hello"}],"top_p":0.8,"top_logprobs":2,"text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object","properties":{},"required":[],"additionalProperties":false},"strict":true},"verbosity":"low"},"reasoning":{"effort":"max","context":"all_turns","mode":"pro"}})).unwrap();
     assert!(matches!(
         d.semantic.output(),
         OutputConstraint::JsonSchema {

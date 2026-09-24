@@ -6,6 +6,7 @@ mod request;
 mod requirements;
 mod resource;
 mod response;
+mod schema;
 mod text;
 mod tool;
 mod validate;

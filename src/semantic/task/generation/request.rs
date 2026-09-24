@@ -304,6 +304,8 @@ pub enum GenerationError {
     InvalidMessageGroup,
     #[error("invalid tool definition")]
     InvalidToolDefinition,
+    #[error("invalid or unsupported schema")]
+    InvalidSchema,
     #[error("tool choice refers to an unavailable tool")]
     InvalidToolChoice,
     #[error("semantic value exceeds limits")]

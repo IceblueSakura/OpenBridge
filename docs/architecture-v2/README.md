@@ -43,6 +43,7 @@ Wire + trusted admission context
 - [migration.md](migration.md)：目标相对当前代码的差距和实施顺序。
 - [responses-text-profile.md](responses-text-profile.md)：当前 Responses stateless text 的实现准入，不代表完整标准。
 - [chat-text-profile.md](chat-text-profile.md)：同一 IR 的单候选 Chat 静态/流式映射与拒绝边界。
+- [schema-profile.md](schema-profile.md)：请求/报告设置共享的 Schema 结构、strict/default、本地引用与预算准入。
 
 既有 decisions 维护其当前有效规则，不添加完成日志或平行 schema；reasoning 的 owner/origin/finality 见[专项规则](decisions/0006-reasoning-ownership.md)。新文档与历史来源有冲突时，应按当前用户目标及固定一手证据显式修正，不能让旧“基线冻结”阻止必要设计调整。
 

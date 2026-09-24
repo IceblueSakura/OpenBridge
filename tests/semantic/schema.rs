@@ -9,8 +9,8 @@ use openbridge::{
         sse::{Obfuscation, ResponsesSseDecoder, ResponsesSseEncoder, SseLimits, encode_frame},
     },
     semantic::{
-        task::generation::{OutputConstraint, ToolDefinition},
-        value::Presence,
+        task::generation::*,
+        value::{Presence, Text},
     },
 };
 use serde_json::{Value, json};
@@ -38,6 +38,317 @@ fn request() -> envelope::DecodedResponsesRequest {
         r#"{{"model":"fixture-model","input":"hello","text":{{"format":{{"type":"json_schema","name":"answer","strict":true,"schema":{SCHEMA}}}}},"tools":[{{"type":"function","name":"f","strict":true,"parameters":{SCHEMA},"output_schema":{SCHEMA}}}]}}"#
     );
     envelope::decode_request_bytes(bytes.as_bytes()).unwrap()
+}
+
+fn admit(
+    schema: Value,
+    strict: bool,
+) -> Result<openbridge::protocol::openai::DecodedRequest, openbridge::protocol::openai::CodecError>
+{
+    responses::decode_generation(
+        &json!({"input":"hello","text":{"format":{"type":"json_schema","name":"answer","schema":schema,"strict":strict}}}),
+    )
+}
+fn closed_property(value: Value) -> Value {
+    json!({"type":"object","properties":{"value":value},"required":["value"],"additionalProperties":false})
+}
+
+#[test]
+fn schema_keywords_are_checked_before_ir_or_reported_settings_admission() {
+    for bad in [
+        json!({"type":"unknown"}),
+        json!({"type":[]}),
+        json!({"type":["string","string"]}),
+        json!({"properties":[]}),
+        json!({"properties":{"x":1}}),
+        json!({"required":"x"}),
+        json!({"required":["x","x"]}),
+        json!({"items":[]}),
+        json!({"anyOf":[]}),
+        json!({"anyOf":[1]}),
+        json!({"$defs":[]}),
+        json!({"minimum":"0"}),
+        json!({"minItems":-1}),
+        json!({"minLength":0.5}),
+        json!({"multipleOf":0}),
+        json!({"minLength":5,"maxLength":2}),
+        json!({"enum":[]}),
+        json!({"enum":[1,1.0]}),
+        json!({"title":1}),
+        json!({"unknown_keyword":true}),
+    ] {
+        assert!(admit(bad.clone(), false).is_err(), "{bad}");
+        let d = responses::decode_generation(&json!({"input":"hello"})).unwrap();
+        let r = d.semantic.with_output(OutputConstraint::JsonSchema {
+            name: Text::new("answer", "test", 64).unwrap(),
+            description: None,
+            schema: bad.clone(),
+            strict: Some(false),
+        });
+        assert!(lower_request(&r, &d.fidelity, Profile::Responses, Contract::full()).is_err());
+        let mut response = wire::response(2);
+        response["text"]["format"]["schema"] = bad;
+        response["text"]["format"]["strict"] = json!(false);
+        assert!(envelope::decode_response(&response).is_err());
+    }
+    for schema in [
+        json!({}),
+        json!({"allOf":[{"type":"object"},{"properties":{"x":{"type":"integer"}}}]}),
+        json!({"enum":[9007199254740992u64,9007199254740993u64]}),
+        json!({"const":{"data":{"not_a_schema":1}}}),
+    ] {
+        assert!(admit(schema, false).is_ok());
+    }
+    let duplicate = json!({"enum":[{"a":1,"b":2},{"b":2,"a":1}]});
+    assert!(admit(duplicate, false).is_err());
+}
+
+#[test]
+fn explicit_strict_rejects_open_incomplete_or_unsupported_shapes() {
+    for bad in [
+        json!({"type":"string"}),
+        json!({"anyOf":[{"type":"object"}]}),
+        json!({"type":"object","properties":{"x":{"type":"string"}},"additionalProperties":false}),
+        json!({"type":"object","properties":{},"required":["missing"],"additionalProperties":false}),
+        json!({"type":"object","additionalProperties":true}),
+        closed_property(json!({"type":"object"})),
+        closed_property(json!({"type":"array"})),
+        closed_property(json!({"allOf":[{"type":"string"}]})),
+        closed_property(json!({"type":"string","not":{"const":"x"}})),
+        closed_property(json!({"type":["string","integer"]})),
+        json!({"$ref":"#"}),
+    ] {
+        assert!(admit(bad.clone(), true).is_err(), "{bad}");
+    }
+    let valid = closed_property(
+        json!({"anyOf":[{"type":["string","null"],"minLength":1},{"type":"array","items":{"type":"integer","minimum":0}}]}),
+    );
+    assert!(admit(valid, true).is_ok());
+}
+
+#[test]
+fn local_reference_graphs_allow_recursion_but_not_dangling_or_non_schema_targets() {
+    let recursive = json!({"type":"object","properties":{"next":{"anyOf":[{"$ref":"#"},{"type":"null"}]}},"required":["next"],"additionalProperties":false});
+    assert!(admit(recursive, true).is_ok());
+    let recursive_defs = json!({"$ref":"#/$defs/Node","$defs":{"Node":{"type":"object","properties":{"next":{"anyOf":[{"$ref":"#/$defs/Node"},{"type":"null"}]}},"required":["next"],"additionalProperties":false}}});
+    assert!(admit(recursive_defs, true).is_ok());
+    let mut value = closed_property(json!({"$ref":"#/$defs/a~1b~0%20c"}));
+    value["$defs"] = json!({"a/b~ c":{"type":"string"}});
+    value["properties"]["value"]["default"] = json!("sample");
+    value["properties"]["value"]["examples"] = json!(["sample"]);
+    assert!(admit(value.clone(), true).is_ok());
+    for target in [
+        "https://example.test/schema",
+        "other.json#/x",
+        "#/$defs/missing",
+        "#/properties",
+        "#/default",
+        "#/$defs/a~2b",
+        "#/%xx",
+    ] {
+        let mut bad = value.clone();
+        bad["properties"]["value"]["$ref"] = json!(target);
+        bad["default"] = json!({"type":"string"});
+        assert!(admit(bad, true).is_err(), "{target}");
+    }
+    let mut d = admit(value, true).unwrap();
+    let mut settings = d.semantic.settings().clone();
+    let Presence::Value(OutputConstraint::JsonSchema { schema, .. }) = &mut settings.text.format
+    else {
+        panic!()
+    };
+    schema.as_object_mut().unwrap().shift_remove("$defs");
+    assert!(d.semantic.clone().with_settings(settings.clone()).is_err());
+    let Presence::Value(OutputConstraint::JsonSchema { schema, .. }) = &mut settings.text.format
+    else {
+        panic!()
+    };
+    schema["properties"]["value"] = json!({"type":"boolean"});
+    d.semantic = d.semantic.with_settings(settings).unwrap();
+    let out = responses::encode_generation(
+        &lower_request(
+            &d.semantic,
+            &d.fidelity,
+            Profile::Responses,
+            Contract::full(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(out["text"]["format"]["schema"].get("$defs").is_none());
+    assert_eq!(
+        out["text"]["format"]["schema"]["properties"]["value"],
+        json!({"type":"boolean"})
+    );
+}
+
+#[test]
+fn function_strict_defaults_and_output_schemas_have_separate_admission() {
+    let open = json!({"type":"object","properties":{"x":{"type":"string"}}});
+    for strict in [None, Some(false), Some(true)] {
+        let mut tool = json!({"type":"function","name":"f","parameters":open});
+        if let Some(strict) = strict {
+            tool["strict"] = json!(strict);
+        }
+        let result = responses::decode_generation(&json!({"input":"x","tools":[tool]}));
+        assert_eq!(result.is_ok(), strict != Some(true));
+        if let Ok(d) = result {
+            let out = responses::encode_generation(
+                &lower_request(
+                    &d.semantic,
+                    &d.fidelity,
+                    Profile::Responses,
+                    Contract::full(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(out["tools"][0]["parameters"], open);
+            assert_eq!(
+                out["tools"][0].get("strict"),
+                strict.map(|v| json!(v)).as_ref()
+            );
+        }
+    }
+    let closed = closed_property(json!({"type":"integer"}));
+    let d=responses::decode_generation(&json!({"input":"x","tools":[{"type":"function","name":"f","parameters":closed,"strict":true,"output_schema":{"type":"string"}}]})).unwrap();
+    assert!(
+        lower_request(
+            &d.semantic,
+            &d.fidelity,
+            Profile::Responses,
+            Contract::full()
+        )
+        .is_ok()
+    );
+    let mut tool =
+        json!({"type":"function","name":"f","parameters":{"type":"object","allOf":[{}]}});
+    assert!(responses::decode_generation(&json!({"input":"x","tools":[tool.clone()]})).is_err());
+    tool["strict"] = json!(false);
+    assert!(responses::decode_generation(&json!({"input":"x","tools":[tool]})).is_ok());
+}
+
+#[test]
+fn schema_resource_bounds_count_physical_shapes_without_expanding_refs() {
+    for (count, accepted) in [(5000, true), (5001, false)] {
+        let props: serde_json::Map<String, Value> = (0..count)
+            .map(|i| (format!("p{i}"), json!({"type":"boolean"})))
+            .collect();
+        let required: Vec<_> = props.keys().cloned().collect();
+        let value = json!({"type":"object","properties":props,"required":required,"additionalProperties":false});
+        assert_eq!(admit(value, true).is_ok(), accepted, "properties {count}");
+    }
+    for (depth, accepted) in [(10, true), (11, false)] {
+        let mut value = json!({"type":"string"});
+        for _ in 0..depth {
+            value = closed_property(value);
+        }
+        assert_eq!(admit(value, true).is_ok(), accepted, "depth {depth}");
+    }
+    for (count, accepted) in [(1000, true), (1001, false)] {
+        assert_eq!(
+            admit(
+                closed_property(json!({"type":"integer","enum":(0..count).collect::<Vec<_>>()})),
+                true
+            )
+            .is_ok(),
+            accepted
+        );
+    }
+    for (chars, accepted) in [(119_995, true), (119_996, false)] {
+        assert_eq!(
+            admit(
+                closed_property(json!({"type":"string","const":"x".repeat(chars)})),
+                true
+            )
+            .is_ok(),
+            accepted
+        );
+    }
+    for (edges, accepted) in [(8192, true), (8193, false)] {
+        let value = json!({"anyOf":vec![json!({"$ref":"#/$defs/Leaf"});edges],"$defs":{"Leaf":{"type":"string"}}});
+        assert_eq!(admit(value, false).is_ok(), accepted, "edges {edges}");
+    }
+    for (children, accepted) in [(16_383, true), (16_384, false)] {
+        assert_eq!(
+            admit(json!({"allOf":vec![json!({});children]}), false).is_ok(),
+            accepted,
+            "schema nodes"
+        );
+    }
+    for (values, accepted) in [(65_533, true), (65_534, false)] {
+        assert_eq!(
+            admit(json!({"default":vec![0;values]}), false).is_ok(),
+            accepted,
+            "raw nodes"
+        );
+    }
+    for (wrappers, accepted) in [(63, true), (64, false)] {
+        let mut deep = json!({});
+        for _ in 0..wrappers {
+            deep = json!({"default":deep});
+        }
+        assert_eq!(admit(deep, false).is_ok(), accepted, "raw depth");
+    }
+    for (length, accepted) in [(1000, true), (5000, false)] {
+        let children: serde_json::Map<String, Value> = (0..1000)
+            .map(|i| (format!("p{i}"), json!({"type":"string"})))
+            .collect();
+        let mut properties = serde_json::Map::new();
+        properties.insert(
+            "x".repeat(length),
+            json!({"type":"object","properties":children}),
+        );
+        assert_eq!(
+            admit(json!({"type":"object","properties":properties}), false).is_ok(),
+            accepted,
+            "pointer path amplification"
+        );
+    }
+    assert!(admit(json!({"default":"x".repeat(MAX_TEXT_BYTES)}), false).is_err());
+}
+
+#[test]
+fn invalid_schema_metadata_poisons_stream_decode_and_encode_updates() {
+    let invalid = closed_property(json!({"$ref":"#/$defs/missing"}));
+    let mut payload = wire::events(2)[0].clone();
+    payload["response"]["text"]["format"]["schema"] = invalid.clone();
+    let mut decoder =
+        ResponsesSseDecoder::new(200, "text/event-stream", SseLimits::default(), None).unwrap();
+    let bad = encode_frame(&payload, SseLimits::default().max_event_bytes).unwrap();
+    assert!(decoder.consume(&bad).is_err());
+    assert!(
+        decoder
+            .consume(
+                &encode_frame(&wire::events(2)[0], SseLimits::default().max_event_bytes).unwrap()
+            )
+            .is_err()
+    );
+    assert!(decoder.finish().is_err());
+    assert!(decoder.materialize().is_err());
+    let mut metadata = envelope::decode_response(&wire::response(2))
+        .unwrap()
+        .metadata;
+    let mut encoder = ResponsesSseEncoder::new(
+        metadata.clone(),
+        Contract::full(),
+        SseLimits::default(),
+        Obfuscation::Disabled,
+    )
+    .unwrap();
+    let Presence::Value(OutputConstraint::JsonSchema { schema, .. }) =
+        &mut metadata.context.settings.as_mut().unwrap().text.format
+    else {
+        panic!()
+    };
+    *schema = invalid;
+    assert!(encoder.update_metadata(metadata).is_err());
+    assert!(
+        encoder
+            .encode(&StreamEvent::Started, &Default::default())
+            .is_err()
+    );
+    assert!(encoder.finish().is_err());
 }
 
 #[test]
