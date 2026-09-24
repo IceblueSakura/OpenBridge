@@ -11,7 +11,7 @@
 | [Responses text profile](architecture-v2/responses-text-profile.md) | 当前 Responses 纯文本准入与字段归属 |
 | [Chat text profile](architecture-v2/chat-text-profile.md) | 单候选 Chat envelope/SSE 准入与双协议验证边界 |
 | [Schema profile](architecture-v2/schema-profile.md) | Schema 结构、strict/default 模式、本地引用与独立资源预算 |
-| [当前焦点](implementation-plans/current-focus.md) | 已获准切片及验收缺口，不自动授权 |
+| [当前焦点](implementation-plans/current-focus.md) | 当前切片范围、验收条件与缺口，不自动授权 |
 | [下一步目标](implementation-plans/next-goal.md) | 推进顺序，不写完成日志 |
 | [开发指南](development.md) | 本地与固定 SDK 验证入口 |
 | [实施边界](implementation-status/README.md) | 验证层级与历史证据解释 |
@@ -19,6 +19,6 @@
 | [上游同步](references/upstream-sync.md) | 本次官方页面、SDK/Codex 固定版本、差异与证据冲突；旧来源原文只作追溯 |
 | [归档说明](archive.md) | 旧源码与合同恢复点，不是 v2 功能承诺 |
 
-一个事实只保留一个权威位置，局部实现细则放源码注释和测试。类型表达、codec 映射、实际执行证据与生产接线分别判断；round trip 或编译通过不能证明语义完整。
+一个事实只保留一个权威位置，局部实现细则放源码注释和测试。当前文档不记录会话授权、临时路径/主机 workaround、普通测试计数或实现完成流水账；ADR 保留有效决策，研究与 evidence 保留来源版本、验证日期、独立观察和复现边界。类型表达、codec 映射、实际执行证据与生产接线分别判断；round trip 或编译通过不能证明语义完整。
 
 文档修改需检查相对路径、锚点、示例和规则一致性，运行 `git diff --check`。协议事实以固定来源为准；不要为本地整理刷新外部验证日期。历史证据中的归档链接不是当前依赖，不恢复旧模块来消除它们。

@@ -6,7 +6,7 @@
 
 当前 workspace 是 v2 `semantic`、`protocol`、`lowering` 和纯 SSE 库，旧 runtime 已[归档](../archive.md)。无生产 Provider/registry、credential、服务入口、state resource 或 WebSocket execution。内部兼容性不要求保留。
 
-当前有序文本/function/custom/reasoning、部分控制、annotations/logprobs、usage、Static/Event 与 HTTP/SSE 测试已有 owner，但仍是受限 stateless text profile。SDK gate 及其 Python 依赖由 `tests/sdk/pyproject.toml` 和 `uv.lock` 固定，当前 `openai==3.19.0` 的 synthetic 两轮 JSON/SSE 通过；不表示下列标准分支或已知缺口已验收。
+当前有序文本/function/custom/reasoning、部分控制、annotations/logprobs、usage、Static/Event 与 HTTP/SSE 测试已有 owner，但仍是受限 stateless text profile。固定 SDK gates 的场景与执行入口见[开发指南](../development.md#固定-openai-sdk-loopback)，依赖由 `tests/sdk/` 锁定；这些局部验收不覆盖下列全部标准分支。
 
 单候选 Chat 的完整 JSON/SSE 字节链路复用同一 IR、strict JSON 与 framer，具体准入见 [Chat profile](chat-text-profile.md)。该 profile 不包含全部 Chat 可选字段、response_format 或 SDK parsed-view 回放，也不将 Responses-only 能力降格为不可表达的 IR。
 
@@ -36,7 +36,7 @@
 2. SDK parsed text 派生 `parsed` 回放被 `text.rs` 拒绝；已有 `parsed_arguments` 规则不覆盖它。
 3. 标准 phase/configuration update、更多 media/tool/event/state 分支没有实现；`summary:false`、cancelled event 等现有兼容分支需 profile 分类。
 
-parsed 回放缺口曾在 `5924f80` 执行最小反例，相关实现尚未修改。标准分支缺失与 Schema 范围限制来自源码/规范对照；这些证据均不称为 Provider 实测差异。
+上述缺口依据当前源码与固定标准对照，不代表真实 Provider 的能力或实测差异。
 
 ## Phase gates
 

@@ -1,6 +1,6 @@
 # 下一步目标
 
-**按 Responses-first 标准语义 + scoped extensions 基线完善 Generation，而不是追求 Chat/Responses 最小交集。** 设计见 [IR owner](../architecture-v2/semantic-ir.md)，历史综合与本轮上游版本见[主题参考](../references/README.md)。旧运行时已[归档](../archive.md)，不要求恢复旧入口。
+**按 Responses-first 标准语义 + scoped extensions 基线完善 Generation，而不是追求 Chat/Responses 最小交集。** 设计见 [IR owner](../architecture-v2/semantic-ir.md)，主题综合与固定上游版本见[主题参考](../references/README.md)。旧运行时已[归档](../archive.md)，不要求恢复旧入口。
 
 当前阶段以纯文本 Generation 为主，暂不推进多模态。Responses 是语义主干，Chat Completions 作为同一 IR 的第二协议投影验证稳定性；不另建 Chat IR，也不以 Chat 的能力上限收缩 Responses。
 

@@ -137,20 +137,9 @@ NVIDIA media 注释记录了 2026-08-10 对 generation family 的单张 PNG data
 
 `current-state.md` 的 Native 图片摘要重点列出 DeepSeek Vision、OpenRouter Gemini/Grok、Bailian 和 MiMo，但没有穷举 ChatGPT Responses、OpenRouter Gemma Chat 和 MiniMax Chat 的当前静态 interface。字段级事实仍应以 registry source 与运行中的扩展 Models API 为准。
 
-## 已执行验证
+## 覆盖与交叉检查
 
-```text
-cargo test --locked --test provider_contract
-cargo test --locked --test forwarding_contract \
-  native::openrouter_new_models_expose_probed_dual_native_image_and_reasoning_contracts -- --exact
-```
-
-结果：
-
-- Provider contract：12 passed；
-- OpenRouter focused forwarding：1 passed；
-- Git 工作树在审计开始时为 clean `main...origin/main`；
-- 39 个 canonical 与 mapping 的分类交叉检查：未知 0、遗漏 0。
+确定性验证覆盖 Provider contract 与 OpenRouter 新模型 forwarding contract；39 个 canonical 与 mapping 的分类交叉检查结果为未知 0、遗漏 0。这些检查不包含真实 Provider 请求。
 
 ## 不证明范围
 

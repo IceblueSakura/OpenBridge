@@ -3,7 +3,7 @@
 ## 范围与来源
 
 - 时间：2026-08-29 18:05–18:08 CST（UTC+08:00）
-- 本地源码基线：`f32f774faee4ada340e9e03ed6dc9f8e03268144` 加本任务未提交修改
+- 本地源码基线：`f32f774faee4ada340e9e03ed6dc9f8e03268144` 加 Responses 注册相关工作区修订
 - Upstream Target：`bailian/deepseek-v4-pro`
 - Upstream model：`deepseek-v4-pro-0813`
 - 下游 Public Model：`deepseek-v4-pro`
@@ -51,7 +51,7 @@ UnknownReference: bailian/deepseek-v4-pro/responses
 
 ## 本地下游 SDK probe
 
-修改后的 OpenBridge 以独立 `127.0.0.1:18080` 启动，复用私有配置但使用 `/tmp` Bootstrap 和日志目录，不影响现有服务。Hindsight 0.9.2 容器内 `openai==2.24.0` 通过本地 `/v1/responses` 调用：
+修改后的 OpenBridge 以独立 `127.0.0.1:18080` 启动，复用私有配置，Bootstrap 和日志目录与既有服务隔离。Hindsight 0.9.2 容器内 `openai==2.24.0` 通过本地 `/v1/responses` 调用：
 
 ```text
 object=response
@@ -63,19 +63,11 @@ usage_present=true
 
 临时实例已在验证后停止。
 
-## 确定性验证
-
-- 新增回归确认 Pro Target 同时拥有 Chat/Responses，并确认 Flash 0731 未被扩展；
-- `cargo test --locked --lib`：PASS；
-- `config_contract`：27 passed；
-- `example_config`：1 passed；
-- `provider_contract`：5 passed。
-
 ## 未证明范围
 
 - 未执行 function tool、续轮、structured-output 冲突差分、stateful continuation 或 hosted tool；
 - 未验证 reasoning 档位差分、长上下文、429/retry、负载、费用或长期稳定性；
-- 本次使用未提交本地二进制，不证明当前生产 `llmapi.icebluesakura.xyz` 已部署该修复。
+- 受测二进制包含上述工作区修订，不证明生产 `llmapi.icebluesakura.xyz` 已部署同一修订。
 
 ## 来源
 

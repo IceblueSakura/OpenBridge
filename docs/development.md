@@ -42,8 +42,6 @@ git diff --check
 
 `--offline` 需要预先可用的依赖缓存；不要为离线检查隐式调用 Provider。修改依赖后同步 `Cargo.lock`，再重跑 locked 检查，避免顺带升级无关依赖。
 
-本机 Rust linker wrapper 缺失时，可仅对当前命令设置 `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang`；不要将主机 workaround 写成项目全局配置。
-
 ## 固定 OpenAI SDK loopback
 
 Python 版本由 `tests/sdk/.python-version` 固定；OpenAI SDK 与测试环境 pip 在 `tests/sdk/pyproject.toml` 声明，全部传递依赖和下载 hash 由 `tests/sdk/uv.lock` 固定。环境只安装到被忽略的 `tests/sdk/.venv/`，不向系统 Python 安装 pip/package。不要直接 `pip install -U` 让环境偏离锁文件。

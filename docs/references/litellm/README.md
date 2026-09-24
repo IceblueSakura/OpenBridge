@@ -1,9 +1,9 @@
 # LiteLLM 调研索引
 
 本目录记录 LiteLLM Proxy/SDK的协议转换、请求链、observability、retry、OAuth、server-tool interception与测试资产。许可证见
-[MIT；enterprise subtree另有条款](https://github.com/BerriAI/litellm/blob/main/LICENSE)。本轮只读拉取和源码复核没有安装依赖、运行LiteLLM或调用Provider。
+[MIT；enterprise subtree另有条款](https://github.com/BerriAI/litellm/blob/main/LICENSE)。各叶文档分别标明静态源码研究与执行证据，不将前者视为 Provider 或生产验收。
 
-最新IR/server-tool增量复核基线为 `litellm_internal_staging` @
+IR/server-tool 专项复核基线为 `litellm_internal_staging` @
 `5e4b3838aabf00d135be800404d03728c8afa506`；其他叶文档保留各自更早的逐行快照、精确行号和复核日期。
 
 | 主题 | 文档 |

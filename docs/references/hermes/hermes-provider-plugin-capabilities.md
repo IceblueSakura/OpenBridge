@@ -2,7 +2,7 @@
 
 ## 范围与证据
 
-- 调研对象：Hermes Agent 本机安装版本 `v0.20.0 (2026.8.3)`，安装目录 `C:\Users\IceblueSakura\AppData\Local\hermes\hermes-agent`。
+- 调研对象：Hermes Agent 本地安装包 `v0.20.0 (2026.8.3)`；版本与相对源码路径共同界定阅读快照。
 - 阅读范围：`providers/base.py`、`providers/__init__.py`、`hermes_cli/plugins.py`（PluginManifest/PluginManager kind 语义）、`agent/auxiliary_client.py`（aux 模型分派）、`plugins/model-providers/` 下 deepseek/custom/openrouter/deepinfra/litellm 等示例插件。
 - 本文是**外部客户端事实**：Hermes 作为 OpenAI 兼容网关的下游消费者，其 model-provider 插件机制提供哪些能力、aux 模型如何分派。不构成 OpenBridge 的功能承诺。
 - 动态事实（字段、解析链、默认值）为 2026-08-08 阅读快照；升级 Hermes 后须重新复核。

@@ -1,6 +1,6 @@
 # 扩展语义、上下文与来源约束
 
-来源与本次核对：2026-09-23 固定的 OpenAI/Codex 公共源码，见[同步基线](upstream-sync.md)；历史 scoped tool、provider metadata、reasoning signature 与 state recovery 经验见[主题综合](semantic-baseline.md)。未运行 Codex、登录 OAuth 或调用 Provider。字段/lifecycle/profile 变更时重核。
+来源快照：2026-09-23 固定的 OpenAI/Codex 公共源码，见[同步基线](upstream-sync.md)；历史 scoped tool、provider metadata、reasoning signature 与 state recovery 经验见[主题综合](semantic-baseline.md)。未运行 Codex、登录 OAuth 或调用 Provider。字段/lifecycle/profile 变更时重核。
 
 本页区分外部事实与设计约束；接受的 IR 所有权由 [semantic-ir](../architecture-v2/semantic-ir.md)维护。扩展不是裸 `extra_body` 或 `extra_headers` 透传口。
 
@@ -16,7 +16,7 @@ OpenAI 已公开标准化的 `phase`、reasoning context、标准 hosted tools �
 
 ## 2. Codex session_id 的实际含义
 
-本次重新核对的源码仍显示以下区分：
+固定源码快照区分以下事实：
 
 | 事实 | Wire 投影与生命周期 | 基线约束 |
 |---|---|---|
@@ -58,7 +58,7 @@ session/thread/cache/turn 值即使不是密码，也可能敏感且高基数；
 
 当某扩展被官方标准吸收：核对语义是否等价，迁入标准 owner，消除同一事实两份字段。旧 wire spelling 如仍需接受，由显式 profile codec 处理，不在 IR 保留 legacy alias。
 
-当前 `reasoning.summary:false` 是本地接受的兼容形式，但 SDK `3.19.0` 和本次公开 reference 的标准 summary 是字符串枚举或 null；不能把现有行为自动写成标准。具体兼容 profile 的公开名和 downstream extension envelope 尚未制定，不以文档示例冒充已发布 API。
+当前 `reasoning.summary:false` 是本地接受的兼容形式，但 SDK `3.19.0` 和固定公开 reference 的标准 summary 是字符串枚举或 null；不能把现有行为自动写成标准。具体兼容 profile 的公开名和 downstream extension envelope 尚未制定，不以文档示例冒充已发布 API。
 
 ## 6. 需要单独定稿的事项
 

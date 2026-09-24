@@ -4,12 +4,12 @@
 
 - 调研对象：`NousResearch/hermes-agent` 的 `main`，固定提交
   [`a31be48030f60383bf4c1d96ba46bd4b48430218`](https://github.com/NousResearch/hermes-agent/tree/a31be48030f60383bf4c1d96ba46bd4b48430218)，
-  本地 checkout 于 2026-08-11 获取并确认与 `origin/main` 一致；`pyproject.toml` 仍标记版本 `0.20.0`。
+  复核日期为 2026-08-11；该提交的 `pyproject.toml` 标记版本 `0.20.0`。
 - 本文研究 Hermes 主 Agent 的 `chat_completions` 与 `codex_responses` 两条 OpenAI-compatible 上游路径。Anthropic Messages、
   Bedrock、MoA 内部 fan-out、auxiliary model 和 provider 自定义 middleware 不属于本文的默认请求合同。
 - “JSON 字段”指上游最终收到的 request body。OpenAI Python SDK 的 `timeout` 是客户端传输参数，`extra_headers` 是 HTTP header，
   `extra_body` 中的成员会合并进最终 JSON；三者不能都当作字面 body 字段。
-- 本次结论来自最新版源码和对应测试的静态复核，没有启动 Hermes、读取私有配置、调用真实 Provider 或执行负载测试。
+- 结论来自上述固定源码和对应测试的静态复核，没有启动 Hermes、读取私有配置、调用真实 Provider 或执行负载测试。
 
 主要证据入口：
 

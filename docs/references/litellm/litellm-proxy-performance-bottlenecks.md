@@ -2,11 +2,11 @@
 
 ## 范围与证据
 
-本文基于本地 `F:/codespace/litellm` 源码快照：`litellm_internal_staging` 分支，提交
+本文基于 LiteLLM 源码快照：`litellm_internal_staging` 分支，提交
 `b3d05bd10b9a044ea08a1f1ce0e165ee5ba1ef35`。调用链细节见 [LiteLLM Proxy 调用链](litellm-proxy-call-chain-analysis.md)
 。本文只分析性能，分三类标注：
 
-**2026-08-01 当前模块级复核**：本地 `litellm_internal_staging` 已 fast-forward 至
+**2026-08-01 模块级复核快照**：`litellm_internal_staging` @
 `23de7a15d9d40006ee596e617475ba101d60c5e9`；共享请求处理、Responses route types、Prometheus/TTFT 与 failure-handler
 模块仍可定位。下文的性能判断和行号仍是固定快照证据；用于其他版本或系统前必须重新测量并固定证据。
 

@@ -14,4 +14,4 @@ Response bytes/events re-enter semantics through the selected endpoint codec bef
 
 ## Consequences
 
-Existing bounded retry, credential isolation and commit invariants are retained. Semantic JSON mutation currently performed late in provider/execution paths must move earlier into lowering/profile logic.
+Bounded retry, credential isolation and commit invariants apply to execution. Any Provider adaptation affecting modeled values must be expressed in lowering/profile logic before encoding, not as late semantic JSON mutation.

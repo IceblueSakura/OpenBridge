@@ -2,7 +2,7 @@
 
 ## 下一切片：Chat response_format 的双协议闭合
 
-本页记录经本次审阅收敛的下一步建议；本次授权为文档整理，不据此自动启动代码实现、提交或推送。整体方向由 [next-goal](next-goal.md)维护：Responses-first Generation，以单候选 Chat 验证同一 IR 的协议投影，不扩展多模态或恢复旧运行时。
+本页维护待实施切片的范围和验收条件，不自动授权实现、提交或推送。整体方向由 [next-goal](next-goal.md)维护：Responses-first Generation，以单候选 Chat 验证同一 IR 的协议投影，不扩展多模态或恢复旧运行时。
 
 ### 起点与实际缺口
 

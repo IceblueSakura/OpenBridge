@@ -13,13 +13,13 @@
 | [Codec 验收](conformance-baseline.md) | 准入矩阵、独立 oracle、SDK 和失败/资源边界方法；当前缺口链接到实现 owner |
 | [上游同步](upstream-sync.md) | 官方页面日期、SDK/Codex commit、同步差异、证据冲突和重核入口 |
 
-采用决定由 [IR 设计](../architecture-v2/semantic-ir.md)拥有；[迁移基线](../architecture-v2/migration.md)记录当前缺口，[current focus](../implementation-plans/current-focus.md)只记录已批准范围，不自动授权执行。
+采用决定由 [IR 设计](../architecture-v2/semantic-ir.md)拥有；[迁移基线](../architecture-v2/migration.md)记录当前缺口，[current focus](../implementation-plans/current-focus.md)记录当前切片与验收条件，不自动授权执行。
 
 ## 历史材料的角色
 
 现有 `openai/`、`codex/`、`protocol-gateways/`、`providers/` 等来源目录保留为**固定研究原文与出处**，不再作为当前设计的分块入口，不要求继续逐来源维护。旧页面中的“当前”、建议和维护流程只适用于其原快照；当前结论以主题综合和上游同步为准。精确原文可查[整合前 Git 快照](https://github.com/IceblueSakura/OpenBridge/tree/5924f80d9af5a68dbf13185c56942ff9102b3361/docs/references)。
 
-本轮整合的是与 IR/codec 设计相关的研究，不声称重新审计 OAuth grant、MCP server 框架、计费或运营实现。那些既有原文及[历史测试资产登记](topics/test-assets-registry.md)、[语义评测方法](semantic-testing-methods.md)按原版本保留，不因重组刷新外部验证日期。
+主题综合覆盖 IR/codec 设计；OAuth grant、MCP server 框架、计费和运营实现仍以各自固定资料为依据。既有原文及[历史测试资产登记](topics/test-assets-registry.md)、[语义评测方法](semantic-testing-methods.md)按原版本解释，不因文档整理刷新外部验证日期。
 
 ## 维护规则
 

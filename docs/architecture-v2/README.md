@@ -6,7 +6,7 @@
 
 Generation 主要参考 OpenAI Responses 的 request、ordered item/content、tool、reasoning、state 和 event 定义。Chat 及其他协议是目标映射，不以多协议最小交集限制 IR。Codex session/context 与特殊多模态通过有明确 owner、schema、来源和生命周期的扩展承载，不走任意 JSON/header 透传。
 
-[IR 设计](semantic-ir.md)拥有结构与扩展准入；[主题化历史综合](../references/semantic-baseline.md)提供设计依据；[上游同步](../references/upstream-sync.md)固定本次官方语义、SDK 和 Codex 版本。
+[IR 设计](semantic-ir.md)拥有结构与扩展准入；[主题化历史综合](../references/semantic-baseline.md)提供设计依据；[上游同步](../references/upstream-sync.md)固定官方语义、SDK 和 Codex 的来源版本。
 
 ## 处理模型
 
@@ -45,8 +45,8 @@ Wire + trusted admission context
 - [chat-text-profile.md](chat-text-profile.md)：同一 IR 的单候选 Chat 静态/流式映射与拒绝边界。
 - [schema-profile.md](schema-profile.md)：请求/报告设置共享的 Schema 结构、strict/default、本地引用与预算准入。
 
-既有 decisions 维护其当前有效规则，不添加完成日志或平行 schema；reasoning 的 owner/origin/finality 见[专项规则](decisions/0006-reasoning-ownership.md)。新文档与历史来源有冲突时，应按当前用户目标及固定一手证据显式修正，不能让旧“基线冻结”阻止必要设计调整。
+既有 decisions 维护其当前有效规则，不添加完成日志或平行 schema；reasoning 的 owner/origin/finality 见[专项规则](decisions/0006-reasoning-ownership.md)。设计与历史来源有冲突时，依据当前需求及固定一手证据显式解决；来源快照不构成冻结设计的理由。
 
 ## 验收原则
 
-独立 decode/encode 预期、IR 修改/删除、扩展来源隔离和 Static/Event 一致性是主要门槛。round trip、SDK 宽松解析或类型存在不证明完成。当前具体反例见[迁移缺口](migration.md#当前已知闭合缺口)，方法见[验收基线](../references/conformance-baseline.md)，批准范围见[current focus](../implementation-plans/current-focus.md)。
+独立 decode/encode 预期、IR 修改/删除、扩展来源隔离和 Static/Event 一致性是主要门槛。round trip、SDK 宽松解析或类型存在不证明完成。当前具体反例见[迁移缺口](migration.md#当前已知闭合缺口)，方法见[验收基线](../references/conformance-baseline.md)，当前切片见[current focus](../implementation-plans/current-focus.md)。

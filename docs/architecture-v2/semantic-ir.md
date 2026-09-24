@@ -1,6 +1,6 @@
 # Responses-first IR 与扩展设计
 
-这是 Generation IR 的设计基线，不是当前 Rust 类型已完整落地的声明。主要依据为 [Responses 标准语义](../references/responses-standard.md)、[历史调研综合](../references/semantic-baseline.md)及[本轮上游快照](../references/upstream-sync.md)。当前缺口由 [migration](migration.md)维护。
+这是 Generation IR 的设计基线，不是当前 Rust 类型已完整落地的声明。主要依据为 [Responses 标准语义](../references/responses-standard.md)、[历史调研综合](../references/semantic-baseline.md)及[固定上游快照](../references/upstream-sync.md)。当前缺口由 [migration](migration.md)维护。
 
 ## 1. 核心决定
 
@@ -118,4 +118,4 @@ HTTP framing 与 WS multiplex/steering 在外层：每个 lane/response 分派�
 
 按照 [验收基线](../references/conformance-baseline.md)逐域实现，先建立独立 wire/IR oracle，再实现与变换、失败反例。测试覆盖不足只能说明验收缺口，不能成为永久缩减 IR 表达力的理由。
 
-本轮确定的是设计方向、owner 和上游基线，没有修改 Rust 类型或开放新功能。downstream 扩展的 wire 位置/namespace 版本、Codex turn 管理模式、特殊多模态具体 profile、完整 state 解析执行仍需在对应实现切片前定稿。旧纯文本验收保留为未完成任务，不因本轮文档更新被清空。
+downstream 扩展的 wire 位置/namespace 版本、Codex turn 管理模式、特殊多模态具体 profile、完整 state 解析执行需在对应实现切片前定稿。设计目标不代表类型、codec 或执行已经实现；具体缺口由 [migration](migration.md)维护，当前切片及完成条件由 [current-focus](../implementation-plans/current-focus.md)维护。

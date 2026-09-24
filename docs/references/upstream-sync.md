@@ -1,6 +1,6 @@
 # Responses 上游同步基线
 
-复核时间：**2026-09-23**。本页固定本轮设计依据，不是 Provider 实测报告或 SDK 升级完成日志。范围为公开 Responses create/item/event、reasoning、Schema、WebSocket 和 Codex 上下文相关源码。未调用模型、登录账号、读取私有配置或运行外部项目。
+复核时间：**2026-09-23**。本页固定设计所依据的来源版本与证据边界，不是 Provider 实测报告。范围为公开 Responses create/item/event、reasoning、Schema、WebSocket 和 Codex 上下文相关源码。未调用模型、登录账号、读取私有配置或运行外部项目。
 
 ## 1. 权威与版本
 

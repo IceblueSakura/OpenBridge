@@ -16,7 +16,7 @@ Chat / Responses wire
 ```
 
 - `src/semantic/`：Generation typed request、response、event、验证和 requirements。
-- `src/protocol/`：Chat/Responses codec、表示元数据和 Responses HTTP/SSE 边界。
+- `src/protocol/`：Chat/Responses codec、表示元数据及各自的完整 JSON/SSE 边界。
 - `src/lowering/`：针对固定表示契约的可表示性检查。
 - `src/transport/sse.rs`：有界纯 SSE framing。
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/sdk_loopback.rs`：语义、transport 与固定 SDK 三个验收入口；SDK/HTTP 只使用 synthetic loopback。
