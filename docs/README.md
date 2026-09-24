@@ -8,7 +8,8 @@
 | [当前架构](architecture.md) | 实际模块结构与依赖 |
 | [v2 架构](architecture-v2/README.md)及其 decisions | Responses-first 标准语义 + scoped extensions 的设计、owner 与目标边界；不表示已实现 |
 | [迁移计划](architecture-v2/migration.md) | 语义迁移阶段、具体剩余缺口 |
-| [Responses text profile](architecture-v2/responses-text-profile.md) | 当前纯文本准入与字段归属 |
+| [Responses text profile](architecture-v2/responses-text-profile.md) | 当前 Responses 纯文本准入与字段归属 |
+| [Chat text profile](architecture-v2/chat-text-profile.md) | 单候选 Chat envelope/SSE 准入与双协议验证边界 |
 | [当前焦点](implementation-plans/current-focus.md) | 已获准切片及验收缺口，不自动授权 |
 | [下一步目标](implementation-plans/next-goal.md) | 推进顺序，不写完成日志 |
 | [开发指南](development.md) | 本地与固定 SDK 验证入口 |

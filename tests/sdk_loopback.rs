@@ -1,4 +1,6 @@
 //! Explicit, ignored SDK gate. The only HTTP listener is test-owned loopback; no Provider/router.
+#[path = "sdk/chat.rs"]
+mod chat_sdk;
 #[path = "support/responses_profile.rs"]
 mod wire;
 
@@ -267,27 +269,37 @@ impl Drop for ChildGuard {
     }
 }
 
-async fn sdk_case(sse: bool) {
+struct ServerGuard(tokio::task::AbortHandle);
+impl Drop for ServerGuard {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+async fn sdk_case(sse: bool, profile: Profile) {
     let suite = Suite::default();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let observed = suite.clone();
     let server = tokio::spawn(async move {
-        axum::serve(
-            listener,
-            Router::new()
-                .route("/v1/responses", post(handle))
-                .with_state(suite),
-        )
-        .await
-        .unwrap();
+        let router = match profile {
+            Profile::Responses => Router::new().route("/v1/responses", post(handle)),
+            Profile::Chat => Router::new().route("/v1/chat/completions", post(chat_sdk::handle)),
+        };
+        axum::serve(listener, router.with_state(suite))
+            .await
+            .unwrap();
     });
-    let guard = server.abort_handle();
+    let guard = ServerGuard(server.abort_handle());
     let mut command =
         Command::new(std::env::var_os("OPENBRIDGE_SDK_PYTHON").unwrap_or_else(|| "python3".into()));
     command
         .args([
-            SCRIPT,
+            if profile == Profile::Responses {
+                SCRIPT
+            } else {
+                "tests/sdk/chat_text_loop.py"
+            },
             &format!("http://{address}/v1"),
             if sse { "sse" } else { "json" },
         ])
@@ -320,7 +332,7 @@ async fn sdk_case(sse: bool) {
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     };
-    guard.abort();
+    guard.0.abort();
     let _ = server.await;
     assert!(
         output.status.success(),
@@ -331,7 +343,7 @@ async fn sdk_case(sse: bool) {
     assert_eq!(observed.0.lock().unwrap().0, 2);
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["turns"], 2);
-    if sse {
+    if sse && profile == Profile::Responses {
         assert!(report["event_counts"][0].as_u64().unwrap() > 5);
     }
 }
@@ -340,6 +352,14 @@ async fn sdk_case(sse: bool) {
 #[ignore = "requires locked tests/sdk Python environment; JSON/SSE synthetic loopback"]
 async fn sdk_two_turn_text_json_and_sse() {
     for mode in [false, true] {
-        sdk_case(mode).await;
+        sdk_case(mode, Profile::Responses).await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires locked tests/sdk Python environment; Chat JSON/SSE synthetic loopback"]
+async fn sdk_chat_two_turn_text_json_and_sse() {
+    for mode in [false, true] {
+        sdk_case(mode, Profile::Chat).await;
     }
 }

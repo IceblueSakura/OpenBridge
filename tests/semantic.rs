@@ -12,6 +12,8 @@ mod instructions;
 mod reasoning;
 #[path = "semantic/response.rs"]
 mod response;
+#[path = "semantic/schema.rs"]
+mod schema;
 #[path = "semantic/text_events.rs"]
 mod text_events;
 #[path = "semantic/text_profile.rs"]

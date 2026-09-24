@@ -18,9 +18,9 @@ Rust/Cargo 由根 `rust-toolchain.toml` 固定；rustfmt/clippy 随该工具链�
 
 | Target | 模块与边界 |
 |---|---|
-| `semantic` | `tests/semantic/`：instructions、tools、reasoning、text profile/events、function events、response；纯语义与 codec/lowering |
-| `transport` | `tests/transport/`：framing、Responses SSE、body lifecycle；基础 framer 和真实 body I/O 各自验证 |
-| `sdk_loopback` | 显式 ignored 的固定 Python SDK 两轮 JSON/SSE gate，不进入默认外部依赖检查 |
+| `semantic` | `tests/semantic/`：instructions、tools、reasoning、schema、text profile/events、function events、response；纯语义与 codec/lowering |
+| `transport` | `tests/transport/`：framing、Responses/Chat SSE、Chat envelope、body lifecycle；基础 framer 和真实 body I/O 各自验证 |
+| `sdk_loopback` | 显式 ignored 的固定 Python SDK 的 Responses/Chat 两轮 JSON/SSE gates，不进入默认外部依赖检查 |
 
 `tests/support/` 只共享 synthetic builders 和独立 wire 预期，不从被测 encoder 生成 oracle。相同字段的 decode、独立 encode、变换、失败和 I/O 可能保护不同边界，不按测试数量裁剪；删除重复 smoke/自比较检查前，确认剩余独立预期覆盖其有效断言。
 
@@ -56,9 +56,9 @@ uv run --project tests/sdk --locked --offline python -m pip check
 uv run --project tests/sdk --locked --offline cargo test --locked --offline --test sdk_loopback -- --ignored --test-threads=1
 ```
 
-这个 gate 的请求使用完整 envelope bytes 入口，synthetic 响应经静态 bytes / SSE 字节 decoder；SDK 使用严格响应验证，覆盖两轮 function/custom/reasoning 历史，以及 JSON/SSE 中最终正文由修改后的 IR 决定。它不是全部 SDK create/parse/replay 分支的验收。测试专用 Router 只访问临时 literal loopback，使用 synthetic Bearer；不读取私有配置、不继承 Provider credential，不执行真实工具、环境代理或自动重试。不启动旧 OpenBridge 服务，也不证明真实 Provider、完整 Agent 或生产接线兼容。
+该 target 显式运行两个 gates：Responses 覆盖 function/custom/reasoning 历史；Chat 覆盖单候选 function 两轮，通过 SDK create 和 typed chunks 消费。两者请求使用各自完整 envelope bytes 入口，synthetic 响应经静态 bytes / SSE decoder；SDK 使用严格响应验证，最终正文来自修改后的 IR。它们不是全部 SDK create/parse/replay 分支的验收。测试专用 Router 只访问临时 literal loopback，使用 synthetic Bearer；不读取私有配置、不继承 Provider credential，不执行真实工具、环境代理或自动重试。不启动旧 OpenBridge 服务，也不证明真实 Provider、完整 Agent 或生产接线兼容。
 
-`transport::body_lifecycle` 保护首帧、取消、背压与异常 body；`transport::responses_sse` 和 `transport::framing` 保护协议 adapter 与共用 framer 的终态。生命周期场景使用 channel/readiness 和有界 timeout，不用 sleep 隐藏竞争。子进程/listener/producer 需要失败路径清理。
+`transport::body_lifecycle` 保护首帧、取消、背压与异常 body；`transport::responses_sse`、`transport::chat` 和 `transport::framing` 分别保护协议 adapter 与共用 framer 的终态。生命周期场景使用 channel/readiness 和有界 timeout，不用 sleep 隐藏竞争。子进程/listener/producer 需要失败路径清理。
 
 ## 文档与边界
 

@@ -28,7 +28,7 @@ Wire + trusted admission context
 - 旧运行时已[归档](../archive.md)，不要求功能对等或保留旧 crate path。
 - 当前源码只实现 Generation 的部分 Responses/Chat 语义、lowering 和纯 SSE。
 - Responses 标准全景是目标；stateless text 是现有实施子集，不是长期 IR 表达力上限。
-- 本轮同步只改文档，不升级 SDK gate、不迁移 Rust、不实现 hosted tools、state/WS 或真实 Provider。
+- 固定 Responses/Chat SDK gates 验证有限纯文本 JSON/SSE；hosted tools、state/WS 与真实 Provider 执行仍未实现。
 - 后续先按[迁移基线](migration.md)修正核心闭合缺口，再按域推进。独立任务、topology/execution、credentials、MCP 和观测按各自获准切片实施，不创建通用插件框架。
 
 ## 文档所有权
@@ -41,7 +41,8 @@ Wire + trusted admission context
 - [execution-model.md](execution-model.md)：后续执行目标，不是当前已实现模块。
 - [rust-layout.md](rust-layout.md)：职责布局方向，不复制 SDK 文件树。
 - [migration.md](migration.md)：目标相对当前代码的差距和实施顺序。
-- [responses-text-profile.md](responses-text-profile.md)：当前 stateless text 的实现准入，不代表完整标准。
+- [responses-text-profile.md](responses-text-profile.md)：当前 Responses stateless text 的实现准入，不代表完整标准。
+- [chat-text-profile.md](chat-text-profile.md)：同一 IR 的单候选 Chat 静态/流式映射与拒绝边界。
 
 既有 decisions 维护其当前有效规则，不添加完成日志或平行 schema；reasoning 的 owner/origin/finality 见[专项规则](decisions/0006-reasoning-ownership.md)。新文档与历史来源有冲突时，应按当前用户目标及固定一手证据显式修正，不能让旧“基线冻结”阻止必要设计调整。
 

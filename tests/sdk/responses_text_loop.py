@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 import openai
 
 
-def run(base_url: str, stream: bool) -> dict[str, object]:
+def client_for(base_url: str) -> openai.OpenAI:
     """Reject non-loopback targets and private client defaults before making requests."""
     if openai.__version__ != "3.19.0":
         raise RuntimeError("expected pinned openai==3.19.0")
@@ -17,11 +17,16 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
             or parsed.path != "/v1" or parsed.query or parsed.fragment
             or parsed.username or parsed.password):
         raise ValueError("only a literal loopback /v1 listener is allowed")
-    client = openai.OpenAI(
+    return openai.OpenAI(
         api_key="synthetic-local-token", base_url=base_url, max_retries=0,
         timeout=8.0, organization="", project="", _strict_response_validation=True,
         http_client=openai.DefaultHttpxClient(trust_env=False, follow_redirects=False),
     )
+
+
+def run(base_url: str, stream: bool) -> dict[str, object]:
+    """Check stateless Responses history through the fixed synthetic listener."""
+    client = client_for(base_url)
     tools = [
         {"type": "function", "name": "lookup", "parameters": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"], "additionalProperties": False}, "strict": True},
         {"type": "custom", "name": "sql", "format": {"type": "grammar", "syntax": "regex", "definition": "SELECT [0-9]+"}},

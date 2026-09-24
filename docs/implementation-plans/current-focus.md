@@ -1,8 +1,8 @@
 # 当前开发焦点
 
-## Responses 纯文本协议与 HTTP/SSE 验收
+## Generation 纯文本双协议与 HTTP/SSE 验收
 
-用户授权补全 Responses 的纯文本协议，包含 instructions、content、reasoning、tools，然后完善 HTTP/SSE；本阶段不接实际 Provider。允许破坏性修订 v2 内部接口，不保留无意义兼容层，不自动提交或推送。
+当前以 Responses 为语义主干补全纯文本 Generation，包含 instructions、content、reasoning、tools；以单候选 Chat Completions 的静态/流式 codec 验证同一 IR 的协议稳定性，暂不推进多模态或接实际 Provider。允许破坏性修订 v2 内部接口，不保留无意义兼容层，不自动提交或推送。
 
 设计依据现为 [Responses-first 标准 + scoped extensions](../architecture-v2/semantic-ir.md)，相关历史研究已按主题整合并完成[上游文档/源码同步](../references/upstream-sync.md)。这不是代码实现或全部协议验收完成；以下纯文本范围和未完成门槛仍保留，未来扩展/媒体/state 按单独切片推进。
 
@@ -10,7 +10,7 @@
 
 ### 验收目标
 
-普通 Responses 客户端不必人工裁剪请求/响应字段，就能在明确的无状态纯文本 profile 中经过 v2 完成 JSON/SSE 两轮交互。最终 wire 必须由最终 IR 与合法表示元数据决定，不能依赖原 JSON 透传。
+Responses 与单候选 Chat 客户端在各自明确准入的无状态纯文本 profile 中，通过同一 v2 Generation 核心完成 JSON/SSE 两轮交互；不可表示的跨协议语义明确拒绝，不以协议交集限制 IR。最终 wire 必须由最终 IR 与合法表示元数据决定，不能依赖原 JSON 透传。
 
 ### 实施入口与剩余验收
 
@@ -49,6 +49,8 @@
 - 本阶段保持客户端完整历史的无状态模式。store/background/previous_response_id/conversation 的非活动形态与拒绝边界必须显式，而不是悄悄开启资源服务。
 - 不执行 hosted tools、remote MCP、服务端 conversation/background、moderation、prompt templates 或 compaction；不接真实 Provider，不部署。媒体和独立推理任务不在本次范围。
 - Structured Output 是纯文本控制的相关独立语义域，需在覆盖矩阵中明确准入，不能用 schema 字段透传冒充实现。
+
+当前 Chat 字节入口和固定 SDK 的具体准入见 [Chat profile](../architecture-v2/chat-text-profile.md)；Schema 方言/strict/reference、Chat response_format 和 SDK 派生 view 仍待验收。
 
 优先处理[已复现的 codec 缺口](../architecture-v2/migration.md#当前已知闭合缺口)，再完善标准分支；不能以当前支持域反向缩减 IR 目标。剩余准入审查以 [Responses text profile](../architecture-v2/responses-text-profile.md)为落点；SSE padding 独立预算的当前规则由该页和 `tests/transport/responses_sse.rs` 维护，不在本页重复 schema。
 

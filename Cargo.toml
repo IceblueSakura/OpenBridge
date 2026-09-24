@@ -9,7 +9,7 @@ license = "MIT"
 bytes = "1.12"
 mime = "0.3"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["preserve_order"] }
 sha2 = "0.11"
 thiserror = "2.0"
 

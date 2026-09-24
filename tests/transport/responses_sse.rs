@@ -424,7 +424,18 @@ fn rejected_metadata_update_poisoned_stream_cannot_emit_success() {
 fn multiline_data_is_joined_and_an_invalid_json_record_poisons_the_stream() {
     let first: Value = wire::events(2)[0].clone();
     let raw = json!({"type": "response.created", "response": first["response"]}).to_string();
-    let split = raw.len() / 2;
+    let split = raw.find("\"response\":").unwrap() + "\"response\":".len();
+    let valid = format!(
+        "event: response.created\ndata: {}\ndata: {}\n\n",
+        &raw[..split],
+        &raw[split..]
+    );
+    let mut accepted = decoder(SseLimits::default());
+    assert_eq!(consume_all(&mut accepted, valid.as_bytes(), 1), 1);
+    assert!(accepted.finish().is_err()); // A valid prefix is not a complete response.
+
+    // Split inside a known string token, independent of object serialization order.
+    let split = raw.find("response.created").unwrap() + "response.".len();
     let input = format!(
         "event: response.created\ndata: {}\ndata: {}\n\n",
         &raw[..split],

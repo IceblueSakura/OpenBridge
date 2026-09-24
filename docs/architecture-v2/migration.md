@@ -8,12 +8,14 @@
 
 当前有序文本/function/custom/reasoning、部分控制、annotations/logprobs、usage、Static/Event 与 HTTP/SSE 测试已有 owner，但仍是受限 stateless text profile。SDK gate 及其 Python 依赖由 `tests/sdk/pyproject.toml` 和 `uv.lock` 固定，当前 `openai==3.19.0` 的 synthetic 两轮 JSON/SSE 通过；不表示下列标准分支或已知缺口已验收。
 
+单候选 Chat 的完整 JSON/SSE 字节链路复用同一 IR、strict JSON 与 framer，具体准入见 [Chat profile](chat-text-profile.md)。该 profile 不包含全部 Chat 可选字段、response_format 或 SDK parsed-view 回放，也不将 Responses-only 能力降格为不可表达的 IR。
+
 ## 标准目标与实现映射
 
 | 域 | 当前实现 | 相对目标的缺口 |
 |---|---|---|
 | Instructions/messages | `GenerationSettings`、ordered Item、text/refusal | assistant phase；非完成 instruction lifecycle 的表示；其余标准 input/output 分支准入 |
-| Controls/Schema | typed 外层控制，schema 为 bounded Value | strict 方言、嵌套/reference 预算与 schema key 顺序；null/default 逐字段规则 |
+| Controls/Schema | typed 外层控制，schema 为有序 bounded Value | strict 方言、嵌套/reference 预算；null/default 逐字段规则 |
 | Function/custom | 定义、choice、calls、文本/文本数组 outputs、事件 | namespace、caller/programmatic/async/deferred、标准工具多模态结果及 SDK parsed text 回放 |
 | Reasoning | effort/context/mode、readable summary/text、origin-bound replay | 标准 configuration update；当前 `summary:false` 与标准 profile 的区分；更完整 snapshot/event 准入 |
 | Full response | identity、settings echo、usage、status/details | 其余标准 item 分支必填性审查；request hints 与 effective response context 的分支合同 |
@@ -30,11 +32,11 @@
 
 以下缺口仍存在；准入规则与已实现拒绝边界由 [text profile](responses-text-profile.md) 和独立测试维护。
 
-1. schema 只检查 object/bytes，非法 nested keywords 可通过。入口：`validate.rs::schema`。另据固定规范对照，Structured Outputs 按 schema key 顺序生成，当前 `serde_json` 未启用 preserve-order，需要专门验证顺序保持与 strict 方言。
+1. schema 只检查 object/bytes，非法 nested keywords 可通过。入口：`validate.rs::schema`。属性保序规则与独立变换验收见 [text profile](responses-text-profile.md#schema-property-order)，不等于 strict 方言或引用图验证。
 2. SDK parsed text 派生 `parsed` 回放被 `text.rs` 拒绝；已有 `parsed_arguments` 规则不覆盖它。
 3. 标准 phase/configuration update、更多 media/tool/event/state 分支没有实现；`summary:false`、cancelled event 等现有兼容分支需 profile 分类。
 
-非法 schema 与 parsed 回放曾在 `5924f80` 执行最小反例，相关实现尚未修改。属性顺序及标准分支缺失来自源码/规范对照，尚未补项目测试；均不称为 Provider 实测差异。
+非法 schema 与 parsed 回放曾在 `5924f80` 执行最小反例，相关实现尚未修改。标准分支缺失来自源码/规范对照；这些证据均不称为 Provider 实测差异。
 
 ## Phase gates
 

@@ -21,7 +21,7 @@ Chat / Responses wire
 - `src/transport/sse.rs`：有界纯 SSE framing。
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/sdk_loopback.rs`：语义、transport 与固定 SDK 三个验收入口；SDK/HTTP 只使用 synthetic loopback。
 
-Responses 纯文本验收仍在推进，见 [当前焦点](docs/implementation-plans/current-focus.md)和[准入说明](docs/architecture-v2/responses-text-profile.md)。媒体、其他任务、生产执行与 Provider 接入尚未完成；删除旧路线不等于这些功能已迁移。
+Generation 纯文本验收仍在推进；Responses 为语义主干，另有 [Chat 单候选 JSON/SSE profile](docs/architecture-v2/chat-text-profile.md)验证同一 IR 的协议投影。见 [当前焦点](docs/implementation-plans/current-focus.md)和[准入说明](docs/architecture-v2/responses-text-profile.md)。媒体、其他任务、生产执行与 Provider 接入尚未完成；删除旧路线不等于这些功能已迁移。
 
 ## 验证
 

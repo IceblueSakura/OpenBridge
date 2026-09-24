@@ -17,6 +17,8 @@ A codec knows wire shapes, field names, event grammar and profile-level presence
 
 Raw Responses JSON enters through `envelope::decode_request_bytes` / `decode_response_bytes`; SSE data uses the same bounded, duplicate-rejecting parser before event decoding. Existing Value APIs validate envelope/task semantics, not the lost raw JSON representation. Caller-side body collection remains independently bounded. Exact admission and limits are in the [text profile](responses-text-profile.md#raw-json-admission).
 
+The single-candidate Chat boundary is `chat_envelope::decode_request_bytes` / `decode_response_bytes` with `chat_sse::ChatSseDecoder` / `ChatSseEncoder`. It shares JSON parsing, SSE framing and Generation event/reducer machinery, but has its own delivery options and `[DONE]` terminal contract. See [Chat admission](chat-text-profile.md).
+
 ### Target lowering
 
 Lowering answers whether a final semantic request can be represented by one fixed endpoint:

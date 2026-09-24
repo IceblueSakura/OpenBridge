@@ -6,21 +6,20 @@ use super::{
 use crate::semantic::task::generation::*;
 use serde_json::{Map, Value, json};
 
+pub(super) const FIELDS: &[&str] = &[
+    "messages",
+    "temperature",
+    "top_p",
+    "max_completion_tokens",
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+    "reasoning_effort",
+];
 pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
     bounded(v)?;
     let o = object(v)?;
-    fields(
-        o,
-        &[
-            "messages",
-            "temperature",
-            "max_completion_tokens",
-            "tools",
-            "tool_choice",
-            "parallel_tool_calls",
-            "reasoning_effort",
-        ],
-    )?;
+    fields(o, FIELDS)?;
     let messages = o
         .get("messages")
         .and_then(Value::as_array)
@@ -29,7 +28,11 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
     for message in messages {
         decode_message(&mut b, object(message)?)?;
     }
-    let r = GenerationRequest::new(b.items, controls(o, "max_completion_tokens")?)?
+    let mut controls = controls(o, "max_completion_tokens")?;
+    if let Some(v) = o.get("top_p").filter(|v| !v.is_null()) {
+        controls = controls.with_top_p(v.as_f64().ok_or(CodecError::Invalid("top_p"))?)?;
+    }
+    let r = GenerationRequest::new(b.items, controls)?
         .with_reasoning(super::reasoning::chat_request(o)?);
     Ok(DecodedRequest {
         semantic: function_tools::decode(r, o, Profile::Chat)?,
@@ -88,6 +91,7 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
             }
             let calls = m
                 .get("tool_calls")
+                .filter(|v| !v.is_null())
                 .map(|v| v.as_array().ok_or(CodecError::Invalid("tool_calls")))
                 .transpose()?;
             if calls.is_some_and(Vec::is_empty) {

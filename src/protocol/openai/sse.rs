@@ -37,18 +37,31 @@ impl Default for SseLimits {
     }
 }
 impl SseLimits {
-    fn validate(self) -> Result<(), SseError> {
+    pub(super) fn validate(self) -> Result<(), SseError> {
         if self.max_event_bytes == 0 || self.max_wire_bytes == 0 || self.max_events == 0 {
             return Err(SseError::Limit);
         }
         Ok(())
     }
 }
+pub(super) fn validate_http(status: u16, content_type: &str) -> Result<(), SseError> {
+    let media: mime::Mime = content_type.parse().map_err(|_| SseError::Http)?;
+    if status != 200
+        || media.type_() != mime::TEXT
+        || media.subtype() != "event-stream"
+        || media
+            .params()
+            .any(|(k, v)| k == mime::CHARSET && v != mime::UTF_8)
+    {
+        return Err(SseError::Http);
+    }
+    Ok(())
+}
 #[derive(Debug, thiserror::Error)]
 pub enum SseError {
-    #[error("invalid Responses HTTP status or content type")]
+    #[error("invalid SSE HTTP status or content type")]
     Http,
-    #[error("Responses SSE budget exceeded")]
+    #[error("SSE budget exceeded")]
     Limit,
     #[error("SSE event and JSON type disagree")]
     EventType,
@@ -77,16 +90,7 @@ impl ResponsesSseDecoder {
         origin: Option<ReplayOrigin>,
     ) -> Result<Self, SseError> {
         limits.validate()?;
-        let media: mime::Mime = content_type.parse().map_err(|_| SseError::Http)?;
-        if status != 200
-            || media.type_() != mime::TEXT
-            || media.subtype() != "event-stream"
-            || media
-                .params()
-                .any(|(k, v)| k == mime::CHARSET && v != mime::UTF_8)
-        {
-            return Err(SseError::Http);
-        }
+        validate_http(status, content_type)?;
         let mut codec = EventDecoder::new(Profile::Responses);
         if let Some(origin) = origin {
             codec = codec.with_replay_origin(origin);
@@ -258,40 +262,17 @@ impl ResponsesSseEncoder {
                 if typ.ends_with(".delta")
                     && let Obfuscation::Seeded(seed) = &self.padding
                 {
-                    value["obfuscation"] = json!("");
-                    let size = json_size(&value, MAX_TOTAL_BYTES).map_err(|_| SseError::Limit)?;
-                    let limit = self
-                        .limits
-                        .max_event_bytes
-                        .saturating_sub(typ.len() + 16)
-                        .min(MAX_TOTAL_BYTES);
-                    if size > limit {
-                        return Err(SseError::Limit);
-                    }
-                    let padded = size.saturating_add(1023) / 1024 * 1024;
-                    let n = padded.min(limit) - size;
-                    // Charge before allocating; exhaustion rejects rather than silently removing
-                    // requested obfuscation or emitting a successful terminal after a partial error.
-                    charge_padding(
+                    pad_payload(
+                        &mut value,
+                        seed,
+                        self.events,
+                        self.limits
+                            .max_event_bytes
+                            .saturating_sub(typ.len() + 16)
+                            .min(MAX_TOTAL_BYTES),
                         &mut self.obfuscation_bytes,
-                        n,
                         self.limits.max_obfuscation_bytes,
                     )?;
-                    let mut pad = String::with_capacity(n);
-                    let mut block = 0u64;
-                    while pad.len() < n {
-                        let mut h = Sha256::new();
-                        h.update(seed);
-                        h.update((self.events as u64).to_le_bytes());
-                        h.update(block.to_le_bytes());
-                        for b in h.finalize() {
-                            use std::fmt::Write;
-                            write!(&mut pad, "{b:02x}").expect("String formatting");
-                        }
-                        block += 1;
-                    }
-                    pad.truncate(n);
-                    value["obfuscation"] = json!(pad);
                 }
                 super::envelope::validate_stream_payload(&value)?;
                 let frame = encode_frame(&value, self.limits.max_event_bytes)?;
@@ -318,7 +299,44 @@ impl ResponsesSseEncoder {
         Ok(self.codec.finish()?)
     }
 }
-fn charge_padding(total: &mut usize, bytes: usize, maximum: usize) -> Result<(), SseError> {
+pub(super) fn pad_payload(
+    value: &mut Value,
+    seed: &[u8; 32],
+    ordinal: usize,
+    limit: usize,
+    charged: &mut usize,
+    maximum: usize,
+) -> Result<(), SseError> {
+    value["obfuscation"] = json!("");
+    let size = json_size(value, MAX_TOTAL_BYTES).map_err(|_| SseError::Limit)?;
+    if size > limit {
+        return Err(SseError::Limit);
+    }
+    let n = (size.saturating_add(1023) / 1024 * 1024).min(limit) - size;
+    // Charge before allocation; never silently disable requested padding on exhaustion.
+    charge_padding(charged, n, maximum)?;
+    let mut pad = String::with_capacity(n);
+    let mut block = 0u64;
+    while pad.len() < n {
+        let mut hash = Sha256::new();
+        hash.update(seed);
+        hash.update((ordinal as u64).to_le_bytes());
+        hash.update(block.to_le_bytes());
+        for b in hash.finalize() {
+            use std::fmt::Write;
+            write!(&mut pad, "{b:02x}").expect("String formatting");
+        }
+        block += 1;
+    }
+    pad.truncate(n);
+    value["obfuscation"] = json!(pad);
+    Ok(())
+}
+pub(super) fn charge_padding(
+    total: &mut usize,
+    bytes: usize,
+    maximum: usize,
+) -> Result<(), SseError> {
     let next = total.checked_add(bytes).ok_or(SseError::Limit)?;
     if next > maximum {
         return Err(SseError::Limit);

@@ -1,5 +1,7 @@
 //! Pure codecs for the explicitly supported Generation migration slice.
 pub mod chat;
+pub mod chat_envelope;
+pub mod chat_sse;
 mod common;
 pub mod envelope;
 pub mod events;

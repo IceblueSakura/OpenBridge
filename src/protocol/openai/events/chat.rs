@@ -46,29 +46,27 @@ impl EventDecoder {
         {
             return Err(CodecError::Invalid("role"));
         }
+        // One Chat candidate owns an assistant message even when it only contains calls.
+        // Establish the same grouping as static decoding before allocating call identities.
+        let owner = if let Some(id) = self.chat_owner {
+            id
+        } else {
+            let id = self.allocate_item()?;
+            self.emit(
+                StreamEvent::ItemStarted {
+                    item: id,
+                    kind: ItemKind::Message,
+                    replay: None,
+                },
+                &mut out,
+            )?;
+            self.chat_owner = Some(id);
+            id
+        };
         for (key, kind) in [("content", PartKind::Text), ("refusal", PartKind::Refusal)] {
             if let Some(v) = delta.get(key).filter(|v| !v.is_null()) {
                 let fragment = v.as_str().ok_or(CodecError::Invalid("text delta"))?;
-                let item = if let Some(id) = self.chat_owner {
-                    id
-                } else {
-                    if !self.chat_calls.is_empty() {
-                        return Err(CodecError::Unsupported(
-                            "late Chat message ownership".into(),
-                        ));
-                    }
-                    let id = self.allocate_item()?;
-                    self.emit(
-                        StreamEvent::ItemStarted {
-                            item: id,
-                            kind: ItemKind::Message,
-                            replay: None,
-                        },
-                        &mut out,
-                    )?;
-                    self.chat_owner = Some(id);
-                    id
-                };
+                let item = owner;
                 let existing = self
                     .state()?
                     .item(item)?
@@ -103,7 +101,7 @@ impl EventDecoder {
                 )?;
             }
         }
-        if let Some(calls) = delta.get("tool_calls") {
+        if let Some(calls) = delta.get("tool_calls").filter(|v| !v.is_null()) {
             for call in calls.as_array().ok_or(CodecError::Invalid("tool calls"))? {
                 let call = object(call)?;
                 fields(call, &["index", "id", "type", "function"])?;
@@ -185,17 +183,6 @@ impl EventDecoder {
                 Some("length") => StreamTerminal::Incomplete,
                 _ => return Err(CodecError::Unsupported("finish reason".into())),
             };
-            if self.state()?.items().is_empty() {
-                let item = self.allocate_item()?;
-                self.emit(
-                    StreamEvent::ItemStarted {
-                        item,
-                        kind: ItemKind::Message,
-                        replay: None,
-                    },
-                    &mut out,
-                )?;
-            }
             let items = self.state()?.items().to_vec();
             for item in items {
                 for part in item.parts {

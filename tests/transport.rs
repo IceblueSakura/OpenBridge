@@ -4,6 +4,8 @@ mod wire;
 
 #[path = "transport/body_lifecycle.rs"]
 mod body_lifecycle;
+#[path = "transport/chat.rs"]
+mod chat;
 #[path = "transport/framing.rs"]
 mod framing;
 #[path = "transport/responses_sse.rs"]
