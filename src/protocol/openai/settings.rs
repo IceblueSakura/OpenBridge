@@ -88,33 +88,54 @@ pub(super) fn read_format(v: &Value) -> Result<OutputConstraint, CodecError> {
         }
         "json_schema" => {
             fields(o, &["type", "name", "description", "schema", "strict"])?;
-            OutputConstraint::JsonSchema {
-                name: text(string(o, "name")?, "schema name", 64)?,
-                description: o
-                    .get("description")
-                    .filter(|v| !v.is_null())
-                    .map(|v| {
-                        Text::allowing_empty(
-                            v.as_str().ok_or(CodecError::Invalid("description"))?,
-                            "description",
-                            MAX_TEXT_BYTES,
-                        )
-                        .map_err(|_| CodecError::Limit)
-                    })
-                    .transpose()?,
-                schema: o
-                    .get("schema")
-                    .cloned()
-                    .ok_or(CodecError::Invalid("schema"))?,
-                strict: o
-                    .get("strict")
-                    .filter(|v| !v.is_null())
-                    .map(|v| v.as_bool().ok_or(CodecError::Invalid("strict")))
-                    .transpose()?,
-            }
+            read_schema_body(o)?
         }
         _ => return Err(CodecError::Unsupported("text format".into())),
     })
+}
+/// Shared json_schema body fields; each protocol shell owns its wrapper and key set.
+pub(super) fn read_schema_body(o: &Map<String, Value>) -> Result<OutputConstraint, CodecError> {
+    Ok(OutputConstraint::JsonSchema {
+        name: text(string(o, "name")?, "schema name", 64)?,
+        description: o
+            .get("description")
+            .filter(|v| !v.is_null())
+            .map(|v| {
+                Text::allowing_empty(
+                    v.as_str().ok_or(CodecError::Invalid("description"))?,
+                    "description",
+                    MAX_TEXT_BYTES,
+                )
+                .map_err(|_| CodecError::Limit)
+            })
+            .transpose()?,
+        schema: o
+            .get("schema")
+            .cloned()
+            .ok_or(CodecError::Invalid("schema"))?,
+        strict: o
+            .get("strict")
+            .filter(|v| !v.is_null())
+            .map(|v| v.as_bool().ok_or(CodecError::Invalid("strict")))
+            .transpose()?,
+    })
+}
+/// Missing and null description/strict collapse to `None`; explicit `strict: false` stays visible.
+pub(super) fn write_schema_body(
+    o: &mut Map<String, Value>,
+    name: &Text,
+    description: Option<&Text>,
+    schema: &Value,
+    strict: Option<bool>,
+) {
+    o.insert("name".into(), json!(name.as_str()));
+    if let Some(d) = description {
+        o.insert("description".into(), json!(d.as_str()));
+    }
+    o.insert("schema".into(), schema.clone());
+    if let Some(s) = strict {
+        o.insert("strict".into(), json!(s));
+    }
 }
 pub(super) fn write_format(f: &OutputConstraint) -> Value {
     match f {
@@ -126,14 +147,10 @@ pub(super) fn write_format(f: &OutputConstraint) -> Value {
             schema,
             strict,
         } => {
-            let mut v = json!({"type":"json_schema","name":name.as_str(),"schema":schema});
-            if let Some(d) = description {
-                v["description"] = json!(d.as_str());
-            }
-            if let Some(s) = strict {
-                v["strict"] = json!(s);
-            }
-            v
+            let mut o = Map::new();
+            o.insert("type".into(), json!("json_schema"));
+            write_schema_body(&mut o, name, description.as_ref(), schema, *strict);
+            Value::Object(o)
         }
     }
 }

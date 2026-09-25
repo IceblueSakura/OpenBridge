@@ -18,7 +18,7 @@ use openbridge::{
         sse::{Obfuscation, SseLimits},
     },
     semantic::{
-        task::generation::{ContentPart, Item, MAX_TEXT_BYTES, StreamEvent},
+        task::generation::{ContentPart, Item, MAX_TEXT_BYTES, OutputConstraint, StreamEvent},
         value::Text,
     },
 };
@@ -70,6 +70,15 @@ pub(super) async fn handle(
     {
         return failure(StatusCode::BAD_REQUEST, "Chat continuation", &state);
     }
+    // The full envelope must have admitted the structured-output request as typed IR.
+    if turn == 2
+        && !matches!(
+            request.task.semantic.output(),
+            OutputConstraint::JsonSchema { name, strict: Some(true), .. } if name.as_str() == "answer"
+        )
+    {
+        return failure(StatusCode::BAD_REQUEST, "Chat response_format", &state);
+    }
     if !request.context.streaming() {
         let mut d = envelope::decode_response_bytes(
             &serde_json::to_vec(&wire::response(turn as u8)).unwrap(),
@@ -83,9 +92,12 @@ pub(super) async fn handle(
             let ContentPart::Text(text) = &m.parts[0].content else {
                 panic!()
             };
-            m.parts[0].content = ContentPart::Text(text.clone().replace_text(
-                Text::allowing_empty("new 🧪", "synthetic", MAX_TEXT_BYTES).unwrap(),
-            ));
+            m.parts[0].content = ContentPart::Text(
+                text.clone().replace_text(
+                    Text::allowing_empty("{\"answer\":\"new 🧪\"}", "synthetic", MAX_TEXT_BYTES)
+                        .unwrap(),
+                ),
+            );
             let completion = d.semantic.completion().unwrap();
             d.semantic = d.semantic.with_items(items, completion).unwrap();
         }
@@ -139,11 +151,17 @@ pub(super) async fn handle(
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(1);
     tokio::spawn(async move {
         for mut event in events {
-            if turn == 2
-                && let StreamEvent::Delta { fragment, .. } = &mut event
-                && fragment == "old "
-            {
-                *fragment = "new ".into();
+            if turn == 2 {
+                match &mut event {
+                    // The synthesized structured text is rendered from final IR, not source JSON.
+                    StreamEvent::Delta { fragment, .. } if fragment == "old " => {
+                        *fragment = "{\"answer\":\"new ".into();
+                    }
+                    StreamEvent::Delta { fragment, .. } if fragment == "🧪" => {
+                        *fragment = "🧪\"}".into();
+                    }
+                    _ => {}
+                }
             }
             let Ok(frames) = encoder.encode(&event, &d.fidelity) else {
                 return;

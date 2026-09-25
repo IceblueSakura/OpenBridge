@@ -8,7 +8,7 @@
 
 当前有序文本/function/custom/reasoning、部分控制、annotations/logprobs、usage、Static/Event 与 HTTP/SSE 测试已有 owner，但仍是受限 stateless text profile。固定 SDK gates 的场景与执行入口见[开发指南](../development.md#固定-openai-sdk-loopback)，依赖由 `tests/sdk/` 锁定；这些局部验收不覆盖下列全部标准分支。
 
-单候选 Chat 的完整 JSON/SSE 字节链路复用同一 IR、strict JSON 与 framer，具体准入见 [Chat profile](chat-text-profile.md)。该 profile 不包含全部 Chat 可选字段、response_format 或 SDK parsed-view 回放，也不将 Responses-only 能力降格为不可表达的 IR。
+单候选 Chat 的完整 JSON/SSE 字节链路复用同一 IR、strict JSON 与 framer，具体准入见 [Chat profile](chat-text-profile.md)。该 profile 不包含全部 Chat 可选字段或 SDK parsed-view 回放，也不将 Responses-only 能力降格为不可表达的 IR。
 
 ## 标准目标与实现映射
 
@@ -46,7 +46,7 @@
 
 ### B. 已支持子集的正确性
 
-保持 IR 权威、完整 message 必填性和已实现的显式拒绝规则；继续补齐 Chat response_format 与派生 SDK view，并按实际目标完善 Schema profile、审查其余字段/事件分支。每项先独立失败用例，再同步 semantic、requirements、lowering、codec。保留当前 Responses text 验收，不从零重写正常工作机制。
+保持 IR 权威、完整 message 必填性和已实现的显式拒绝规则；继续补齐派生 SDK view，并按实际目标完善 Schema profile、审查其余字段/事件分支。每项先独立失败用例，再同步 semantic、requirements、lowering、codec。保留当前 Responses text 验收，不从零重写正常工作机制。
 
 ### C. 标准表达力扩展
 

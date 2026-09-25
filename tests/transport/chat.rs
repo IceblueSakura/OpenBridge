@@ -8,7 +8,7 @@ use openbridge::{
     protocol::{
         fidelity::FidelityRecords,
         openai::{
-            Profile, chat_envelope as envelope,
+            Profile, chat, chat_envelope as envelope,
             chat_sse::{ChatSseDecoder, ChatSseEncoder},
             responses,
             sse::{Obfuscation, SseLimits},
@@ -85,7 +85,7 @@ fn complete_chat_envelope_separates_delivery_and_rejects_unsupported_admission()
         ("top_p", json!(1.1)),
         ("stream", json!(false)),
         ("stream_options", json!({"include_usage":null})),
-        ("response_format", json!({"type":"json_object"})),
+        ("response_format", json!({"type":"json_schema"})),
         ("base_url", json!("https://example.test")),
     ] {
         let mut bad = source.clone();
@@ -416,4 +416,82 @@ fn chat_budgets_and_padding_are_independent_of_chunks() {
     .unwrap();
     consume(&mut d, &first, 1);
     assert!(d.consume(&frame(&wire::events(2)[1])).is_err());
+}
+
+#[test]
+fn response_format_byte_entry_projects_both_ways_and_stays_a_request_fact() {
+    let schema = json!({"type":"object","properties":{"zeta":{"type":"string"}},"required":["zeta"],"additionalProperties":false});
+    let source = json!({"model":"fixture-model","messages":[{"role":"user","content":"hello"}],"response_format":{"type":"json_schema","json_schema":{"name":"answer","strict":true,"schema":schema}}});
+    let d = envelope::decode_request_bytes(&serde_json::to_vec(&source).unwrap()).unwrap();
+    let out = envelope::encode_request(
+        &lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Chat,
+            Contract::full(),
+        )
+        .unwrap(),
+        &d.context,
+    )
+    .unwrap();
+    assert_eq!(out["response_format"], source["response_format"]);
+    assert_eq!(
+        out["response_format"]["json_schema"]["schema"]["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["zeta"]
+    );
+    // The nested Chat shell projects to the flat Responses shell independently.
+    let projected = responses::encode_generation(
+        &lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Responses,
+            Contract::full(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        projected["text"]["format"],
+        json!({"type":"json_schema","name":"answer","strict":true,"schema":schema})
+    );
+    // And the flat shell projects back to the nested shell with its own wire shape.
+    let r = responses::decode_generation(&json!({"input":"hello","text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object"}}}})).unwrap();
+    let back = chat::encode_generation(
+        &lower_request(&r.semantic, &r.fidelity, Profile::Chat, Contract::full()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        back["response_format"],
+        json!({"type":"json_schema","json_schema":{"name":"answer","schema":{"type":"object"}}})
+    );
+    // Duplicate keys inside the shell die at raw-byte admission.
+    assert!(
+        envelope::decode_request_bytes(
+            br#"{"model":"m","messages":[{"role":"user","content":"x"}],"response_format":{"type":"json_schema","json_schema":{"name":"a","schema":{},"schema":{}}}}"#
+        )
+        .is_err()
+    );
+    // A request constraint is never echoed into the response or its chunks.
+    let response =
+        envelope::decode_response_bytes(&serde_json::to_vec(&wire::response(2)).unwrap()).unwrap();
+    let out = envelope::encode_response(
+        &lower_response(
+            &response.semantic,
+            &response.fidelity,
+            &response.metadata,
+            Profile::Chat,
+            Contract::full(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(!out.to_string().contains("response_format"));
+    for value in wire::events(2) {
+        assert!(!value.to_string().contains("response_format"));
+    }
 }

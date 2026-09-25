@@ -367,9 +367,19 @@ fn target_failure_is_local_and_unsupported_domains_cannot_reach_encoding() {
     }
     assert_eq!(request_wire(&d, Profile::Chat), wire);
     let ir = d.semantic.with_output(OutputConstraint::JsonObject);
+    // Structured output now maps to Chat; the target capability gate still refuses it.
+    assert!(lower_request(&ir, &d.fidelity, Profile::Chat, Contract::full()).is_ok());
     assert!(matches!(
-        lower_request(&ir, &d.fidelity, Profile::Chat, Contract::full()),
-        Err(RepresentationError::UnmigratedSemantic)
+        lower_request(
+            &ir,
+            &d.fidelity,
+            Profile::Chat,
+            Contract {
+                structured_output: false,
+                ..Contract::full()
+            }
+        ),
+        Err(RepresentationError::StructuredOutput)
     ));
 }
 #[test]

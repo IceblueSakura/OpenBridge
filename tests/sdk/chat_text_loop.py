@@ -14,6 +14,8 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
         for turn in (1, 2):
             params = dict(model="fixture-model", messages=history, tools=tools,
                           tool_choice="auto" if turn == 1 else "none", n=1, stream=stream)
+            if turn == 2:
+                params["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "strict": True, "schema": {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"], "additionalProperties": False}}}
             if stream:
                 content = ""
                 calls = {}
@@ -58,7 +60,8 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                 assert call["function"] == {"name": "lookup", "arguments": '{"n":1}'}
                 history.extend([message, {"role": "tool", "tool_call_id": "call-local", "content": "synthetic result"}])
             else:
-                assert finish == "stop" and message["content"] == "new 🧪"
+                assert finish == "stop" and message["content"] == '{"answer":"new 🧪"}'
+                assert json.loads(message["content"]) == {"answer": "new 🧪"}
         return {"turns": 2, "stream": stream, "event_counts": counts}
     finally:
         client.close()

@@ -4,6 +4,7 @@ use super::{
     CodecError, DecodedRequest, Profile, RequestRepresentation, common::*, function_tools,
 };
 use crate::semantic::task::generation::*;
+use crate::semantic::value::Presence;
 use serde_json::{Map, Value, json};
 
 pub(super) const FIELDS: &[&str] = &[
@@ -15,6 +16,7 @@ pub(super) const FIELDS: &[&str] = &[
     "tool_choice",
     "parallel_tool_calls",
     "reasoning_effort",
+    "response_format",
 ];
 pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
     bounded(v)?;
@@ -32,12 +34,68 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
     if let Some(v) = o.get("top_p").filter(|v| !v.is_null()) {
         controls = controls.with_top_p(v.as_f64().ok_or(CodecError::Invalid("top_p"))?)?;
     }
-    let r = GenerationRequest::new(b.items, controls)?
-        .with_reasoning(super::reasoning::chat_request(o)?);
+    let format = read_presence(o, "response_format", read_response_format)?;
+    let settings = GenerationSettings {
+        controls,
+        text: TextOptions {
+            presence: !format.is_absent(),
+            format,
+            verbosity: Presence::Absent,
+        },
+        reasoning: super::reasoning::chat_request(o)?,
+        ..Default::default()
+    };
+    let r = GenerationRequest::from_settings(b.items, settings)?;
     Ok(DecodedRequest {
         semantic: function_tools::decode(r, o, Profile::Chat)?,
         fidelity: b.fidelity,
     })
+}
+/// Chat nests the json_schema body under `json_schema`; the flat Responses shell is parsed apart.
+fn read_response_format(v: &Value) -> Result<OutputConstraint, CodecError> {
+    let o = object(v)?;
+    Ok(match string(o, "type")? {
+        "text" => {
+            fields(o, &["type"])?;
+            OutputConstraint::Text
+        }
+        "json_object" => {
+            fields(o, &["type"])?;
+            OutputConstraint::JsonObject
+        }
+        "json_schema" => {
+            fields(o, &["type", "json_schema"])?;
+            let body = object(
+                o.get("json_schema")
+                    .ok_or(CodecError::Invalid("json_schema"))?,
+            )?;
+            fields(body, &["name", "description", "schema", "strict"])?;
+            super::settings::read_schema_body(body)?
+        }
+        _ => return Err(CodecError::Unsupported("response format".into())),
+    })
+}
+fn write_response_format(f: &OutputConstraint) -> Value {
+    match f {
+        OutputConstraint::Text => json!({"type":"text"}),
+        OutputConstraint::JsonObject => json!({"type":"json_object"}),
+        OutputConstraint::JsonSchema {
+            name,
+            description,
+            schema,
+            strict,
+        } => {
+            let mut body = Map::new();
+            super::settings::write_schema_body(
+                &mut body,
+                name,
+                description.as_ref(),
+                schema,
+                *strict,
+            );
+            json!({"type":"json_schema","json_schema":Value::Object(body)})
+        }
+    }
 }
 pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<(), CodecError> {
     fields(
@@ -155,6 +213,12 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     if let Some(p) = target.semantic.controls().top_p() {
         o.insert("top_p".into(), json!(p));
     }
+    put_presence(
+        o,
+        "response_format",
+        &target.semantic.text_options().format,
+        write_response_format,
+    );
     function_tools::encode(target.semantic, Profile::Chat, o);
     super::reasoning::write_request(target.semantic.reasoning(), o, Profile::Chat);
     bounded(&v)?;

@@ -16,7 +16,7 @@ This is a bounded offline profile over the same Generation IR and reducer as Res
 | Domain | Supported behavior | Rejection / limitation |
 |---|---|---|
 | Request envelope | Required model/messages; n absent/null/1 means the single candidate; stream absent/null/false is static | Multiple/zero candidates, wrong types and unknown controls fail |
-| Task controls | temperature, top_p, max_completion_tokens, function tools/choice/parallel_tool_calls, existing reasoning_effort mapping | response_format, additional sampling controls and deprecated aliases are not admitted here |
+| Task controls | temperature, top_p, max_completion_tokens, function tools/choice/parallel_tool_calls, existing reasoning_effort mapping, response_format's text/json_object/json_schema mapped to the shared output constraint owner | Additional sampling controls, verbosity/logprobs/truncation and deprecated aliases are not admitted here; function output_schema has no Chat projection |
 | History | system/developer text instructions, user/assistant text, assistant refusal, function calls and text tool results | No media, custom/hosted tools, third-party reasoning text or state resources |
 | Complete response | Required id/model, integer created, chat.completion, one choice at index 0, assistant message, stop/tool_calls/length | No synthetic upstream headers; content_filter/deprecated function_call and multiple candidates are not yet mapped |
 | Stream chunks | Required stable identity/model/integer created, chat.completion.chunk, delta/index; nullable content/refusal/tool_calls; function argument fragments | Additional standard response metadata such as service_tier/system_fingerprint/moderation and logprobs are not yet admitted; no generic pass-through |
@@ -24,6 +24,16 @@ This is a bounded offline profile over the same Generation IR and reducer as Res
 | Usage | Optional reported usage and supported details; stream may have a choices=[] usage tail after finish_reason | Duplicate/early usage and business chunks after finish_reason fail; missing counts are not invented |
 
 Unknown fields are explicit errors, including presently unsupported standard fields. This table defines a subset, not a claim that those fields are nonstandard. Existing Responses-only semantics stay in the IR; an unavailable Chat projection must reject them rather than narrow the Responses contract.
+
+## Output constraint shells
+
+Chat `response_format` and Responses `text.format` map to the same `TextOptions.format` owner (`Presence<OutputConstraint>`); the shells are parsed and encoded independently and are not byte-isomorphic. Chat nests the schema body under a `json_schema` object, Responses places `name`/`description`/`schema`/`strict` beside `type`. `text` and `json_object` accept only `type`; unknown keys, unknown `type` values and wrong value types fail in both shells.
+
+Outer presence follows the shared owner's rule that admitted child nulls and explicit defaults remain visible: a missing `response_format` is `Absent`; an explicit `null` is `Null` (present, not absent) and re-emits `null`; an object is `Value`. An explicit `{"type": "text"}` is the visible default: wire-distinct from omission and never synthesized from a missing or empty `text` container or verbosity-only settings. The pinned `openai==3.19.0` create type marks `response_format` non-nullable; admitting explicit null as a visible distinction is a local choice matching the shared `text.format` contract, not a claim that every server accepts it.
+
+Inside the schema body the two shells share one field contract: `name` is required and bounded; `schema` is required and authoritative and fails rather than defaulting; `description` missing or null equals no description and is never re-emitted as null; `strict` missing or null is the general-structural mode with no filled default while an explicit `false` stays visible. Structural, strict and local-reference admission stays in the [schema profile](schema-profile.md); nothing here rewrites the schema.
+
+A request constraint is not a response fact: Chat responses and chunks never echo `response_format` or settings. The mapping opens no other boundary: target structured-output capability, the Chat non-strict function default, and the rejection of function `output_schema`, verbosity, logprobs and truncation all still apply.
 
 ## Delivery and terminal rules
 
@@ -39,6 +49,6 @@ Callers retain unconsumed bytes from `consume`, finish framing before materializ
 
 ## Independent acceptance and remaining work
 
-`tests/transport/chat.rs` covers independent static/event fixtures, fragmentation, request projection to Responses, final-event mutation, refusal/empty/length, failure closure and resource limits. `tests/sdk/chat_text_loop.py` exercises SDK create and typed streamed chunks through two function-tool turns; the server modifies final IR text before rendering. It does not claim high-level SDK parsed-view replay. The existing Responses SDK gate remains separate; both use only synthetic loopback.
+`tests/transport/chat.rs` covers independent static/event fixtures, fragmentation, request projection to Responses, output-constraint byte entry and dual-shell projection, final-event mutation, refusal/empty/length, failure closure and resource limits. `tests/sdk/chat_text_loop.py` exercises SDK create and typed streamed chunks through two function-tool turns with a structured-output request; the server synthesizes the final structured text from modified IR. It does not claim high-level SDK parsed-view replay. The existing Responses SDK gate remains separate; both use only synthetic loopback.
 
-Function schemas use shared [structural/strict/reference validation](schema-profile.md); omitted Chat strict stays non-strict rather than adopting the Responses normalization default. Chat response_format, derived SDK views, broader field/event admission and additional finish reasons remain future text slices. Media, multi-candidate output and production/Provider execution are outside this profile. See [next goal](../implementation-plans/next-goal.md) and [development commands](../development.md).
+Function schemas use shared [structural/strict/reference validation](schema-profile.md); omitted Chat strict stays non-strict rather than adopting the Responses normalization default. Derived SDK views, broader field/event admission and additional finish reasons remain future text slices. Media, multi-candidate output and production/Provider execution are outside this profile. See [next goal](../implementation-plans/next-goal.md) and [development commands](../development.md).

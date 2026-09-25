@@ -226,6 +226,13 @@ fn function_strict_defaults_and_output_schemas_have_separate_admission() {
     assert!(responses::decode_generation(&json!({"input":"x","tools":[tool.clone()]})).is_err());
     tool["strict"] = json!(false);
     assert!(responses::decode_generation(&json!({"input":"x","tools":[tool]})).is_ok());
+    // Opening the output-constraint mapping relaxes no Chat tool admission.
+    let d=responses::decode_generation(&json!({"input":"x","text":{"format":{"type":"json_object"}},"tools":[{"type":"function","name":"f","parameters":closed}]})).unwrap();
+    assert!(lower_request(&d.semantic, &d.fidelity, Profile::Chat, Contract::full()).is_err());
+    let d=responses::decode_generation(&json!({"input":"x","text":{"format":{"type":"json_object"}},"tools":[{"type":"function","name":"f","parameters":closed,"strict":false,"output_schema":{"type":"string"}}]})).unwrap();
+    assert!(lower_request(&d.semantic, &d.fidelity, Profile::Chat, Contract::full()).is_err());
+    let d=responses::decode_generation(&json!({"input":"x","text":{"format":{"type":"json_object"}},"tools":[{"type":"function","name":"f","parameters":closed,"strict":false}]})).unwrap();
+    assert!(lower_request(&d.semantic, &d.fidelity, Profile::Chat, Contract::full()).is_ok());
 }
 
 #[test]
@@ -378,7 +385,7 @@ fn raw_schema_order_survives_ir_and_independent_protocol_projections() {
     assert_original(&encoded["tools"][0]["parameters"]);
     assert_original(&encoded["tools"][0]["output_schema"]);
 
-    // Keep existing Chat admission: output constraints/output_schema are not mapped.
+    // Chat still rejects function output_schema even though text.format now projects.
     assert!(
         lower_request(
             &d.task.semantic,
@@ -389,7 +396,6 @@ fn raw_schema_order_survives_ir_and_independent_protocol_projections() {
         .is_err()
     );
     let mut settings = d.task.semantic.settings().clone();
-    settings.text = Default::default();
     let ToolDefinition::Function(tool) = &mut settings.tools.as_mut().unwrap()[0] else {
         panic!()
     };
@@ -405,8 +411,89 @@ fn raw_schema_order_survives_ir_and_independent_protocol_projections() {
         .unwrap(),
     )
     .unwrap();
-    assert!(encoded.get("response_format").is_none());
+    assert_original(&encoded["response_format"]["json_schema"]["schema"]);
     assert_original(&encoded["tools"][0]["function"]["parameters"]);
+
+    // Deleting the output constraint does not resurrect the old schema on the Chat shell.
+    let mut settings = d.task.semantic.settings().clone();
+    settings.text = Default::default();
+    d.task.semantic = d.task.semantic.with_settings(settings).unwrap();
+    let encoded = chat::encode_generation(
+        &lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Chat,
+            Contract::full(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(encoded.get("response_format").is_none());
+}
+
+#[test]
+fn switching_or_deleting_the_output_constraint_cannot_resurrect_a_schema() {
+    let mut d = request();
+    let mut settings = d.task.semantic.settings().clone();
+    settings.tools = None;
+    let replacement = closed_property(json!({"type":"boolean"}));
+    settings.text.format = Presence::Value(OutputConstraint::JsonSchema {
+        name: Text::new("answer", "schema name", 64).unwrap(),
+        description: None,
+        schema: replacement.clone(),
+        strict: Some(true),
+    });
+    d.task.semantic = d.task.semantic.with_settings(settings.clone()).unwrap();
+    assert!(GenerationRequirements::derive(&d.task.semantic).structured_output);
+    let encoded = chat::encode_generation(
+        &lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Chat,
+            Contract::full(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_order(
+        &encoded["response_format"]["json_schema"]["schema"],
+        &["value"],
+    );
+    assert_eq!(
+        encoded["response_format"]["json_schema"]["schema"],
+        replacement
+    );
+    // Switching the constraint drops the old schema instead of keeping it in source metadata.
+    settings.text.format = Presence::Value(OutputConstraint::JsonObject);
+    d.task.semantic = d.task.semantic.with_settings(settings.clone()).unwrap();
+    assert!(GenerationRequirements::derive(&d.task.semantic).structured_output);
+    let encoded = chat::encode_generation(
+        &lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Chat,
+            Contract::full(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(encoded["response_format"], json!({"type":"json_object"}));
+    assert!(!encoded.to_string().contains("value"));
+    settings.text = Default::default();
+    d.task.semantic = d.task.semantic.with_settings(settings).unwrap();
+    assert!(!GenerationRequirements::derive(&d.task.semantic).structured_output);
+    let encoded = chat::encode_generation(
+        &lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Chat,
+            Contract::full(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(encoded.get("response_format").is_none());
+    assert!(!encoded.to_string().contains("value"));
 }
 
 #[test]

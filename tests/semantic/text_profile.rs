@@ -7,7 +7,7 @@ use openbridge::{
     protocol::{
         fidelity::FidelityRecords,
         openai::{
-            DecodedRequest, Profile, envelope,
+            DecodedRequest, Profile, chat, envelope,
             events::{EventDecoder, EventEncoder},
             responses,
             sse::*,
@@ -33,6 +33,12 @@ fn text(s: &str) -> Text {
 fn request_wire(d: &DecodedRequest) -> Value {
     responses::encode_generation(
         &lower_request(&d.semantic, &d.fidelity, Profile::Responses, contract()).unwrap(),
+    )
+    .unwrap()
+}
+fn chat_wire(d: &DecodedRequest) -> Value {
+    chat::encode_generation(
+        &lower_request(&d.semantic, &d.fidelity, Profile::Chat, contract()).unwrap(),
     )
     .unwrap()
 }
@@ -174,6 +180,182 @@ fn text_presence_and_final_requirements_match_independent_wire_expectations() {
             lower_request(&d.semantic, &d.fidelity, Profile::Responses, limited).is_err(),
             structured
         );
+    }
+}
+
+#[test]
+fn response_format_shells_map_to_one_owner_with_independent_shapes() {
+    let closed = json!({"type":"object","properties":{"zeta":{"type":"string"}},"required":["zeta"],"additionalProperties":false});
+    let full = OutputConstraint::JsonSchema {
+        name: text("answer"),
+        description: Some(text("pick")),
+        schema: closed.clone(),
+        strict: Some(true),
+    };
+    let bare = OutputConstraint::JsonSchema {
+        name: text("answer"),
+        description: None,
+        schema: closed.clone(),
+        strict: None,
+    };
+    for (format, chat_format, responses_text, structured) in [
+        (None, None, None, false),
+        (
+            Some(Presence::Null),
+            Some(Value::Null),
+            Some(json!({"format":null})),
+            false,
+        ),
+        (
+            Some(Presence::Value(OutputConstraint::Text)),
+            Some(json!({"type":"text"})),
+            Some(json!({"format":{"type":"text"}})),
+            false,
+        ),
+        (
+            Some(Presence::Value(OutputConstraint::JsonObject)),
+            Some(json!({"type":"json_object"})),
+            Some(json!({"format":{"type":"json_object"}})),
+            true,
+        ),
+        (
+            Some(Presence::Value(full.clone())),
+            Some(
+                json!({"type":"json_schema","json_schema":{"name":"answer","description":"pick","schema":closed,"strict":true}}),
+            ),
+            Some(
+                json!({"format":{"type":"json_schema","name":"answer","description":"pick","schema":closed,"strict":true}}),
+            ),
+            true,
+        ),
+        (
+            Some(Presence::Value(bare.clone())),
+            Some(json!({"type":"json_schema","json_schema":{"name":"answer","schema":closed}})),
+            Some(json!({"format":{"type":"json_schema","name":"answer","schema":closed}})),
+            true,
+        ),
+    ] {
+        let options = TextOptions {
+            presence: format.is_some(),
+            format: format.unwrap_or(Presence::Absent),
+            verbosity: Presence::Absent,
+        };
+        let mut source = json!({"messages":[{"role":"user","content":"hello"}]});
+        if let Some(value) = &chat_format {
+            source["response_format"] = value.clone();
+        }
+        let d = chat::decode_generation(&source).unwrap();
+        assert_eq!(d.semantic.text_options(), &options);
+        assert_eq!(chat_wire(&d).get("response_format"), chat_format.as_ref());
+        let mut source = json!({"input":"hello"});
+        if let Some(value) = &responses_text {
+            source["text"] = value.clone();
+        }
+        let r = responses::decode_generation(&source).unwrap();
+        assert_eq!(r.semantic.text_options(), &options);
+        assert_eq!(request_wire(&r).get("text"), responses_text.as_ref());
+        assert_eq!(
+            GenerationRequirements::derive(&d.semantic).structured_output,
+            structured
+        );
+        let mut limited = contract();
+        limited.structured_output = false;
+        for profile in [Profile::Chat, Profile::Responses] {
+            assert_eq!(
+                lower_request(&d.semantic, &d.fidelity, profile, limited.clone()).is_err(),
+                structured
+            );
+        }
+    }
+}
+
+#[test]
+fn response_format_presence_defaults_and_rejections_are_deliberate() {
+    let closed = json!({"type":"object","properties":{"zeta":{"type":"string"}},"required":["zeta"],"additionalProperties":false});
+    let base = json!({"messages":[{"role":"user","content":"hello"}]});
+    let decode = |format: Value| {
+        let mut source = base.clone();
+        source["response_format"] = format;
+        chat::decode_generation(&source).unwrap()
+    };
+    // Missing and null inner description/strict are one state; an explicit false stays visible.
+    let omitted =
+        decode(json!({"type":"json_schema","json_schema":{"name":"answer","schema":closed}}));
+    let nulled = decode(
+        json!({"type":"json_schema","json_schema":{"name":"answer","schema":closed,"description":null,"strict":null}}),
+    );
+    assert_eq!(
+        omitted.semantic.text_options(),
+        nulled.semantic.text_options()
+    );
+    assert_eq!(chat_wire(&omitted), chat_wire(&nulled));
+    assert!(!chat_wire(&omitted).to_string().contains("strict"));
+    let explicit = decode(
+        json!({"type":"json_schema","json_schema":{"name":"answer","schema":closed,"strict":false}}),
+    );
+    assert_ne!(
+        omitted.semantic.text_options(),
+        explicit.semantic.text_options()
+    );
+    assert_eq!(
+        chat_wire(&explicit)["response_format"]["json_schema"]["strict"],
+        json!(false)
+    );
+    // Explicit null and explicit text stay distinct from omission on the wire.
+    let nulled = decode(Value::Null);
+    assert_eq!(
+        nulled.semantic.text_options(),
+        &TextOptions {
+            presence: true,
+            format: Presence::Null,
+            verbosity: Presence::Absent
+        }
+    );
+    assert_eq!(
+        chat_wire(&nulled).get("response_format"),
+        Some(&Value::Null)
+    );
+    let explicit_text = decode(json!({"type":"text"}));
+    assert_eq!(
+        chat_wire(&explicit_text)["response_format"],
+        json!({"type":"text"})
+    );
+    let absent = chat::decode_generation(&base).unwrap();
+    assert!(chat_wire(&absent).get("response_format").is_none());
+    // A missing or empty text container never becomes an explicit constraint.
+    for source in [
+        json!({"input":"hello","text":{}}),
+        json!({"input":"hello","text":{"verbosity":"low"}}),
+    ] {
+        let r = responses::decode_generation(&source).unwrap();
+        assert_eq!(r.semantic.text_options().format, Presence::Absent);
+    }
+    let empty = responses::decode_generation(&json!({"input":"hello","text":{}})).unwrap();
+    assert!(chat_wire(&empty).get("response_format").is_none());
+    for bad in [
+        json!(5),
+        json!(true),
+        json!([]),
+        json!({}),
+        json!({"type":"unknown"}),
+        json!({"type":"text","extra":1}),
+        json!({"type":"json_object","schema":{}}),
+        json!({"type":"json_schema"}),
+        json!({"type":"json_schema","json_schema":null}),
+        json!({"type":"json_schema","json_schema":"x"}),
+        json!({"type":"json_schema","json_schema":{}}),
+        json!({"type":"json_schema","json_schema":{"name":"answer"}}),
+        json!({"type":"json_schema","json_schema":{"name":"answer","schema":null}}),
+        json!({"type":"json_schema","json_schema":{"name":"answer","schema":5}}),
+        json!({"type":"json_schema","json_schema":{"name":"answer","schema":{},"extra":1}}),
+        json!({"type":"json_schema","json_schema":{"name":"bad name","schema":{}}}),
+        json!({"type":"json_schema","json_schema":{"name":"","schema":{}}}),
+        json!({"type":"json_schema","json_schema":{"name":"answer","schema":{},"strict":"yes"}}),
+        json!({"type":"json_schema","json_schema":{"name":"answer","schema":{},"description":7}}),
+    ] {
+        let mut source = base.clone();
+        source["response_format"] = bad;
+        assert!(chat::decode_generation(&source).is_err());
     }
 }
 

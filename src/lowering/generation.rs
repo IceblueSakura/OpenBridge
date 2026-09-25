@@ -127,10 +127,7 @@ pub fn lower_request<'a>(
         return Err(RepresentationError::Terminal);
     }
     if profile == Profile::Chat
-        && (q.structured_output
-            || q.logprobs
-            || q.truncation
-            || !r.text_options().verbosity.is_absent())
+        && (q.logprobs || q.truncation || !r.text_options().verbosity.is_absent())
     {
         return Err(RepresentationError::UnmigratedSemantic);
     }
