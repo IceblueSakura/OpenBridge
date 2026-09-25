@@ -332,7 +332,7 @@ pub(super) fn decode_items(
                                 )
                             }
                             "output_text" if role == MessageRole::Assistant => {
-                                ContentPart::Text(super::text::read(p)?)
+                                ContentPart::Text(super::text::read(p, !response)?)
                             }
                             _ => return Err(CodecError::Unsupported("content part".into())),
                         };

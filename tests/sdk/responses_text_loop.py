@@ -1,10 +1,15 @@
-"""Exercise two stateless Responses turns through the v2-only synthetic listener."""
+"""Exercise Responses turns and derived-view replay through the v2-only synthetic listener."""
 import ipaddress
 import json
 import sys
 from urllib.parse import urlsplit
 
 import openai
+from pydantic import BaseModel
+
+
+class Answer(BaseModel):
+    ok: bool
 
 
 def client_for(base_url: str) -> openai.OpenAI:
@@ -25,7 +30,7 @@ def client_for(base_url: str) -> openai.OpenAI:
 
 
 def run(base_url: str, stream: bool) -> dict[str, object]:
-    """Check stateless Responses history through the fixed synthetic listener."""
+    """Check stateless Responses history and parsed-view replay on the fixed listener."""
     client = client_for(base_url)
     tools = [
         {"type": "function", "name": "lookup", "parameters": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"], "additionalProperties": False}, "strict": True},
@@ -34,12 +39,26 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
     history: list[dict[str, object]] = [{"role": "user", "content": "hello 🧪"}]
     event_counts: list[int] = []
     try:
-        for turn in (1, 2):
+        for turn in (1, 2, 3):
             params = dict(model="fixture-model", input=history, instructions="Answer precisely",
                           store=False, tools=tools, tool_choice="auto" if turn == 1 else "none",
                           reasoning={"effort": "low", "summary": "auto"},
                           text={"format": {"type": "json_schema", "name": "answer", "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"], "additionalProperties": False}, "strict": True}})
-            if stream:
+            if turn == 2:
+                # Consume through the pinned parser so turn 3 replays real derived views.
+                params.pop("text")
+                if stream:
+                    events = []
+                    with client.responses.stream(**params, text_format=Answer) as response_stream:
+                        for event in response_stream:
+                            events.append(event.type)
+                        result = response_stream.get_final_response()
+                    assert events.count("response.completed") == 1
+                    event_counts.append(len(events))
+                else:
+                    result = client.responses.parse(**params, text_format=Answer)
+                assert result.output_parsed == Answer(ok=True), "final body must come from modified IR"
+            elif stream:
                 events = []
                 with client.responses.stream(**params) as response_stream:
                     for event in response_stream:
@@ -59,9 +78,14 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                     {"type": "custom_tool_call_output", "call_id": "c_sql", "output": "1"},
                     {"type": "function_call_output", "call_id": "c_lookup", "output": "{\"n\":1}"},
                 ])
+            elif turn == 2:
+                dumped = [item.model_dump(exclude_none=True) for item in result.output]
+                assert any("parsed" in part for item in dumped if item["type"] == "message"
+                           for part in item["content"]), "dump must carry the derived view"
+                history.extend(dumped)
             else:
-                assert result.output_text == '{"ok":true}', "final body must come from modified IR"
-        return {"turns": 2, "stream": stream, "event_counts": event_counts}
+                assert result.output_text == '{"ok":false}', "raw body stays authoritative on replay"
+        return {"turns": 3, "stream": stream, "event_counts": event_counts}
     finally:
         client.close()
 

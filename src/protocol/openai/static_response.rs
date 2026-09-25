@@ -179,7 +179,7 @@ pub fn decode_chat(v: &Value) -> Result<DecodedResponse, CodecError> {
     };
     let message = object(c.get("message").ok_or(CodecError::Invalid("message"))?)?;
     let mut b = Items::default();
-    chat::decode_message(&mut b, message)?;
+    chat::decode_message(&mut b, message, false)?;
     if matches!(outcome, Outcome::Incomplete) {
         for (_, item) in &mut b.items {
             match item {

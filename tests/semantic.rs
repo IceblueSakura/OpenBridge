@@ -8,6 +8,8 @@ mod wire;
 mod function_events;
 #[path = "semantic/instructions.rs"]
 mod instructions;
+#[path = "semantic/parsed_replay.rs"]
+mod parsed_replay;
 #[path = "semantic/reasoning.rs"]
 mod reasoning;
 #[path = "semantic/response.rs"]

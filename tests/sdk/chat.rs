@@ -59,7 +59,7 @@ pub(super) async fn handle(
         seen.0 += 1;
         seen.0
     };
-    if turn > 2
+    if turn > 3
         || turn == 2
             && !request
                 .task
@@ -74,10 +74,21 @@ pub(super) async fn handle(
     if turn == 2
         && !matches!(
             request.task.semantic.output(),
-            OutputConstraint::JsonSchema { name, strict: Some(true), .. } if name.as_str() == "answer"
+            OutputConstraint::JsonSchema { name, strict: Some(true), .. } if name.as_str() == "Answer"
         )
     {
         return failure(StatusCode::BAD_REQUEST, "Chat response_format", &state);
+    }
+    // The replayed parsed view passed consistency admission; the raw body stays authoritative.
+    if turn == 3
+        && !request.task.semantic.items().iter().any(|(_, i)| {
+            matches!(i, Item::Message(m) if m.parts.iter().any(|p| matches!(
+                &p.content,
+                ContentPart::Text(t) if t.as_str() == "{\"answer\":\"new 🧪\"}"
+            )))
+        })
+    {
+        return failure(StatusCode::BAD_REQUEST, "Chat parsed replay", &state);
     }
     if !request.context.streaming() {
         let mut d = envelope::decode_response_bytes(

@@ -511,7 +511,7 @@ impl EventDecoder {
             return Err(CodecError::Invalid("initial part"));
         }
         if kind == PartKind::Text {
-            let text = super::super::text::read(p)?;
+            let text = super::super::text::read(p, false)?;
             if !text.annotations().is_empty()
                 || text.logprobs().value().is_some_and(|v| !v.is_empty())
             {
@@ -714,7 +714,7 @@ impl EventDecoder {
             return Err(CodecError::Invalid("part snapshot"));
         }
         if kind == PartKind::Text {
-            let t = super::super::text::read(p)?;
+            let t = super::super::text::read(p, false)?;
             self.emit(
                 StreamEvent::TextMetadata {
                     item,

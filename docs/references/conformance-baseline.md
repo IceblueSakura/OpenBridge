@@ -35,7 +35,7 @@
 - event 缺 required payload、跨 kind 字段、非法 status 不得被忽略后继续成功。
 - JSON 重复键必须在失去原始键序列前按严格边界处理。
 - Schema 不能只检查 object/bytes；嵌套类型、strict/profile、引用与顺序分别验证。
-- SDK derived views 需要独立回放策略，不能因为 function parsed view 通过便认为 parsed text 也支持。
+- 每种 SDK derived view 都需要独立的回放准入与一致性规则；一种派生 view 通过不证明另一种也支持。
 - 标准 phase、configuration update、媒体、工具与 state 必须分支验收，不靠一个两轮 fixture 声明完整。
 
 OpenBridge 当前具体违反项、复现与源码证据统一在[迁移缺口](../architecture-v2/migration.md#当前已知闭合缺口)维护，本页只定义方法与来源边界。

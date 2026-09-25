@@ -28,7 +28,7 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
         .ok_or(CodecError::Invalid("messages"))?;
     let mut b = Items::default();
     for message in messages {
-        decode_message(&mut b, object(message)?)?;
+        decode_message(&mut b, object(message)?, true)?;
     }
     let mut controls = controls(o, "max_completion_tokens")?;
     if let Some(v) = o.get("top_p").filter(|v| !v.is_null()) {
@@ -97,12 +97,31 @@ fn write_response_format(f: &OutputConstraint) -> Value {
         }
     }
 }
-pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<(), CodecError> {
+pub(super) fn decode_message(
+    b: &mut Items,
+    m: &Map<String, Value>,
+    replay: bool,
+) -> Result<(), CodecError> {
     fields(
         m,
-        &["role", "content", "tool_calls", "tool_call_id", "refusal"],
+        if replay {
+            &[
+                "role",
+                "content",
+                "tool_calls",
+                "tool_call_id",
+                "refusal",
+                "parsed",
+            ]
+        } else {
+            &["role", "content", "tool_calls", "tool_call_id", "refusal"]
+        },
     )?;
     let role = string(m, "role")?;
+    if replay && role != "assistant" && m.contains_key("parsed") {
+        // The pinned SDK attaches its parsed view to assistant messages only.
+        return Err(CodecError::Invalid("parsed"));
+    }
     let id = b.id()?;
     match role {
         "tool" => {
@@ -146,6 +165,15 @@ pub(super) fn decode_message(b: &mut Items, m: &Map<String, Value>) -> Result<()
         "user" | "assistant" => {
             if m.contains_key("tool_call_id") || (role == "user" && m.contains_key("tool_calls")) {
                 return Err(CodecError::Invalid("message tool fields"));
+            }
+            if replay {
+                super::common::admit_parsed(
+                    m.get("parsed"),
+                    match m.get("content") {
+                        Some(Value::String(s)) => Some(s.as_str()),
+                        _ => None,
+                    },
+                )?;
             }
             let calls = m
                 .get("tool_calls")

@@ -5,10 +5,20 @@ use crate::semantic::{
     value::{Presence, Text},
 };
 use serde_json::{Map, Value, json};
-pub(super) fn read(o: &Map<String, Value>) -> Result<TextContent, CodecError> {
-    fields(o, &["type", "text", "annotations", "logprobs"])?;
+pub(super) fn read(o: &Map<String, Value>, replay: bool) -> Result<TextContent, CodecError> {
+    fields(
+        o,
+        if replay {
+            &["type", "text", "annotations", "logprobs", "parsed"]
+        } else {
+            &["type", "text", "annotations", "logprobs"]
+        },
+    )?;
     let text = Text::allowing_empty(string(o, "text")?, "text", MAX_TEXT_BYTES)
         .map_err(|_| CodecError::Limit)?;
+    if replay {
+        admit_parsed(o.get("parsed"), Some(text.as_str()))?;
+    }
     let annotations = match o.get("annotations") {
         None => vec![],
         Some(v) => read_annotations(v)?,

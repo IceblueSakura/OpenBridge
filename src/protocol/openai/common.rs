@@ -61,6 +61,24 @@ pub(super) fn fields(o: &Map<String, Value>, allowed: &[&str]) -> Result<(), Cod
     }
     Ok(())
 }
+/// A replayed SDK `parsed` view must equal the naive JSON parse of the authoritative raw
+/// text, mirroring the pinned SDK's derivation over this opaque body; null means no derived
+/// value. The view is validated then dropped: it never becomes IR state, is never emitted,
+/// and a body without a text cannot derive a non-null view.
+pub(super) fn admit_parsed(parsed: Option<&Value>, raw: Option<&str>) -> Result<(), CodecError> {
+    match (parsed, raw) {
+        (None | Some(Value::Null), _) => Ok(()),
+        (Some(_), None) => Err(CodecError::Invalid("parsed")),
+        (Some(v), Some(raw)) => {
+            let expected: Value =
+                serde_json::from_str(raw).map_err(|_| CodecError::Invalid("parsed"))?;
+            if *v != expected {
+                return Err(CodecError::Invalid("parsed"));
+            }
+            Ok(())
+        }
+    }
+}
 pub(super) fn string<'a>(
     o: &'a Map<String, Value>,
     key: &'static str,

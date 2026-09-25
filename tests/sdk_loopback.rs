@@ -111,7 +111,7 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
         seen.0 += 1;
         seen.0
     };
-    if turn > 2
+    if turn > 3
         || turn == 2
             && encoded["input"].as_array().is_none_or(|items| {
                 !items
@@ -123,6 +123,18 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
             })
     {
         return failure(StatusCode::BAD_REQUEST, "two-turn tool results", &state);
+    }
+    // The replayed parsed view passed consistency admission; the raw body stays authoritative.
+    if turn == 3
+        && !encoded["input"].as_array().is_some_and(|items| {
+            items.iter().any(|item| {
+                item["content"]
+                    .as_array()
+                    .is_some_and(|parts| parts.iter().any(|part| part["text"] == "{\"ok\":true}"))
+            })
+        })
+    {
+        return failure(StatusCode::BAD_REQUEST, "parsed view replay", &state);
     }
     let response = response_fixture(turn as u8);
     if !decoded.context.delivery.streaming() {
@@ -340,9 +352,9 @@ async fn sdk_case(sse: bool, profile: Profile) {
         observed.0.lock().unwrap().1,
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(observed.0.lock().unwrap().0, 2);
+    assert_eq!(observed.0.lock().unwrap().0, 3);
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["turns"], 2);
+    assert_eq!(report["turns"], 3);
     if sse && profile == Profile::Responses {
         assert!(report["event_counts"][0].as_u64().unwrap() > 5);
     }
@@ -350,7 +362,7 @@ async fn sdk_case(sse: bool, profile: Profile) {
 
 #[tokio::test]
 #[ignore = "requires locked tests/sdk Python environment; JSON/SSE synthetic loopback"]
-async fn sdk_two_turn_text_json_and_sse() {
+async fn sdk_three_turn_text_json_and_sse() {
     for mode in [false, true] {
         sdk_case(mode, Profile::Responses).await;
     }
@@ -358,7 +370,7 @@ async fn sdk_two_turn_text_json_and_sse() {
 
 #[tokio::test]
 #[ignore = "requires locked tests/sdk Python environment; Chat JSON/SSE synthetic loopback"]
-async fn sdk_chat_two_turn_text_json_and_sse() {
+async fn sdk_chat_three_turn_text_json_and_sse() {
     for mode in [false, true] {
         sdk_case(mode, Profile::Chat).await;
     }
