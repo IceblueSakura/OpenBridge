@@ -24,12 +24,12 @@ pub fn check_event(
                 ItemKind::ToolCall { .. } if !contract.tools => {
                     return Err(RepresentationError::Tools);
                 }
-                ItemKind::Message
+                ItemKind::Message { .. }
                     if profile == Profile::Chat
                         && state.items().iter().any(|i| {
                             matches!(
                                 i.kind,
-                                ItemKind::Message | ItemKind::ToolCall { message: None, .. }
+                                ItemKind::Message { .. } | ItemKind::ToolCall { message: None, .. }
                             )
                         }) =>
                 {
@@ -38,7 +38,7 @@ pub fn check_event(
                 ItemKind::ToolCall { message, .. }
                     if profile == Profile::Chat
                         && state.items().iter().any(|i| {
-                            matches!(i.kind, ItemKind::Message) && Some(i.id) != *message
+                            matches!(i.kind, ItemKind::Message { .. }) && Some(i.id) != *message
                         }) =>
                 {
                     return Err(RepresentationError::MessageGrouping);
@@ -80,7 +80,7 @@ pub fn check_event(
         }
         StreamEvent::PartStarted { item, .. }
             if profile == Profile::Chat
-                && matches!(state.item(*item)?.kind, ItemKind::Message)
+                && matches!(state.item(*item)?.kind, ItemKind::Message { .. })
                 && !state.item(*item)?.parts.is_empty() =>
         {
             return Err(RepresentationError::MessageGrouping);

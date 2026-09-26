@@ -131,6 +131,14 @@ pub fn lower_request<'a>(
     {
         return Err(RepresentationError::UnmigratedSemantic);
     }
+    if profile == Profile::Chat
+        && r.items()
+            .iter()
+            .any(|(_, i)| matches!(i, Item::Message(m) if m.phase.is_some()))
+    {
+        // Phase labels are Responses-only; reject instead of dropping the label.
+        return Err(RepresentationError::UnmigratedSemantic);
+    }
     represent_reasoning(
         r.reasoning(),
         r.items(),
@@ -198,6 +206,14 @@ pub fn lower_response<'a>(
     if profile == Profile::Chat
         && r.usage()
             .is_some_and(|usage| usage.input_cache_write_tokens.is_some())
+    {
+        return Err(RepresentationError::UnmigratedSemantic);
+    }
+    // Phase labels are Responses-only; reject instead of dropping the label.
+    if profile == Profile::Chat
+        && r.items()
+            .iter()
+            .any(|(_, i)| matches!(i, Item::Message(m) if m.phase.is_some()))
     {
         return Err(RepresentationError::UnmigratedSemantic);
     }

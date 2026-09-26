@@ -266,7 +266,7 @@ impl EventDecoder {
         }
         let kind = match string(v, "type")? {
             "message" => {
-                fields(v, &["type", "id", "role", "status", "content"])?;
+                fields(v, &["type", "id", "role", "status", "content", "phase"])?;
                 if string(v, "role")? != "assistant"
                     || !v
                         .get("content")
@@ -275,7 +275,9 @@ impl EventDecoder {
                 {
                     return Err(CodecError::Invalid("initial message"));
                 }
-                ItemKind::Message
+                ItemKind::Message {
+                    phase: super::super::responses::read_phase(v)?,
+                }
             }
             "reasoning" => {
                 fields(

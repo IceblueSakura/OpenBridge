@@ -61,19 +61,24 @@ pub(super) fn fields(o: &Map<String, Value>, allowed: &[&str]) -> Result<(), Cod
     }
     Ok(())
 }
-/// A replayed SDK `parsed` view must equal the naive JSON parse of the authoritative raw
-/// text, mirroring the pinned SDK's derivation over this opaque body; null means no derived
-/// value. The view is validated then dropped: it never becomes IR state, is never emitted,
-/// and a body without a text cannot derive a non-null view.
-pub(super) fn admit_parsed(parsed: Option<&Value>, raw: Option<&str>) -> Result<(), CodecError> {
+/// A replayed SDK derived view (`parsed`, `parsed_arguments`) must equal the naive JSON
+/// parse of its authoritative raw body, mirroring the pinned SDK's derivation over this
+/// opaque string; null means no derived value. The view is validated then dropped: it
+/// never becomes IR state, is never emitted, and an unparseable body cannot carry a
+/// non-null view.
+pub(super) fn admit_parsed(
+    key: &'static str,
+    parsed: Option<&Value>,
+    raw: Option<&str>,
+) -> Result<(), CodecError> {
     match (parsed, raw) {
         (None | Some(Value::Null), _) => Ok(()),
-        (Some(_), None) => Err(CodecError::Invalid("parsed")),
+        (Some(_), None) => Err(CodecError::Invalid(key)),
         (Some(v), Some(raw)) => {
             let expected: Value =
-                serde_json::from_str(raw).map_err(|_| CodecError::Invalid("parsed"))?;
+                serde_json::from_str(raw).map_err(|_| CodecError::Invalid(key))?;
             if *v != expected {
-                return Err(CodecError::Invalid("parsed"));
+                return Err(CodecError::Invalid(key));
             }
             Ok(())
         }
@@ -201,49 +206,75 @@ pub(super) fn tool_call(
     profile: Profile,
     message: Option<ItemId>,
     item_status: Option<&str>,
+    replay: bool,
 ) -> Result<ToolCall, CodecError> {
     let (f, id) = match profile {
         Profile::Chat => {
-            fields(o, &["id", "type", "function"])?;
+            fields(
+                o,
+                if replay {
+                    &["id", "type", "function", "index"]
+                } else {
+                    &["id", "type", "function"]
+                },
+            )?;
             if string(o, "type")? != "function" {
                 return Err(CodecError::Unsupported("tool kind".into()));
             }
             let f = object(o.get("function").ok_or(CodecError::Invalid("function"))?)?;
-            fields(f, &["name", "arguments"])?;
+            fields(
+                f,
+                if replay {
+                    &["name", "arguments", "parsed_arguments"]
+                } else {
+                    &["name", "arguments"]
+                },
+            )?;
             (f, string(o, "id")?)
         }
         Profile::Responses => {
             fields(
                 o,
-                &[
-                    "id",
-                    "type",
-                    "call_id",
-                    "name",
-                    "arguments",
-                    "parsed_arguments",
-                    "status",
-                    "caller",
-                    "namespace",
-                    "async",
-                ],
+                if replay {
+                    &[
+                        "id",
+                        "type",
+                        "call_id",
+                        "name",
+                        "arguments",
+                        "parsed_arguments",
+                        "status",
+                        "caller",
+                        "namespace",
+                        "async",
+                    ]
+                } else {
+                    &[
+                        "id",
+                        "type",
+                        "call_id",
+                        "name",
+                        "arguments",
+                        "status",
+                        "caller",
+                        "namespace",
+                        "async",
+                    ]
+                },
             )?;
-            if let Some(parsed) = o.get("parsed_arguments") {
-                // The pinned SDK's parsed function-call object exposes a derived convenience
-                // value in model_dump. Never trust it over the authoritative raw arguments.
-                let raw = string(o, "arguments")?;
-                let expected: Value = serde_json::from_str(raw)
-                    .map_err(|_| CodecError::Invalid("parsed_arguments"))?;
-                if item_status.is_some() || *parsed != expected {
-                    return Err(CodecError::Invalid("parsed_arguments"));
-                }
-            }
             if let Some(status) = item_status {
                 accept_status(o, status)?;
             }
             (o, string(o, "call_id")?)
         }
     };
+    // The pinned SDK derives this view from the authoritative raw arguments; wire
+    // positions never carry it and history replay drops it after validation.
+    admit_parsed(
+        "parsed_arguments",
+        f.get("parsed_arguments"),
+        Some(string(f, "arguments")?),
+    )?;
     let status = super::responses::status(o, ItemLifecycle::Completed)?;
     Ok(ToolCall {
         call_id: text(id, "call_id", 256)?,

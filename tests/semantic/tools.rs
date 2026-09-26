@@ -520,6 +520,7 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
             vec![(
                 ItemId::new(8),
                 Item::Message(Message {
+                    phase: None,
                     status: ItemLifecycle::Completed,
                     role: MessageRole::Assistant,
                     parts: vec![Part {
@@ -663,6 +664,7 @@ fn transformed_total_request_budget_includes_tools_and_history() {
             (
                 ItemId::new(i),
                 Item::Message(Message {
+                    phase: None,
                     role: MessageRole::User,
                     status: ItemLifecycle::Completed,
                     parts: vec![Part {

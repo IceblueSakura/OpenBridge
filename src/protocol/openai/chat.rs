@@ -168,6 +168,7 @@ pub(super) fn decode_message(
             }
             if replay {
                 super::common::admit_parsed(
+                    "parsed",
                     m.get("parsed"),
                     match m.get("content") {
                         Some(Value::String(s)) => Some(s.as_str()),
@@ -213,11 +214,22 @@ pub(super) fn decode_message(
                     },
                     parts,
                     status: ItemLifecycle::Completed,
+                    phase: None,
                 }),
             ));
             if let Some(calls) = calls {
-                for c in calls {
-                    let call = tool_call(object(c)?, Profile::Chat, Some(id), None)?;
+                for (position, c) in calls.iter().enumerate() {
+                    let call = object(c)?;
+                    // The SDK's chat stream accumulation leaks the chunk index into
+                    // message-level calls; on replay it must agree with the position.
+                    if replay {
+                        match call.get("index") {
+                            None | Some(Value::Null) => {}
+                            Some(v) if v.as_u64() == Some(position as u64) => {}
+                            _ => return Err(CodecError::Invalid("tool index")),
+                        }
+                    }
+                    let call = tool_call(call, Profile::Chat, Some(id), None, replay)?;
                     let cid = b.id()?;
                     b.items.push((cid, Item::ToolCall(call)));
                 }

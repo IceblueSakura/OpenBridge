@@ -24,6 +24,7 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
                     role: MessageRole::User,
                     parts: vec![part],
                     status: ItemLifecycle::Completed,
+                    phase: None,
                 }),
             ));
         }
@@ -35,6 +36,14 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
         semantic: GenerationRequest::from_settings(b.items, settings::read(o)?)?,
         fidelity: b.fidelity,
     })
+}
+pub(super) fn read_phase(o: &Map<String, Value>) -> Result<Option<Phase>, CodecError> {
+    match o.get("phase") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s == "commentary" => Ok(Some(Phase::Commentary)),
+        Some(Value::String(s)) if s == "final_answer" => Ok(Some(Phase::FinalAnswer)),
+        _ => Err(CodecError::Invalid("phase")),
+    }
 }
 pub(super) fn status(
     o: &Map<String, Value>,
@@ -140,6 +149,7 @@ pub(super) fn decode_items(
                     Profile::Responses,
                     None,
                     response.then_some(item_status),
+                    !response,
                 )?)
             }
             Some("custom_tool_call") => {
@@ -246,12 +256,17 @@ pub(super) fn decode_items(
                 fields(
                     o,
                     if typ.is_none() {
-                        &["role", "content"]
+                        &["role", "content", "phase"]
                     } else {
-                        &["type", "id", "role", "content", "status"]
+                        &["type", "id", "role", "content", "status", "phase"]
                     },
                 )?;
                 let role = string(o, "role")?;
+                if o.contains_key("phase") && role != "assistant" {
+                    // The standard labels assistant messages only.
+                    return Err(CodecError::Invalid("phase"));
+                }
+                let phase = read_phase(o)?;
                 let content = o.get("content").ok_or(CodecError::Invalid("content"))?;
                 let values = if let Some(s) = content.as_str() {
                     if response {
@@ -268,6 +283,14 @@ pub(super) fn decode_items(
                 };
                 if values.len() > MAX_ITEMS {
                     return Err(CodecError::Limit);
+                }
+                if phase == Some(Phase::Commentary)
+                    && values
+                        .iter()
+                        .any(|p| p.get("parsed").is_some_and(|v| !v.is_null()))
+                {
+                    // The pinned SDK never derives a parsed view from commentary text.
+                    return Err(CodecError::Invalid("parsed"));
                 }
                 if role == "system" || role == "developer" {
                     // Instruction IR has no lifecycle owner; only complete forms normalize.
@@ -354,6 +377,7 @@ pub(super) fn decode_items(
                         role,
                         parts,
                         status,
+                        phase,
                     })
                 }
             }
@@ -406,7 +430,11 @@ pub(super) fn encode_items(
                 continue;
             }
             Item::Message(m) => {
-                json!({"type":"message","role":if m.role==MessageRole::User{"user"}else{"assistant"},"content":m.parts.iter().map(|p|match &p.content{ContentPart::Text(t)=>if !response && (m.role==MessageRole::User || fidelity.input_text_form(p.id) && t.is_plain()){input_part(p.id,t.as_str(),fidelity)}else{super::text::write(t,"output_text",response)},ContentPart::Refusal(t)=>json!({"type":"refusal","refusal":t.as_str()}),ContentPart::Resource(_)=>unreachable!("lowering rejects media")}).collect::<Vec<_>>()})
+                let mut v = json!({"type":"message","role":if m.role==MessageRole::User{"user"}else{"assistant"},"content":m.parts.iter().map(|p|match &p.content{ContentPart::Text(t)=>if !response && (m.role==MessageRole::User || fidelity.input_text_form(p.id) && t.is_plain()){input_part(p.id,t.as_str(),fidelity)}else{super::text::write(t,"output_text",response)},ContentPart::Refusal(t)=>json!({"type":"refusal","refusal":t.as_str()}),ContentPart::Resource(_)=>unreachable!("lowering rejects media")}).collect::<Vec<_>>()});
+                if let Some(p) = m.phase {
+                    v["phase"] = json!(p.label());
+                }
+                v
             }
             Item::ToolCall(c) => {
                 json!({"type":"function_call","call_id":c.call_id.as_str(),"name":c.name.as_str(),"arguments":c.arguments})

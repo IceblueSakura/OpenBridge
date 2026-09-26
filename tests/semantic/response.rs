@@ -187,6 +187,7 @@ fn empty_message_wire_identity_cannot_collide_with_another_item() {
         (
             ItemId::new(1),
             Item::Message(Message {
+                phase: None,
                 role: MessageRole::Assistant,
                 status: ItemLifecycle::Completed,
                 parts: vec![],
@@ -195,6 +196,7 @@ fn empty_message_wire_identity_cannot_collide_with_another_item() {
         (
             ItemId::new(2),
             Item::Message(Message {
+                phase: None,
                 role: MessageRole::Assistant,
                 status: ItemLifecycle::Completed,
                 parts: vec![Part {

@@ -62,6 +62,9 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                 if response && m.role != MessageRole::Assistant {
                     return Err(GenerationError::InvalidResponse);
                 }
+                if m.phase.is_some() && m.role != MessageRole::Assistant {
+                    return Err(GenerationError::PhaseInUserMessage);
+                }
                 if m.role == MessageRole::User && m.parts.is_empty() {
                     return Err(GenerationError::EmptyMessage);
                 }

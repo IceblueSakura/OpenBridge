@@ -136,6 +136,16 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
     {
         return failure(StatusCode::BAD_REQUEST, "parsed view replay", &state);
     }
+    // Replayed function views never replace the authoritative raw arguments.
+    if turn >= 2
+        && !encoded["input"].as_array().is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item["type"] == "function_call" && item["arguments"] == "{\"n\":1}")
+        })
+    {
+        return failure(StatusCode::BAD_REQUEST, "parsed_arguments replay", &state);
+    }
     let response = response_fixture(turn as u8);
     if !decoded.context.delivery.streaming() {
         let Ok(mut decoded) =

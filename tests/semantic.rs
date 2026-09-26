@@ -10,6 +10,8 @@ mod function_events;
 mod instructions;
 #[path = "semantic/parsed_replay.rs"]
 mod parsed_replay;
+#[path = "semantic/phase.rs"]
+mod phase;
 #[path = "semantic/reasoning.rs"]
 mod reasoning;
 #[path = "semantic/response.rs"]

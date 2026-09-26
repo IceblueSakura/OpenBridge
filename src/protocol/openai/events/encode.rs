@@ -181,8 +181,12 @@ impl EventEncoder {
                     .response_item_id(*item)
                     .ok_or(CodecError::Invalid("wire identity"))?;
                 let mut v = match kind {
-                    ItemKind::Message => {
-                        json!({"id":id,"type":"message","role":"assistant","content":[],"status":"in_progress"})
+                    ItemKind::Message { phase } => {
+                        let mut v = json!({"id":id,"type":"message","role":"assistant","content":[],"status":"in_progress"});
+                        if let Some(p) = phase {
+                            v["phase"] = json!(p.label());
+                        }
+                        v
                     }
                     ItemKind::CustomCall { call_id, name } => {
                         json!({"id":id,"type":"custom_tool_call","call_id":call_id.as_str(),"name":name.as_str(),"input":""})

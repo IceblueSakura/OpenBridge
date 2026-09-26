@@ -17,7 +17,7 @@ pub use reasoning::{
 };
 pub use request::{
     ContentPart, GenerationControls, GenerationError, GenerationRequest, GenerationSettings,
-    Instruction, InstructionAuthority, Item, ItemId, Message, MessageRole, Part, PartId,
+    Instruction, InstructionAuthority, Item, ItemId, Message, MessageRole, Part, PartId, Phase,
     Truncation,
 };
 pub use requirements::GenerationRequirements;

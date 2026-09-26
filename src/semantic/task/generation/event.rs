@@ -14,7 +14,9 @@ pub enum StreamTerminal {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ItemKind {
-    Message,
+    Message {
+        phase: Option<Phase>,
+    },
     ToolCall {
         call_id: Text,
         name: Text,
@@ -246,7 +248,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                     if !state
                         .items
                         .iter()
-                        .any(|i| i.id == owner && matches!(i.kind, ItemKind::Message))
+                        .any(|i| i.id == owner && matches!(i.kind, ItemKind::Message { .. }))
                     {
                         return Err(EventError::Identity);
                     }
@@ -283,7 +285,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             let owner = state.open_item(item)?;
             let valid = matches!(
                 (&owner.kind, kind),
-                (ItemKind::Message, PartKind::Text | PartKind::Refusal)
+                (ItemKind::Message { .. }, PartKind::Text | PartKind::Refusal)
                     | (
                         ItemKind::Reasoning,
                         PartKind::Summary | PartKind::ReasoningText
@@ -584,9 +586,10 @@ impl StreamItem {
                 .map_err(|_| EventError::Limit)
         };
         let item = match &i.kind {
-            ItemKind::Message => Item::Message(Message {
+            ItemKind::Message { phase } => Item::Message(Message {
                 role: MessageRole::Assistant,
                 status,
+                phase: *phase,
                 parts: i
                     .parts
                     .iter()

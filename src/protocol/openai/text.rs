@@ -17,7 +17,7 @@ pub(super) fn read(o: &Map<String, Value>, replay: bool) -> Result<TextContent, 
     let text = Text::allowing_empty(string(o, "text")?, "text", MAX_TEXT_BYTES)
         .map_err(|_| CodecError::Limit)?;
     if replay {
-        admit_parsed(o.get("parsed"), Some(text.as_str()))?;
+        admit_parsed("parsed", o.get("parsed"), Some(text.as_str()))?;
     }
     let annotations = match o.get("annotations") {
         None => vec![],

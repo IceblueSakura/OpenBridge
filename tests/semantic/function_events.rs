@@ -66,7 +66,7 @@ fn value_done_disallows_later_delta_and_poisoned_decoders_cannot_resume() {
 fn mixed_output_uses_one_index_space_and_original_order() {
     let mut events = vec![StreamEvent::Started];
     events.extend(call(90, 30, "a", "{}"));
-    events.push(start(40, ItemKind::Message));
+    events.push(start(40, ItemKind::Message { phase: None }));
     events.extend(part(40, 20, PartKind::Text, "answer"));
     events.push(close(40, ItemLifecycle::Completed));
     events.extend(call(10, 70, "b", "[]"));
@@ -130,10 +130,13 @@ fn duplicate_call_part_and_item_identity_and_open_success_fail() {
         .is_err()
     );
     assert!(reduce(state.clone(), terminal(StreamTerminal::Completed)).is_err());
-    assert!(reduce(state, start(1, ItemKind::Message)).is_err());
-    let mut e = vec![StreamEvent::Started, start(1, ItemKind::Message)];
+    assert!(reduce(state, start(1, ItemKind::Message { phase: None })).is_err());
+    let mut e = vec![
+        StreamEvent::Started,
+        start(1, ItemKind::Message { phase: None }),
+    ];
     e.extend(part(1, 5, PartKind::Text, "a"));
-    e.push(start(2, ItemKind::Message));
+    e.push(start(2, ItemKind::Message { phase: None }));
     e.push(StreamEvent::PartStarted {
         item: ItemId::new(2),
         part: PartId::new(5),
@@ -227,6 +230,10 @@ fn event_encoder_rejects_duplicate_terminal_and_unrepresentable_chat_grouping() 
     assert!(e.encode(&terminal(StreamTerminal::Completed), &f).is_err());
     let mut e = EventEncoder::new(Profile::Chat, metadata()).unwrap();
     e.encode(&StreamEvent::Started, &f).unwrap();
-    e.encode(&start(1, ItemKind::Message), &f).unwrap();
-    assert!(e.encode(&start(2, ItemKind::Message), &f).is_err());
+    e.encode(&start(1, ItemKind::Message { phase: None }), &f)
+        .unwrap();
+    assert!(
+        e.encode(&start(2, ItemKind::Message { phase: None }), &f)
+            .is_err()
+    );
 }

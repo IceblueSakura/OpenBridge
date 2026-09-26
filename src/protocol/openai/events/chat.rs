@@ -55,7 +55,7 @@ impl EventDecoder {
             self.emit(
                 StreamEvent::ItemStarted {
                     item: id,
-                    kind: ItemKind::Message,
+                    kind: ItemKind::Message { phase: None },
                     replay: None,
                 },
                 &mut out,

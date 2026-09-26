@@ -37,8 +37,12 @@ pub(super) async fn handle(
     {
         return failure(StatusCode::UNAUTHORIZED, "Chat authentication", &state);
     }
-    let Ok(request) = envelope::decode_request_bytes(&body) else {
-        return failure(StatusCode::BAD_REQUEST, "Chat request", &state);
+    let request = match envelope::decode_request_bytes(&body) {
+        Ok(request) => request,
+        Err(error) => {
+            eprintln!("synthetic Chat request rejected: {error}");
+            return failure(StatusCode::BAD_REQUEST, "Chat request", &state);
+        }
     };
     if request.context.model != "fixture-model" {
         return failure(StatusCode::BAD_REQUEST, "Chat model", &state);
@@ -89,6 +93,21 @@ pub(super) async fn handle(
         })
     {
         return failure(StatusCode::BAD_REQUEST, "Chat parsed replay", &state);
+    }
+    // Replayed function views never replace the authoritative raw arguments.
+    if turn >= 2
+        && !request
+            .task
+            .semantic
+            .items()
+            .iter()
+            .any(|(_, i)| matches!(i, Item::ToolCall(c) if c.arguments == "{\"n\":1}"))
+    {
+        return failure(
+            StatusCode::BAD_REQUEST,
+            "Chat parsed_arguments replay",
+            &state,
+        );
     }
     if !request.context.streaming() {
         let mut d = envelope::decode_response_bytes(

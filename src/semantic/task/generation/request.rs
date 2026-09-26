@@ -36,6 +36,21 @@ pub enum MessageRole {
     User,
     Assistant,
 }
+/// Assistant phase label from the standard, independent of item status. Missing and
+/// null both mean unlabeled; no default label is ever synthesized.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Phase {
+    Commentary,
+    FinalAnswer,
+}
+impl Phase {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Commentary => "commentary",
+            Self::FinalAnswer => "final_answer",
+        }
+    }
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContentPart {
     Text(TextContent),
@@ -52,6 +67,7 @@ pub struct Message {
     pub role: MessageRole,
     pub parts: Vec<Part>,
     pub status: ItemLifecycle,
+    pub phase: Option<Phase>,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
@@ -312,6 +328,8 @@ pub enum GenerationError {
     Limit,
     #[error("invalid response semantics")]
     InvalidResponse,
+    #[error("phase labels only apply to assistant messages")]
+    PhaseInUserMessage,
     #[error("refusal requires assistant role")]
     RefusalInUserMessage,
 }

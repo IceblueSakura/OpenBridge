@@ -45,7 +45,10 @@ fn independent_text_wire_decodes_empty_and_multiple_parts() {
 }
 #[test]
 fn independently_constructed_text_ir_encodes_expected_boundaries_and_refusal() {
-    let mut e = vec![StreamEvent::Started, start(9, ItemKind::Message)];
+    let mut e = vec![
+        StreamEvent::Started,
+        start(9, ItemKind::Message { phase: None }),
+    ];
     e.extend(part(9, 40, PartKind::Text, ""));
     e.extend(part(9, 70, PartKind::Refusal, "Cannot comply"));
     e.push(close(9, ItemLifecycle::Completed));
@@ -62,7 +65,10 @@ fn independently_constructed_text_ir_encodes_expected_boundaries_and_refusal() {
 }
 #[test]
 fn text_delta_deletion_and_replacement_change_all_encoder_output() {
-    let mut e = vec![StreamEvent::Started, start(1, ItemKind::Message)];
+    let mut e = vec![
+        StreamEvent::Started,
+        start(1, ItemKind::Message { phase: None }),
+    ];
     e.extend(part(1, 9, PartKind::Text, "old"));
     e.push(close(1, ItemLifecycle::Completed));
     e.push(terminal(StreamTerminal::Completed));
@@ -133,7 +139,10 @@ fn chat_refusal_and_empty_text_survive_usage_and_done() {
         (PartKind::Refusal, ""),
         (PartKind::Text, ""),
     ] {
-        let mut e = vec![StreamEvent::Started, start(1, ItemKind::Message)];
+        let mut e = vec![
+            StreamEvent::Started,
+            start(1, ItemKind::Message { phase: None }),
+        ];
         e.extend(part(1, 1, kind, value));
         e.push(close(1, ItemLifecycle::Completed));
         e.push(StreamEvent::Usage(Usage {

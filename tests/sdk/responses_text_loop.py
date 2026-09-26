@@ -67,13 +67,16 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                 assert events.count("response.completed") == 1
                 event_counts.append(len(events))
             else:
-                result = client.responses.create(**params)
+                result = client.responses.parse(**params)
             assert result.status == "completed" and result.usage.total_tokens == 8
             if turn == 1:
                 calls = [item for item in result.output if item.type in ("function_call", "custom_tool_call")]
                 assert len(calls) == 2 and {call.call_id for call in calls} == {"c_lookup", "c_sql"}
                 assert any(item.type == "reasoning" for item in result.output)
-                history.extend(item.model_dump(exclude_none=True) for item in result.output)
+                dumped = [item.model_dump(exclude_none=True) for item in result.output]
+                function = next(item for item in dumped if item["type"] == "function_call")
+                assert function["parsed_arguments"] == {"n": 1}, "dump must carry the derived view"
+                history.extend(dumped)
                 history.extend([
                     {"type": "custom_tool_call_output", "call_id": "c_sql", "output": "1"},
                     {"type": "function_call_output", "call_id": "c_lookup", "output": "{\"n\":1}"},

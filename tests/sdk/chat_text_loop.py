@@ -18,15 +18,17 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
     counts = []
     try:
         for turn in (1, 2, 3):
-            if turn == 2:
-                # Consume through the pinned parser so turn 3 replays the derived view.
+            if turn in (1, 2):
+                # Consume through the pinned parser so later turns replay real derived views.
+                extra = {} if turn == 1 else {"response_format": Answer}
                 message, finish, usage = None, None, None
                 if stream:
                     content = ""
+                    calls = {}
                     count = 0
                     with client.chat.completions.stream(
                             model="fixture-model", messages=history, tools=tools,
-                            tool_choice="none", n=1, response_format=Answer,
+                            tool_choice="auto" if turn == 1 else "none", n=1, **extra,
                             stream_options={"include_usage": True, "include_obfuscation": False}) as events:
                         for event in events:
                             if event.type != "chunk":
@@ -40,16 +42,24 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                             assert finish is None
                             choice = chunk.choices[0]
                             assert choice.index == 0
-                            content += choice.delta.content or ""
+                            delta = choice.delta
+                            content += delta.content or ""
+                            for call in delta.tool_calls or []:
+                                if call.index not in calls:
+                                    assert call.id and call.function.name
+                                    calls[call.index] = ""
+                                calls[call.index] += call.function.arguments or ""
                             finish = choice.finish_reason
                         final = events.get_final_completion()
-                    assert content == '{"answer":"new 🧪"}'
+                    assert list(calls.values()) in ([], ['{"n":1}'])
+                    if turn == 2:
+                        assert content == '{"answer":"new 🧪"}'
                     message, usage = final.choices[0].message, final.usage
                     counts.append(count)
                 else:
                     result = client.chat.completions.parse(
                         model="fixture-model", messages=history, tools=tools,
-                        tool_choice="none", n=1, response_format=Answer)
+                        tool_choice="auto" if turn == 1 else "none", n=1, **extra)
                     assert len(result.choices) == 1
                     choice = result.choices[0]
                     finish, usage = choice.finish_reason, result.usage
@@ -57,10 +67,9 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                 message = message.model_dump(exclude_none=True)
             else:
                 params = dict(model="fixture-model", messages=history, tools=tools,
-                              tool_choice="auto" if turn == 1 else "none", n=1, stream=stream)
+                              tool_choice="none", n=1, stream=stream)
                 if stream:
                     content = ""
-                    calls = {}
                     finish = None
                     usage = None
                     count = 0
@@ -78,15 +87,8 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                             assert choice.index == 0
                             delta = choice.delta
                             content += delta.content or ""
-                            for call in delta.tool_calls or []:
-                                if call.index not in calls:
-                                    assert call.id and call.function.name
-                                    calls[call.index] = {"id": call.id, "type": "function", "function": {"name": call.function.name, "arguments": ""}}
-                                calls[call.index]["function"]["arguments"] += call.function.arguments or ""
                             finish = choice.finish_reason
                     message = {"role": "assistant", "content": content or None}
-                    if calls:
-                        message["tool_calls"] = list(calls.values())
                     counts.append(count)
                 else:
                     result = client.chat.completions.create(**params)
@@ -99,7 +101,9 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                 assert finish == "tool_calls"
                 call = message["tool_calls"][0]
                 assert call["id"] == "call-local"
-                assert call["function"] == {"name": "lookup", "arguments": '{"n":1}'}
+                assert call["function"]["name"] == "lookup"
+                assert call["function"]["arguments"] == '{"n":1}'
+                assert call["function"]["parsed_arguments"] == {"n": 1}, "dump must carry the derived view"
                 history.extend([message, {"role": "tool", "tool_call_id": "call-local", "content": "synthetic result"}])
             elif turn == 2:
                 assert finish == "stop" and message["content"] == '{"answer":"new 🧪"}'
