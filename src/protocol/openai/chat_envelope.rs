@@ -53,6 +53,8 @@ pub struct RequestContext {
     pub n: Presence<u64>,
     pub stream: Presence<bool>,
     pub stream_options: Presence<StreamOptions>,
+    /// Cache-affinity hints only; service tier and metadata stay Responses gaps.
+    pub cache: super::envelope::CacheHints,
 }
 impl RequestContext {
     pub fn streaming(&self) -> bool {
@@ -69,7 +71,7 @@ impl RequestContext {
             }
             options.validate()?;
         }
-        Ok(())
+        self.cache.validate()
     }
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -88,6 +90,7 @@ pub fn decode_request(v: &Value) -> Result<DecodedChatRequest, CodecError> {
     let allowed: Vec<_> = chat::FIELDS
         .iter()
         .copied()
+        .chain(super::envelope::CACHE_FIELDS.iter().copied())
         .chain(["model", "n", "stream", "stream_options"])
         .collect();
     fields(o, &allowed)?;
@@ -98,6 +101,7 @@ pub fn decode_request(v: &Value) -> Result<DecodedChatRequest, CodecError> {
             v.as_bool().ok_or(CodecError::Invalid("stream"))
         })?,
         stream_options: read_presence(o, "stream_options", StreamOptions::read)?,
+        cache: super::envelope::CacheHints::read(o)?,
     };
     context.validate()?;
     let task: Map<_, _> = o
@@ -126,6 +130,7 @@ pub fn encode_request(
         &context.stream_options,
         StreamOptions::write,
     );
+    context.cache.write(o)?;
     bounded(&v)?;
     Ok(v)
 }

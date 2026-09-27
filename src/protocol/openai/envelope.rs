@@ -36,6 +36,24 @@ pub struct CacheOptions {
     pub ttl: CacheTtl,
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
     pub comparison_response_id: Presence<String>,
+    /// Omitted, explicit false and true stay distinct; `null` is not a bool.
+    #[serde(default, skip_serializing_if = "Presence::is_absent")]
+    pub prewarm: Presence<bool>,
+}
+impl CacheOptions {
+    fn validate(&self) -> Result<(), CodecError> {
+        if matches!(self.prewarm, Presence::Null) {
+            return Err(CodecError::Invalid("prewarm"));
+        }
+        if self
+            .comparison_response_id
+            .value()
+            .is_some_and(|s| s.len() > 256)
+        {
+            return Err(CodecError::Limit);
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -74,23 +92,81 @@ pub enum CacheMissReason {
     InputChanged,
     ServiceTierChanged,
 }
+/// Cache-affinity and user-bucketing hints shared by Responses and Chat bodies.
+/// A request hint and a reported echo are separate facts: the codec never converts
+/// `prompt_cache_retention` (maximum policy) into `prompt_cache_options.ttl`
+/// (minimum lifetime) or aliases `user` onto `prompt_cache_key`.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ExecutionHints {
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub metadata: Presence<BTreeMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub service_tier: Presence<ServiceTier>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub safety_identifier: Presence<String>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub user: Presence<String>,
+pub struct CacheHints {
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
     pub prompt_cache_key: Presence<String>,
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
     pub prompt_cache_retention: Presence<CacheRetention>,
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
     pub prompt_cache_options: Presence<CacheOptions>,
+    #[serde(default, skip_serializing_if = "Presence::is_absent")]
+    pub safety_identifier: Presence<String>,
+    #[serde(default, skip_serializing_if = "Presence::is_absent")]
+    pub user: Presence<String>,
+}
+pub(super) const CACHE_FIELDS: &[&str] = &[
+    "prompt_cache_key",
+    "prompt_cache_retention",
+    "prompt_cache_options",
+    "safety_identifier",
+    "user",
+];
+impl CacheHints {
+    pub fn validate(&self) -> Result<(), CodecError> {
+        for (value, max) in [
+            (&self.safety_identifier, 64),
+            (&self.user, 256),
+            (&self.prompt_cache_key, 256),
+        ] {
+            if value
+                .value()
+                .is_some_and(|s| s.chars().count() > max || s.len() > max * 4)
+            {
+                return Err(CodecError::Limit);
+            }
+        }
+        if let Some(options) = self.prompt_cache_options.value() {
+            options.validate()?;
+        }
+        json_size(self, MAX_TEXT_BYTES).map_err(|_| CodecError::Limit)?;
+        Ok(())
+    }
+    pub(super) fn read(o: &Map<String, Value>) -> Result<Self, CodecError> {
+        let fields: Map<_, _> = o
+            .iter()
+            .filter(|(k, _)| CACHE_FIELDS.contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let hints: Self = serde_json::from_value(Value::Object(fields))
+            .map_err(|_| CodecError::Invalid("cache hints"))?;
+        hints.validate()?;
+        Ok(hints)
+    }
+    pub(super) fn write(&self, o: &mut Map<String, Value>) -> Result<(), CodecError> {
+        self.validate()?;
+        let Value::Object(v) =
+            serde_json::to_value(self).map_err(|_| CodecError::Invalid("cache hints"))?
+        else {
+            unreachable!()
+        };
+        o.extend(v);
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionHints {
+    #[serde(flatten)]
+    pub cache: CacheHints,
+    #[serde(default, skip_serializing_if = "Presence::is_absent")]
+    pub metadata: Presence<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Presence::is_absent")]
+    pub service_tier: Presence<ServiceTier>,
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
     pub max_tool_calls: Presence<u64>,
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
@@ -111,11 +187,6 @@ pub struct ExecutionHints {
 pub(super) const EXEC_FIELDS: &[&str] = &[
     "metadata",
     "service_tier",
-    "safety_identifier",
-    "user",
-    "prompt_cache_key",
-    "prompt_cache_retention",
-    "prompt_cache_options",
     "max_tool_calls",
     "store",
     "background",
@@ -127,6 +198,7 @@ pub(super) const EXEC_FIELDS: &[&str] = &[
 ];
 impl ExecutionHints {
     pub fn validate(&self) -> Result<(), CodecError> {
+        self.cache.validate()?;
         if self.store == Presence::Value(true)
             || self.background == Presence::Value(true)
             || self
@@ -135,25 +207,6 @@ impl ExecutionHints {
                 .is_some_and(|v| !v.is_empty())
         {
             return Err(CodecError::Unsupported("stateful execution".into()));
-        }
-        for (value, max) in [
-            (&self.safety_identifier, 64),
-            (&self.user, 256),
-            (&self.prompt_cache_key, 256),
-        ] {
-            if value
-                .value()
-                .is_some_and(|s| s.chars().count() > max || s.len() > max * 4)
-            {
-                return Err(CodecError::Limit);
-            }
-        }
-        if self.prompt_cache_options.value().is_some_and(|o| {
-            o.comparison_response_id
-                .value()
-                .is_some_and(|s| s.len() > 256)
-        }) {
-            return Err(CodecError::Limit);
         }
         if self.metadata.value().is_some_and(|m| {
             m.len() > 16
@@ -165,13 +218,14 @@ impl ExecutionHints {
         if self.max_tool_calls == Presence::Value(0) {
             return Err(CodecError::Invalid("max_tool_calls"));
         }
-        json_size(self, MAX_TEXT_BYTES).map_err(|_| CodecError::Limit)?;
         Ok(())
     }
     pub(super) fn read(o: &Map<String, Value>) -> Result<Self, CodecError> {
         let fields: Map<_, _> = o
             .iter()
-            .filter(|(k, _)| EXEC_FIELDS.contains(&k.as_str()))
+            .filter(|(k, _)| {
+                EXEC_FIELDS.contains(&k.as_str()) || CACHE_FIELDS.contains(&k.as_str())
+            })
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         let hints: Self = serde_json::from_value(Value::Object(fields))
@@ -217,6 +271,8 @@ pub struct RequestContext {
     pub model: String,
     pub delivery: Delivery,
     pub execution: ExecutionHints,
+    /// Provider-scoped body sections (`client_metadata`), never task semantics.
+    pub extensions: crate::protocol::extensions::CustomSections,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecodedResponsesRequest {
@@ -243,8 +299,10 @@ pub fn decode_request(v: &Value) -> Result<DecodedResponsesRequest, CodecError> 
     let allowed: Vec<_> = settings::FIELDS
         .iter()
         .chain(EXEC_FIELDS)
+        .chain(CACHE_FIELDS)
         .copied()
         .chain(["input", "model", "stream", "stream_options"])
+        .chain(crate::protocol::extensions::SECTION_NAMES.iter().copied())
         .collect();
     fields(o, &allowed)?;
     let context = RequestContext {
@@ -258,6 +316,7 @@ pub fn decode_request(v: &Value) -> Result<DecodedResponsesRequest, CodecError> 
             })?,
         },
         execution: ExecutionHints::read(o)?,
+        extensions: crate::protocol::extensions::CustomSections::read(o)?,
     };
     context.validate()?;
     let task: Map<_, _> = o
@@ -282,6 +341,7 @@ pub fn encode_request(
     let mut v = super::responses::encode_generation(target)?;
     let o = v.as_object_mut().expect("object");
     context.execution.write(o)?;
+    context.extensions.write(o)?;
     o.insert("store".into(), json!(false));
     o.insert("model".into(), json!(context.model));
     put_presence(o, "stream", &context.delivery.stream, |s| json!(s));
@@ -528,6 +588,7 @@ pub(super) fn response_fields(o: &Map<String, Value>) -> Result<(), CodecError> 
     let allowed: Vec<_> = settings::FIELDS
         .iter()
         .chain(EXEC_FIELDS)
+        .chain(CACHE_FIELDS)
         .copied()
         .chain([
             "id",

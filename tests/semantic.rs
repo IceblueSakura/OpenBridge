@@ -4,6 +4,8 @@ mod events_support;
 #[path = "support/responses_profile.rs"]
 mod wire;
 
+#[path = "semantic/extensions.rs"]
+mod extensions;
 #[path = "semantic/function_events.rs"]
 mod function_events;
 #[path = "semantic/instructions.rs"]

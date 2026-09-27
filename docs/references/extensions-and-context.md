@@ -62,7 +62,9 @@ session/thread/cache/turn 值即使不是密码，也可能敏感且高基数；
 
 ## 6. 需要单独定稿的事项
 
-- downstream 扩展承载位置、namespace 命名与版本协商；
+扩展承载位置与形状已经定稿：协议层 `protocol::extensions` typed 生命周期字段 + 有界 opaque 兜底，凭据/传输类 fail-closed，见 [ADR 0007](../architecture-v2/decisions/0007-stateless-cache-affinity-and-extensions.md)。以下仍需解决：
+
+- namespace 命名与版本协商；response 侧自定义段与观察类 header 的 typed 化；
 - Codex 上下文是由客户端可信 adapter 提供、透明转发，还是由未来 Gateway 管理 turn；当前不自动生成身份或 sticky token；
 - 外部 opaque state 的可信 scope 构造、失效、principal 隔离；
 - 特殊多模态的具体 Provider/operation/schema；没有固定事实不预造字段全集。

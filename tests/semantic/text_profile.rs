@@ -7,7 +7,7 @@ use openbridge::{
     protocol::{
         fidelity::FidelityRecords,
         openai::{
-            DecodedRequest, Profile, chat, envelope,
+            DecodedRequest, Profile, chat, chat_envelope, envelope,
             events::{EventDecoder, EventEncoder},
             responses,
             sse::*,
@@ -1056,4 +1056,189 @@ fn output_text_annotations_are_required_and_empty_arrays_stay_visible() {
     decoder.push(&json!({"type":"response.created","response":{"id":"r","object":"response","created_at":0,"model":"synthetic","status":"in_progress","output":[]}})).unwrap();
     decoder.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"m","type":"message","role":"assistant","status":"in_progress","content":[]}})).unwrap();
     assert!(decoder.push(&json!({"type":"response.content_part.added","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":""}})).is_err());
+}
+fn responses_round_trip(request: &Value) -> Value {
+    let d = envelope::decode_request(request).unwrap();
+    envelope::encode_request(
+        &lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Responses,
+            contract(),
+        )
+        .unwrap(),
+        &d.context,
+    )
+    .unwrap()
+}
+fn response_round_trip(response: &Value) -> Value {
+    let d = envelope::decode_response(response).unwrap();
+    envelope::encode_response(
+        &lower_response(
+            &d.semantic,
+            &d.fidelity,
+            &d.metadata,
+            Profile::Responses,
+            contract(),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}
+#[test]
+fn cache_affinity_hints_keep_presence_and_never_convert_retention_into_ttl() {
+    let mut request = wire::request(false);
+    request["prompt_cache_options"] = json!({"mode":"implicit","ttl":"30m","prewarm":false});
+    request["user"] = json!("synthetic-user");
+    let d = envelope::decode_request(&request).unwrap();
+    assert_eq!(
+        d.context
+            .execution
+            .cache
+            .prompt_cache_options
+            .value()
+            .unwrap()
+            .prewarm,
+        Presence::Value(false)
+    );
+    assert_eq!(
+        d.context.execution.cache.user.value().unwrap(),
+        "synthetic-user"
+    );
+    let out = responses_round_trip(&request);
+    assert_eq!(
+        out["prompt_cache_options"],
+        json!({"mode":"implicit","ttl":"30m","prewarm":false})
+    );
+    assert_eq!(out["user"], json!("synthetic-user"));
+    assert_eq!(out["prompt_cache_key"], json!("synthetic-cache"));
+    assert_eq!(out["prompt_cache_retention"], json!("in_memory"));
+    // Omission is not an explicit default and retention never becomes options.ttl.
+    let out = responses_round_trip(&wire::request(false));
+    assert!(out.get("prompt_cache_options").is_none());
+    assert!(out.get("user").is_none());
+    let mut request = wire::request(false);
+    request
+        .as_object_mut()
+        .unwrap()
+        .remove("prompt_cache_retention");
+    request["prompt_cache_options"] = json!({"mode":"explicit","ttl":"30m","prewarm":true});
+    let out = responses_round_trip(&request);
+    assert!(out.get("prompt_cache_retention").is_none());
+    assert_eq!(
+        out["prompt_cache_options"],
+        json!({"mode":"explicit","ttl":"30m","prewarm":true})
+    );
+    // An omitted prewarm stays absent next to explicit defaults.
+    let mut request = wire::request(false);
+    request["prompt_cache_options"] = json!({"mode":"implicit","ttl":"30m"});
+    let out = responses_round_trip(&request);
+    assert_eq!(
+        out["prompt_cache_options"],
+        json!({"mode":"implicit","ttl":"30m"})
+    );
+    for options in [
+        json!({"mode":"implicit","ttl":"30m","prewarm":null}),
+        json!({"mode":"implicit","ttl":"30m","prewarm":"yes"}),
+        json!({"mode":"implicit","ttl":"30m","prewarm":true,"extra":1}),
+    ] {
+        let mut bad = wire::request(false);
+        bad["prompt_cache_options"] = options;
+        assert!(envelope::decode_request(&bad).is_err());
+    }
+}
+#[test]
+fn reported_cache_context_is_an_independent_response_fact() {
+    let mut response = wire::response(2);
+    response["prompt_cache_options"] = json!({"mode":"explicit","ttl":"30m","prewarm":true});
+    response["prompt_cache_diagnostics"] = json!({"type":"cache_miss","reason":"input_changed","cache_missed_tokens":3,"comparison_reusable_tokens":2});
+    let out = response_round_trip(&response);
+    assert_eq!(
+        out["prompt_cache_options"],
+        json!({"mode":"explicit","ttl":"30m","prewarm":true})
+    );
+    assert_eq!(
+        out["prompt_cache_diagnostics"],
+        response["prompt_cache_diagnostics"]
+    );
+    // The effective tier is a reported fact and stays independent of the request hint.
+    assert_eq!(out["service_tier"], json!("default"));
+    assert_eq!(
+        responses_round_trip(&wire::request(false))["service_tier"],
+        json!("auto")
+    );
+    // Nothing is invented for absent echoes.
+    let mut bare = wire::response(2);
+    for key in [
+        "prompt_cache_key",
+        "prompt_cache_retention",
+        "prompt_cache_options",
+        "prompt_cache_diagnostics",
+        "safety_identifier",
+        "user",
+        "metadata",
+    ] {
+        bare.as_object_mut().unwrap().remove(key);
+    }
+    let out = response_round_trip(&bare);
+    for key in [
+        "prompt_cache_key",
+        "prompt_cache_retention",
+        "prompt_cache_options",
+        "prompt_cache_diagnostics",
+        "safety_identifier",
+        "user",
+        "metadata",
+    ] {
+        assert!(out.get(key).is_none(), "{key}");
+    }
+}
+#[test]
+fn chat_cache_affinity_hints_round_trip_within_chat_scope() {
+    let request = json!({"model":"fixture-model","messages":[{"role":"user","content":"x"}],"prompt_cache_key":"k","prompt_cache_options":{"mode":"implicit","ttl":"30m","prewarm":true},"prompt_cache_retention":"24h","safety_identifier":"synthetic-user","user":"synthetic-user"});
+    let d = chat_envelope::decode_request(&request).unwrap();
+    assert_eq!(d.context.cache.prompt_cache_key.value().unwrap(), "k");
+    let out = chat_envelope::encode_request(
+        &lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Chat,
+            contract(),
+        )
+        .unwrap(),
+        &d.context,
+    )
+    .unwrap();
+    assert_eq!(out["prompt_cache_key"], json!("k"));
+    assert_eq!(
+        out["prompt_cache_options"],
+        json!({"mode":"implicit","ttl":"30m","prewarm":true})
+    );
+    assert_eq!(out["prompt_cache_retention"], json!("24h"));
+    assert_eq!(out["safety_identifier"], json!("synthetic-user"));
+    assert_eq!(out["user"], json!("synthetic-user"));
+    let minimal = json!({"model":"fixture-model","messages":[{"role":"user","content":"x"}]});
+    let d = chat_envelope::decode_request(&minimal).unwrap();
+    let out = chat_envelope::encode_request(
+        &lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Chat,
+            contract(),
+        )
+        .unwrap(),
+        &d.context,
+    )
+    .unwrap();
+    assert!(out.get("prompt_cache_key").is_none());
+    assert!(out.get("prompt_cache_options").is_none());
+    assert!(out.get("user").is_none());
+    for options in [
+        json!({"mode":"implicit","ttl":"30m","prewarm":null}),
+        json!({"mode":"implicit","ttl":"30m","prewarm":1}),
+    ] {
+        let mut bad = minimal.clone();
+        bad["prompt_cache_options"] = options;
+        assert!(chat_envelope::decode_request(&bad).is_err());
+    }
 }

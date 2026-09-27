@@ -18,12 +18,12 @@
 | Controls/Schema | typed 外层控制、有序 schema、结构/strict/default 准入、本地引用和独立预算、pattern/format 语法与固定注册表、固定 SDK 类型化的外层控制 null 准入（request 侧拒绝非 null 类型，reported echo 按 response model） | 模型级限制；当前 schema profile 之外的词汇 |
 | Function/custom | 定义、choice、calls、文本/文本数组 outputs、事件、namespace/caller/async/defer_loading/allowed_callers 的表示、program/program_output item（opaque code/fingerprint/result 原样往返） | program 执行/调度语义；标准工具多模态结果；这些字段与 item 不授权执行 |
 | Reasoning | effort/context/mode、readable summary/text、origin-bound replay、有序 `configuration_update`（仅 reasoning effort）；`summary:false` 是当前文本 profile 的本地兼容形式，不是标准枚举 | effort 以外的续轮配置；更完整 snapshot/event 准入 |
-| Full response | identity、settings echo、usage、status/details、reasoning item 身份必填、`output_text.annotations` 必填（缺省或 null 不补成空数组） | 其余标准 item 分支必填性审查；request hints 与 effective response context 的分支合同 |
+| Full response | identity、settings echo、usage、status/details、reasoning item 身份必填、`output_text.annotations` 必填（缺省或 null 不补成空数组）；cache 亲和性 hint/echo 合同（presence 区分、不合成、不互转） | 其余标准 item 分支必填性审查；其余 request hints 与 effective response context 分支合同 |
 | Events/SSE | reducer、framing、byte/event/semantic/padding budgets；`response.cancelled` 是本地 profile extension，不是固定 SDK 标准事件；`response.queued` 非终态生命周期已准入 | 完整标准事件矩阵 |
 | 标准媒体 | 仅基础 Resource 类型；codec 拒绝 | image/file source、detail、filename、cache boundary、media tool result 的双向映射 |
 | 标准 hosted/state | 当前明确拒绝或只允许 inactive | 标准 tools/items/approval/progress；previous/conversation/store/background、prompt、compaction/reference 的表示与独立执行 |
-| Request context | 当前 `ExecutionHints` 仅部分 typed 标准字段 | state unit stubs、cache prewarm、新标准分支；不应把所有 context 称为“无需 IR 的执行杂项” |
-| 扩展 | fidelity 保存少量 identity/form/replay | 任务/part/resource/context 的统一准入合同；Codex session/cache/thread/turn；namespace/schema/scope/visibility/requirements |
+| Request context | `CacheHints`（含 `prewarm`）与 typed `ExecutionHints`；`client_metadata` 类自定义 body 段与 Codex HTTP header 的有界 encode/decode（typed 生命周期字段 + opaque 兜底，凭据 fail-closed，见 [ADR 0007](decisions/0007-stateless-cache-affinity-and-extensions.md)） | `service_tier`/`metadata` 的 Chat 投影、response 侧自定义段、Codex turn 管理模式；不应把所有 context 称为“无需 IR 的执行杂项” |
+| 扩展 | fidelity 保存少量 identity/form/replay；扩展承载已定稿（typed 生命周期字段 + 有界 opaque 兜底 + 凭据 fail-closed） | 任务/part/resource/context 的其余统一准入合同；namespace 版本协商、response 侧投影与跨位置一致性；扩展不授权执行 |
 | WS / resource operations | 没有实现 | lane/multiplex/steering、connection state 与单 response reducer 的边界；retrieve/cancel 等资源操作 |
 
 本表不是全部 API schema 的逐字段完成矩阵。外部验收方法由[验收基线](../references/conformance-baseline.md)拥有。
