@@ -30,6 +30,8 @@ pub enum InstructionAuthority {
 pub struct Instruction {
     pub authority: InstructionAuthority,
     pub parts: Vec<(PartId, Text)>,
+    /// Non-complete lifecycle only. Omitted and explicit `completed` stay absent.
+    pub status: Option<ItemLifecycle>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MessageRole {
@@ -78,6 +80,12 @@ pub enum Item {
     CustomCall(CustomCall),
     CustomResult(ToolResult),
     Reasoning(ReasoningItem),
+    ConfigurationUpdate(ConfigurationUpdate),
+}
+/// Ordered reasoning-effort update. It does not patch request settings.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigurationUpdate {
+    pub effort: Option<ReasoningEffort>,
 }
 impl Item {
     pub fn lifecycle(&self) -> Option<ItemLifecycle> {
@@ -85,6 +93,7 @@ impl Item {
             Self::Message(m) => Some(m.status),
             Self::ToolCall(c) => Some(c.status),
             Self::Reasoning(r) => Some(r.status),
+            Self::Instruction(i) => i.status,
             _ => None,
         }
     }

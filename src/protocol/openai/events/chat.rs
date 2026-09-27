@@ -123,6 +123,7 @@ impl EventDecoder {
                         call_id: text(string(call, "id")?, "call id", 256)?,
                         name: text(string(f, "name")?, "name", 128)?,
                         message: self.chat_owner,
+                        context: CallContext::default(),
                     };
                     self.emit(
                         StreamEvent::ItemStarted {

@@ -115,6 +115,9 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                     ToolKind::Custom,
                 )?;
             }
+            Item::ConfigurationUpdate(_) => {
+                active_owner = None;
+            }
             Item::Reasoning(r) => {
                 active_owner = None;
                 for (id, p) in &r.parts {

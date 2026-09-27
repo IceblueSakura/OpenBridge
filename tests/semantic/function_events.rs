@@ -111,6 +111,7 @@ fn duplicate_call_part_and_item_identity_and_open_success_fail() {
                 call_id: text("a"),
                 name: text("f"),
                 message: None,
+                context: CallContext::default(),
             },
         ),
     ];
@@ -123,7 +124,8 @@ fn duplicate_call_part_and_item_identity_and_open_success_fail() {
                 ItemKind::ToolCall {
                     call_id: text("a"),
                     name: text("g"),
-                    message: None
+                    message: None,
+                    context: CallContext::default(),
                 }
             )
         )
@@ -159,6 +161,7 @@ fn non_success_terminals_keep_partial_output_and_error_is_not_materializable() {
                     call_id: text("a"),
                     name: text("f"),
                     message: None,
+                    context: CallContext::default(),
                 },
             ),
             StreamEvent::PartStarted {

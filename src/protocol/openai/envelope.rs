@@ -489,14 +489,19 @@ pub(super) fn validate_item_snapshot(v: &Value) -> Result<(), CodecError> {
         for p in parts {
             validate_part_snapshot(p)?;
         }
-    } else if string(o, "type")? == "reasoning" {
-        // Reasoning identity is required on every wire snapshot; task codecs still
-        // assign fresh identity themselves.
+    } else if matches!(string(o, "type")?, "reasoning" | "configuration_update") {
+        // These snapshots require identity; task codecs still assign fresh identity.
         text(string(o, "id")?, "wire item id", 256)?;
     }
     Ok(())
 }
 pub(super) fn validate_part_snapshot(v: &Value) -> Result<(), CodecError> {
+    if v.get("type").and_then(Value::as_str) == Some("output_text") {
+        let annotations = v.get("annotations").filter(|a| !a.is_null());
+        if !annotations.is_some_and(Value::is_array) {
+            return Err(CodecError::Invalid("annotations"));
+        }
+    }
     if v.get("type").and_then(Value::as_str) == Some("output_text")
         && let Some(probs) = v.get("logprobs").filter(|v| !v.is_null())
     {

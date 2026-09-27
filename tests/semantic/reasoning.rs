@@ -414,3 +414,95 @@ fn encoder_rejects_unbound_replay_before_emitting_it() {
             .is_err()
     );
 }
+#[test]
+fn configuration_update_is_an_ordered_effort_item_not_a_settings_patch() {
+    let source = json!({"input":[
+        {"type":"configuration_update","reasoning":{"effort":"low"}},
+        {"role":"user","content":"next"}
+    ]});
+    let decoded = responses::decode_generation(&source).unwrap();
+    assert!(decoded.semantic.reasoning().effort().is_none());
+    let encoded = responses::encode_generation(
+        &lower_request(
+            &decoded.semantic,
+            &decoded.fidelity,
+            Profile::Responses,
+            contract(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        encoded["input"][0],
+        json!({"type":"configuration_update","reasoning":{"effort":"low"}})
+    );
+    let mut items = decoded.semantic.items().to_vec();
+    let Item::ConfigurationUpdate(update) = &mut items[0].1 else {
+        panic!("configuration update")
+    };
+    update.effort = Some(ReasoningEffort::High);
+    let replaced = decoded.semantic.clone().with_items(items).unwrap();
+    let replaced_wire = responses::encode_generation(
+        &lower_request(&replaced, &decoded.fidelity, Profile::Responses, contract()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        replaced_wire["input"][0]["reasoning"]["effort"],
+        json!("high")
+    );
+    let deleted = replaced
+        .retain_items(|_, item| !matches!(item, Item::ConfigurationUpdate(_)))
+        .unwrap();
+    let deleted_wire = responses::encode_generation(
+        &lower_request(&deleted, &decoded.fidelity, Profile::Responses, contract()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(deleted_wire["input"].as_array().unwrap().len(), 1);
+    for bad in [
+        json!({"type":"configuration_update","reasoning":null}),
+        json!({"type":"configuration_update","summary":"auto"}),
+        json!({"type":"configuration_update","reasoning":{"effort":"unregistered"}}),
+        json!({"type":"configuration_update","reasoning":{"mode":"pro"}}),
+    ] {
+        assert!(
+            responses::decode_generation(&json!({"input":[bad,{"role":"user","content":"next"}]}))
+                .is_err()
+        );
+    }
+    assert!(
+        lower_request(
+            &decoded.semantic,
+            &decoded.fidelity,
+            Profile::Chat,
+            contract()
+        )
+        .is_err()
+    );
+    let mut idless = json!({"type":"configuration_update","reasoning":{"effort":"max"}});
+    assert!(responses::decode_response(&envelope("completed", json!([idless.clone()]))).is_err());
+    idless["id"] = json!("cu");
+    let response = responses::decode_response(&envelope("completed", json!([idless]))).unwrap();
+    let Item::ConfigurationUpdate(update) = &response.semantic.items()[0].1 else {
+        panic!("response update")
+    };
+    assert_eq!(update.effort, Some(ReasoningEffort::Max));
+    let mut d = EventDecoder::new(Profile::Responses);
+    d.push(&created()).unwrap();
+    let item = json!({"id":"cu","type":"configuration_update","reasoning":{"effort":"low"}});
+    d.push(&json!({"type":"response.output_item.added","output_index":0,"item":item}))
+        .unwrap();
+    assert!(d.push(&json!({"type":"response.output_item.done","output_index":0,"item":{"id":"cu","type":"configuration_update","reasoning":{"effort":"high"}}})).is_err());
+    let mut ok = EventDecoder::new(Profile::Responses);
+    ok.push(&created()).unwrap();
+    ok.push(&json!({"type":"response.output_item.added","output_index":0,"item":item.clone()}))
+        .unwrap();
+    ok.push(&json!({"type":"response.output_item.done","output_index":0,"item":item.clone()}))
+        .unwrap();
+    ok.push(&json!({"type":"response.completed","response":envelope("completed", json!([item]))}))
+        .unwrap();
+    let materialized = ok.materialize().unwrap();
+    let Item::ConfigurationUpdate(update) = &materialized.semantic.items()[0].1 else {
+        panic!("stream update")
+    };
+    assert_eq!(update.effort, Some(ReasoningEffort::Low));
+}

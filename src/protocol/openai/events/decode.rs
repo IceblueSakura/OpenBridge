@@ -316,10 +316,16 @@ impl EventDecoder {
                         "async",
                     ],
                 )?;
-                super::super::responses::direct(v)?;
                 ItemKind::CustomCall {
                     call_id: text(string(v, "call_id")?, "call id", 256)?,
                     name: text(string(v, "name")?, "custom name", 128)?,
+                    context: super::super::responses::call_context(v)?,
+                }
+            }
+            "configuration_update" => {
+                fields(v, &["type", "id", "reasoning"])?;
+                ItemKind::ConfigurationUpdate {
+                    effort: super::super::responses::configuration_effort(v, true)?,
                 }
             }
             "function_call" => {
@@ -337,11 +343,11 @@ impl EventDecoder {
                         "async",
                     ],
                 )?;
-                super::super::responses::direct(v)?;
                 ItemKind::ToolCall {
                     call_id: text(string(v, "call_id")?, "call id", 256)?,
                     name: text(string(v, "name")?, "tool name", 128)?,
                     message: None,
+                    context: super::super::responses::call_context(v)?,
                 }
             }
             _ => return Err(CodecError::Unsupported("item kind".into())),

@@ -37,7 +37,7 @@ fn request_wire(d: &DecodedRequest, profile: Profile) -> Value {
 fn expected_responses_history() -> Value {
     json!({"input":[
         {"type":"message","role":"user","content":[{"type":"input_text","text":"weather?"}]},
-        {"type":"message","role":"assistant","content":[{"type":"output_text","text":"Checking."}]},
+        {"type":"message","role":"assistant","content":[{"type":"output_text","text":"Checking.","annotations":[]}]},
         {"type":"function_call","call_id":"call_a","name":"weather","arguments":"{ \"city\": \"Paris\" }"},
         {"type":"function_call","call_id":"call_b","name":"weather","arguments":"{\"city\":\"Rome\"}"},
         {"type":"function_call_output","call_id":"call_b","output":""},
@@ -60,6 +60,7 @@ fn independent_decode_preserves_function_meaning_and_message_ownership() {
             arguments: "{ \"city\": \"Paris\" }".into(),
             message: Some(ItemId::new(2)),
             status: ItemLifecycle::Completed,
+            context: CallContext::default(),
         }
     );
     let ToolDefinition::Function(def) = &d.semantic.tools()[0] else {
@@ -96,6 +97,7 @@ fn independent_ir_encodes_call_and_empty_result_without_source_wire() {
                 arguments: "not valid JSON".into(),
                 message: None,
                 status: ItemLifecycle::Completed,
+                context: CallContext::default(),
             }),
         ),
         (
@@ -104,6 +106,7 @@ fn independent_ir_encodes_call_and_empty_result_without_source_wire() {
                 call_id: text("call_new"),
                 output: "".into(),
                 status: None,
+                context: CallContext::default(),
             }),
         ),
     ];
@@ -169,6 +172,7 @@ fn replacement_insertion_and_reordering_drive_both_encoders() {
                 arguments: "{}".into(),
                 message: Some(ItemId::new(2)),
                 status: ItemLifecycle::Completed,
+                context: CallContext::default(),
             }),
         ),
     );
@@ -178,6 +182,7 @@ fn replacement_insertion_and_reordering_drive_both_encoders() {
             call_id: text("call_c"),
             output: "rain".into(),
             status: None,
+            context: CallContext::default(),
         }),
     ));
     d.semantic = d.semantic.with_items(items).unwrap();
@@ -461,6 +466,7 @@ fn static_response_encodes_independent_expectations_and_replays_into_history() {
             call_id: text("call_b"),
             output: "rain".into(),
             status: None,
+            context: CallContext::default(),
         }),
     ));
     history.push((
@@ -469,6 +475,7 @@ fn static_response_encodes_independent_expectations_and_replays_into_history() {
             call_id: text("call_a"),
             output: "sunny".into(),
             status: None,
+            context: CallContext::default(),
         }),
     ));
     let d = DecodedRequest {
@@ -490,6 +497,7 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
             arguments: "{broken".into(),
             message: None,
             status: ItemLifecycle::Completed,
+            context: CallContext::default(),
         }),
     );
     let ir = GenerationResponse::new(vec![item], Completion::ToolCalls).unwrap();
@@ -684,7 +692,8 @@ fn transformed_total_request_budget_includes_tools_and_history() {
                     output_schema: None,
                     description: Some(payload),
                     parameters: None,
-                    strict: FunctionStrictness::Explicit(false)
+                    strict: FunctionStrictness::Explicit(false),
+                    dispatch: ToolDispatch::default(),
                 })]),
                 None,
                 None
@@ -702,6 +711,7 @@ fn semantic_construction_cannot_bypass_identifier_or_control_validation() {
         arguments: "{}".into(),
         message: None,
         status: ItemLifecycle::Completed,
+        context: CallContext::default(),
     });
     assert!(
         GenerationRequest::new(vec![(ItemId::new(1), call)], GenerationControls::default())
@@ -714,6 +724,7 @@ fn semantic_construction_cannot_bypass_identifier_or_control_validation() {
         description: None,
         parameters: None,
         strict: FunctionStrictness::Explicit(false),
+        dispatch: ToolDispatch::default(),
     });
     assert!(
         d.semantic
@@ -755,5 +766,64 @@ fn explicit_null_tool_containers_are_rejected_not_silently_dropped() {
             &json!({"messages":[{"role":"user","content":"x"}],"parallel_tool_calls":null})
         )
         .is_err()
+    );
+}
+#[test]
+fn active_tool_dispatch_and_instruction_lifecycle_round_trip_without_chat_projection() {
+    let source = json!({"input":[
+        {"type":"message","id":"ins","role":"developer","status":"in_progress","content":"hold"},
+        {"type":"function_call","call_id":"c","name":"lookup","arguments":"{}","namespace":"pkg","async":true,"caller":{"type":"program","caller_id":"prog"}}
+    ],"tools":[{"type":"function","name":"lookup","async":true,"defer_loading":true,"allowed_callers":["programmatic"]}]});
+    let decoded = responses::decode_generation(&source).unwrap();
+    let Item::Instruction(instruction) = &decoded.semantic.items()[0].1 else {
+        panic!("instruction")
+    };
+    assert_eq!(instruction.status, Some(ItemLifecycle::InProgress));
+    let Item::ToolCall(call) = &decoded.semantic.items()[1].1 else {
+        panic!("call")
+    };
+    assert_eq!(
+        call.context.namespace.as_ref().map(|v| v.as_str()),
+        Some("pkg")
+    );
+    assert!(call.context.async_call);
+    assert!(matches!(
+        call.context.caller,
+        Some(CallOrigin::Program { .. })
+    ));
+    let ToolDefinition::Function(tool) = &decoded.semantic.tools()[0] else {
+        panic!("tool")
+    };
+    assert!(tool.dispatch.async_call && tool.dispatch.defer_loading);
+    assert_eq!(
+        tool.dispatch.allowed_callers,
+        Some(vec![CallerMode::Programmatic])
+    );
+    let encoded = request_wire(&decoded, Profile::Responses);
+    assert_eq!(encoded["input"][0]["status"], json!("in_progress"));
+    assert_eq!(encoded["input"][0]["id"], json!("ins"));
+    assert_eq!(encoded["input"][1]["namespace"], json!("pkg"));
+    assert_eq!(encoded["input"][1]["caller"]["type"], json!("program"));
+    assert_eq!(encoded["tools"][0]["defer_loading"], json!(true));
+    assert!(
+        lower_request(
+            &decoded.semantic,
+            &decoded.fidelity,
+            Profile::Chat,
+            Contract::full()
+        )
+        .is_err()
+    );
+    let completed =
+        responses::decode_generation(&json!({"input":[{"role":"developer","content":"done"}]}))
+            .unwrap();
+    let Item::Instruction(instruction) = &completed.semantic.items()[0].1 else {
+        panic!("complete instruction")
+    };
+    assert_eq!(instruction.status, None);
+    assert!(
+        request_wire(&completed, Profile::Responses)["input"][0]
+            .get("status")
+            .is_none()
     );
 }

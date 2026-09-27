@@ -276,7 +276,7 @@ fn optional_label<T>(
         parse(v.as_str().ok_or(CodecError::Invalid(key))?)
     })
 }
-fn effort(value: &str) -> Result<ReasoningEffort, CodecError> {
+pub(super) fn effort(value: &str) -> Result<ReasoningEffort, CodecError> {
     Ok(match value {
         "none" => ReasoningEffort::None,
         "minimal" => ReasoningEffort::Minimal,
@@ -296,7 +296,7 @@ fn summary(value: &str) -> Result<ReasoningSummary, CodecError> {
         _ => return Err(CodecError::Unsupported("reasoning summary".into())),
     })
 }
-fn effort_label(value: ReasoningEffort) -> &'static str {
+pub(super) fn effort_label(value: ReasoningEffort) -> &'static str {
     match value {
         ReasoningEffort::None => "none",
         ReasoningEffort::Minimal => "minimal",

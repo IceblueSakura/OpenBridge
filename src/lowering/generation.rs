@@ -154,6 +154,9 @@ pub fn lower_request<'a>(
         StrictDefault::NormalizeSchema
     };
     for tool in r.tools() {
+        if !tool.dispatch_inactive() && profile == Profile::Chat {
+            return Err(RepresentationError::Tools);
+        }
         if let ToolDefinition::Function(t) = tool {
             if matches!(t.strict, FunctionStrictness::Omitted(d) if d != expected_default) {
                 return Err(RepresentationError::StrictDefault);
@@ -325,8 +328,23 @@ fn text_items(items: &[(ItemId, Item)], profile: Profile) -> Result<(), Represen
     for (_, i) in items {
         if profile == Profile::Chat {
             match i {
+                Item::CustomCall(c) if !c.context.is_direct() => {
+                    return Err(RepresentationError::Tools);
+                }
+                Item::CustomResult(r) if !r.context.is_direct() => {
+                    return Err(RepresentationError::Tools);
+                }
                 Item::CustomCall(_) | Item::CustomResult(_) => {
                     return Err(RepresentationError::Tools);
+                }
+                Item::ToolCall(c) if !c.context.is_direct() => {
+                    return Err(RepresentationError::Tools);
+                }
+                Item::ToolResult(r) if !r.context.is_direct() => {
+                    return Err(RepresentationError::Tools);
+                }
+                Item::ConfigurationUpdate(_) => {
+                    return Err(RepresentationError::Reasoning);
                 }
                 Item::Instruction(i) if i.parts.len() != 1 => {
                     return Err(RepresentationError::MessageGrouping);

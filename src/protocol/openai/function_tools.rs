@@ -2,18 +2,62 @@
 use super::{CodecError, Profile, common::*};
 use crate::semantic::task::generation::*;
 use serde_json::{Map, Value, json};
-fn inactive(o: &Map<String, Value>) -> Result<(), CodecError> {
-    for key in ["async", "defer_loading"] {
-        if o.get(key).is_some_and(|v| v.as_bool() != Some(false)) {
-            return Err(CodecError::Unsupported(key.into()));
+fn dispatch(o: &Map<String, Value>) -> Result<ToolDispatch, CodecError> {
+    let flag = |key| match o.get(key) {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => Ok(false),
+        Some(Value::Bool(true)) => Ok(true),
+        _ => Err(CodecError::Invalid(key)),
+    };
+    let allowed_callers = match o.get("allowed_callers") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(values)) if values == &vec![json!("direct")] => None,
+        Some(Value::Array(values)) => {
+            if values.is_empty() || values.len() > 2 {
+                return Err(CodecError::Invalid("allowed_callers"));
+            }
+            let mut callers = vec![];
+            for value in values {
+                let mode = match value.as_str() {
+                    Some("direct") => CallerMode::Direct,
+                    Some("programmatic") => CallerMode::Programmatic,
+                    _ => return Err(CodecError::Invalid("allowed_callers")),
+                };
+                if callers.contains(&mode) {
+                    return Err(CodecError::Invalid("allowed_callers"));
+                }
+                callers.push(mode);
+            }
+            Some(callers)
         }
+        _ => return Err(CodecError::Invalid("allowed_callers")),
+    };
+    Ok(ToolDispatch {
+        async_call: flag("async")?,
+        defer_loading: flag("defer_loading")?,
+        allowed_callers,
+    })
+}
+fn write_dispatch(dispatch: &ToolDispatch, o: &mut Map<String, Value>) {
+    if dispatch.async_call {
+        o.insert("async".into(), json!(true));
     }
-    if o.get("allowed_callers")
-        .is_some_and(|v| !v.is_null() && v != &json!(["direct"]))
-    {
-        return Err(CodecError::Unsupported("allowed_callers".into()));
+    if dispatch.defer_loading {
+        o.insert("defer_loading".into(), json!(true));
     }
-    Ok(())
+    if let Some(callers) = &dispatch.allowed_callers {
+        o.insert(
+            "allowed_callers".into(),
+            json!(
+                callers
+                    .iter()
+                    .map(|c| match c {
+                        CallerMode::Direct => "direct",
+                        CallerMode::Programmatic => "programmatic",
+                    })
+                    .collect::<Vec<_>>()
+            ),
+        );
+    }
 }
 pub(super) fn read_settings(
     o: &Map<String, Value>,
@@ -70,7 +114,7 @@ pub(super) fn read_tool(
                 "allowed_callers",
             ],
         )?;
-        inactive(o)?;
+        let dispatch = dispatch(o)?;
         let format = o
             .get("format")
             .map(|v| {
@@ -103,6 +147,7 @@ pub(super) fn read_tool(
                 .map(|_| raw_string(o, "description"))
                 .transpose()?,
             format,
+            dispatch,
         }));
     }
     if string(o, "type")? != "function" {
@@ -132,7 +177,7 @@ pub(super) fn read_tool(
             ]
         },
     )?;
-    inactive(f)?;
+    let dispatch = dispatch(f)?;
     Ok(ToolDefinition::Function(FunctionTool {
         name: text(string(f, "name")?, "function name", 128)?,
         description: f
@@ -146,6 +191,7 @@ pub(super) fn read_tool(
             None => FunctionStrictness::Omitted(strict_default(profile)),
         },
         output_schema: f.get("output_schema").filter(|v| !v.is_null()).cloned(),
+        dispatch,
     }))
 }
 fn reference(v: &Value) -> Result<ToolReference, CodecError> {
@@ -254,6 +300,9 @@ pub(super) fn write_tool(t: &ToolDefinition, profile: Profile) -> Value {
             if let FunctionStrictness::Explicit(b) = t.strict {
                 f["strict"] = json!(b);
             }
+            if profile == Profile::Responses {
+                write_dispatch(&t.dispatch, f.as_object_mut().expect("object"));
+            }
             if profile == Profile::Chat {
                 json!({"type":"function","function":f})
             } else {
@@ -274,6 +323,7 @@ pub(super) fn write_tool(t: &ToolDefinition, profile: Profile) -> Value {
                     }
                 };
             }
+            write_dispatch(&t.dispatch, v.as_object_mut().expect("object"));
             v
         }
     }

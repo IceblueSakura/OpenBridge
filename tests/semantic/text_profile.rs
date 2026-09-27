@@ -445,18 +445,23 @@ fn instruction_status_is_checked_in_history_and_reported_echoes() {
             Some(json!("in_progress")),
             Some(json!("incomplete")),
         ] {
-            let accepted = status.is_none() || status == Some(json!("completed"));
+            let lifecycle = matches!(&status, Some(value) if value == &json!("in_progress") || value == &json!("incomplete"));
+            let accepted = status.is_none() || status == Some(json!("completed")) || lifecycle;
             let mut item = json!({"type":"message","role":role,"content":[{"type":"input_text","text":"Be precise"}]});
-            if let Some(status) = status {
+            if let Some(status) = status.clone() {
                 item["status"] = status;
             }
             let decoded = responses::decode_generation(&json!({"input":[item.clone()]}));
             assert_eq!(decoded.is_ok(), accepted, "{item}");
             if let Ok(d) = decoded {
-                assert_eq!(
-                    request_wire(&d)["input"],
-                    json!([{"role":role,"content":"Be precise"}])
-                );
+                let encoded = request_wire(&d)["input"][0].clone();
+                if lifecycle {
+                    assert_eq!(encoded["status"], item["status"]);
+                    assert_eq!(encoded["type"], json!("message"));
+                } else {
+                    assert!(encoded.get("status").is_none());
+                    assert_eq!(encoded["content"], json!("Be precise"));
+                }
             }
             let mut response = wire::response(2);
             response["instructions"] = json!([item]);
@@ -474,10 +479,13 @@ fn instruction_status_is_checked_in_history_and_reported_echoes() {
                     .unwrap(),
                 )
                 .unwrap();
-                assert_eq!(
-                    output["instructions"],
-                    json!([{"role":role,"content":"Be precise"}])
-                );
+                let encoded = &output["instructions"][0];
+                if lifecycle {
+                    assert_eq!(encoded["status"], item["status"]);
+                } else {
+                    assert!(encoded.get("status").is_none());
+                    assert_eq!(encoded["content"], json!("Be precise"));
+                }
             }
         }
     }
@@ -734,7 +742,7 @@ fn null_empty_false_and_default_controls_are_deliberate_not_unknown_passthrough(
         json!({"temperature":-1}),
         json!({"text":{"format":{"type":"json_schema","name":"bad name","schema":{}}}}),
         json!({"tools":[{"type":"custom","name":"x","format":{"type":"grammar","syntax":"unknown","definition":"x"}}]}),
-        json!({"tools":[{"type":"function","name":"x","async":true}]}),
+        json!({"tools":[{"type":"function","name":"x","async":"yes"}]}),
         json!({"reasoning":{"unknown":true}}),
         json!({"text":null}),
         json!({"tools":null}),
@@ -1017,4 +1025,35 @@ fn metadata_budget_and_ranges_fail_without_expanding_or_reusing_old_values() {
     hints.record_cache_breakpoint(PartId::new(99)).unwrap();
     let d = responses::decode_generation(&json!({"input":"hello"})).unwrap();
     assert!(lower_request(&d.semantic, &hints, Profile::Chat, contract()).is_ok());
+}
+#[test]
+fn output_text_annotations_are_required_and_empty_arrays_stay_visible() {
+    assert!(
+        responses::decode_generation(
+            &json!({"input":[{"role":"assistant","content":[{"type":"output_text","text":"hi"}]}]})
+        )
+        .is_err()
+    );
+    assert!(responses::decode_generation(&json!({"input":[{"role":"assistant","content":[{"type":"output_text","text":"hi","annotations":null}]}]})).is_err());
+    let decoded = responses::decode_generation(&json!({"input":[{"role":"assistant","content":[{"type":"output_text","text":"hi","annotations":[]}]}]})).unwrap();
+    assert_eq!(
+        request_wire(&decoded)["input"][0]["content"][0]["annotations"],
+        json!([])
+    );
+    assert!(
+        responses::decode_generation(
+            &json!({"input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]})
+        )
+        .is_ok()
+    );
+    let mut response = wire::response(2);
+    response["output"][0]["content"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("annotations");
+    assert!(envelope::decode_response(&response).is_err());
+    let mut decoder = EventDecoder::new(Profile::Responses);
+    decoder.push(&json!({"type":"response.created","response":{"id":"r","object":"response","created_at":0,"model":"synthetic","status":"in_progress","output":[]}})).unwrap();
+    decoder.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"m","type":"message","role":"assistant","status":"in_progress","content":[]}})).unwrap();
+    assert!(decoder.push(&json!({"type":"response.content_part.added","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":""}})).is_err());
 }

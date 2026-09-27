@@ -134,6 +134,7 @@ pub(super) fn decode_message(
                     call_id: text(string(m, "tool_call_id")?, "call_id", 256)?,
                     output: raw_string(m, "content")?.into(),
                     status: None,
+                    context: CallContext::default(),
                 }),
             ));
         }
@@ -159,6 +160,7 @@ pub(super) fn decode_message(
                         )
                         .map_err(|_| CodecError::Limit)?,
                     )],
+                    status: None,
                 }),
             ));
         }
@@ -309,7 +311,10 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
                 calls.as_array_mut().expect("calls").push(call_wire(c));
                 standalone_calls = c.message.is_none();
             }
-            Item::Reasoning(_) | Item::CustomCall(_) | Item::CustomResult(_) => {
+            Item::Reasoning(_)
+            | Item::CustomCall(_)
+            | Item::CustomResult(_)
+            | Item::ConfigurationUpdate(_) => {
                 unreachable!("lowering rejects unsupported Chat items")
             }
             Item::ToolResult(r) => {

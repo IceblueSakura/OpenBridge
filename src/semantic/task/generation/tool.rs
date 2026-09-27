@@ -11,6 +11,39 @@ pub enum FunctionStrictness {
     Omitted(StrictDefault),
     Explicit(bool),
 }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CallerMode {
+    Direct,
+    Programmatic,
+}
+/// Active tool-definition dispatch. Inactive defaults stay absent.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ToolDispatch {
+    pub async_call: bool,
+    pub defer_loading: bool,
+    pub allowed_callers: Option<Vec<CallerMode>>,
+}
+impl ToolDispatch {
+    pub fn is_inactive(&self) -> bool {
+        !self.async_call && !self.defer_loading && self.allowed_callers.is_none()
+    }
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CallOrigin {
+    Program { caller_id: Text },
+}
+/// Active call context. Direct callers, empty namespaces and async false stay absent.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CallContext {
+    pub namespace: Option<Text>,
+    pub async_call: bool,
+    pub caller: Option<CallOrigin>,
+}
+impl CallContext {
+    pub fn is_direct(&self) -> bool {
+        self.namespace.is_none() && !self.async_call && self.caller.is_none()
+    }
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FunctionTool {
     pub name: Text,
@@ -18,6 +51,7 @@ pub struct FunctionTool {
     pub parameters: Option<serde_json::Value>,
     pub strict: FunctionStrictness,
     pub output_schema: Option<serde_json::Value>,
+    pub dispatch: ToolDispatch,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CustomFormat {
@@ -37,6 +71,7 @@ pub struct CustomTool {
     pub name: Text,
     pub description: Option<String>,
     pub format: Option<CustomFormat>,
+    pub dispatch: ToolDispatch,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolDefinition {
@@ -48,6 +83,12 @@ impl ToolDefinition {
         match self {
             Self::Function(t) => &t.name,
             Self::Custom(t) => &t.name,
+        }
+    }
+    pub fn dispatch_inactive(&self) -> bool {
+        match self {
+            Self::Function(t) => t.dispatch.is_inactive(),
+            Self::Custom(t) => t.dispatch.is_inactive(),
         }
     }
     pub fn kind(&self) -> ToolKind {
@@ -94,12 +135,14 @@ pub struct ToolCall {
     pub arguments: String,
     pub message: Option<ItemId>,
     pub status: ItemLifecycle,
+    pub context: CallContext,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CustomCall {
     pub call_id: Text,
     pub name: Text,
     pub input: String,
+    pub context: CallContext,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolOutput {
@@ -121,4 +164,5 @@ pub struct ToolResult {
     pub call_id: Text,
     pub output: ToolOutput,
     pub status: Option<ItemLifecycle>,
+    pub context: CallContext,
 }

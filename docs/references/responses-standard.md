@@ -68,7 +68,7 @@ function strict 的省略默认与显式 false/true、response format strict 的
 
 响应保存 id、model、created/completed time、output 顺序、status、error/incomplete details、reported usage 和 settings/execution echoes。请求 service tier/reasoning context 与实际返回值可能不同，不能直接复制 request 冒充 response facts。
 
-`queued/in_progress/completed/incomplete/failed/cancelled` 是 response 状态；不意味着每个状态都有同名标准 SSE event。当前 event reference/SDK 没有为现有本地 `response.cancelled` 接受分支提供同等明确的标准依据，后续必须判定为 profile extension 或收窄；不可只凭字符串拼接建标准事件。
+`queued/in_progress/completed/incomplete/failed/cancelled` 是 response 状态；不意味着每个状态都有同名标准 SSE event。固定 SDK 没有 `response.cancelled` 事件；当前本地接受分支已归类为 profile extension，不是标准事件名。
 
 事件家族包括 response 生命周期、output item、content part、text/refusal、reasoning summary/text、function/custom input、annotations、工具执行进度/结果、audio/transcript、compaction progress、shell command/output 等。必须按 event 分支验证 required/nullable 字段、sequence、身份和 snapshot，而不是对全部 event 使用宽松字段超集。
 

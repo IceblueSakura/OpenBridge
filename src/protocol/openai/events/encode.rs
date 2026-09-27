@@ -188,14 +188,41 @@ impl EventEncoder {
                         }
                         v
                     }
-                    ItemKind::CustomCall { call_id, name } => {
-                        json!({"id":id,"type":"custom_tool_call","call_id":call_id.as_str(),"name":name.as_str(),"input":""})
+                    ItemKind::CustomCall {
+                        call_id,
+                        name,
+                        context,
+                    } => {
+                        let mut v = json!({"id":id,"type":"custom_tool_call","call_id":call_id.as_str(),"name":name.as_str(),"input":""});
+                        super::super::responses::write_call_context(
+                            context,
+                            v.as_object_mut().expect("object"),
+                        );
+                        v
                     }
                     ItemKind::Reasoning => {
                         json!({"id":id,"type":"reasoning","summary":[],"status":"in_progress"})
                     }
-                    ItemKind::ToolCall { call_id, name, .. } => {
-                        json!({"id":id,"type":"function_call","call_id":call_id.as_str(),"name":name.as_str(),"arguments":"","status":"in_progress"})
+                    ItemKind::ConfigurationUpdate { effort } => {
+                        let mut v = json!({"id":id,"type":"configuration_update"});
+                        if let Some(effort) = effort {
+                            v["reasoning"] =
+                                json!({"effort": super::super::reasoning::effort_label(*effort)});
+                        }
+                        v
+                    }
+                    ItemKind::ToolCall {
+                        call_id,
+                        name,
+                        context,
+                        ..
+                    } => {
+                        let mut v = json!({"id":id,"type":"function_call","call_id":call_id.as_str(),"name":name.as_str(),"arguments":"","status":"in_progress"});
+                        super::super::responses::write_call_context(
+                            context,
+                            v.as_object_mut().expect("object"),
+                        );
+                        v
                     }
                 };
                 if let Some(r) = replay {
@@ -278,7 +305,6 @@ impl EventEncoder {
                         super::super::text::write(
                             &TextContent::new(text, p.annotations.clone(), p.logprobs.clone())?,
                             "output_text",
-                            true,
                         )
                     } else {
                         part_wire(p.kind, &p.text)

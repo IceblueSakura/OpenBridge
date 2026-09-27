@@ -88,9 +88,9 @@ fn part_close_does_not_close_item_and_snapshot_grammar_is_checked() {
     let mut d = EventDecoder::new(Profile::Responses);
     d.push(&created()).unwrap();
     d.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"m","type":"message","role":"assistant","status":"in_progress","content":[]}})).unwrap();
-    d.push(&json!({"type":"response.content_part.added","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":""}})).unwrap();
+    d.push(&json!({"type":"response.content_part.added","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":"","annotations":[]}})).unwrap();
     d.push(&json!({"type":"response.output_text.done","output_index":0,"item_id":"m","content_index":0,"text":""})).unwrap();
-    d.push(&json!({"type":"response.content_part.done","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":""}})).unwrap();
+    d.push(&json!({"type":"response.content_part.done","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":"","annotations":[]}})).unwrap();
     assert!(d.push(&json!({"type":"response.completed","response":envelope("completed",json!([{"id":"m","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"","annotations":[]}]}]))})).is_err());
 }
 #[test]

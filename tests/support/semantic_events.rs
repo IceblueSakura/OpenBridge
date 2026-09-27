@@ -82,6 +82,7 @@ pub fn call(item: u64, part_id: u64, id: &str, s: &str) -> Vec<StreamEvent> {
             call_id: text(id),
             name: text("lookup"),
             message: None,
+            context: CallContext::default(),
         },
     )];
     events.extend(part(item, part_id, PartKind::Arguments, s));

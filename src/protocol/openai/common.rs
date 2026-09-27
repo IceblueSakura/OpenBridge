@@ -282,6 +282,11 @@ pub(super) fn tool_call(
         arguments: raw_string(f, "arguments")?,
         message,
         status,
+        context: if profile == Profile::Responses {
+            super::responses::call_context(o)?
+        } else {
+            CallContext::default()
+        },
     })
 }
 pub(super) fn accept_status(o: &Map<String, Value>, expected: &str) -> Result<(), CodecError> {

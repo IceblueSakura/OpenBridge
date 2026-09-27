@@ -58,7 +58,7 @@ session/thread/cache/turn 值即使不是密码，也可能敏感且高基数；
 
 当某扩展被官方标准吸收：核对语义是否等价，迁入标准 owner，消除同一事实两份字段。旧 wire spelling 如仍需接受，由显式 profile codec 处理，不在 IR 保留 legacy alias。
 
-当前 `reasoning.summary:false` 是本地接受的兼容形式，但 SDK `3.19.0` 和固定公开 reference 的标准 summary 是字符串枚举或 null；不能把现有行为自动写成标准。具体兼容 profile 的公开名和 downstream extension envelope 尚未制定，不以文档示例冒充已发布 API。
+当前 `reasoning.summary:false` 由 Responses 文本 profile 作为本地兼容形式接受并重发。SDK `3.19.0` 和固定公开 reference 的标准 summary 是字符串枚举或 null；这不是标准枚举，也不是已发布的 downstream extension。
 
 ## 6. 需要单独定稿的事项
 

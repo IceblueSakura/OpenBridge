@@ -17,9 +17,9 @@ pub use reasoning::{
     ReasoningMode, ReasoningPresence, ReasoningReplay, ReasoningRequest, ReasoningSummary,
 };
 pub use request::{
-    ContentPart, GenerationControls, GenerationError, GenerationRequest, GenerationSettings,
-    Instruction, InstructionAuthority, Item, ItemId, Message, MessageRole, Part, PartId, Phase,
-    Truncation,
+    ConfigurationUpdate, ContentPart, GenerationControls, GenerationError, GenerationRequest,
+    GenerationSettings, Instruction, InstructionAuthority, Item, ItemId, Message, MessageRole,
+    Part, PartId, Phase, Truncation,
 };
 pub use requirements::GenerationRequirements;
 pub use resource::{Resource, ResourceKind, ResourceLocation};
@@ -27,9 +27,9 @@ pub use text::{
     Annotation, Logprob, TextContent, TopLogprob, compatible_logprobs, validate_logprobs,
 };
 pub use tool::{
-    CustomCall, CustomFormat, CustomTool, FunctionStrictness, FunctionTool, GrammarSyntax,
-    ItemLifecycle, StrictDefault, ToolCall, ToolChoice, ToolDefinition, ToolKind, ToolOutput,
-    ToolReference, ToolResult,
+    CallContext, CallOrigin, CallerMode, CustomCall, CustomFormat, CustomTool, FunctionStrictness,
+    FunctionTool, GrammarSyntax, ItemLifecycle, StrictDefault, ToolCall, ToolChoice,
+    ToolDefinition, ToolDispatch, ToolKind, ToolOutput, ToolReference, ToolResult,
 };
 
 pub use event::{

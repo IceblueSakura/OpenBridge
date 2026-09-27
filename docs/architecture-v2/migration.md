@@ -14,12 +14,12 @@
 
 | 域 | 当前实现 | 相对目标的缺口 |
 |---|---|---|
-| Instructions/messages | `GenerationSettings`、ordered Item、text/refusal、assistant `phase` 分类（与 status 独立，保留重发） | 非完成 instruction lifecycle 的表示；其余标准 input/output 分支准入 |
+| Instructions/messages | `GenerationSettings`、ordered Item、text/refusal、assistant `phase` 分类（与 status 独立，保留重发）、非完成 instruction lifecycle | 其余标准 input/output 分支准入 |
 | Controls/Schema | typed 外层控制、有序 schema、结构/strict/default 准入、本地引用和独立预算、pattern/format 语法与固定注册表、固定 SDK 类型化的外层控制 null 准入（request 侧拒绝非 null 类型，reported echo 按 response model） | 模型级限制；当前 schema profile 之外的词汇 |
-| Function/custom | 定义、choice、calls、文本/文本数组 outputs、事件 | namespace、caller/programmatic/async/deferred、标准工具多模态结果 |
-| Reasoning | effort/context/mode、readable summary/text、origin-bound replay | 标准 configuration update；当前 `summary:false` 与标准 profile 的区分；更完整 snapshot/event 准入 |
-| Full response | identity、settings echo、usage、status/details、reasoning item 身份必填（request input/response output/SSE snapshot；request 编码为独立构造项分配新身份） | 其余标准 item 分支必填性审查；request hints 与 effective response context 的分支合同 |
-| Events/SSE | reducer、framing、byte/event/semantic/padding budgets | 完整标准事件矩阵；本地 cancelled event 的 profile 分类 |
+| Function/custom | 定义、choice、calls、文本/文本数组 outputs、事件、namespace/caller/async/defer_loading/allowed_callers 的表示 | program/program_output item 本身；标准工具多模态结果；这些字段不授权执行 |
+| Reasoning | effort/context/mode、readable summary/text、origin-bound replay、有序 `configuration_update`（仅 reasoning effort）；`summary:false` 是当前文本 profile 的本地兼容形式，不是标准枚举 | effort 以外的续轮配置；更完整 snapshot/event 准入 |
+| Full response | identity、settings echo、usage、status/details、reasoning item 身份必填、`output_text.annotations` 必填（缺省或 null 不补成空数组） | 其余标准 item 分支必填性审查；request hints 与 effective response context 的分支合同 |
+| Events/SSE | reducer、framing、byte/event/semantic/padding budgets；`response.cancelled` 是本地 profile extension，不是固定 SDK 标准事件 | 完整标准事件矩阵，包括 `response.queued` 等非终态生命周期 |
 | 标准媒体 | 仅基础 Resource 类型；codec 拒绝 | image/file source、detail、filename、cache boundary、media tool result 的双向映射 |
 | 标准 hosted/state | 当前明确拒绝或只允许 inactive | 标准 tools/items/approval/progress；previous/conversation/store/background、prompt、compaction/reference 的表示与独立执行 |
 | Request context | 当前 `ExecutionHints` 仅部分 typed 标准字段 | state unit stubs、cache prewarm、新标准分支；不应把所有 context 称为“无需 IR 的执行杂项” |
@@ -33,7 +33,7 @@
 以下缺口仍存在；准入规则与已实现拒绝边界由 [text profile](responses-text-profile.md) 和独立测试维护。
 
 1. Schema 的当前有限准入由 [schema profile](schema-profile.md)定义；`pattern`/`format` 仅做语法与注册表准入，不执行 regex/format 语义，不验证模型输出 adherence，也不保证所有模型接受。未知方言、动态/远程引用及未准入词汇明确拒绝；不能把局部验证当成完整 JSON Schema 引擎。
-2. 标准 configuration update 等续轮语义、更多 media/tool/event/state 分支没有实现；`summary:false`、cancelled event 等现有兼容分支需 profile 分类。外层控制的 null 准入已按固定 SDK 类型闭合：request 侧拒绝 `text`/`tools`/`tool_choice`、Chat `parallel_tool_calls`、`reasoning.mode` 的显式 null，reported settings echo 按各自 response model 类型；`text.format`/`response_format` 显式 null 可见是文档化 local choice。SDK parsed text 与 function `parsed_arguments` 派生 view 的双协议回放准入见 [derived replay rules](responses-text-profile.md#derived-replay-views)。
+2. `configuration_update` 目前只准入有序 reasoning effort，不应用为后续响应的运行时补丁，也不接受其他配置。`summary:false` 是当前文本 profile 的本地兼容形式；`response.cancelled` 是本地 profile extension。其余续轮语义、`response.queued` 和更多 media/tool/event/state 分支没有实现。外层控制的 null 准入已按固定 SDK 类型闭合：request 侧拒绝 `text`/`tools`/`tool_choice`、Chat `parallel_tool_calls`、`reasoning.mode` 的显式 null，reported settings echo 按各自 response model 类型；`text.format`/`response_format` 显式 null 可见是文档化 local choice。SDK parsed text 与 function `parsed_arguments` 派生 view 的双协议回放准入见 [derived replay rules](responses-text-profile.md#derived-replay-views)。
 
 上述缺口依据当前源码与固定标准对照，不代表真实 Provider 的能力或实测差异。
 

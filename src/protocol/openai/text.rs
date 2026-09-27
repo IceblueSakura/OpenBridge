@@ -20,8 +20,9 @@ pub(super) fn read(o: &Map<String, Value>, replay: bool) -> Result<TextContent, 
         admit_parsed("parsed", o.get("parsed"), Some(text.as_str()))?;
     }
     let annotations = match o.get("annotations") {
-        None => vec![],
-        Some(v) => read_annotations(v)?,
+        Some(v) if !v.is_null() => read_annotations(v)?,
+        // Both the output model and the request param require this array.
+        _ => return Err(CodecError::Invalid("annotations")),
     };
     let logprobs = read_presence(o, "logprobs", read_logprobs)?;
     Ok(TextContent::new(text, annotations, logprobs)?)
@@ -70,9 +71,9 @@ pub(super) fn event_logprobs(probs: &[Logprob]) -> Value {
             .collect::<Vec<_>>()
     )
 }
-pub(super) fn write(t: &TextContent, kind: &str, response: bool) -> Value {
+pub(super) fn write(t: &TextContent, kind: &str) -> Value {
     let mut v = json!({"type":kind,"text":t.as_str()});
-    if response || !t.annotations().is_empty() {
+    if kind == "output_text" || !t.annotations().is_empty() {
         v["annotations"] = json!(t.annotations());
     }
     match t.logprobs() {

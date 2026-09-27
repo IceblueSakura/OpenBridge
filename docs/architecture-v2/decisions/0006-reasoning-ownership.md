@@ -19,13 +19,13 @@ A Responses output is an ordered heterogeneous item log, not a sequence of Chat 
 
 ## Standard target and current subset
 
-The fixed public baseline contains `none` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max` effort, string summary controls, context and mode. Per-model support and effective response settings remain separate. Current code also accepts `summary:false`; this is a compatibility form, not a standard enum in the refreshed baseline. Its profile disposition is tracked in [migration](../migration.md).
+The fixed public baseline contains `none` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max` effort, string summary controls, context and mode. Per-model support and effective response settings remain separate. Current code also accepts `summary:false`. That is a local compatibility form of the current text profile, not a standard enum in the refreshed baseline and not a published extension envelope.
 
 Current encrypted-output include and empty-include normalization do not imply that replay depends exclusively on the request flag: the refreshed official guide describes default encrypted reasoning in stateless mode. Finality, surviving owner and trusted origin still govern replay. Explicit `none` with an enabled summary remains a current local validation rule, not proof of every Provider's behavior.
 
 Static and event Responses codecs support reasoning summary/text, opaque replay, assistant text/refusal, function calls, usage, completed/incomplete/failed/cancelled outcomes and bounded typed terminal details. Message, call and reasoning item status is independent from response outcome. Empty output and empty text remain meaningful.
 
-Current context/mode, custom tools and text metadata have partial implementations; configuration updates, hosted tools, active state and media are still gaps. The standard target is broader than this subset. Unknown fields and unsupported mappings must fail closed. Current admission belongs to [responses-text-profile](../responses-text-profile.md); external standard facts belong to [the refreshed baseline](../../references/responses-standard.md), not this implementation summary.
+Current context/mode, custom tools and text metadata have partial implementations. `configuration_update` is admitted only as an ordered reasoning-effort item and is not applied as a runtime settings patch. Hosted tools, active state and media are still gaps. The standard target is broader than this subset. Unknown fields and unsupported mappings must fail closed. Current admission belongs to [responses-text-profile](../responses-text-profile.md); external standard facts belong to [the refreshed baseline](../../references/responses-standard.md), not this implementation summary.
 
 ## Consequences and acceptance
 

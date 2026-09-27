@@ -67,21 +67,56 @@ pub(super) fn status_label(s: ItemLifecycle) -> &'static str {
         ItemLifecycle::InProgress => "in_progress",
     }
 }
-pub(super) fn direct(o: &Map<String, Value>) -> Result<(), CodecError> {
-    if o.get("namespace")
-        .is_some_and(|v| !v.is_null() && v.as_str() != Some(""))
-    {
-        return Err(CodecError::Unsupported("tool namespace".into()));
+pub(super) fn call_context(o: &Map<String, Value>) -> Result<CallContext, CodecError> {
+    let namespace = match o.get("namespace") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) if s.is_empty() => None,
+        Some(Value::String(s)) => Some(text(s, "tool namespace", 128)?),
+        _ => return Err(CodecError::Invalid("tool namespace")),
+    };
+    let async_call = match o.get("async") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) => true,
+        _ => return Err(CodecError::Invalid("async")),
+    };
+    let caller = match o.get("caller") {
+        None | Some(Value::Null) => None,
+        Some(value) => {
+            let caller = object(value)?;
+            fields(caller, &["type", "caller_id"])?;
+            match string(caller, "type")? {
+                "direct" => {
+                    if caller.contains_key("caller_id") {
+                        return Err(CodecError::Invalid("caller"));
+                    }
+                    None
+                }
+                "program" => Some(CallOrigin::Program {
+                    caller_id: text(string(caller, "caller_id")?, "caller id", 256)?,
+                }),
+                _ => return Err(CodecError::Unsupported("caller".into())),
+            }
+        }
+    };
+    Ok(CallContext {
+        namespace,
+        async_call,
+        caller,
+    })
+}
+pub(super) fn write_call_context(context: &CallContext, o: &mut Map<String, Value>) {
+    if let Some(namespace) = &context.namespace {
+        o.insert("namespace".into(), json!(namespace.as_str()));
     }
-    if o.get("async").is_some_and(|v| v.as_bool() != Some(false)) {
-        return Err(CodecError::Unsupported("async tool".into()));
+    if context.async_call {
+        o.insert("async".into(), json!(true));
     }
-    if o.get("caller")
-        .is_some_and(|v| !v.is_null() && v != &json!({"type":"direct"}))
-    {
-        return Err(CodecError::Unsupported("programmatic caller".into()));
+    if let Some(CallOrigin::Program { caller_id }) = &context.caller {
+        o.insert(
+            "caller".into(),
+            json!({"type":"program","caller_id":caller_id.as_str()}),
+        );
     }
-    Ok(())
 }
 fn output(b: &mut Items, v: &Value) -> Result<ToolOutput, CodecError> {
     if let Some(s) = v.as_str() {
@@ -128,6 +163,28 @@ fn input_part(id: PartId, text: &str, fidelity: &FidelityRecords) -> Value {
     }
     v
 }
+pub(super) fn configuration_effort(
+    o: &Map<String, Value>,
+    response: bool,
+) -> Result<Option<ReasoningEffort>, CodecError> {
+    match o.get("reasoning") {
+        None => Ok(None),
+        Some(Value::Null) if response => Ok(None),
+        Some(Value::Null) => Err(CodecError::Invalid("configuration reasoning")),
+        Some(value) => {
+            let reasoning = object(value)?;
+            fields(reasoning, &["effort"])?;
+            match reasoning.get("effort") {
+                None | Some(Value::Null) => Ok(None),
+                Some(value) => Ok(Some(super::reasoning::effort(
+                    value
+                        .as_str()
+                        .ok_or(CodecError::Invalid("configuration effort"))?,
+                )?)),
+            }
+        }
+    }
+}
 pub(super) fn decode_items(
     b: &mut Items,
     input: &[Value],
@@ -142,16 +199,13 @@ pub(super) fn decode_items(
             .map(|v| v.as_str().ok_or(CodecError::Invalid("item type")))
             .transpose()?;
         let item = match typ {
-            Some("function_call") => {
-                direct(o)?;
-                Item::ToolCall(tool_call(
-                    o,
-                    Profile::Responses,
-                    None,
-                    response.then_some(item_status),
-                    !response,
-                )?)
-            }
+            Some("function_call") => Item::ToolCall(tool_call(
+                o,
+                Profile::Responses,
+                None,
+                response.then_some(item_status),
+                !response,
+            )?),
             Some("custom_tool_call") => {
                 fields(
                     o,
@@ -166,11 +220,11 @@ pub(super) fn decode_items(
                         "async",
                     ],
                 )?;
-                direct(o)?;
                 Item::CustomCall(CustomCall {
                     call_id: text(string(o, "call_id")?, "call id", 256)?,
                     name: text(string(o, "name")?, "custom name", 128)?,
                     input: raw_string(o, "input")?,
+                    context: call_context(o)?,
                 })
             }
             Some("function_call_output" | "custom_tool_call_output") if !response => {
@@ -187,7 +241,7 @@ pub(super) fn decode_items(
                         "caller",
                     ],
                 )?;
-                direct(o)?;
+                let context = call_context(o)?;
                 let call_id = string(o, "call_id")?;
                 if let Some(name) = o.get("name").filter(|v| !v.is_null()) {
                     let expected = b.items.iter().find_map(|(_, i)| match i {
@@ -212,6 +266,7 @@ pub(super) fn decode_items(
                     } else {
                         None
                     },
+                    context,
                 };
                 if typ == Some("custom_tool_call_output") {
                     if r.status.is_some() {
@@ -221,6 +276,20 @@ pub(super) fn decode_items(
                 } else {
                     Item::ToolResult(r)
                 }
+            }
+            Some("configuration_update") => {
+                fields(o, &["type", "id", "reasoning"])?;
+                if response {
+                    text(string(o, "id")?, "configuration update id", 256)?;
+                } else if o
+                    .get("id")
+                    .is_some_and(|v| !v.is_null() && v.as_str().is_none())
+                {
+                    return Err(CodecError::Invalid("configuration update id"));
+                }
+                Item::ConfigurationUpdate(ConfigurationUpdate {
+                    effort: configuration_effort(o, response)?,
+                })
             }
             Some("reasoning") => {
                 // Wire reasoning items carry required identity; it is never invented.
@@ -274,9 +343,12 @@ pub(super) fn decode_items(
                     if response {
                         return Err(CodecError::Invalid("output content"));
                     }
-                    vec![
-                        json!({"type":if role=="assistant"{"output_text"}else{"input_text"},"text":s}),
-                    ]
+                    vec![if role == "assistant" {
+                        // Shorthand has no annotation slot; the typed part still requires the array.
+                        json!({"type":"output_text","text":s,"annotations":[]})
+                    } else {
+                        json!({"type":"input_text","text":s})
+                    }]
                 } else {
                     content
                         .as_array()
@@ -295,10 +367,10 @@ pub(super) fn decode_items(
                     return Err(CodecError::Invalid("parsed"));
                 }
                 if role == "system" || role == "developer" {
-                    // Instruction IR has no lifecycle owner; only complete forms normalize.
-                    if status(o, ItemLifecycle::Completed)? != ItemLifecycle::Completed {
-                        return Err(CodecError::Unsupported("instruction lifecycle".into()));
-                    }
+                    // Omitted and explicit completed stay without a lifecycle field.
+                    let instruction_status = status(o, ItemLifecycle::Completed)?;
+                    let instruction_status = (instruction_status != ItemLifecycle::Completed)
+                        .then_some(instruction_status);
                     let mut parts = vec![];
                     for v in &values {
                         let p = object(v)?;
@@ -321,6 +393,7 @@ pub(super) fn decode_items(
                             InstructionAuthority::Developer
                         },
                         parts,
+                        status: instruction_status,
                     })
                 } else {
                     let role = match role {
@@ -421,7 +494,12 @@ pub(super) fn encode_items(
     for (id, item) in items {
         let mut v = match item {
             Item::Instruction(i) => {
-                json!({"role":match i.authority{InstructionAuthority::System=>"system",InstructionAuthority::Developer=>"developer"},"content":if let [(id,t)]=i.parts.as_slice() && !fidelity.cache_breakpoint(*id){json!(t.as_str())}else{json!(i.parts.iter().map(|(id,t)|input_part(*id,t.as_str(),fidelity)).collect::<Vec<_>>())}})
+                let mut v = json!({"role":match i.authority{InstructionAuthority::System=>"system",InstructionAuthority::Developer=>"developer"},"content":if let [(id,t)]=i.parts.as_slice() && !fidelity.cache_breakpoint(*id){json!(t.as_str())}else{json!(i.parts.iter().map(|(id,t)|input_part(*id,t.as_str(),fidelity)).collect::<Vec<_>>())}});
+                if let Some(status) = i.status {
+                    v["type"] = json!("message");
+                    v["status"] = json!(status_label(status));
+                }
+                v
             }
             Item::Message(m)
                 if m.parts.is_empty()
@@ -432,22 +510,34 @@ pub(super) fn encode_items(
                 continue;
             }
             Item::Message(m) => {
-                let mut v = json!({"type":"message","role":if m.role==MessageRole::User{"user"}else{"assistant"},"content":m.parts.iter().map(|p|match &p.content{ContentPart::Text(t)=>if !response && (m.role==MessageRole::User || fidelity.input_text_form(p.id) && t.is_plain()){input_part(p.id,t.as_str(),fidelity)}else{super::text::write(t,"output_text",response)},ContentPart::Refusal(t)=>json!({"type":"refusal","refusal":t.as_str()}),ContentPart::Resource(_)=>unreachable!("lowering rejects media")}).collect::<Vec<_>>()});
+                let mut v = json!({"type":"message","role":if m.role==MessageRole::User{"user"}else{"assistant"},"content":m.parts.iter().map(|p|match &p.content{ContentPart::Text(t)=>if !response && (m.role==MessageRole::User || fidelity.input_text_form(p.id) && t.is_plain()){input_part(p.id,t.as_str(),fidelity)}else{super::text::write(t,"output_text")},ContentPart::Refusal(t)=>json!({"type":"refusal","refusal":t.as_str()}),ContentPart::Resource(_)=>unreachable!("lowering rejects media")}).collect::<Vec<_>>()});
                 if let Some(p) = m.phase {
                     v["phase"] = json!(p.label());
                 }
                 v
             }
             Item::ToolCall(c) => {
-                json!({"type":"function_call","call_id":c.call_id.as_str(),"name":c.name.as_str(),"arguments":c.arguments})
+                let mut v = json!({"type":"function_call","call_id":c.call_id.as_str(),"name":c.name.as_str(),"arguments":c.arguments});
+                write_call_context(&c.context, v.as_object_mut().expect("object"));
+                v
             }
             Item::CustomCall(c) => {
-                json!({"type":"custom_tool_call","call_id":c.call_id.as_str(),"name":c.name.as_str(),"input":c.input})
+                let mut v = json!({"type":"custom_tool_call","call_id":c.call_id.as_str(),"name":c.name.as_str(),"input":c.input});
+                write_call_context(&c.context, v.as_object_mut().expect("object"));
+                v
             }
             Item::ToolResult(r) | Item::CustomResult(r) => {
                 let mut v = json!({"type":if matches!(item,Item::CustomResult(_)){"custom_tool_call_output"}else{"function_call_output"},"call_id":r.call_id.as_str(),"output":output_wire(&r.output,fidelity)});
                 if let Some(s) = r.status {
                     v["status"] = json!(status_label(s));
+                }
+                write_call_context(&r.context, v.as_object_mut().expect("object"));
+                v
+            }
+            Item::ConfigurationUpdate(update) => {
+                let mut v = json!({"type":"configuration_update"});
+                if let Some(effort) = update.effort {
+                    v["reasoning"] = json!({"effort": super::reasoning::effort_label(effort)});
                 }
                 v
             }
@@ -469,8 +559,10 @@ pub(super) fn encode_items(
                     v["type"] = json!("message");
                 }
                 v["id"] = json!(wire);
-            } else if matches!(item, Item::Reasoning(_)) {
-                // Wire reasoning items require identity; fresh task snapshots assign it.
+            } else if matches!(item, Item::Reasoning(_))
+                || matches!(item, Item::Instruction(i) if i.status.is_some())
+            {
+                // Typed snapshots require identity; fresh task items assign it.
                 v["id"] = json!(format!("item_{}", id.get()));
             }
             if item

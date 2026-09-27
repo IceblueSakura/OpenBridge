@@ -76,6 +76,7 @@ impl GenerationRequirements {
                     x.reasoning_items += 1;
                     x.reasoning = true;
                 }
+                Item::ConfigurationUpdate(_) => x.reasoning = true,
             }
         }
         x

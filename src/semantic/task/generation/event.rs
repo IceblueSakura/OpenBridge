@@ -21,12 +21,17 @@ pub enum ItemKind {
         call_id: Text,
         name: Text,
         message: Option<ItemId>,
+        context: CallContext,
     },
     CustomCall {
         call_id: Text,
         name: Text,
+        context: CallContext,
     },
     Reasoning,
+    ConfigurationUpdate {
+        effort: Option<ReasoningEffort>,
+    },
 }
 impl ItemKind {
     pub fn call(&self) -> Option<(&Text, &Text, Option<ItemId>)> {
@@ -35,8 +40,9 @@ impl ItemKind {
                 call_id,
                 name,
                 message,
+                ..
             } => Some((call_id, name, *message)),
-            Self::CustomCall { call_id, name } => Some((call_id, name, None)),
+            Self::CustomCall { call_id, name, .. } => Some((call_id, name, None)),
             _ => None,
         }
     }
@@ -613,17 +619,24 @@ impl StreamItem {
                 call_id,
                 name,
                 message,
+                context,
             } => Item::ToolCall(ToolCall {
                 call_id: call_id.clone(),
                 name: name.clone(),
                 message: *message,
                 status,
                 arguments: i.parts.first().map(|p| p.text.clone()).unwrap_or_default(),
+                context: context.clone(),
             }),
-            ItemKind::CustomCall { call_id, name } => Item::CustomCall(CustomCall {
+            ItemKind::CustomCall {
+                call_id,
+                name,
+                context,
+            } => Item::CustomCall(CustomCall {
                 call_id: call_id.clone(),
                 name: name.clone(),
                 input: i.parts.first().map(|p| p.text.clone()).unwrap_or_default(),
+                context: context.clone(),
             }),
             ItemKind::Reasoning => Item::Reasoning(ReasoningItem {
                 status,
@@ -642,6 +655,9 @@ impl StreamItem {
                     })
                     .collect::<Result<_, EventError>>()?,
             }),
+            ItemKind::ConfigurationUpdate { effort } => {
+                Item::ConfigurationUpdate(ConfigurationUpdate { effort: *effort })
+            }
         };
         Ok(item)
     }

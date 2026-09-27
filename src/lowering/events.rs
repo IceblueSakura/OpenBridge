@@ -11,7 +11,9 @@ pub fn check_event(
     match event {
         StreamEvent::ItemStarted { kind, replay, .. } => {
             match kind {
-                ItemKind::Reasoning if profile != Profile::Responses || !contract.reasoning => {
+                ItemKind::Reasoning | ItemKind::ConfigurationUpdate { .. }
+                    if profile != Profile::Responses || !contract.reasoning =>
+                {
                     return Err(RepresentationError::Reasoning);
                 }
                 ItemKind::CustomCall { .. }
