@@ -22,6 +22,8 @@ JSON / SSE payload
 
 `src/lib.rs` 只公开上述四个模块。Axum、Tokio、reqwest 等只作为测试依赖；库没有认证、配置加载、Provider HTTP client、重试或服务监听入口。现存私人配置不被库或测试读取。
 
+这条现有链路仍是纯库调用路径：没有 Public Model 解析、固定 Route 编译或实际 Provider attempt 把它接成网关。SDK 测试 Router 直接构造 synthetic 回答，不能当作生产调用链；文本阶段需要验证的整体流程见[下一步目标](implementation-plans/next-goal.md#文本端到端验证的完成门槛)。
+
 纯文本 profile 的具体准入分别见 [Responses](architecture-v2/responses-text-profile.md) 与 [Chat](architecture-v2/chat-text-profile.md)；后者复用同一 Generation IR/reducer，支持单候选 JSON/SSE 字节边界，不是第二套语义核心。现有资源类型不代表媒体 codec 已接通，Generation 验收也不代表其他任务已支持。
 
 旧 IR/Bridge/pipeline、ToolPlan/gateway-tools 原型及整个旧运行时在 [Git 归档](archive.md)中；退役不构成功能迁移完成。后续实现按旧行为的独立证据逐项决定是否迁移，不机械搬回目录。

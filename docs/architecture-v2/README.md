@@ -2,6 +2,17 @@
 
 **设计基线：Responses-first 标准语义 + scoped extensions。** 当前实现仍为 Rust 语义库与离线验收，不是完整标准实现或可运行网关。
 
+## 产品目标与阶段判据
+
+最终产品是**多模态、Chat Completions / Responses 兼容、Agent 友好、缓存亲和性强的 IR 化网关**。当前以仅文本 Generation 验证整体流程，验证后再扩展 Provider 与多模态；离线库是实现基础，不是最终交付边界。
+
+- **IR 化与双协议兼容**：请求、响应和事件都经同一语义权威；同协议无旁路，跨协议按可表示性映射或明确拒绝，不以 Chat 最小交集定义 IR。
+- **Agent 友好**：工具定义/选择、调用身份、原始参数、结果回传、reasoning/派生 view 的续轮回放和流式非成功边界一致；不等于网关代替 Agent 执行所有工具，也不以单个 SDK gate 宣称全面 Agent 兼容。
+- **缓存亲和性强**：尽量保持合法续轮的稳定前缀、工具/Schema 顺序、cache affinity 与来源约束；session/cache/thread/turn 各有 owner，不为缓存复活被删除语义，不跨认证所有权重放 opaque state。稳定投影、实际缓存命中和成本/延迟效果是不同验收层。
+- **可扩展多模态**：保留标准媒体、资源和独立任务的正确所有权；文本先行不授权把未来媒体语义压成字符串，也不要求先实现未来所有任务才验证网关主链。
+
+阶段退出看选定文本场景的入口、IR、lowering、upstream adapter、响应交付和多轮回放是否连成可验收路径，不看字段数或测试数。推进顺序与具体门槛见[下一步目标](../implementation-plans/next-goal.md)，现有完成度见[实施基线](migration.md)。
+
 ## 当前方向
 
 Generation 主要参考 OpenAI Responses 的 request、ordered item/content、tool、reasoning、state 和 event 定义。Chat 及其他协议是目标映射，不以多协议最小交集限制 IR。Codex session/context 与特殊多模态通过有明确 owner、schema、来源和生命周期的扩展承载，不走任意 JSON/header 透传。
@@ -29,7 +40,7 @@ Wire + trusted admission context
 - 当前源码只实现 Generation 的部分 Responses/Chat 语义、lowering 和纯 SSE。
 - Responses 标准全景是目标；stateless text 是现有实施子集，不是长期 IR 表达力上限。
 - 固定 Responses/Chat SDK gates 验证有限纯文本 JSON/SSE；hosted tools、state/WS 与真实 Provider 执行仍未实现。
-- 后续先按[迁移基线](migration.md)修正核心闭合缺口，再按域推进。独立任务、topology/execution、credentials、MCP 和观测按各自获准切片实施，不创建通用插件框架。
+- 当前分层完成度与具体缺口由[实施基线](migration.md)维护，推进顺序只由[下一步目标](../implementation-plans/next-goal.md)维护。现有纯文本基线不等于完整标准；未来任务或工具执行也不是无限延迟最小执行设计的前置条件。
 
 ## 文档所有权
 
@@ -40,7 +51,7 @@ Wire + trusted admission context
 - [invariants.md](invariants.md)：语义、扩展、安全与资源不变量。
 - [execution-model.md](execution-model.md)：后续执行目标，不是当前已实现模块。
 - [rust-layout.md](rust-layout.md)：职责布局方向，不复制 SDK 文件树。
-- [migration.md](migration.md)：目标相对当前代码的差距和实施顺序。
+- [migration.md](migration.md)：分层完成度、目标相对当前代码的差距、可复现反例与边界；不重复实施顺序。
 - [responses-text-profile.md](responses-text-profile.md)：当前 Responses stateless text 的实现准入，不代表完整标准。
 - [chat-text-profile.md](chat-text-profile.md)：同一 IR 的单候选 Chat 静态/流式映射与拒绝边界。
 - [schema-profile.md](schema-profile.md)：请求/报告设置共享的 Schema 结构、strict/default、本地引用与预算准入。
@@ -49,4 +60,4 @@ Wire + trusted admission context
 
 ## 验收原则
 
-独立 decode/encode 预期、IR 修改/删除、扩展来源隔离和 Static/Event 一致性是主要门槛。round trip、SDK 宽松解析或类型存在不证明完成。当前具体反例见[迁移缺口](migration.md#当前已知闭合缺口)，方法见[验收基线](../references/conformance-baseline.md)，当前切片见[current focus](../implementation-plans/current-focus.md)。
+独立 decode/encode 预期、IR 修改/删除、扩展来源隔离和 Static/Event 一致性是主要门槛。round trip、SDK 宽松解析或类型存在不证明完成。当前具体反例见[迁移缺口](migration.md#当前正确性缺口)，方法见[验收基线](../references/conformance-baseline.md)，当前切片见[current focus](../implementation-plans/current-focus.md)。

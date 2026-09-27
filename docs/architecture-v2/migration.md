@@ -1,69 +1,73 @@
-# Responses-first 实施基线与差距
+# Generation 实施基线与差距
 
-目标结构由 [semantic-ir](semantic-ir.md)拥有，标准事实与上游固定点见[主题参考](../references/README.md)。本页描述当前代码相对目标的差距，不把设计或删除旧代码当作实现完成。
+本页拥有当前完成度、具体缺口与证据入口；[semantic-ir](semantic-ir.md)拥有目标设计，[text profiles](responses-text-profile.md) / [Chat profile](chat-text-profile.md)拥有逐分支准入，[next-goal](../implementation-plans/next-goal.md)拥有优先级。标准依据为[固定上游版本](../references/upstream-sync.md)，不是全部最新 API 或真实 Provider 的能力声明。
 
-## 当前状态
+## 完成度判断
 
-当前 workspace 是 v2 `semantic`、`protocol`、`lowering` 和纯 SSE 库，旧 runtime 已[归档](../archive.md)。无生产 Provider/registry、credential、服务入口、state resource 或 WebSocket execution。内部兼容性不要求保留。
+**纯文本 Generation 已形成可修改、可重编码的离线语义主链，但尚未完成已准入边界的全部正确性验收，也不是可运行网关。** 不宜用一个百分比混合衡量语义表达、codec、消费者和执行四层。
 
-当前有序文本/function/custom/reasoning、部分控制、annotations/logprobs、usage、Static/Event 与 HTTP/SSE 测试已有 owner，但仍是受限 stateless text profile。固定 SDK gates 的场景与执行入口见[开发指南](../development.md#固定-openai-sdk-loopback)，依赖由 `tests/sdk/` 锁定；这些局部验收不覆盖下列全部标准分支。
+这里的“纯文本”包括文本/refusal、结构化输出、function/custom 的文本调用与结果、reasoning 历史及相关控制/上下文，不仅是一个 prompt 返回一个字符串。它不自动包含所有“结果恰好是文本”的 hosted tools、状态资源或 program 执行。文本是验证[最终网关目标](README.md#产品目标与阶段判据)的阶段性载体：当前最大的产品缺口是尚未把这些机制接成网关整体流程，不是缺少一份更大的字段清单。
 
-单候选 Chat 的完整 JSON/SSE 字节链路复用同一 IR、strict JSON 与 framer，具体准入见 [Chat profile](chat-text-profile.md)。该 profile 不包含全部 Chat 可选字段；SDK 派生 view 的回放准入见 [derived replay rules](responses-text-profile.md#derived-replay-views)，也不将 Responses-only 能力降格为不可表达的 IR。
-
-## 标准目标与实现映射
-
-| 域 | 当前实现 | 相对目标的缺口 |
+| 层级 | 当前判断 | 证据与不能推出的结论 |
 |---|---|---|
-| Instructions/messages | `GenerationSettings`、ordered Item、text/refusal、assistant `phase` 分类（与 status 独立，保留重发）、非完成 instruction lifecycle | 其余标准 input/output 分支准入 |
-| Controls/Schema | typed 外层控制、有序 schema、结构/strict/default 准入、本地引用和独立预算、pattern/format 语法与固定注册表、固定 SDK 类型化的外层控制 null 准入（request 侧拒绝非 null 类型，reported echo 按 response model） | 模型级限制；当前 schema profile 之外的词汇 |
-| Function/custom | 定义、choice、calls、文本/文本数组 outputs、事件、namespace/caller/async/defer_loading/allowed_callers 的表示、program/program_output item（opaque code/fingerprint/result 原样往返） | program 执行/调度语义；标准工具多模态结果；这些字段与 item 不授权执行 |
-| Reasoning | effort/context/mode、readable summary/text、origin-bound replay、有序 `configuration_update`（仅 reasoning effort）；`summary:false` 是当前文本 profile 的本地兼容形式，不是标准枚举 | effort 以外的续轮配置；更完整 snapshot/event 准入 |
-| Full response | identity、settings echo、usage、status/details、reasoning item 身份必填、`output_text.annotations` 必填（缺省或 null 不补成空数组）；cache 亲和性 hint/echo 合同（presence 区分、不合成、不互转） | 其余标准 item 分支必填性审查；其余 request hints 与 effective response context 分支合同 |
-| Events/SSE | reducer、framing、byte/event/semantic/padding budgets；`response.cancelled` 是本地 profile extension，不是固定 SDK 标准事件；`response.queued` 非终态生命周期已准入 | 完整标准事件矩阵 |
-| 标准媒体 | 仅基础 Resource 类型；codec 拒绝 | image/file source、detail、filename、cache boundary、media tool result 的双向映射 |
-| 标准 hosted/state | 当前明确拒绝或只允许 inactive | 标准 tools/items/approval/progress；previous/conversation/store/background、prompt、compaction/reference 的表示与独立执行 |
-| Request context | `CacheHints`（含 `prewarm`）与 typed `ExecutionHints`；`client_metadata` 类自定义 body 段与 Codex HTTP header 的有界 encode/decode（typed 生命周期字段 + opaque 兜底，凭据 fail-closed，见 [ADR 0007](decisions/0007-stateless-cache-affinity-and-extensions.md)） | `service_tier`/`metadata` 的 Chat 投影、response 侧自定义段、Codex turn 管理模式；不应把所有 context 称为“无需 IR 的执行杂项” |
-| 扩展 | fidelity 保存少量 identity/form/replay；扩展承载已定稿（typed 生命周期字段 + 有界 opaque 兜底 + 凭据 fail-closed） | 任务/part/resource/context 的其余统一准入合同；namespace 版本协商、response 侧投影与跨位置一致性；扩展不授权执行 |
-| WS / resource operations | 没有实现 | lane/multiplex/steering、connection state 与单 response reducer 的边界；retrieve/cancel 等资源操作 |
+| Task IR / 变换 / lowering | 已有完整主链，目标合同仍为受限子集 | `src/semantic/task/generation/`、`src/lowering/`；最终 IR 权威、候选独立投影与拒绝已有测试，不代表模型 capability 或 Provider selection 已接通 |
+| Responses JSON/SSE | 常用无状态文本分支已实现，仍有明确正确性缺口 | `src/protocol/openai/`、`tests/semantic/`、`tests/transport/responses_sse.rs`；见下方反例，不能称完整标准实现 |
+| 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证，不是待从零建立的 codec | `tests/transport/chat.rs`；部分标准文本 metadata、usage 与终态仍被拒绝，不等于 Chat 协议无法表达 |
+| 固定消费者 / Agent 场景 | 已有 Responses/Chat 三轮 JSON/SSE synthetic gates，尚非网关全链 | `tests/sdk_loopback.rs`、`tests/sdk/` 的 handler 直接构造 fixture 回答，不经真实 Provider adapter；显式 ignored，默认 Rust tests 不执行，覆盖范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
+| 缓存亲和性 | 有表示与保序基础，尚无执行亲和策略或命中效果验收 | CacheHints、schema order、origin-bound replay 已存在；缓存 scope 的执行绑定、跨轮/跨目标策略及真实 hit/成本/延迟效果不能由字段往返推出 |
+| 生产执行 | 未实现 | 无服务入口、Public Model resolver、Provider/registry、credential、重试或生产响应提交链路；旧 runtime 仅在[归档](../archive.md)中 |
 
-本表不是全部 API schema 的逐字段完成矩阵。外部验收方法由[验收基线](../references/conformance-baseline.md)拥有。
+## 已实现的纯文本基线
 
-## 当前已知闭合缺口
+“已实现”指下列有限语义与独立测试存在，不表示所有标准组合或负例均验收完毕。精确 presence、默认值与拒绝合同仍只在各 profile 维护。
 
-以下缺口仍存在；准入规则与已实现拒绝边界由 [text profile](responses-text-profile.md) 和独立测试维护。
+| 域 | 当前闭合范围 | 主要源码 / 独立测试 |
+|---|---|---|
+| Instructions / messages | 顶层 instructions、有序 system/developer/user/assistant、文本/refusal、instruction 非完成生命周期、assistant `phase` 与 status 分离 | `request.rs`、`responses.rs`、`chat.rs`；[instructions](../../tests/semantic/instructions.rs)、[phase](../../tests/semantic/phase.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
+| 输出控制 / Schema | sampling、输出上限、Responses verbosity/logprobs/truncation；双协议 text/json_object/json_schema；schema 属性顺序、结构/strict/default、本地递归引用、独立预算、pattern/format 语法准入 | `settings.rs`、`schema.rs`、`pattern.rs`；[schema](../../tests/semantic/schema.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
+| Function / custom | 定义、choice、调用关联、文本/文本数组结果、原始参数权威、调度字段表示、program/program_output 的 opaque 表示 | `tool.rs`、`function_tools.rs`、`responses.rs`；[tools](../../tests/semantic/tools.rs)、[function_events](../../tests/semantic/function_events.rs)；不执行工具或 program |
+| Reasoning / replay | effort/context/mode、summary/readable text、owner/origin/finality 约束、有序 `configuration_update.reasoning.effort`、SDK `parsed`/`parsed_arguments` 验证后丢弃 | `reasoning.rs`、`fidelity.rs`；[reasoning](../../tests/semantic/reasoning.rs)、[parsed_replay](../../tests/semantic/parsed_replay.rs)；不是运行时 effective-settings 管理 |
+| Response / events | identity、reported settings、annotations/logprobs、已准入 usage、完成/非成功终态；有序 reducer 与 Static/Event 一致性；queued 事件生命周期 | `response.rs`、`event.rs`、`events/`；[response](../../tests/semantic/response.rs)、[text_events](../../tests/semantic/text_events.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
+| Context / 扩展 | CacheHints（含 `prewarm`）、Responses execution hints；request body sections 与 Codex headers 的有界 typed/opaque 承载 | `envelope.rs`、`chat_envelope.rs`、`extensions.rs`；[extensions](../../tests/semantic/extensions.rs)、[text_profile](../../tests/semantic/text_profile.rs)；不管理 turn 或凭据 |
+| 原始字节 / I/O | strict JSON、重复 key 拒绝、有界 SSE framing、UTF-8 分片、EOF/terminal/poisoning、padding 预算；synthetic body 的取消/背压 | `json.rs`、`sse.rs`、`chat_sse.rs`；[transport](../../tests/transport.rs)；测试 body 不是生产 ingress |
 
-1. Schema 的当前有限准入由 [schema profile](schema-profile.md)定义；`pattern`/`format` 仅做语法与注册表准入，不执行 regex/format 语义，不验证模型输出 adherence，也不保证所有模型接受。未知方言、动态/远程引用及未准入词汇明确拒绝；不能把局部验证当成完整 JSON Schema 引擎。
-2. `configuration_update` 目前只准入有序 reasoning effort，不应用为后续响应的运行时补丁，也不接受其他配置。`summary:false` 是当前文本 profile 的本地兼容形式；`response.cancelled` 是本地 profile extension。`response.queued` 只准入事件层生命周期，静态 body 的非终态 status 仍拒绝；program item 只准入表示与往返，不执行。其余续轮语义和更多 media/tool/event/state 分支没有实现。外层控制的 null 准入已按固定 SDK 类型闭合：request 侧拒绝 `text`/`tools`/`tool_choice`、Chat `parallel_tool_calls`、`reasoning.mode` 的显式 null，reported settings echo 按各自 response model 类型；`text.format`/`response_format` 显式 null 可见是文档化 local choice。SDK parsed text 与 function `parsed_arguments` 派生 view 的双协议回放准入见 [derived replay rules](responses-text-profile.md#derived-replay-views)。
+上表的短文件名按所属 semantic/protocol 域解释；实际模块布局由[当前架构](../architecture.md)维护。Schema 和派生 view 已有实质实现，不再列成需要重建的基础设施。
 
-上述缺口依据当前源码与固定标准对照，不代表真实 Provider 的能力或实测差异。
+## 当前正确性缺口
 
-## Phase gates
+以下是对**已经准入**的 Responses SSE 路径执行 synthetic 变异得到的反例，不是新增功能愿望，也不是 live Provider 差异。复现基于 [responses_profile::events(2)](../../tests/support/responses_profile.rs) 的独立 wire；每个变体用新的 `ResponsesSseDecoder`，完整分帧消费后调用 `finish()` 和 `materialize()`。
 
-### A. 基线与准入
+| 反例 | 应有边界 | 当前观察 / 所属代码 |
+|---|---|---|
+| 删除所有事件的 `sequence_number` | 固定 SDK 标准事件的 required 字段缺失应拒绝，不能成功 materialize | 整条流仍被接受；`events/decode.rs::EventDecoder::push` 仅在字段存在时检查类型/递增 |
+| 只删除首个 `response.created.response.output`，保留后续合法事件与 terminal | 完整 Response snapshot 要求 `output` 数组；缺省不能等同显式空数组 | 整条流仍成功；`envelope.rs::validate_complete_response` 与 `events/decode.rs` 的 initial snapshot 分支只在字段存在时检查。对照：静态完整 response 缺 `output` 已拒绝 |
 
-采用 Responses-first + scoped extensions，按 request/item/part/tool/response/event/context 列出标准与扩展边界。确定 required/presence、origin、生命周期、保真与拒绝，消除旧 ADR 和当前源码冲突。设计文档完成不能将字段标为已实现。
+固定来源为 SDK `3.19.0` 的 `ResponseCreatedEvent.sequence_number` 与 `Response.output`，链接见[上游同步](../references/upstream-sync.md)。正常 fixture 通过、上述变异仍通过，只证明这些具体缺口；未声称所有事件的 required/null/跨 kind 检查均已审计。修复应区分完整字节入口和低层简写接口，不通过修改准入文档把缺失必填字段合理化。正式回归测试尚未加入，需在获准行为切片中保护上述拒绝边界。
 
-### B. 已支持子集的正确性
+## 尚未映射的文本能力
 
-保持 IR 权威、完整 message 必填性和已实现的显式拒绝规则；继续补齐派生 SDK view，并按实际目标完善 Schema profile、审查其余字段/事件分支。每项先独立失败用例，再同步 semantic、requirements、lowering、codec。保留当前 Responses text 验收，不从零重写正常工作机制。
+这些是当前显式拒绝或尚无合同的分支，与上面的错误接受分开。
 
-### C. 标准表达力扩展
+| 域 | 具体缺口 | 对下一步的意义 |
+|---|---|---|
+| Chat usage | `prompt_tokens_details.cache_write_tokens`、text token 细分、prediction token 细分未映射；当前只接受 cached/reasoning 等有限 details | 固定 SDK 已有这些字段，尤其 cache-write 不是 Responses-only；IR 已有 `input_cache_write_tokens`，但 `static_response.rs::usage` 和 Chat lowering 尚未接通 |
+| Chat 非成功终态 | `content_filter` 未映射；静态与流式仅准入 stop/tool_calls/length | 现有 `IncompleteReason::ContentFilter` 可作为语义起点；需同时验收 JSON、SSE、partial output、DONE 与跨协议投影，不把过滤伪装成 length/success |
+| Chat 标准上下文 | `service_tier`、`metadata`、`system_fingerprint` 等相应 request/response/chunk 位置尚未准入 | `chat_envelope.rs`、`static_response.rs`、`events/chat.rs` 使用闭合字段表；即使正文可表达，带这些字段的标准 envelope 仍可能拒绝，不能称通用兼容 |
+| 其余 Chat 文本投影 | logprobs、其他生成控制、文本 content-array 等未准入；Responses `phase`、reasoning replay/custom/program 等也不能无损投影 | 前者按具体消费需求逐项立项；后者不能靠丢字段强行变成 Chat，也不以 Chat 限制反向缩减 Responses IR |
+| Context 扩展 | response body 自定义段、typed observation headers、body/header 跨位置一致性、namespace 版本和 turn 管理模式尚未闭合 | [ADR 0007](decisions/0007-stateless-cache-affinity-and-extensions.md) 已定义 carrier，不等于 scoped runtime 已实现；继续扩张前须有具体来源和生命周期 |
+| 更广标准准入 | 尚无固定 union 的完整逐分支验收；部分 required/presence、snapshot/event 组合仍需审查 | 按当前已支持分支及反例收敛，不以“全部标准事件”作为一个实现切片的退出条件 |
 
-优先补 phase/configuration 等影响现有续轮的标准语义，再按明确范围推进媒体、标准 tools 和 state/resource references。每个域同时考虑 request、response、event、变换与失败闭合。当前 runtime 缺失不应导致 IR 永久缩成 stateless text，但表示支持不自动开启执行。
+## 明确边界与暂缓方向
 
-### D. 特殊能力扩展
+- **既定 profile 边界**：Chat 单候选（`n` 缺省/null/1）不是待补多候选；deprecated aliases 不是当然的补齐目标。`summary:false`、`response.cancelled` 是本地兼容形式，`text.format` / Chat `response_format` 显式 null 是文档化 local choice，不能宣称标准值。
+- **Schema 责任边界**：[当前有限 profile](schema-profile.md)已验证结构/strict/default/refs/order/预算及 pattern/format 准入；不执行 regex/format、不做通用 JSON Schema 求值、不验证模型输出 adherence 或所有模型的限制。没有新的具体反例/消费需求，不以这些非目标制造“Schema 未完成”的无限待办。
+- **Configuration / program 表示与执行分开**：固定 SDK 的 configuration update 只声明 reasoning effort，当前有序表示已存在；不虚构“effort 以外配置”作为既定标准缺口。是否计算 effective settings、调度 program、管理 Codex turn 属于独立执行设计。`prewarm` 也仅表示，未建立其 `generate` override 合同。
+- **有状态 API 暂缓**：previous response/conversation/store/background、prompt、compaction/reference、retrieve/cancel 及 WS lane/steering 尚未实现；queued 事件已准入不等于静态 queued/in_progress body 或 state service 可用。当前只准入 inactive state 形式，编码显式 `store:false`。
+- **其他语义域暂缓**：媒体双向映射、hosted/dynamic tools、独立 Embedding/Images/Speech 任务不是当前纯文本闭合的前置条件；基础 Resource 类型和 program item 表示不证明这些任务或执行已迁移。
+- **生产缺口独立存在**：trusted topology、model binding、credential、Provider I/O、retry/fallback、cancel/commit、资源生命周期与 ingress 未接线。离线核心可分阶段验收后另开最小执行设计，不要求先完成未来所有标准分支，也不恢复旧目录当作实现。
 
-先定 downstream extension wire/版本与实际来源 profile，再实现 Codex context 或明确特殊媒体。扩展 codec 需来源/owner/生命周期测试，不引入万能 extra JSON、动态插件框架或旧 Gateway tools 原型。
+## 验收边界
 
-### E. 执行接线
+当前判断基于源码、独立 fixtures、默认离线 Rust tests 与上述定向反例。SDK gates 的存在不等于每次审阅都执行；具体一次检查结果在交付时报告，不在此维护测试数量或完成日记。完整 SDK/Agent、真实 Provider/TLS/网络、模型输出质量、负载与长期生产稳定性均需各自证据。
 
-在对应语义域可验收后，独立设计 trusted topology、credentials、state ownership、resource I/O、WS 和 ingress。不要求所有未来任务完成才可接线，也不以某个旧目录存在作为迁移依据；每个执行切片单独明确授权、影响与验证层。
-
-## 固定不变量
-
-- 最终标准语义和 typed extension 是编码权威；source/fidelity 不恢复已删除值。
-- 每个候选从同一不可变内部表示投影；Chat 可表示性不反向缩减 Responses IR。
-- 标准字段不能放进 extension 绕过类型验证，extension 不能覆盖标准或提供 auth/route/endpoint。
-- 离线 SDK/codec 成功不证明 live Provider、Agent、媒体质量、生产或长期稳定性。
-
-实施范围由 [current-focus](../implementation-plans/current-focus.md)记录，不由本路线图自动授予。未完成项不能因其他切片通过测试而视为已修复。
+每个获准行为切片先记录[当前焦点](../implementation-plans/current-focus.md)，以独立 decode/encode、IR 修改/删除、Static/Event 与失败/资源反例验收。保持最终 typed 语义权威、候选不可变投影、extension 不覆盖标准/认证/目标、失败不变成功。推进顺序只由[下一步目标](../implementation-plans/next-goal.md)维护。

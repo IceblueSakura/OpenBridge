@@ -38,7 +38,7 @@
 - 每种 SDK derived view 都需要独立的回放准入与一致性规则；一种派生 view 通过不证明另一种也支持。
 - 标准 phase、configuration update、媒体、工具与 state 必须分支验收，不靠一个两轮 fixture 声明完整。
 
-OpenBridge 当前具体违反项、复现与源码证据统一在[迁移缺口](../architecture-v2/migration.md#当前已知闭合缺口)维护，本页只定义方法与来源边界。
+OpenBridge 当前具体违反项、复现与源码证据统一在[正确性缺口](../architecture-v2/migration.md#当前正确性缺口)维护；尚未映射能力和刻意的 profile 边界另列，不能混同为已观察到的错误。本页只定义方法与来源边界。
 
 ## 4. 属性顺序、JSON 与 Schema
 
@@ -48,7 +48,7 @@ JSON object 通常无语义顺序，但 Structured Outputs 官方明确承诺按
 
 ## 5. SDK 升级门槛
 
-当前消费者与传递依赖在 `tests/sdk/pyproject.toml` 和 `uv.lock` 固定；版本与执行入口见[开发指南](../development.md)。升级应比较 required/null/default、derived views、items/events 和输出 schema，再更新锁文件并执行严格两轮 JSON/SSE gate；其通过不消除其他未覆盖分支的验收缺口。
+当前消费者与传递依赖在 `tests/sdk/pyproject.toml` 和 `uv.lock` 固定；版本与执行入口见[开发指南](../development.md)。升级应比较 required/null/default、derived views、items/events 和输出 schema，再更新锁文件并执行严格多轮 JSON/SSE gate；其通过不消除其他未覆盖分支的验收缺口。
 
 SDK 宽松解析成功不证明完整 wire 正确；严格模型验证也不证明 gateway state machine。新版本 type union 可包含尚无完整 endpoint 参数/资源语义闭环的分支，需要记录冲突而非补猜。
 

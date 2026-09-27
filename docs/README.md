@@ -7,12 +7,12 @@
 | [根 README](../README.md) | 当前可用入口、构建与最小使用范围 |
 | [当前架构](architecture.md) | 实际模块结构与依赖 |
 | [v2 架构](architecture-v2/README.md)及其 decisions | Responses-first 标准语义 + scoped extensions 的设计、owner 与目标边界；不表示已实现 |
-| [迁移计划](architecture-v2/migration.md) | 语义迁移阶段、具体剩余缺口 |
+| [实施基线与差距](architecture-v2/migration.md) | Generation 分层完成度、已复现正确性缺口、未映射能力与暂缓边界；当前状态的唯一汇总 |
 | [Responses text profile](architecture-v2/responses-text-profile.md) | 当前 Responses 纯文本准入与字段归属 |
 | [Chat text profile](architecture-v2/chat-text-profile.md) | 单候选 Chat envelope/SSE 准入与双协议验证边界 |
 | [Schema profile](architecture-v2/schema-profile.md) | Schema 结构、strict/default 模式、本地引用与独立资源预算 |
-| [当前焦点](implementation-plans/current-focus.md) | 当前切片范围、验收条件与缺口，不自动授权 |
-| [下一步目标](implementation-plans/next-goal.md) | 推进顺序，不写完成日志 |
+| [当前焦点](implementation-plans/current-focus.md) | 已选定行为切片的范围与验收条件；无进行中切片时保持空，不把建议变成授权 |
+| [下一步目标](implementation-plans/next-goal.md) | 推进顺序、推荐切片与进入下一阶段的门槛，不重复能力清单或完成日志 |
 | [开发指南](development.md) | 本地与固定 SDK 验证入口 |
 | [实施边界](implementation-status/README.md) | 验证层级与历史证据解释 |
 | [主题化参考](references/README.md) | 已整合的历史结论、Responses 标准、扩展、多模态和验收；不再按来源撰写 |

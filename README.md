@@ -1,6 +1,8 @@
 # OpenBridge v2
 
-OpenBridge 正在重建为以任务语义 IR 为权威的 OpenAI-compatible gateway。Generation IR **以 OpenAI Responses 标准语义为主干，结合有明确归属和生命周期的扩展字段**，而非多协议最小公分母。设计依据见[主题化调研与上游同步](docs/references/README.md)。**当前工作区是 Rust 库与离线验收，不是完整标准实现或可运行网关。**
+OpenBridge 的最终目标是**支持多模态、兼容 Chat Completions / Responses、Agent 友好且缓存亲和性强的 IR 化网关**。现阶段以仅文本 Generation 验证整体流程，之后再扩展 Provider 与多模态实现；不是长期只做文本 codec。产品判据见 [v2 目标](docs/architecture-v2/README.md#产品目标与阶段判据)。
+
+Generation IR **以 OpenAI Responses 标准语义为主干，结合有明确归属和生命周期的扩展字段**，而非多协议最小公分母。设计依据见[主题化调研与上游同步](docs/references/README.md)。**当前工作区是 Rust 库与离线验收，不是完整标准实现或可运行网关。**
 
 旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。未提供监听入口，不读取私有配置或凭据。
 
@@ -21,7 +23,7 @@ Chat / Responses wire
 - `src/transport/sse.rs`：有界纯 SSE framing。
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/sdk_loopback.rs`：语义、transport 与固定 SDK 三个验收入口；SDK/HTTP 只使用 synthetic loopback。
 
-Generation 纯文本验收仍在推进；Responses 为语义主干，另有 [Chat 单候选 JSON/SSE profile](docs/architecture-v2/chat-text-profile.md)验证同一 IR 的协议投影。见 [当前焦点](docs/implementation-plans/current-focus.md)和[准入说明](docs/architecture-v2/responses-text-profile.md)。媒体、其他任务、生产执行与 Provider 接入尚未完成；删除旧路线不等于这些功能已迁移。
+纯文本 Generation 已具备请求、响应、事件、IR 变换与双协议编码的离线主链；Responses 为语义主干，[Chat 单候选 JSON/SSE profile](docs/architecture-v2/chat-text-profile.md)验证同一 IR 的第二协议投影。**仍有已准入边界的正确性缺口，不能称完整标准实现。** [完成度与缺口](docs/architecture-v2/migration.md)区分现有能力、错误接受、尚未映射的文本字段和明确非目标；[下一步建议](docs/implementation-plans/next-goal.md)先收紧现有边界，再推进最小文本端到端网关流程，按场景补必要 Chat 投影。媒体、其他任务和生产 Provider 接入未完成；已选定行为切片的范围由[当前焦点](docs/implementation-plans/current-focus.md)维护。
 
 ## 验证
 

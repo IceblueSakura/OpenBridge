@@ -1,6 +1,6 @@
 # 实施边界与证据
 
-当前工作区只有 v2 `semantic`、`protocol`、`lowering` 和纯 SSE framing。实际结构见[架构](../architecture.md)，语义缺口见[v2 迁移计划](../architecture-v2/migration.md)，当前切片的验收范围见[当前焦点](../implementation-plans/current-focus.md)。
+当前工作区只有 v2 `semantic`、`protocol`、`lowering` 和纯 SSE framing。实际结构见[架构](../architecture.md)，分层完成度与具体反例见[Generation 实施基线](../architecture-v2/migration.md)，推进顺序见[下一步目标](../implementation-plans/next-goal.md)，已选定切片的验收范围见[当前焦点](../implementation-plans/current-focus.md)。此目录不再维护另一份当前功能清单。
 
 没有生产 Router、Provider registry、credential/OAuth、MCP、观测或服务 binary；旧路线已整体移入 [Git 归档](../archive.md)，而非由 v2 功能对等接替。
 

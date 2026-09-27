@@ -23,25 +23,28 @@
 - [WebSocket mode](https://developers.openai.com/api/docs/guides/websocket-mode)
 - SDK 固定源码：[`response_create_params.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_create_params.py)、[`response_input_item_param.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_input_item_param.py)、[`response_output_item.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_output_item.py)、[`response_stream_event.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_stream_event.py)、[`tool_param.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/tool_param.py)
 - SDK 子域：[`response_output_message.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_output_message.py)、[`response_configuration_update_item_param_param.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_configuration_update_item_param_param.py)、[`response_input_content.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_input_content.py)、[`reasoning.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/shared/reasoning.py)
+- 纯文本完整边界与 Chat 交叉证据（同一 SDK 固定版本）：[`response_created_event.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_created_event.py)、[`response.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response.py)、[`completion_usage.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/completion_usage.py)、[`chat_completion.py`](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/chat/chat_completion.py)；用于 required 字段、usage 与终态的源码核对，不代表重新在线复核或执行 SDK gate。
 - Codex 固定源码：[`core/client.rs`](https://github.com/openai/codex/blob/a69d757cd8ef8310001186865911b69e4b4175e5/codex-rs/core/src/client.rs)、[`core/responses_metadata.rs`](https://github.com/openai/codex/blob/a69d757cd8ef8310001186865911b69e4b4175e5/codex-rs/core/src/responses_metadata.rs)、[`endpoint/responses.rs`](https://github.com/openai/codex/blob/a69d757cd8ef8310001186865911b69e4b4175e5/codex-rs/codex-api/src/endpoint/responses.rs)、[`requests/headers.rs`](https://github.com/openai/codex/blob/a69d757cd8ef8310001186865911b69e4b4175e5/codex-rs/codex-api/src/requests/headers.rs)、[`protocol/models.rs`](https://github.com/openai/codex/blob/a69d757cd8ef8310001186865911b69e4b4175e5/codex-rs/protocol/src/models.rs)
 
 页面正文按相关域复核，没有把巨大的自动生成示例全部复制为 fixture。网页抽取的代码块存在重复渲染行；这些抽取伪影不能解释成 JSON 允许重复 key，也不能作为 golden data。
 
 ## 本次同步影响
 
+下表记录固定快照的设计影响，不维护当前实现进度；已实现项与剩余缺口只看[实施基线](../architecture-v2/migration.md)。本地状态变化不刷新本页的外部复核日期。
+
 | 主题 | 本次明确事实 | 对基线的影响 |
 |---|---|---|
-| Assistant phase | 公开 message 有 `commentary / final_answer`；要求后续 history 保留 | 标准 message 字段，不放 Codex extension；当前 codec 缺失 |
-| Reasoning | 标准含 `max` effort、context、mode；configuration update 可更新后续 effort | 旧 ADR 的“不支持 max/context”不可再当当前设计；配置 item 是标准缺口 |
+| Assistant phase | 公开 message 有 `commentary / final_answer`；要求后续 history 保留 | 标准 message 字段，应由 message owner 准入，不放 Codex extension |
+| Reasoning | 标准含 `max` effort、context、mode；configuration update 可更新后续 effort | 旧 ADR 的“不支持 max/context”不可再当当前设计；配置 item 需要标准 ordered owner |
 | Encrypted reasoning | 当前 reference/guide 明确 item added 可未完成、item done 为最终 replay；无状态 guide 说明默认包含，legacy include 仍接受 | 不以 include 或部分 snapshot 推断 finality；不能用 raw sidecar 恢复旧 token |
 | WebSocket | 当前指南支持 `stream_id` 多路复用，同 lane FIFO、跨 lane 并发/fork；最多 32 named lanes，默认 lane 另计；lane ID 不属于 HTTP create | 旧“一连接仅一个 in-flight”不是现行通用规则；transport 外层与 response reducer 分开 |
 | Steering / compaction | 文档描述 `steered` incomplete 后继 response，以及 compaction progress 不携带最终 summary payload | 需要 response-chain / state owner；不把第一 terminal 当整个 WS connection 结束 |
 | Schema | 文档化 strict 子集、递归 refs、节点/深度约束以及按 schema key 顺序生成 | 不能仅检查 JSON object；有序 schema 与 reference graph 必须进入设计 |
-| Cache | 3.19 源码有 `prompt_cache_options.prewarm`；retention deprecated 且其最大期限与 options TTL 最小期限不是同义词 | 本地执行 hints 缺新增字段；不能直接把 retention 重命名成 ttl |
+| Cache | 3.19 源码有 `prompt_cache_options.prewarm`；retention deprecated 且其最大期限与 options TTL 最小期限不是同义词 | 执行 hints 需表达 prewarm；不能直接把 retention 重命名成 ttl |
 | Tools/media | 公开 union 包含更多 hosted/dynamic/programmatic branches；image/file detail/source 与 tool result media 独立 | 不能把标准缺口统称特殊扩展，不能恢复 Gateway tool executor 来代替 wire 支持 |
 | Codex 上下文 | 新源码仍分 logical session/cache/thread/window/turn；body canonical metadata 与 headers 是投影 | 扩展必须有 attachment/生命周期，不采用万能 session 字段 |
 
-“本次明确”不表示全部字段都在 3.19 才引入。对本地 3.10 与本次源码进行类字段比较，`phase` 等已经在旧 SDK 中存在，但不在当前 OpenBridge codec；新增时间与实现缺口是不同事实。
+“本次明确”不表示全部字段都在 3.19 才引入。对本地 3.10 与本次源码进行类字段比较，`phase` 等已经在旧 SDK 中存在，不能由本地 codec 的准入时间反推标准的新增时间；本页不重复维护当前 codec 状态。
 
 ## 3. 尚需按子域解决的证据差异
 

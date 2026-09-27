@@ -72,11 +72,16 @@ function strict 的省略默认与显式 false/true、response format strict 的
 
 事件家族包括 response 生命周期、output item、content part、text/refusal、reasoning summary/text、function/custom input、annotations、工具执行进度/结果、audio/transcript、compaction progress、shell command/output 等。必须按 event 分支验证 required/nullable 字段、sequence、身份和 snapshot，而不是对全部 event 使用宽松字段超集。
 
+- 完整 `Response` 的 `output` 是必填数组，显式空数组不等于缺省；固定 SDK 的标准 typed SSE events（如 `ResponseCreatedEvent`）要求 `sequence_number`。顺序校验不能代替 presence 校验，低层简写也不能放宽完整 snapshot。
 - `output_item.done` 不等于 response terminal。
 - encrypted reasoning 的最终可回放值来自 item done；item added 的值可能未完成。
 - 当前官方说明无状态 reasoning 默认可返回 encrypted content，legacy include 仍被接受；不要将 include 存在作为唯一 replay ownership 条件。
 - 顶层 `error`、response.failed、非 2xx、解析错误、EOF 和取消分别处理。
 - 当前 content-part schema 可出现 reasoning text，不能把某个 SDK fixture 的事件组合当成唯一标准语法。
+
+### 与 Chat 的纯文本交叉证据
+
+同一固定 SDK 的 Chat `CompletionUsage` 在 `prompt_tokens_details` 定义 `cached_tokens`、`cache_write_tokens`、`text_tokens`，在 completion details 定义 reasoning、text 与 prediction token 细分；字段可选不意味着收到时可以丢弃。cache-write 并非 Responses 独有。Chat choice 也有 `content_filter` 终态，与 refusal 内容和输出长度上限是不同事实。具体来源链接见[上游同步](upstream-sync.md)，本地是否映射由[Chat profile](../architecture-v2/chat-text-profile.md)说明。
 
 ## 6. Transport 与资源服务
 
