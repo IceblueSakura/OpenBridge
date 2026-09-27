@@ -13,7 +13,12 @@ use crate::{
 };
 use serde_json::{Map, Value, json};
 
-pub(super) fn request(o: &Map<String, Value>) -> Result<ReasoningRequest, CodecError> {
+/// `reported` distinguishes response-echo admission from request admission: the
+/// pinned create type marks `mode` non-nullable, the response model does not.
+pub(super) fn request(
+    o: &Map<String, Value>,
+    reported: bool,
+) -> Result<ReasoningRequest, CodecError> {
     let encrypted = match o.get("include") {
         None | Some(Value::Null) => false,
         Some(Value::Array(values))
@@ -41,6 +46,9 @@ pub(super) fn request(o: &Map<String, Value>) -> Result<ReasoningRequest, CodecE
         reasoning,
         &["effort", "summary", "generate_summary", "context", "mode"],
     )?;
+    if !reported && reasoning.get("mode").is_some_and(Value::is_null) {
+        return Err(CodecError::Invalid("mode"));
+    }
     let mut r = ReasoningRequest::present(None, None).with_encrypted_output(encrypted);
     r.effort = optional_label(reasoning, "effort", effort)?;
     r.summary = if reasoning.get("summary") == Some(&Value::Bool(false)) {

@@ -16,7 +16,12 @@ pub(super) const FIELDS: &[&str] = &[
     "include",
     "text",
 ];
-pub(super) fn read(o: &Map<String, Value>) -> Result<GenerationSettings, CodecError> {
+/// `reported` distinguishes response-echo admission from request admission: the
+/// pinned response model marks `text` nullable, the create type does not.
+pub(super) fn read(
+    o: &Map<String, Value>,
+    reported: bool,
+) -> Result<GenerationSettings, CodecError> {
     let instructions = read_presence(o, "instructions", |v| {
         Text::allowing_empty(
             v.as_str().ok_or(CodecError::Invalid("instructions"))?,
@@ -28,7 +33,7 @@ pub(super) fn read(o: &Map<String, Value>) -> Result<GenerationSettings, CodecEr
     let mut s = GenerationSettings {
         instructions,
         controls: controls(o, "max_output_tokens")?,
-        reasoning: reasoning::request(o)?,
+        reasoning: reasoning::request(o, reported)?,
         ..Default::default()
     };
     if let Some(v) = o.get("top_p").filter(|v| !v.is_null()) {
@@ -59,6 +64,10 @@ pub(super) fn read(o: &Map<String, Value>) -> Result<GenerationSettings, CodecEr
             _ => Err(CodecError::Invalid("truncation")),
         })
         .transpose()?;
+    if o.get("text").is_some_and(Value::is_null) && !reported {
+        // The pinned create type is non-nullable; an explicit null is not "no text".
+        return Err(CodecError::Invalid("text"));
+    }
     if let Some(t) = o.get("text").filter(|v| !v.is_null()) {
         let t = object(t)?;
         fields(t, &["format", "verbosity"])?;

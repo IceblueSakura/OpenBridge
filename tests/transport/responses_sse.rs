@@ -97,6 +97,43 @@ fn strict_json_rejection_and_poisoning_survive_fragmentation() {
 }
 
 #[test]
+fn sse_reasoning_snapshots_cannot_drop_required_identity() {
+    for kind in [
+        "response.output_item.added",
+        "response.output_item.done",
+        "response.completed",
+    ] {
+        let mut values = wire::events(1);
+        let index = values
+            .iter()
+            .position(|v| {
+                v["type"] == kind
+                    && if kind == "response.completed" {
+                        v["response"]["output"][0]["type"] == "reasoning"
+                    } else {
+                        v["item"]["type"] == "reasoning"
+                    }
+            })
+            .unwrap();
+        let item = if kind == "response.completed" {
+            &mut values[index]["response"]["output"][0]
+        } else {
+            &mut values[index]["item"]
+        }
+        .as_object_mut()
+        .unwrap();
+        item.remove("id");
+        let mut d = decoder(SseLimits::default());
+        for value in &values[..index] {
+            let frame = encode_frame(value, SseLimits::default().max_event_bytes).unwrap();
+            consume_all(&mut d, &frame, 1);
+        }
+        let frame = encode_frame(&values[index], SseLimits::default().max_event_bytes).unwrap();
+        assert!(d.consume(&frame).is_err(), "{kind}");
+        assert!(d.finish().is_err());
+    }
+}
+#[test]
 fn complete_sse_message_snapshots_cannot_default_missing_identity_or_status() {
     for kind in [
         "response.output_item.added",

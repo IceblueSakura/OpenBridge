@@ -736,6 +736,10 @@ fn null_empty_false_and_default_controls_are_deliberate_not_unknown_passthrough(
         json!({"tools":[{"type":"custom","name":"x","format":{"type":"grammar","syntax":"unknown","definition":"x"}}]}),
         json!({"tools":[{"type":"function","name":"x","async":true}]}),
         json!({"reasoning":{"unknown":true}}),
+        json!({"text":null}),
+        json!({"tools":null}),
+        json!({"tool_choice":null}),
+        json!({"reasoning":{"mode":null}}),
     ] {
         let mut value = json!({"input":"hello"});
         value
@@ -744,6 +748,27 @@ fn null_empty_false_and_default_controls_are_deliberate_not_unknown_passthrough(
             .extend(bad.as_object().unwrap().clone());
         assert!(responses::decode_generation(&value).is_err());
     }
+}
+#[test]
+fn reported_settings_nulls_follow_the_response_model_not_the_request_types() {
+    let mut response = wire::response(2);
+    response["text"] = Value::Null;
+    response["reasoning"]["mode"] = Value::Null;
+    let d = envelope::decode_response(&response).unwrap();
+    let settings = d.metadata.context.settings.as_ref().unwrap();
+    assert!(!settings.text.presence);
+    assert_eq!(settings.reasoning.mode, Presence::Null);
+    let target = lower_response(
+        &d.semantic,
+        &d.fidelity,
+        &d.metadata,
+        Profile::Responses,
+        contract(),
+    )
+    .unwrap();
+    let encoded = envelope::encode_response(&target).unwrap();
+    assert!(encoded.get("text").is_none());
+    assert_eq!(encoded["reasoning"]["mode"], Value::Null);
 }
 #[test]
 fn sdk_parsed_arguments_is_a_checked_derived_view_not_a_second_owner() {

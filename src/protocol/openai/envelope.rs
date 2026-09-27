@@ -364,7 +364,7 @@ impl ResponseContext {
             None
         };
         let s = if settings::FIELDS.iter().any(|k| o.contains_key(*k)) {
-            Some(settings::read(&controls)?)
+            Some(settings::read(&controls, true)?)
         } else {
             None
         };
@@ -489,6 +489,10 @@ pub(super) fn validate_item_snapshot(v: &Value) -> Result<(), CodecError> {
         for p in parts {
             validate_part_snapshot(p)?;
         }
+    } else if string(o, "type")? == "reasoning" {
+        // Reasoning identity is required on every wire snapshot; task codecs still
+        // assign fresh identity themselves.
+        text(string(o, "id")?, "wire item id", 256)?;
     }
     Ok(())
 }

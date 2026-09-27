@@ -339,6 +339,64 @@ fn reasoning_and_parallel_call_results_preserve_continuation_history() {
     assert_eq!(encoded["tools"][0]["name"], "lookup");
 }
 #[test]
+fn wire_reasoning_identity_is_required_and_fresh_items_assign_request_ids() {
+    let mut idless = reasoning("completed");
+    let o = idless.as_object_mut().unwrap();
+    o.remove("id");
+    o.remove("encrypted_content");
+    // Upstream reasoning items without identity are rejected, never auto-completed.
+    assert!(
+        responses::decode_generation(
+            &json!({"input":[idless.clone(),{"role":"user","content":"next"}]})
+        )
+        .is_err()
+    );
+    assert!(responses::decode_response(&envelope("completed", json!([idless.clone()]))).is_err());
+    let mut d = EventDecoder::new(Profile::Responses);
+    d.push(&created()).unwrap();
+    d.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"rs","type":"reasoning","status":"in_progress","summary":[]}})).unwrap();
+    assert!(
+        d.push(&json!({"type":"response.output_item.done","output_index":0,"item":idless}))
+            .is_err()
+    );
+    assert!(d.finish().is_err());
+    // Independently constructed items assign fresh wire identity on request encoding.
+    let fresh = GenerationRequest::new(
+        vec![
+            (
+                ItemId::new(1),
+                Item::Reasoning(ReasoningItem {
+                    parts: vec![(PartId::new(1), ReasoningContent::Summary(text("plan")))],
+                    status: ItemLifecycle::Completed,
+                }),
+            ),
+            (
+                ItemId::new(2),
+                Item::Message(Message {
+                    role: MessageRole::User,
+                    parts: vec![Part {
+                        id: PartId::new(2),
+                        content: ContentPart::Text(text("next").into()),
+                    }],
+                    status: ItemLifecycle::Completed,
+                    phase: None,
+                }),
+            ),
+        ],
+        GenerationControls::default(),
+    )
+    .unwrap();
+    let no_fidelity = FidelityRecords::default();
+    let target = lower_request(&fresh, &no_fidelity, Profile::Responses, contract()).unwrap();
+    let wire = responses::encode_generation(&target).unwrap();
+    assert_eq!(wire["input"][0]["id"], json!("item_1"));
+    let replayed = responses::decode_generation(&wire).unwrap();
+    assert_eq!(
+        replayed.fidelity.response_item_id(ItemId::new(1)),
+        Some("item_1")
+    );
+}
+#[test]
 fn encoder_rejects_unbound_replay_before_emitting_it() {
     let mut encoder = EventEncoder::new(Profile::Responses, metadata()).unwrap();
     let f = FidelityRecords::default();

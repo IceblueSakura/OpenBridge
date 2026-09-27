@@ -20,6 +20,17 @@ pub(super) fn read_settings(
     profile: Profile,
     settings: &mut GenerationSettings,
 ) -> Result<(), CodecError> {
+    // The pinned create types mark the tool containers non-nullable, and the
+    // Chat create type marks parallel_tool_calls non-nullable too: an explicit
+    // null never means "no tools".
+    for key in ["tools", "tool_choice"] {
+        if o.get(key).is_some_and(Value::is_null) {
+            return Err(CodecError::Invalid(key));
+        }
+    }
+    if profile == Profile::Chat && o.get("parallel_tool_calls").is_some_and(Value::is_null) {
+        return Err(CodecError::Invalid("parallel_tool_calls"));
+    }
     settings.tools = o
         .get("tools")
         .filter(|v| !v.is_null())

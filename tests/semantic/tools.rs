@@ -725,3 +725,35 @@ fn semantic_construction_cannot_bypass_identifier_or_control_validation() {
     controls.max_output_tokens = Some(0);
     assert!(GenerationRequest::new(d.semantic.items().to_vec(), controls).is_err());
 }
+#[test]
+fn explicit_null_tool_containers_are_rejected_not_silently_dropped() {
+    // Both create types are non-nullable; explicit null never means "no tools".
+    for profile in [Profile::Chat, Profile::Responses] {
+        for key in ["tools", "tool_choice"] {
+            let mut wire = match profile {
+                Profile::Chat => json!({"messages":[{"role":"user","content":"x"}]}),
+                Profile::Responses => json!({"input":"x"}),
+            };
+            wire[key] = Value::Null;
+            let decoded = match profile {
+                Profile::Chat => chat::decode_generation(&wire),
+                Profile::Responses => responses::decode_generation(&wire),
+            };
+            assert!(decoded.is_err(), "{profile:?} {key}");
+        }
+    }
+    // Only the Responses create type marks parallel_tool_calls nullable.
+    let d = responses::decode_generation(&json!({"input":"x","parallel_tool_calls":null})).unwrap();
+    assert_eq!(d.semantic.parallel_tool_calls(), None);
+    assert!(
+        request_wire(&d, Profile::Responses)
+            .get("parallel_tool_calls")
+            .is_none()
+    );
+    assert!(
+        chat::decode_generation(
+            &json!({"messages":[{"role":"user","content":"x"}],"parallel_tool_calls":null})
+        )
+        .is_err()
+    );
+}

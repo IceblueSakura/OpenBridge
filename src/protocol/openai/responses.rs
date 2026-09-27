@@ -33,7 +33,7 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
         _ => return Err(CodecError::Invalid("input")),
     }
     Ok(DecodedRequest {
-        semantic: GenerationRequest::from_settings(b.items, settings::read(o)?)?,
+        semantic: GenerationRequest::from_settings(b.items, settings::read(o, false)?)?,
         fidelity: b.fidelity,
     })
 }
@@ -223,6 +223,8 @@ pub(super) fn decode_items(
                 }
             }
             Some("reasoning") => {
+                // Wire reasoning items carry required identity; it is never invented.
+                text(string(o, "id")?, "reasoning id", 256)?;
                 let (r, encrypted) = super::reasoning::decode_item(
                     o,
                     &mut || b.part_id(),
@@ -467,6 +469,9 @@ pub(super) fn encode_items(
                     v["type"] = json!("message");
                 }
                 v["id"] = json!(wire);
+            } else if matches!(item, Item::Reasoning(_)) {
+                // Wire reasoning items require identity; fresh task snapshots assign it.
+                v["id"] = json!(format!("item_{}", id.get()));
             }
             if item
                 .lifecycle()
