@@ -626,3 +626,96 @@ fn reported_schema_order_closes_across_static_and_sse() {
     assert_original(&terminal["response"]["text"]["format"]["schema"]);
     assert_original(&terminal["response"]["tools"][0]["parameters"]);
 }
+
+#[test]
+fn pattern_syntax_stays_inside_the_admitted_ecmascript_subset() {
+    for good in [
+        "",
+        r"^\d{4}-\d{2}-\d{2}$",
+        r"^\+?[1-9]\d{1,14}$",
+        "^[a-z]+$",
+        "a|b|",
+        "(?:ab)+c",
+        "(?=x)y",
+        "(?<!x)y",
+        r"(?<year>\d{4})-\k<year>",
+        r"[\-a-z]",
+        r"[^\]]",
+        "a{2,3}?",
+        r"\p{L}+",
+        r"\p{Script=Greek}+",
+        r"\u{1F600}",
+        r"a\{b\}",
+    ] {
+        for strict in [true, false] {
+            let schema = closed_property(json!({"type":"string","pattern":good}));
+            assert!(
+                admit(schema, strict).is_ok(),
+                "{good} strict={strict} must pass"
+            );
+        }
+    }
+    for bad in [
+        "(", "a)", "[a", "a{2,1}", "*", "a**", "(x)*+", r"\q", r"\x{", r"\p{", r"\p{}", "[z-a]",
+        "{", "a{,3}", "a{2", "(?<", r"[\d-a]", "(?i)a",
+    ] {
+        for strict in [true, false] {
+            let schema = closed_property(json!({"type":"string","pattern":bad}));
+            assert!(
+                admit(schema, strict).is_err(),
+                "{bad} strict={strict} must fail"
+            );
+        }
+    }
+}
+
+#[test]
+fn format_names_come_from_the_fixed_registry() {
+    for good in [
+        "date",
+        "time",
+        "date-time",
+        "duration",
+        "email",
+        "idn-email",
+        "hostname",
+        "idn-hostname",
+        "ipv4",
+        "ipv6",
+        "uri",
+        "uri-reference",
+        "uri-template",
+        "iri",
+        "iri-reference",
+        "uuid",
+        "json-pointer",
+        "relative-json-pointer",
+        "regex",
+    ] {
+        for strict in [true, false] {
+            let schema = closed_property(json!({"type":"string","format":good}));
+            assert!(admit(schema, strict).is_ok(), "{good} must pass");
+        }
+    }
+    for bad in [
+        "",
+        "date_time",
+        "DateTime",
+        "byte",
+        "custom-thing",
+        "uri_template",
+    ] {
+        for strict in [true, false] {
+            let schema = closed_property(json!({"type":"string","format":bad}));
+            assert!(admit(schema, strict).is_err(), "{bad} must fail");
+        }
+    }
+}
+
+#[test]
+fn pattern_property_keys_are_checked_like_patterns() {
+    let ok = json!({"type":"object","patternProperties":{"^[a-z]+":{"type":"integer"}},"additionalProperties":false});
+    assert!(admit(ok, false).is_ok());
+    let bad = json!({"type":"object","patternProperties":{"(": {"type":"integer"}},"additionalProperties":false});
+    assert!(admit(bad, false).is_err());
+}

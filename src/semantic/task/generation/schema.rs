@@ -1,5 +1,5 @@
 //! Immutable schema admission, not instance evaluation or remote reference resolution.
-use super::{GenerationError, MAX_TEXT_BYTES, MAX_TOTAL_BYTES};
+use super::{GenerationError, MAX_TEXT_BYTES, MAX_TOTAL_BYTES, pattern};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -22,6 +22,33 @@ pub(super) enum Mode {
 }
 fn invalid() -> GenerationError {
     GenerationError::InvalidSchema
+}
+/// Closed format registry from the JSON Schema 2020-12 validation vocabulary. Unknown
+/// names are rejected rather than ignored; this is not a claim that they are invalid
+/// in every JSON Schema dialect.
+const FORMATS: &[&str] = &[
+    "date",
+    "time",
+    "date-time",
+    "duration",
+    "email",
+    "idn-email",
+    "hostname",
+    "idn-hostname",
+    "ipv4",
+    "ipv6",
+    "uri",
+    "uri-reference",
+    "uri-template",
+    "iri",
+    "iri-reference",
+    "uuid",
+    "json-pointer",
+    "relative-json-pointer",
+    "regex",
+];
+fn format_admitted(value: &str) -> bool {
+    FORMATS.contains(&value)
 }
 fn charge(total: &mut usize, n: usize, max: usize) -> Result<(), GenerationError> {
     *total = total.checked_add(n).ok_or(GenerationError::Limit)?;
@@ -179,6 +206,9 @@ impl<'a> Check<'a> {
                         )?;
                     }
                     for (name, child) in map {
+                        if key == "patternProperties" && !pattern::valid(name) {
+                            return Err(invalid());
+                        }
                         if key == "properties" || key == "$defs" {
                             self.strings(name.chars().count())?;
                         }
@@ -262,8 +292,18 @@ impl<'a> Check<'a> {
                         return Err(invalid());
                     }
                 }
-                "title" | "description" | "format" | "pattern" => {
+                "title" | "description" => {
                     if !value.is_string() {
+                        return Err(invalid());
+                    }
+                }
+                "pattern" => {
+                    if !value.as_str().is_some_and(pattern::valid) {
+                        return Err(invalid());
+                    }
+                }
+                "format" => {
+                    if !value.as_str().is_some_and(format_admitted) {
                         return Err(invalid());
                     }
                 }

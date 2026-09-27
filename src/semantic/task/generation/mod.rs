@@ -1,6 +1,7 @@
 //! Generation semantic IR.
 mod event;
 mod output;
+mod pattern;
 mod reasoning;
 mod request;
 mod requirements;

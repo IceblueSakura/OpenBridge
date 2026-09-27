@@ -28,7 +28,7 @@ Normalization intent shares strict vocabulary, root and quota admission but does
 | anyOf, allOf, oneOf, prefixItems | Nonempty array of schema objects |
 | additionalProperties, unevaluatedProperties, unevaluatedItems | Boolean policy or schema object |
 | enum, const | Nonempty unique enum values; const may be any bounded JSON value. Numeric equality and object-key order are considered when checking duplicate enum values |
-| title, description, pattern, format | Strings; pattern/format syntax and execution are not evaluated |
+| title, description, pattern, format | Strings; `pattern` must parse in the admitted regex subset and `format` must name a registry entry, see [below](#pattern-and-format-syntax) |
 | default, examples | Bounded JSON annotation; examples is an array. Defaults do not make strict properties optional |
 | minimum, maximum, exclusiveMinimum, exclusiveMaximum | Numbers |
 | multipleOf | Positive number |
@@ -44,7 +44,13 @@ Both strict modes require an object root (possibly reached through a local refer
 
 Explicit strict additionally requires every object to use additionalProperties=false and requires exactly its declared property names, with no duplicates. Empty objects may omit an empty required list. Nested anyOf branches and definition schemas receive the same checks. allOf/oneOf/not/if/then/else, dynamic-object/tuple/contains/unevaluated policies, uniqueItems and property-count constraints are outside this strict subset. General structural mode may preserve the listed forms.
 
-Supported string/number/array constraints receive shape and basic bound checks. This does not validate ECMAScript regex syntax, format registries, model-specific restrictions, schema satisfiability or generated data. No schema is rewritten to satisfy strictness.
+Supported string/number/array constraints receive shape and basic bound checks. This validates `pattern`/`format` syntax against the closed admission below, but no regex execution, format semantics, model-specific restrictions, schema satisfiability or generated data. No schema is rewritten to satisfy strictness.
+
+## Pattern and format syntax
+
+`pattern` values and `patternProperties` keys are regular expressions and must parse in a closed ECMAScript regex subset: alternation, capturing/non-capturing/named groups, lookahead and lookbehind assertions, character classes with ascending ranges, `* + ? {n} {n,} {n,m}` quantifiers with an optional lazy flag, anchors, and the recognized escapes (`\d \D \s \S \w \W`, `\p{…}`/`\P{…}` name shapes, `\f \n \r \t \v`, `\xHH`, `\uHHHH`, `\u{…}`, `\cX`, `\0`, numeric and `\k<name>` backreferences, and identity escapes over non-alphanumeric characters). Alphanumeric escapes outside that set (`\a` and friends), unescaped braces that do not form a valid quantifier, unterminated groups/classes/quantifier ranges, descending class ranges, class backreferences and inline flags are rejected. This is syntax admission only: nothing is compiled for matching and no instance is evaluated.
+
+`format` must name an entry of the closed registry drawn from the JSON Schema 2020-12 validation vocabulary: `date`, `time`, `date-time`, `duration`, `email`, `idn-email`, `hostname`, `idn-hostname`, `ipv4`, `ipv6`, `uri`, `uri-reference`, `uri-template`, `iri`, `iri-reference`, `uuid`, `json-pointer`, `relative-json-pointer`, `regex`. Unknown names are rejected rather than ignored; this is not a claim that they are invalid in every JSON Schema dialect. Neither rule predicts whether a given model enforces the constraint.
 
 ## References and resources
 
