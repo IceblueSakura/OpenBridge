@@ -11,7 +11,7 @@
 | 层级 | 当前判断 | 证据与不能推出的结论 |
 |---|---|---|
 | Task IR / 变换 / lowering | 已有完整主链，目标合同仍为受限子集 | `src/semantic/task/generation/`、`src/lowering/`；最终 IR 权威、候选独立投影与拒绝已有测试，不代表模型 capability 或 Provider selection 已接通 |
-| Responses JSON/SSE | 常用无状态文本分支已实现，仍有明确正确性缺口 | `src/protocol/openai/`、`tests/semantic/`、`tests/transport/responses_sse.rs`；见下方反例，不能称完整标准实现 |
+| Responses JSON/SSE | 常用无状态文本分支已实现，必填性已闭合但未审计全部标准分支 | `src/protocol/openai/`、`tests/semantic/`、`tests/transport/responses_sse.rs`；见下方缺口状态，不能称完整标准实现 |
 | 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证，不是待从零建立的 codec | `tests/transport/chat.rs`；部分标准文本 metadata、usage 与终态仍被拒绝，不等于 Chat 协议无法表达 |
 | 固定消费者 / Agent 场景 | 已有 Responses/Chat 三轮 JSON/SSE synthetic gates，尚非网关全链 | `tests/sdk_loopback.rs`、`tests/sdk/` 的 handler 直接构造 fixture 回答，不经真实 Provider adapter；显式 ignored，默认 Rust tests 不执行，覆盖范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
 | 缓存亲和性 | 有表示与保序基础，尚无执行亲和策略或命中效果验收 | CacheHints、schema order、origin-bound replay 已存在；缓存 scope 的执行绑定、跨轮/跨目标策略及真实 hit/成本/延迟效果不能由字段往返推出 |
@@ -35,14 +35,9 @@
 
 ## 当前正确性缺口
 
-以下是对**已经准入**的 Responses SSE 路径执行 synthetic 变异得到的反例，不是新增功能愿望，也不是 live Provider 差异。复现基于 [responses_profile::events(2)](../../tests/support/responses_profile.rs) 的独立 wire；每个变体用新的 `ResponsesSseDecoder`，完整分帧消费后调用 `finish()` 和 `materialize()`。
+暂无已复现的正确性反例。固定 SDK 标准事件的 required/presence 与完整 Response snapshot 必填性已闭合：标准事件缺失 `sequence_number`、完整 snapshot 缺失 `output` 数组（含 queued/created/in_progress 初始 snapshot）在完整字节入口与低层 snapshot 分支都被拒绝，显式空数组仍然合法，拒绝后不能恢复为成功。规则与回归测试入口由 [Responses text profile](responses-text-profile.md#complete-stream-required-fields) 维护。
 
-| 反例 | 应有边界 | 当前观察 / 所属代码 |
-|---|---|---|
-| 删除所有事件的 `sequence_number` | 固定 SDK 标准事件的 required 字段缺失应拒绝，不能成功 materialize | 整条流仍被接受；`events/decode.rs::EventDecoder::push` 仅在字段存在时检查类型/递增 |
-| 只删除首个 `response.created.response.output`，保留后续合法事件与 terminal | 完整 Response snapshot 要求 `output` 数组；缺省不能等同显式空数组 | 整条流仍成功；`envelope.rs::validate_complete_response` 与 `events/decode.rs` 的 initial snapshot 分支只在字段存在时检查。对照：静态完整 response 缺 `output` 已拒绝 |
-
-固定来源为 SDK `3.19.0` 的 `ResponseCreatedEvent.sequence_number` 与 `Response.output`，链接见[上游同步](../references/upstream-sync.md)。正常 fixture 通过、上述变异仍通过，只证明这些具体缺口；未声称所有事件的 required/null/跨 kind 检查均已审计。修复应区分完整字节入口和低层简写接口，不通过修改准入文档把缺失必填字段合理化。正式回归测试尚未加入，需在获准行为切片中保护上述拒绝边界。
+仍未声称所有事件的 required/null/跨 kind 检查均已审计：更广标准分支的 required/presence 按[尚未映射的文本能力](#尚未映射的文本能力)收敛，新反例按 owner 立项，不以“全部标准分支已审计”为前提。
 
 ## 尚未映射的文本能力
 
@@ -68,6 +63,6 @@
 
 ## 验收边界
 
-当前判断基于源码、独立 fixtures、默认离线 Rust tests 与上述定向反例。SDK gates 的存在不等于每次审阅都执行；具体一次检查结果在交付时报告，不在此维护测试数量或完成日记。完整 SDK/Agent、真实 Provider/TLS/网络、模型输出质量、负载与长期生产稳定性均需各自证据。
+当前判断基于源码、独立 fixtures、默认离线 Rust tests 与定向变异反例。SDK gates 的存在不等于每次审阅都执行；具体一次检查结果在交付时报告，不在此维护测试数量或完成日记。完整 SDK/Agent、真实 Provider/TLS/网络、模型输出质量、负载与长期生产稳定性均需各自证据。
 
 每个获准行为切片先记录[当前焦点](../implementation-plans/current-focus.md)，以独立 decode/encode、IR 修改/删除、Static/Event 与失败/资源反例验收。保持最终 typed 语义权威、候选不可变投影、extension 不覆盖标准/认证/目标、失败不变成功。推进顺序只由[下一步目标](../implementation-plans/next-goal.md)维护。

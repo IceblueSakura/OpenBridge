@@ -14,9 +14,9 @@ This is the ownership and admission map for the **currently implemented offline 
 | Public model, state, service/cache/safety metadata | Request `RequestContext` / execution hints, **not Task IR** | Public model is fixed outside codec; `store` is emitted false. Only inactive server-side state forms are admitted | Non-inactive state, prompt templates, moderation and compaction fail before any Provider request |
 | `stream`, stream options, HTTP and SSE | Delivery context and bounded transport framer | HTTP 200 + `text/event-stream`; BOM, LF/CRLF/CR and UTF-8 fragment handling; obfuscation is explicit | Bytes, events and aggregate semantic state have independent limits; malformed frames, wrong event type, missing delimiter/terminal and post-terminal events fail closed |
 
-## Known complete-stream validation gaps
+## Complete-stream required fields
 
-The complete Responses SSE boundary still accepts missing `sequence_number` and a created response snapshot without the required `output` array; an otherwise valid stream can finish and materialize successfully. These are correctness gaps, not admitted standard abbreviations. Reproduction and owning code are maintained in [migration](migration.md#当前正确性缺口). Existing rejection of malformed framing, wrong types and post-terminal data does not prove all required-field checks.
+The complete Responses SSE boundary enforces the fixed SDK required/presence rules. Every standard event carries `sequence_number` (integer, strictly increasing); every complete Response snapshot carries the `output` array, where an explicit empty array is legal and an omission or `null` is not. The initial snapshot branches (`response.queued`/`response.created`/`response.in_progress`) require an empty `output` array, and the low-level snapshot branches apply the same completeness rule instead of backfilling a missing field. Ordering validation never substitutes for presence. The fixed source is the pinned SDK in [upstream sync](../references/upstream-sync.md); independent negative tests are in `tests/transport/responses_sse.rs` (complete byte entry) and `tests/semantic/` (snapshot branches), with the static entries sharing the same rule. This does not claim every standard event's required/null/combination checks are audited; see [migration](migration.md#当前正确性缺口).
 
 ## Raw JSON admission
 

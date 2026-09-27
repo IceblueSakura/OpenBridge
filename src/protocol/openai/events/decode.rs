@@ -207,10 +207,14 @@ impl EventDecoder {
                 } else {
                     "in_progress"
                 };
+                // The complete snapshot requires the output array; an omitted
+                // value is never the explicit empty array.
                 if string(r, "object")? != "response"
                     || string(r, "status")? != initial_status
-                    || r.get("output")
-                        .is_some_and(|v| !v.as_array().is_some_and(Vec::is_empty))
+                    || !r
+                        .get("output")
+                        .and_then(Value::as_array)
+                        .is_some_and(Vec::is_empty)
                     || ["usage", "error", "incomplete_details"]
                         .iter()
                         .any(|k| r.get(*k).is_some_and(|v| !v.is_null()))

@@ -178,6 +178,96 @@ fn complete_sse_message_snapshots_cannot_default_missing_identity_or_status() {
 }
 
 #[test]
+fn complete_sse_events_cannot_omit_required_sequence_number() {
+    for single in [false, true] {
+        let mut values = wire::events(2);
+        for (i, value) in values.iter_mut().enumerate() {
+            if !single || i == 3 {
+                value.as_object_mut().unwrap().remove("sequence_number");
+            }
+        }
+        let mut d = decoder(SseLimits::default());
+        let mut rejected = None;
+        for (i, value) in values.iter().enumerate() {
+            let frame = encode_frame(value, SseLimits::default().max_event_bytes).unwrap();
+            match d.consume(&frame) {
+                Ok((used, _)) => {
+                    assert_eq!(used, frame.len());
+                    assert!(rejected.is_none(), "event {i} accepted after rejection");
+                }
+                Err(_) if rejected.is_none() => rejected = Some(i),
+                Err(_) => {}
+            }
+        }
+        assert_eq!(rejected, Some(if single { 3 } else { 0 }), "{single}");
+        assert!(d.consume(&wire_events()).is_err());
+        assert!(d.finish().is_err());
+        assert!(d.materialize().is_err());
+    }
+}
+
+#[test]
+fn lifecycle_response_snapshots_cannot_omit_the_output_array() {
+    for kind in [
+        "response.queued",
+        "response.created",
+        "response.in_progress",
+    ] {
+        let mut values = wire::events(2);
+        let mut snapshot = values[0]["response"].clone();
+        let index = match kind {
+            "response.queued" => {
+                snapshot["status"] = json!("queued");
+                values.insert(0, json!({"type": kind, "response": snapshot}));
+                0
+            }
+            "response.created" => 0,
+            _ => {
+                values.insert(1, json!({"type": kind, "response": snapshot}));
+                1
+            }
+        };
+        for (i, value) in values.iter_mut().enumerate() {
+            value["sequence_number"] = json!(i);
+        }
+        let bytes: Vec<u8> = values
+            .iter()
+            .flat_map(|v| encode_frame(v, SseLimits::default().max_event_bytes).unwrap())
+            .collect();
+        // An explicit empty output array keeps the lifecycle snapshot valid.
+        let mut accepted = decoder(SseLimits::default());
+        consume_all(&mut accepted, &bytes, 5);
+        accepted.finish().unwrap();
+        accepted.materialize().unwrap();
+
+        values[index]["response"]
+            .as_object_mut()
+            .unwrap()
+            .remove("output");
+        let mut d = decoder(SseLimits::default());
+        let mut rejected = None;
+        for (i, value) in values.iter().enumerate() {
+            let frame = encode_frame(value, SseLimits::default().max_event_bytes).unwrap();
+            match d.consume(&frame) {
+                Ok((used, _)) => {
+                    assert_eq!(used, frame.len());
+                    assert!(
+                        rejected.is_none(),
+                        "{kind} event {i} accepted after rejection"
+                    );
+                }
+                Err(_) if rejected.is_none() => rejected = Some(i),
+                Err(_) => {}
+            }
+        }
+        assert_eq!(rejected, Some(index), "{kind}");
+        assert!(d.consume(&wire_events()).is_err());
+        assert!(d.finish().is_err());
+        assert!(d.materialize().is_err());
+    }
+}
+
+#[test]
 fn fragmented_utf8_and_bare_cr_preserve_the_same_terminal_and_output() {
     let lf = wire_events();
     let mut fragmented = decoder(SseLimits::default());
@@ -460,7 +550,8 @@ fn rejected_metadata_update_poisoned_stream_cannot_emit_success() {
 #[test]
 fn multiline_data_is_joined_and_an_invalid_json_record_poisons_the_stream() {
     let first: Value = wire::events(2)[0].clone();
-    let raw = json!({"type": "response.created", "response": first["response"]}).to_string();
+    let raw = json!({"type": "response.created", "response": first["response"], "sequence_number": first["sequence_number"]})
+        .to_string();
     let split = raw.find("\"response\":").unwrap() + "\"response\":".len();
     let valid = format!(
         "event: response.created\ndata: {}\ndata: {}\n\n",

@@ -10,7 +10,7 @@ use openbridge::{
     },
     semantic::task::generation::*,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 #[test]
 fn independent_text_wire_decodes_empty_and_multiple_parts() {
     let mut d = EventDecoder::new(Profile::Responses);
@@ -218,6 +218,31 @@ fn queued_order_duplication_and_snapshot_grammar_fail_closed() {
         d.push(&json!({"type":"response.queued","response":envelope("queued",json!([{"id":"m","type":"message","role":"assistant","status":"completed","content":[]}]))}))
             .is_err()
     );
+}
+#[test]
+fn initial_response_snapshots_require_the_output_array() {
+    for (typ, status) in [
+        ("response.queued", "queued"),
+        ("response.created", "in_progress"),
+        ("response.in_progress", "in_progress"),
+    ] {
+        for replacement in [None, Some(Value::Null)] {
+            let mut d = EventDecoder::new(Profile::Responses);
+            if typ == "response.in_progress" {
+                d.push(&created()).unwrap();
+            }
+            let mut snapshot = envelope(status, json!([]));
+            if let Some(ref value) = replacement {
+                snapshot["output"] = value.clone();
+            } else {
+                snapshot.as_object_mut().unwrap().remove("output");
+            }
+            assert!(
+                d.push(&json!({"type":typ,"response":snapshot})).is_err(),
+                "{typ} {replacement:?}"
+            );
+        }
+    }
 }
 #[test]
 fn queued_is_a_single_pre_created_state_and_never_a_terminal() {

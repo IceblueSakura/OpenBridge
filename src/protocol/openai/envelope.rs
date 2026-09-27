@@ -509,14 +509,27 @@ pub(super) fn validate_complete_response(v: &Value) -> Result<(), CodecError> {
     {
         return Err(CodecError::Invalid("incomplete usage details"));
     }
-    if let Some(output) = o.get("output").and_then(Value::as_array) {
-        for item in output {
-            validate_item_snapshot(item)?;
-        }
+    // A complete Response snapshot requires the output array; an absent value is
+    // never the explicit empty array and no lower layer may backfill it.
+    for item in o
+        .get("output")
+        .and_then(Value::as_array)
+        .ok_or(CodecError::Invalid("output"))?
+    {
+        validate_item_snapshot(item)?;
     }
     Ok(())
 }
 pub(super) fn validate_stream_payload(v: &Value) -> Result<(), CodecError> {
+    // Every complete Responses SSE event carries the required integer sequence
+    // number; event ordering never substitutes for its presence.
+    if object(v)?
+        .get("sequence_number")
+        .and_then(Value::as_u64)
+        .is_none()
+    {
+        return Err(CodecError::Invalid("sequence"));
+    }
     if let Some(response) = v.get("response") {
         validate_complete_response(response)?;
     }

@@ -8,13 +8,12 @@
 
 | 优先级 | 建议切片 | 预期可观察结果 / 退出条件 |
 |---|---|---|
-| 1 | **Responses 完整 SSE 必填性闭合** | 以[已复现反例](../architecture-v2/migration.md#当前正确性缺口)起步：required `sequence_number` 缺失、initial snapshot 缺 `output` 不再成功；同类已准入生命周期分支按固定 schema 审查。保留合法空 output、正常 JSON/SSE 与低层接口的明确边界；错误后不可恢复为成功 |
-| 2 | **最小文本端到端网关切片设计与接线** | 定义受信 Public Model/task、固定 Route/目标与最小 Provider adapter，以 synthetic upstream 验证真实请求/响应处理链，而非只在 SDK 测试 handler 里直接构造回答。独立立项实现，不恢复整个旧运行时 |
-| 3 | **沿端到端场景补必要文本投影** | 优先候选为 Chat cache-write usage、content_filter、选定服务返回的 service tier / metadata / system fingerprint；每个 owner 独立切片，按所选场景需要先后接入，不把整个字段表作为步骤 2 的前置条件 |
-| 4 | **固定真实 Provider 的受控验收** | 文本 loopback 全流程通过后，另行选择精确 Provider/account/model/请求矩阵，验证实际协议与缓存行为；需要明确网络/付费授权。通过一个目标不代表其他 Provider |
-| 5 | **扩展 Provider 与多模态** | 复用已验证的 IR / lowering / execution 边界，按来源 profile 与任务域逐项扩展；每域覆盖 request/response/event、资源安全、变换与失败，不另起 Native 旁路 |
+| 1 | **最小文本端到端网关切片设计与接线** | 定义受信 Public Model/task、固定 Route/目标与最小 Provider adapter，以 synthetic upstream 验证真实请求/响应处理链，而非只在 SDK 测试 handler 里直接构造回答。独立立项实现，不恢复整个旧运行时 |
+| 2 | **沿端到端场景补必要文本投影** | 优先候选为 Chat cache-write usage、content_filter、选定服务返回的 service tier / metadata / system fingerprint；每个 owner 独立切片，按所选场景需要先后接入，不把整个字段表作为步骤 1 的前置条件 |
+| 3 | **固定真实 Provider 的受控验收** | 文本 loopback 全流程通过后，另行选择精确 Provider/account/model/请求矩阵，验证实际协议与缓存行为；需要明确网络/付费授权。通过一个目标不代表其他 Provider |
+| 4 | **扩展 Provider 与多模态** | 复用已验证的 IR / lowering / execution 边界，按来源 profile 与任务域逐项扩展；每域覆盖 request/response/event、资源安全、变换与失败，不另起 Native 旁路 |
 
-步骤 3 的具体可验收候选：
+步骤 2 的具体可验收候选：
 
 - **Chat cache-write usage**：已有 `Usage.input_cache_write_tokens` 投影到标准 `prompt_tokens_details.cache_write_tokens`；缺省/null/0、usage tail、Static/Event 和双协议投影不丢计数、不估算。此项帮助观测缓存，不等于已经提高命中率。
 - **Chat content_filter**：保留过滤原因和 partial output，JSON/SSE 一致，finish_reason 不替代 DONE，不退化为 length/stop。
@@ -24,13 +23,12 @@
 
 ## 紧接着建议选定的切片
 
-**选择优先级 1，而不是继续笼统“完善 Schema / configuration update”。** 原因是已有准入路径仍能把缺必填字段的 wire 接受到成功终态；这比扩大支持集合更直接影响边界可信度。
+**下一步是优先级 1（最小文本端到端网关切片）的立项：先选定下方边界，再把可观察结果、失败用例、非目标与验证边界落到 [current-focus](current-focus.md)。** 这直接闭合当前最大产品缺口——语义链尚未接成网关整体流程；相比继续扩大文本投影集合优先。首片可完全 synthetic loopback，独立立项，不恢复旧运行时，也不要求先完成更广标准分支。
 
-- **要求**：固定 SDK/schema 的标准 SSE required/presence 规则与完整 Response snapshot 一致；完整字节边界不能借低层简写补字段。
-- **失败用例**：从独立合法 wire 删除 sequence 或初始 output，分别断言即时拒绝、poisoning、EOF/materialization 失败；保留合法空数组及分片对照。相关 queued/in_progress 生命周期需按各自 schema 验证，不新增状态资源操作。
-- **非目标**：不重写 framer/reducer，不放开 hosted/media/全部 event union，不把本地 `response.cancelled` 改称标准，不顺带补 Chat 或扩张 Schema。
-- **验证**：最低 owning layer 的负例 + 完整 Responses SSE 字节入口；Rust locked/offline 基线。若涉及 SDK 生成的正常 wire，固定消费者 gate 是另一个显式验收层，不能替代缺字段负例。
-- **完成标准**：已列反例转为拒绝且正常已准入分支无回归，profile 与剩余缺口同步；不以“全部纯文本标准已完成”为退出条件。
+- **要求**：受信 Public Model/task 绑定与入口准入、固定 Route/目标与最小 Provider adapter，以 synthetic upstream 验证真实请求/响应处理链；业务请求不能选择 URL/credential/profile，首个可见语义输出后禁止重试/fallback，取消、错误分类与 downstream commit 有明确 owner。
+- **失败用例**：越权目标/凭据选择、提交后重放、伪造成功终态、无界 body/stream 预算均须拒绝并可观察。
+- **非目标**：不建凭据池或自动故障转移，不做真实 Provider/付费调用，不建通用插件框架，不要求网关执行工具或完整 Agent 产品。
+- **验证**：同一接线入口的 synthetic upstream 全链 + 独立语义/字节测试 + 显式固定 SDK gate；Rust locked/offline 基线。真实 Provider 与缓存效果另行授权验收。
 
 这是下一步建议，不是已经获准的行为实现；[current-focus](current-focus.md)保持无进行中切片。选定实现范围后，再将可观察结果、失败用例、非目标与验证边界落到 current-focus。
 

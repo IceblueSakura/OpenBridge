@@ -434,6 +434,27 @@ fn complete_messages_require_headers_but_task_snapshots_keep_abbreviations() {
 }
 
 #[test]
+fn complete_response_snapshots_require_the_output_array() {
+    let source = wire::response(2);
+    for replacement in [None, Some(Value::Null)] {
+        let mut bad = source.clone();
+        if let Some(ref value) = replacement {
+            bad["output"] = value.clone();
+        } else {
+            bad.as_object_mut().unwrap().remove("output");
+        }
+        assert!(envelope::decode_response(&bad).is_err(), "{replacement:?}");
+        assert!(
+            envelope::decode_response_bytes(bad.to_string().as_bytes()).is_err(),
+            "{replacement:?}"
+        );
+    }
+    let mut empty = source;
+    empty["output"] = json!([]);
+    envelope::decode_response(&empty).unwrap();
+}
+
+#[test]
 fn instruction_status_is_checked_in_history_and_reported_echoes() {
     for role in ["system", "developer"] {
         for status in [
