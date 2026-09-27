@@ -171,6 +171,9 @@ impl EventEncoder {
     }
     fn responses(&self, event: &StreamEvent) -> Result<Vec<Value>, CodecError> {
         let result = match event {
+            StreamEvent::Queued => {
+                vec![json!({"type":"response.queued","response":self.envelope("queued",vec![])?})]
+            }
             StreamEvent::Started => vec![
                 json!({"type":"response.created","response":self.envelope("in_progress",vec![])?}),
                 json!({"type":"response.in_progress","response":self.envelope("in_progress",vec![])?}),
@@ -210,6 +213,16 @@ impl EventEncoder {
                                 json!({"effort": super::super::reasoning::effort_label(*effort)});
                         }
                         v
+                    }
+                    ItemKind::Program {
+                        call_id,
+                        code,
+                        fingerprint,
+                    } => {
+                        json!({"id":id,"type":"program","call_id":call_id.as_str(),"code":code,"fingerprint":fingerprint})
+                    }
+                    ItemKind::ProgramOutput { call_id, result } => {
+                        json!({"id":id,"type":"program_output","call_id":call_id.as_str(),"result":result})
                     }
                     ItemKind::ToolCall {
                         call_id,

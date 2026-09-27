@@ -81,6 +81,8 @@ pub enum Item {
     CustomResult(ToolResult),
     Reasoning(ReasoningItem),
     ConfigurationUpdate(ConfigurationUpdate),
+    Program(Program),
+    ProgramOutput(ProgramOutput),
 }
 /// Ordered reasoning-effort update. It does not patch request settings.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -94,11 +96,15 @@ impl Item {
             Self::ToolCall(c) => Some(c.status),
             Self::Reasoning(r) => Some(r.status),
             Self::Instruction(i) => i.status,
+            Self::ProgramOutput(o) => Some(o.status),
             _ => None,
         }
     }
     pub fn is_call(&self) -> bool {
-        matches!(self, Self::ToolCall(_) | Self::CustomCall(_))
+        matches!(
+            self,
+            Self::ToolCall(_) | Self::CustomCall(_) | Self::Program(_)
+        )
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -341,4 +347,6 @@ pub enum GenerationError {
     PhaseInUserMessage,
     #[error("refusal requires assistant role")]
     RefusalInUserMessage,
+    #[error("program output has no matching program, duplicates one, or lacks a terminal status")]
+    InvalidProgramOutput,
 }

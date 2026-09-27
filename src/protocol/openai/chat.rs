@@ -314,7 +314,9 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
             Item::Reasoning(_)
             | Item::CustomCall(_)
             | Item::CustomResult(_)
-            | Item::ConfigurationUpdate(_) => {
+            | Item::ConfigurationUpdate(_)
+            | Item::Program(_)
+            | Item::ProgramOutput(_) => {
                 unreachable!("lowering rejects unsupported Chat items")
             }
             Item::ToolResult(r) => {

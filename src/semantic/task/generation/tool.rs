@@ -166,3 +166,18 @@ pub struct ToolResult {
     pub status: Option<ItemLifecycle>,
     pub context: CallContext,
 }
+/// Programmatic-calling program item. Opaque `code` and `fingerprint` round-trip
+/// verbatim; no code may rebuild or validate them.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Program {
+    pub call_id: Text,
+    pub code: String,
+    pub fingerprint: String,
+}
+/// Terminal result of a program item, keyed by the program call ID.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProgramOutput {
+    pub call_id: Text,
+    pub result: String,
+    pub status: ItemLifecycle,
+}

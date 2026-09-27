@@ -198,12 +198,17 @@ impl EventDecoder {
                     &mut out,
                 )?;
             }
-            "response.created" | "response.in_progress" => {
+            "response.queued" | "response.created" | "response.in_progress" => {
                 event_fields(o, &["type", "response"])?;
                 let r = object(o.get("response").ok_or(CodecError::Invalid("response"))?)?;
                 super::super::envelope::response_fields(r)?;
+                let initial_status = if typ == "response.queued" {
+                    "queued"
+                } else {
+                    "in_progress"
+                };
                 if string(r, "object")? != "response"
-                    || string(r, "status")? != "in_progress"
+                    || string(r, "status")? != initial_status
                     || r.get("output")
                         .is_some_and(|v| !v.as_array().is_some_and(Vec::is_empty))
                     || ["usage", "error", "incomplete_details"]
@@ -212,10 +217,14 @@ impl EventDecoder {
                 {
                     return Err(CodecError::Invalid("initial response"));
                 }
-                if typ == "response.created" {
-                    self.emit(StreamEvent::Started, &mut out)?;
-                } else if self.metadata.is_none() {
-                    return Err(CodecError::Invalid("response not started"));
+                match typ {
+                    "response.queued" => self.emit(StreamEvent::Queued, &mut out)?,
+                    "response.created" => self.emit(StreamEvent::Started, &mut out)?,
+                    _ => {
+                        if !self.state()?.started() {
+                            return Err(CodecError::Invalid("response not started"));
+                        }
+                    }
                 }
                 self.observe_metadata(r)?;
             }
@@ -326,6 +335,25 @@ impl EventDecoder {
                 fields(v, &["type", "id", "reasoning"])?;
                 ItemKind::ConfigurationUpdate {
                     effort: super::super::responses::configuration_effort(v, true)?,
+                }
+            }
+            "program" => {
+                fields(v, &["type", "id", "call_id", "code", "fingerprint"])?;
+                ItemKind::Program {
+                    call_id: text(string(v, "call_id")?, "call id", 256)?,
+                    code: raw_string(v, "code")?,
+                    fingerprint: raw_string(v, "fingerprint")?,
+                }
+            }
+            "program_output" => {
+                fields(v, &["type", "id", "call_id", "result", "status"])?;
+                if v.get("status").filter(|v| !v.is_null()).is_some() {
+                    // The done snapshot owns the terminal status; added is initial.
+                    return Err(CodecError::Invalid("program output status"));
+                }
+                ItemKind::ProgramOutput {
+                    call_id: text(string(v, "call_id")?, "call id", 256)?,
+                    result: raw_string(v, "result")?,
                 }
             }
             "function_call" => {

@@ -337,6 +337,9 @@ fn text_items(items: &[(ItemId, Item)], profile: Profile) -> Result<(), Represen
                 Item::CustomCall(_) | Item::CustomResult(_) => {
                     return Err(RepresentationError::Tools);
                 }
+                Item::Program(_) | Item::ProgramOutput(_) => {
+                    return Err(RepresentationError::Tools);
+                }
                 Item::ToolCall(c) if !c.context.is_direct() => {
                     return Err(RepresentationError::Tools);
                 }
@@ -466,6 +469,8 @@ pub enum RepresentationError {
     UnmigratedSemantic,
     #[error("message grouping cannot be preserved in this target")]
     MessageGrouping,
+    #[error("target cannot represent the queued response lifecycle")]
+    Lifecycle,
     #[error("terminal cannot be represented by the target profile")]
     Terminal,
     #[error("usage conversion is not part of this migration slice")]

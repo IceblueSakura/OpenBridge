@@ -27,6 +27,13 @@ fn part_id(parts: &mut BTreeSet<PartId>, id: PartId) -> Result<(), GenerationErr
     }
     Ok(())
 }
+/// One call-ID namespace across function/custom calls and programs: IDs must not be swapped.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum CallKind {
+    Function,
+    Custom,
+    Program,
+}
 pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, GenerationError> {
     if items.is_empty() {
         return Err(GenerationError::EmptyInput);
@@ -93,7 +100,7 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                     &c.call_id,
                     &c.name,
                     &c.arguments,
-                    ToolKind::Function,
+                    CallKind::Function,
                 )?;
                 if let Some(owner) = c.message {
                     if active_owner != Some(owner) {
@@ -112,11 +119,39 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                     &c.call_id,
                     &c.name,
                     &c.input,
-                    ToolKind::Custom,
+                    CallKind::Custom,
                 )?;
             }
             Item::ConfigurationUpdate(_) => {
                 active_owner = None;
+            }
+            Item::Program(p) => {
+                active_owner = None;
+                if calls
+                    .insert(p.call_id.as_str(), CallKind::Program)
+                    .is_some()
+                {
+                    return Err(GenerationError::DuplicateCall);
+                }
+                if p.call_id.as_str().is_empty() || p.call_id.as_str().len() > 256 {
+                    return Err(GenerationError::Limit);
+                }
+                add(&mut bytes, p.call_id.as_str())?;
+                add(&mut bytes, &p.code)?;
+                add(&mut bytes, &p.fingerprint)?;
+            }
+            Item::ProgramOutput(o) => {
+                active_owner = None;
+                // Request replay is the association boundary: outputs must name a
+                // preceding program; response items stay self-describing snapshots.
+                if o.status == ItemLifecycle::InProgress
+                    || !response && calls.get(o.call_id.as_str()) != Some(&CallKind::Program)
+                    || !results.insert(o.call_id.as_str())
+                {
+                    return Err(GenerationError::InvalidProgramOutput);
+                }
+                add(&mut bytes, o.call_id.as_str())?;
+                add(&mut bytes, &o.result)?;
             }
             Item::Reasoning(r) => {
                 active_owner = None;
@@ -132,9 +167,9 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                 }
                 active_owner = None;
                 let kind = if matches!(item, Item::CustomResult(_)) {
-                    ToolKind::Custom
+                    CallKind::Custom
                 } else {
-                    ToolKind::Function
+                    CallKind::Function
                 };
                 if calls.get(r.call_id.as_str()) != Some(&kind)
                     || !results.insert(r.call_id.as_str())
@@ -157,12 +192,12 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
     Ok(bytes)
 }
 fn validate_call<'a>(
-    calls: &mut BTreeMap<&'a str, ToolKind>,
+    calls: &mut BTreeMap<&'a str, CallKind>,
     bytes: &mut usize,
     id: &'a crate::semantic::value::Text,
     name: &crate::semantic::value::Text,
     payload: &str,
-    kind: ToolKind,
+    kind: CallKind,
 ) -> Result<(), GenerationError> {
     if calls.insert(id.as_str(), kind).is_some() {
         return Err(GenerationError::DuplicateCall);

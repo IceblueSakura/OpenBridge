@@ -14,7 +14,7 @@
 
 ## 范围与未决项
 
-[当前焦点](current-focus.md)当前无进行中切片。instruction 非完成生命周期、function/custom 调度字段表示、`configuration_update` 的 reasoning effort item 已准入，不表示 program item、`response.queued` 或其他续轮语义已完成。下一步候选仍是 Schema profile，以及其余纯文本事件/续轮分支；其他缺口不随之消失。SDK 派生 view 的回放准入规则见 [derived replay rules](../architecture-v2/responses-text-profile.md#derived-replay-views)。当前 Responses 与单候选 Chat 的固定 SDK 局部验收范围见[开发指南](../development.md)和 [Chat profile](../architecture-v2/chat-text-profile.md)；按域补独立双向映射和静态/事件一致性，不扩大为重复模型矩阵。
+[当前焦点](current-focus.md)当前无进行中切片。instruction 非完成生命周期、function/custom 调度字段表示、`configuration_update` 的 reasoning effort item、`response.queued` 事件生命周期与 program/program_output item 表示已准入，不表示 program 执行语义、静态非终态 response body 或其他续轮语义已完成。下一步候选仍是 Schema profile，以及其余纯文本事件/续轮分支；其他缺口不随之消失。SDK 派生 view 的回放准入规则见 [derived replay rules](../architecture-v2/responses-text-profile.md#derived-replay-views)。当前 Responses 与单候选 Chat 的固定 SDK 局部验收范围见[开发指南](../development.md)和 [Chat profile](../architecture-v2/chat-text-profile.md)；按域补独立双向映射和静态/事件一致性，不扩大为重复模型矩阵。
 
 downstream 扩展字段位置/版本、Codex turn 管理模式、特殊媒体具体 profile 和各状态资源的执行 owner 需在对应实现前定稿；不可先做通用插件框架再找使用场景。Embedding、专用 Speech 等继续有独立任务合同。
 

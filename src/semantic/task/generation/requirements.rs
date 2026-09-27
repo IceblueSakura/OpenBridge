@@ -68,6 +68,7 @@ impl GenerationRequirements {
                     }
                 }
                 Item::ToolCall(_) | Item::ToolResult(_) => x.tool_history = true,
+                Item::Program(_) | Item::ProgramOutput(_) => x.tool_history = true,
                 Item::CustomCall(_) | Item::CustomResult(_) => {
                     x.tool_history = true;
                     x.custom_tools = true;

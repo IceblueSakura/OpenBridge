@@ -3,7 +3,10 @@ use crate::events_support::*;
 use openbridge::{
     protocol::{
         fidelity::FidelityRecords,
-        openai::{Profile, events::EventDecoder},
+        openai::{
+            Profile,
+            events::{EventDecoder, EventEncoder},
+        },
     },
     semantic::task::generation::*,
 };
@@ -166,4 +169,82 @@ fn chat_refusal_and_empty_text_survive_usage_and_done() {
             materialize(&apply(&e).unwrap()).unwrap()
         );
     }
+}
+#[test]
+fn queued_lifecycle_is_one_pre_created_snapshot_that_reencodes() {
+    let mut d = EventDecoder::new(Profile::Responses);
+    let mut events = vec![];
+    events.extend(
+        d.push(&json!({"type":"response.queued","response":envelope("queued",json!([]))}))
+            .unwrap(),
+    );
+    events.extend(d.push(&created()).unwrap());
+    events.extend(
+        d.push(&json!({"type":"response.completed","response":envelope("completed",json!([]))}))
+            .unwrap(),
+    );
+    d.materialize().unwrap();
+    let wire = encode(&events, Profile::Responses, d.fidelity());
+    assert_eq!(wire[0]["type"], json!("response.queued"));
+    assert_eq!(wire[0]["response"]["status"], json!("queued"));
+    assert_eq!(wire[0]["response"]["output"], json!([]));
+    assert_eq!(wire[1]["type"], json!("response.created"));
+    assert_eq!(wire.last().unwrap()["type"], json!("response.completed"));
+}
+#[test]
+fn queued_order_duplication_and_snapshot_grammar_fail_closed() {
+    let queued = json!({"type":"response.queued","response":envelope("queued",json!([]))});
+    let mut d = EventDecoder::new(Profile::Responses);
+    d.push(&queued).unwrap();
+    assert!(d.push(&queued).is_err());
+    let mut d = EventDecoder::new(Profile::Responses);
+    d.push(&created()).unwrap();
+    assert!(d.push(&queued).is_err());
+    let mut d = EventDecoder::new(Profile::Responses);
+    d.push(&queued).unwrap();
+    assert!(
+        d.push(
+            &json!({"type":"response.in_progress","response":envelope("in_progress",json!([]))})
+        )
+        .is_err()
+    );
+    let mut d = EventDecoder::new(Profile::Responses);
+    assert!(
+        d.push(&json!({"type":"response.queued","response":envelope("in_progress",json!([]))}))
+            .is_err()
+    );
+    let mut d = EventDecoder::new(Profile::Responses);
+    assert!(
+        d.push(&json!({"type":"response.queued","response":envelope("queued",json!([{"id":"m","type":"message","role":"assistant","status":"completed","content":[]}]))}))
+            .is_err()
+    );
+}
+#[test]
+fn queued_is_a_single_pre_created_state_and_never_a_terminal() {
+    assert!(
+        apply(&[
+            StreamEvent::Queued,
+            StreamEvent::Started,
+            terminal(StreamTerminal::Completed)
+        ])
+        .is_ok()
+    );
+    assert!(apply(&[StreamEvent::Started, StreamEvent::Queued]).is_err());
+    assert!(apply(&[StreamEvent::Queued, StreamEvent::Queued]).is_err());
+    let state = apply(&[StreamEvent::Queued]).unwrap();
+    assert!(end_of_stream(&state).is_err());
+}
+#[test]
+fn queued_lifecycle_has_no_chat_projection() {
+    let mut chat = EventEncoder::new(Profile::Chat, metadata()).unwrap();
+    assert!(
+        chat.encode(&StreamEvent::Queued, &FidelityRecords::default())
+            .is_err()
+    );
+    let mut responses = EventEncoder::new(Profile::Responses, metadata()).unwrap();
+    let v = responses
+        .encode(&StreamEvent::Queued, &FidelityRecords::default())
+        .unwrap();
+    assert_eq!(v[0]["type"], json!("response.queued"));
+    assert_eq!(v[0]["response"]["status"], json!("queued"));
 }

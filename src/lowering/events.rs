@@ -23,6 +23,11 @@ pub fn check_event(
                 {
                     return Err(RepresentationError::Tools);
                 }
+                ItemKind::Program { .. } | ItemKind::ProgramOutput { .. }
+                    if profile != Profile::Responses || !contract.tools =>
+                {
+                    return Err(RepresentationError::Tools);
+                }
                 ItemKind::ToolCall { .. } if !contract.tools => {
                     return Err(RepresentationError::Tools);
                 }
@@ -65,6 +70,9 @@ pub fn check_event(
             if profile == Profile::Chat || !contract.text_metadata =>
         {
             return Err(RepresentationError::TextMetadata);
+        }
+        StreamEvent::Queued if profile != Profile::Responses => {
+            return Err(RepresentationError::Lifecycle);
         }
         StreamEvent::Delta { logprobs, .. } | StreamEvent::LogprobsSnapshot { logprobs, .. }
             if !logprobs.is_empty() && (profile == Profile::Chat || !contract.logprobs) =>

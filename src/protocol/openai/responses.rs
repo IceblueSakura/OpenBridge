@@ -291,6 +291,31 @@ pub(super) fn decode_items(
                     effort: configuration_effort(o, response)?,
                 })
             }
+            Some("program") => {
+                fields(o, &["type", "id", "call_id", "code", "fingerprint"])?;
+                text(string(o, "id")?, "program id", 256)?;
+                Item::Program(Program {
+                    call_id: text(string(o, "call_id")?, "call id", 256)?,
+                    code: raw_string(o, "code")?,
+                    fingerprint: raw_string(o, "fingerprint")?,
+                })
+            }
+            Some("program_output") => {
+                fields(o, &["type", "id", "call_id", "result", "status"])?;
+                text(string(o, "id")?, "program output id", 256)?;
+                if response {
+                    accept_status(o, item_status)?;
+                }
+                Item::ProgramOutput(ProgramOutput {
+                    call_id: text(string(o, "call_id")?, "call id", 256)?,
+                    result: raw_string(o, "result")?,
+                    status: match string(o, "status")? {
+                        "completed" => ItemLifecycle::Completed,
+                        "incomplete" => ItemLifecycle::Incomplete,
+                        _ => return Err(CodecError::Invalid("program output status")),
+                    },
+                })
+            }
             Some("reasoning") => {
                 // Wire reasoning items carry required identity; it is never invented.
                 text(string(o, "id")?, "reasoning id", 256)?;
@@ -541,6 +566,12 @@ pub(super) fn encode_items(
                 }
                 v
             }
+            Item::Program(p) => {
+                json!({"type":"program","call_id":p.call_id.as_str(),"code":p.code,"fingerprint":p.fingerprint})
+            }
+            Item::ProgramOutput(o) => {
+                json!({"type":"program_output","call_id":o.call_id.as_str(),"result":o.result,"status":status_label(o.status)})
+            }
             Item::Reasoning(r) => super::reasoning::encode_item(*id, r, fidelity, response),
         };
         if response {
@@ -559,8 +590,10 @@ pub(super) fn encode_items(
                     v["type"] = json!("message");
                 }
                 v["id"] = json!(wire);
-            } else if matches!(item, Item::Reasoning(_))
-                || matches!(item, Item::Instruction(i) if i.status.is_some())
+            } else if matches!(
+                item,
+                Item::Reasoning(_) | Item::Program(_) | Item::ProgramOutput(_)
+            ) || matches!(item, Item::Instruction(i) if i.status.is_some())
             {
                 // Typed snapshots require identity; fresh task items assign it.
                 v["id"] = json!(format!("item_{}", id.get()));

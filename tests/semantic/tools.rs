@@ -1,4 +1,5 @@
 //! Independent oracles for the function-tool migration, without providers or production routing.
+use crate::events_support::{apply, close, created, encode, envelope, metadata, start, terminal};
 use openbridge::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_request,
@@ -6,7 +7,7 @@ use openbridge::{
     },
     protocol::{
         fidelity::FidelityRecords,
-        openai::{DecodedRequest, Profile, ResponseMetadata, chat, responses},
+        openai::{DecodedRequest, Profile, ResponseMetadata, chat, events, responses},
     },
     semantic::{task::generation::*, value::Text},
 };
@@ -826,4 +827,248 @@ fn active_tool_dispatch_and_instruction_lifecycle_round_trip_without_chat_projec
             .get("status")
             .is_none()
     );
+}
+fn program_history() -> Value {
+    json!({"input":[
+        {"type":"message","role":"user","content":[{"type":"input_text","text":"run"}]},
+        {"type":"program","id":"pg_1","call_id":"call_p","code":"const x = 1; return x;","fingerprint":"fp-Ω-1"},
+        {"type":"program_output","id":"pg_2","call_id":"call_p","result":"1","status":"completed"}
+    ]})
+}
+fn program_items() -> Vec<(ItemId, Item)> {
+    vec![
+        (
+            ItemId::new(1),
+            Item::Program(Program {
+                call_id: text("call_p"),
+                code: "const x = 1; return x;".into(),
+                fingerprint: "fp-Ω-1".into(),
+            }),
+        ),
+        (
+            ItemId::new(2),
+            Item::ProgramOutput(ProgramOutput {
+                call_id: text("call_p"),
+                result: "1".into(),
+                status: ItemLifecycle::Completed,
+            }),
+        ),
+    ]
+}
+#[test]
+fn program_items_round_trip_opaque_values_in_both_directions() {
+    let d = responses::decode_generation(&program_history()).unwrap();
+    assert_eq!(d.semantic.items()[1].1, program_items()[0].1);
+    assert_eq!(d.semantic.items()[2].1, program_items()[1].1);
+    assert_eq!(request_wire(&d, Profile::Responses), program_history());
+}
+#[test]
+fn independently_constructed_program_items_assign_wire_identity_and_redecode() {
+    let r = GenerationRequest::new(program_items(), GenerationControls::default()).unwrap();
+    let fidelity = FidelityRecords::default();
+    let t = lower_request(&r, &fidelity, Profile::Responses, Contract::full()).unwrap();
+    let v = responses::encode_generation(&t).unwrap();
+    assert_eq!(v["input"][0]["id"], json!("item_1"));
+    assert_eq!(v["input"][1]["id"], json!("item_2"));
+    assert_eq!(v["input"][0]["fingerprint"], json!("fp-Ω-1"));
+    let d = responses::decode_generation(&v).unwrap();
+    assert_eq!(d.semantic.items().len(), 2);
+}
+#[test]
+fn program_call_id_integrity_rejects_swapped_dangling_and_duplicate_associations() {
+    let d = responses::decode_generation(&program_history()).unwrap();
+    let mut items = d.semantic.items().to_vec();
+    if let Item::ProgramOutput(o) = &mut items[2].1 {
+        o.call_id = text("call_x");
+    }
+    assert!(matches!(
+        d.semantic.clone().with_items(items),
+        Err(GenerationError::InvalidProgramOutput)
+    ));
+    let mut items = program_items();
+    items.push((ItemId::new(3), program_items()[1].1.clone()));
+    assert!(matches!(
+        GenerationRequest::new(items, GenerationControls::default()),
+        Err(GenerationError::InvalidProgramOutput)
+    ));
+    let mut items = program_items();
+    items.insert(
+        1,
+        (
+            ItemId::new(3),
+            Item::Program(Program {
+                call_id: text("call_p"),
+                code: "other".into(),
+                fingerprint: "fp-2".into(),
+            }),
+        ),
+    );
+    assert!(matches!(
+        GenerationRequest::new(items, GenerationControls::default()),
+        Err(GenerationError::DuplicateCall)
+    ));
+    let mut items = program_items();
+    items.insert(
+        1,
+        (
+            ItemId::new(3),
+            Item::ToolCall(ToolCall {
+                call_id: text("call_p"),
+                name: text("lookup"),
+                arguments: "{}".into(),
+                message: None,
+                status: ItemLifecycle::Completed,
+                context: CallContext::default(),
+            }),
+        ),
+    );
+    assert!(matches!(
+        GenerationRequest::new(items, GenerationControls::default()),
+        Err(GenerationError::DuplicateCall)
+    ));
+}
+#[test]
+fn program_output_requires_terminal_status_and_complete_opaque_fields() {
+    for (index, key) in [(1, "fingerprint"), (1, "id"), (2, "status"), (2, "result")] {
+        let mut wire = program_history();
+        wire["input"][index].as_object_mut().unwrap().remove(key);
+        assert!(responses::decode_generation(&wire).is_err());
+    }
+    for status in ["in_progress", "failed", "queued"] {
+        let mut wire = program_history();
+        wire["input"][2]["status"] = json!(status);
+        assert!(responses::decode_generation(&wire).is_err());
+    }
+    let mut wire = program_history();
+    wire["input"][1]["fingerprint"] = Value::Null;
+    assert!(responses::decode_generation(&wire).is_err());
+    let mut items = program_items();
+    if let Item::ProgramOutput(o) = &mut items[1].1 {
+        o.status = ItemLifecycle::InProgress;
+    }
+    assert!(matches!(
+        GenerationRequest::new(items, GenerationControls::default()),
+        Err(GenerationError::InvalidProgramOutput)
+    ));
+}
+#[test]
+fn program_items_have_no_chat_projection() {
+    let d = responses::decode_generation(&program_history()).unwrap();
+    assert!(matches!(
+        lower_request(&d.semantic, &d.fidelity, Profile::Chat, Contract::full()),
+        Err(RepresentationError::Tools)
+    ));
+    let r = GenerationResponse::new(
+        vec![(ItemId::new(1), program_items()[0].1.clone())],
+        Completion::ToolCalls,
+    )
+    .unwrap();
+    assert!(matches!(
+        lower_response(
+            &r,
+            &FidelityRecords::default(),
+            &metadata(),
+            Profile::Chat,
+            Contract::full()
+        ),
+        Err(RepresentationError::Tools)
+    ));
+    let mut e = events::EventEncoder::new(Profile::Chat, metadata()).unwrap();
+    assert!(
+        e.encode(&start(1, program_kind()), &FidelityRecords::default())
+            .is_err()
+    );
+}
+fn program_kind() -> ItemKind {
+    ItemKind::Program {
+        call_id: text("call_p"),
+        code: "c()".into(),
+        fingerprint: "fp-1".into(),
+    }
+}
+#[test]
+fn program_items_are_atomic_event_items_with_owner_bound_snapshots() {
+    let mut e = vec![StreamEvent::Started, start(1, program_kind())];
+    e.push(close(1, ItemLifecycle::Completed));
+    e.push(start(
+        2,
+        ItemKind::ProgramOutput {
+            call_id: text("call_p"),
+            result: "1".into(),
+        },
+    ));
+    e.push(close(2, ItemLifecycle::Completed));
+    e.push(terminal(StreamTerminal::Completed));
+    let wire = encode(&e, Profile::Responses, &FidelityRecords::default());
+    let added: Vec<_> = wire
+        .iter()
+        .filter(|v| v["type"] == "response.output_item.added")
+        .collect();
+    assert_eq!(
+        added[0]["item"],
+        json!({"id":"item_1","type":"program","call_id":"call_p","code":"c()","fingerprint":"fp-1"})
+    );
+    assert_eq!(
+        added[1]["item"],
+        json!({"id":"item_2","type":"program_output","call_id":"call_p","result":"1"})
+    );
+    let done: Vec<_> = wire
+        .iter()
+        .filter(|v| v["type"] == "response.output_item.done")
+        .collect();
+    assert_eq!(done[1]["item"]["status"], json!("completed"));
+    assert_eq!(done[0]["item"].get("status"), None);
+    assert_eq!(
+        wire.last().unwrap()["response"]["output"][0]["type"],
+        json!("program")
+    );
+    assert!(apply(&e).is_ok());
+    let mut dup = e.clone();
+    dup.insert(
+        2,
+        start(
+            3,
+            ItemKind::Program {
+                call_id: text("call_p"),
+                code: "x".into(),
+                fingerprint: "fp-2".into(),
+            },
+        ),
+    );
+    assert!(apply(&dup).is_err());
+}
+#[test]
+fn program_event_stream_decodes_and_changed_or_unfinished_snapshots_fail() {
+    let mut d = events::EventDecoder::new(Profile::Responses);
+    d.push(&created()).unwrap();
+    d.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"pg_1","type":"program","call_id":"call_p","code":"c()","fingerprint":"fp-1"}})).unwrap();
+    d.push(&json!({"type":"response.output_item.done","output_index":0,"item":{"id":"pg_1","type":"program","call_id":"call_p","code":"c()","fingerprint":"fp-1"}})).unwrap();
+    d.push(&json!({"type":"response.output_item.added","output_index":1,"item":{"id":"pg_2","type":"program_output","call_id":"call_p","result":"1"}})).unwrap();
+    d.push(&json!({"type":"response.output_item.done","output_index":1,"item":{"id":"pg_2","type":"program_output","call_id":"call_p","result":"1","status":"completed"}})).unwrap();
+    let out = json!([
+        {"id":"pg_1","type":"program","call_id":"call_p","code":"c()","fingerprint":"fp-1"},
+        {"id":"pg_2","type":"program_output","call_id":"call_p","result":"1","status":"completed"}
+    ]);
+    d.push(&json!({"type":"response.completed","response":envelope("completed",out)}))
+        .unwrap();
+    let r = d.materialize().unwrap().semantic;
+    assert_eq!(r.outcome(), Outcome::Completed(Completion::ToolCalls));
+    assert_eq!(r.items()[1].1, program_items()[1].1);
+    let mut d = events::EventDecoder::new(Profile::Responses);
+    d.push(&created()).unwrap();
+    d.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"pg_1","type":"program","call_id":"call_p","code":"c()","fingerprint":"fp-1"}})).unwrap();
+    assert!(d
+        .push(&json!({"type":"response.output_item.done","output_index":0,"item":{"id":"pg_1","type":"program","call_id":"call_p","code":"c()","fingerprint":"fp-OTHER"}}))
+        .is_err());
+    let mut d = events::EventDecoder::new(Profile::Responses);
+    d.push(&created()).unwrap();
+    d.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"pg_2","type":"program_output","call_id":"call_p","result":"1"}})).unwrap();
+    assert!(d
+        .push(&json!({"type":"response.output_item.done","output_index":0,"item":{"id":"pg_2","type":"program_output","call_id":"call_p","result":"1"}}))
+        .is_err());
+    let mut d = events::EventDecoder::new(Profile::Responses);
+    d.push(&created()).unwrap();
+    assert!(d
+        .push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"pg_2","type":"program_output","call_id":"call_p","result":"1","status":"completed"}}))
+        .is_err());
 }

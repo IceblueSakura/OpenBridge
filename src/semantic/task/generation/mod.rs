@@ -28,8 +28,8 @@ pub use text::{
 };
 pub use tool::{
     CallContext, CallOrigin, CallerMode, CustomCall, CustomFormat, CustomTool, FunctionStrictness,
-    FunctionTool, GrammarSyntax, ItemLifecycle, StrictDefault, ToolCall, ToolChoice,
-    ToolDefinition, ToolDispatch, ToolKind, ToolOutput, ToolReference, ToolResult,
+    FunctionTool, GrammarSyntax, ItemLifecycle, Program, ProgramOutput, StrictDefault, ToolCall,
+    ToolChoice, ToolDefinition, ToolDispatch, ToolKind, ToolOutput, ToolReference, ToolResult,
 };
 
 pub use event::{

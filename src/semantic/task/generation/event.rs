@@ -32,6 +32,15 @@ pub enum ItemKind {
     ConfigurationUpdate {
         effort: Option<ReasoningEffort>,
     },
+    Program {
+        call_id: Text,
+        code: String,
+        fingerprint: String,
+    },
+    ProgramOutput {
+        call_id: Text,
+        result: String,
+    },
 }
 impl ItemKind {
     pub fn call(&self) -> Option<(&Text, &Text, Option<ItemId>)> {
@@ -43,6 +52,15 @@ impl ItemKind {
                 ..
             } => Some((call_id, name, *message)),
             Self::CustomCall { call_id, name, .. } => Some((call_id, name, None)),
+            _ => None,
+        }
+    }
+    /// Unique call-ID namespace for calls and programs; results alias their call.
+    pub fn call_id(&self) -> Option<&Text> {
+        match self {
+            Self::ToolCall { call_id, .. }
+            | Self::CustomCall { call_id, .. }
+            | Self::Program { call_id, .. } => Some(call_id),
             _ => None,
         }
     }
@@ -59,6 +77,7 @@ pub enum PartKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StreamEvent {
     Started,
+    Queued,
     ItemStarted {
         item: ItemId,
         kind: ItemKind,
@@ -148,6 +167,7 @@ pub struct StreamItem {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct StreamState {
     started: bool,
+    queued: bool,
     items: Vec<StreamItem>,
     part_ids: BTreeSet<PartId>,
     terminal: Option<StreamTerminal>,
@@ -161,6 +181,9 @@ impl StreamState {
     }
     pub fn items(&self) -> &[StreamItem] {
         &self.items
+    }
+    pub fn started(&self) -> bool {
+        self.started
     }
     pub fn item(&self, id: ItemId) -> Result<&StreamItem, EventError> {
         self.items
@@ -213,6 +236,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
         && !matches!(
             event,
             StreamEvent::Started
+                | StreamEvent::Queued
                 | StreamEvent::Terminal {
                     terminal: StreamTerminal::Error,
                     ..
@@ -228,6 +252,13 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             }
             state.started = true;
         }
+        StreamEvent::Queued => {
+            // Queued is one pre-created lifecycle state, never a terminal.
+            if state.started || state.queued {
+                return Err(EventError::Lifecycle);
+            }
+            state.queued = true;
+        }
         StreamEvent::ItemStarted { item, kind, replay } => {
             if state.items.len() >= MAX_ITEMS {
                 return Err(EventError::Limit);
@@ -235,20 +266,22 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             if state.items.iter().any(|i| i.id == item) {
                 return Err(EventError::Identity);
             }
-            if let Some((call_id, name, message)) = kind.call() {
-                if call_id.as_str().is_empty()
-                    || call_id.as_str().len() > 256
-                    || name.as_str().is_empty()
-                    || name.as_str().len() > 128
-                {
+            if let Some(call_id) = kind.call_id() {
+                if call_id.as_str().is_empty() || call_id.as_str().len() > 256 {
                     return Err(EventError::Limit);
                 }
                 if state
                     .items
                     .iter()
-                    .any(|i| i.kind.call().is_some_and(|(id, _, _)| id == call_id))
+                    .any(|i| i.kind.call_id().is_some_and(|id| id == call_id))
                 {
                     return Err(EventError::Identity);
+                }
+                state.charge(call_id.as_str().len())?;
+            }
+            if let Some((_, name, message)) = kind.call() {
+                if name.as_str().is_empty() || name.as_str().len() > 128 {
+                    return Err(EventError::Limit);
                 }
                 if let Some(owner) = message {
                     if !state
@@ -264,7 +297,24 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                         return Err(EventError::Lifecycle);
                     }
                 }
-                state.charge(call_id.as_str().len() + name.as_str().len())?;
+                state.charge(name.as_str().len())?;
+            }
+            if let ItemKind::Program {
+                code, fingerprint, ..
+            } = &kind
+            {
+                state.charge(code.len() + fingerprint.len())?;
+            }
+            if let ItemKind::ProgramOutput { call_id, result } = &kind {
+                if call_id.as_str().is_empty() || call_id.as_str().len() > 256 {
+                    return Err(EventError::Limit);
+                }
+                if state.items.iter().any(|i| {
+                    matches!(&i.kind, ItemKind::ProgramOutput { call_id: c, .. } if c == call_id)
+                }) {
+                    return Err(EventError::Identity);
+                }
+                state.charge(call_id.as_str().len() + result.len())?;
             }
             if let Some(r) = &replay {
                 r.validate()?;
@@ -557,7 +607,7 @@ fn metadata_cost(
 fn outcome(terminal: StreamTerminal, items: &[StreamItem]) -> Result<Outcome, EventError> {
     Ok(match terminal {
         StreamTerminal::Completed => {
-            Outcome::Completed(if items.iter().any(|i| i.kind.call().is_some()) {
+            Outcome::Completed(if items.iter().any(|i| i.kind.call_id().is_some()) {
                 Completion::ToolCalls
             } else {
                 Completion::Stop
@@ -658,6 +708,20 @@ impl StreamItem {
             ItemKind::ConfigurationUpdate { effort } => {
                 Item::ConfigurationUpdate(ConfigurationUpdate { effort: *effort })
             }
+            ItemKind::Program {
+                call_id,
+                code,
+                fingerprint,
+            } => Item::Program(Program {
+                call_id: call_id.clone(),
+                code: code.clone(),
+                fingerprint: fingerprint.clone(),
+            }),
+            ItemKind::ProgramOutput { call_id, result } => Item::ProgramOutput(ProgramOutput {
+                call_id: call_id.clone(),
+                result: result.clone(),
+                status,
+            }),
         };
         Ok(item)
     }
