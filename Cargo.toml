@@ -16,5 +16,6 @@ thiserror = "2.0"
 [dev-dependencies]
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-reqwest = { version = "0.13", default-features = false, features = ["stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["stream", "rustls"] }
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "sync", "time"], default-features = false }
+toml = "1"

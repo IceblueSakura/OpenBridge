@@ -624,7 +624,18 @@ fn annotated_output_and_probabilities_are_owned_by_the_current_text() {
     );
     assert_eq!(out["created_at"], json!(1.25));
     assert_eq!(out["completed_at"], json!(2.5));
-    assert!(envelope::decode_response(&json!({"id":"r","object":"response","created_at":1,"model":"m","status":"completed","output":[]})).is_err());
+    // Presence-preserving admission (ADR 0008): absent reported facts stay
+    // absent, while structural requirements stay strict.
+    let minimal = json!({"id":"r","object":"response","created_at":1,"model":"m","status":"completed","output":[]});
+    let decoded = envelope::decode_response(&minimal).unwrap();
+    assert!(decoded.metadata.context.settings.is_none());
+    assert!(
+        envelope::decode_response(
+            &json!({"id":"r","object":"response","created_at":1,"model":"m","status":"completed"})
+        )
+        .is_err(),
+        "the structural output array is still required"
+    );
 }
 #[test]
 fn structured_output_and_reasoning_context_are_real_controls() {
@@ -888,7 +899,29 @@ fn reported_cache_write_usage_is_typed_and_never_invented_for_chat() {
         .as_object_mut()
         .unwrap()
         .remove("cache_write_tokens");
-    assert!(envelope::decode_response(&source).is_err());
+    // Presence-preserving three states (ADR 0008): absence is not a defect and
+    // is never filled in on the way back out.
+    let decoded = envelope::decode_response(&source).unwrap();
+    assert_eq!(
+        decoded.semantic.usage().unwrap().input_cache_write_tokens,
+        None
+    );
+    let output = envelope::encode_response(
+        &lower_response(
+            &decoded.semantic,
+            &decoded.fidelity,
+            &decoded.metadata,
+            Profile::Responses,
+            contract(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        output["usage"]["input_tokens_details"]
+            .get("cache_write_tokens")
+            .is_none()
+    );
 }
 
 #[test]

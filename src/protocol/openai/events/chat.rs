@@ -3,7 +3,18 @@ use super::*;
 use serde_json::json;
 impl EventDecoder {
     pub(super) fn chat(&mut self, o: &Map<String, Value>) -> Result<Vec<StreamEvent>, CodecError> {
-        event_fields(o, &["id", "object", "created", "model", "choices", "usage"])?;
+        event_fields(
+            o,
+            &[
+                "id",
+                "object",
+                "created",
+                "model",
+                "choices",
+                "usage",
+                "system_fingerprint",
+            ],
+        )?;
         if string(o, "object")? != "chat.completion.chunk" {
             return Err(CodecError::Invalid("chunk object"));
         }
@@ -28,29 +39,106 @@ impl EventDecoder {
         if choices.len() != 1 {
             return Err(CodecError::Unsupported("candidate count".into()));
         }
-        if o.get("usage").is_some_and(|v| !v.is_null()) {
-            return Err(CodecError::Invalid("early usage"));
-        }
         let choice = object(&choices[0])?;
         fields(choice, &["index", "delta", "finish_reason", "logprobs"])?;
+        // Usage belongs to the terminal: either this finish chunk or a trailing
+        // empty-choices chunk. Anything earlier is rejected, never guessed.
+        let terminal_usage = o.get("usage").filter(|v| !v.is_null());
+        if terminal_usage.is_some()
+            && choice
+                .get("finish_reason")
+                .filter(|v| !v.is_null())
+                .is_none()
+        {
+            return Err(CodecError::Invalid("early usage"));
+        }
         if choice.get("index").and_then(Value::as_u64) != Some(0)
             || choice.get("logprobs").is_some_and(|v| !v.is_null())
         {
             return Err(CodecError::Unsupported("candidate".into()));
         }
         let delta = object(choice.get("delta").ok_or(CodecError::Invalid("delta"))?)?;
-        fields(delta, &["role", "content", "refusal", "tool_calls"])?;
-        if delta
-            .get("role")
-            .is_some_and(|v| v.as_str() != Some("assistant"))
+        fields(
+            delta,
+            &[
+                "role",
+                "content",
+                "refusal",
+                "tool_calls",
+                "reasoning_content",
+            ],
+        )?;
+        if let Some(role) = delta.get("role").filter(|v| !v.is_null())
+            && role.as_str() != Some("assistant")
         {
             return Err(CodecError::Invalid("role"));
         }
-        // One Chat candidate owns an assistant message even when it only contains calls.
-        // Establish the same grouping as static decoding before allocating call identities.
-        let owner = if let Some(id) = self.chat_owner {
-            id
-        } else {
+        // Readable provider thinking text maps to a reasoning item ordered ahead
+        // of its carrier message, matching static decoding.
+        if let Some(v) = delta.get("reasoning_content").filter(|v| !v.is_null()) {
+            let fragment = v.as_str().ok_or(CodecError::Invalid("reasoning delta"))?;
+            if !fragment.is_empty() {
+                let item = if let Some(item) = self.chat_reasoning {
+                    item
+                } else {
+                    let item = self.allocate_item()?;
+                    self.emit(
+                        StreamEvent::ItemStarted {
+                            item,
+                            kind: ItemKind::Reasoning,
+                            replay: None,
+                        },
+                        &mut out,
+                    )?;
+                    self.chat_reasoning = Some(item);
+                    item
+                };
+                let part = match self
+                    .state()?
+                    .item(item)?
+                    .parts
+                    .first()
+                    .map(|p| (p.id, p.kind))
+                {
+                    Some((part, PartKind::ReasoningText)) => part,
+                    Some(_) => return Err(CodecError::Unsupported("mixed Chat reasoning".into())),
+                    None => {
+                        let part = self.allocate_part()?;
+                        self.emit(
+                            StreamEvent::PartStarted {
+                                item,
+                                part,
+                                kind: PartKind::ReasoningText,
+                            },
+                            &mut out,
+                        )?;
+                        part
+                    }
+                };
+                self.emit(
+                    StreamEvent::Delta {
+                        item,
+                        part,
+                        fragment: fragment.into(),
+                        logprobs: vec![],
+                    },
+                    &mut out,
+                )?;
+            }
+        }
+        // One Chat candidate owns an assistant message even when it only contains
+        // calls. The owner is allocated at the first message-owned signal so
+        // readable reasoning keeps its static order ahead of the message.
+        let message_owned = delta
+            .get("content")
+            .and_then(Value::as_str)
+            .is_some_and(|fragment| !fragment.is_empty())
+            || delta
+                .get("refusal")
+                .and_then(Value::as_str)
+                .is_some_and(|fragment| !fragment.is_empty())
+            || delta.get("tool_calls").is_some_and(|v| !v.is_null());
+        if message_owned && self.chat_owner.is_none() {
             let id = self.allocate_item()?;
             self.emit(
                 StreamEvent::ItemStarted {
@@ -61,12 +149,20 @@ impl EventDecoder {
                 &mut out,
             )?;
             self.chat_owner = Some(id);
-            id
-        };
+        }
+        let owner = self.chat_owner;
         for (key, kind) in [("content", PartKind::Text), ("refusal", PartKind::Refusal)] {
             if let Some(v) = delta.get(key).filter(|v| !v.is_null()) {
                 let fragment = v.as_str().ok_or(CodecError::Invalid("text delta"))?;
-                let item = owner;
+                if fragment.is_empty() && self.chat_owner.is_none() {
+                    // An opening empty fragment defers the carrier message so
+                    // readable reasoning keeps its static order ahead of it.
+                    if self.chat_pending_part.is_none() {
+                        self.chat_pending_part = Some(kind);
+                    }
+                    continue;
+                }
+                let item = owner.ok_or(CodecError::Invalid("message owner"))?;
                 let existing = self
                     .state()?
                     .item(item)?
@@ -108,7 +204,8 @@ impl EventDecoder {
                 let n = index(call, "index")?;
                 if call
                     .get("type")
-                    .is_some_and(|v| v.as_str() != Some("function"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| kind != "function")
                 {
                     return Err(CodecError::Unsupported("tool kind".into()));
                 }
@@ -154,14 +251,15 @@ impl EventDecoder {
                 else {
                     return Err(CodecError::Invalid("call"));
                 };
-                if call
-                    .get("id")
-                    .is_some_and(|v| v.as_str() != Some(call_id.as_str()))
-                    || f.get("name")
-                        .is_some_and(|v| v.as_str() != Some(name.as_str()))
-                {
-                    return Err(CodecError::Invalid("call identity"));
-                }
+                // Continuation chunks reuse null for already-announced identity;
+                // only conflicting non-null values are rejected.
+                let same_identity = |value: Option<&Value>, expected: &str| match value {
+                    None | Some(Value::Null) => Ok(()),
+                    Some(Value::String(s)) if s == expected => Ok(()),
+                    _ => Err(CodecError::Invalid("call identity")),
+                };
+                same_identity(call.get("id"), call_id.as_str())?;
+                same_identity(f.get("name"), name.as_str())?;
                 if let Some(v) = f.get("arguments") {
                     let fragment = v.as_str().ok_or(CodecError::Invalid("arguments"))?;
                     let part = self.state()?.item(item)?.parts[0].id;
@@ -178,6 +276,36 @@ impl EventDecoder {
             }
         }
         if let Some(reason) = choice.get("finish_reason").filter(|v| !v.is_null()) {
+            let owner = if let Some(id) = self.chat_owner {
+                id
+            } else {
+                let id = self.allocate_item()?;
+                self.emit(
+                    StreamEvent::ItemStarted {
+                        item: id,
+                        kind: ItemKind::Message { phase: None },
+                        replay: None,
+                    },
+                    &mut out,
+                )?;
+                self.chat_owner = Some(id);
+                id
+            };
+            // A deferred opening fragment materializes its empty part only when
+            // no other content won the part, matching static `content: ""`.
+            if let Some(kind) = self.chat_pending_part.take()
+                && self.state()?.item(owner)?.parts.is_empty()
+            {
+                let part = self.allocate_part()?;
+                self.emit(
+                    StreamEvent::PartStarted {
+                        item: owner,
+                        part,
+                        kind,
+                    },
+                    &mut out,
+                )?;
+            }
             let terminal = match reason.as_str() {
                 Some("stop") if self.chat_calls.is_empty() => StreamTerminal::Completed,
                 Some("tool_calls") if !self.chat_calls.is_empty() => StreamTerminal::Completed,
@@ -226,13 +354,22 @@ impl EventDecoder {
                     TerminalDetails::default()
                 },
             ));
+            if let Some(value) = terminal_usage {
+                let usage = super::super::static_response::usage(Some(value), Profile::Chat)?
+                    .ok_or(CodecError::Invalid("usage tail"))?;
+                self.emit(StreamEvent::Usage(usage), &mut out)?;
+            }
         }
         Ok(out)
     }
 }
 impl EventEncoder {
     fn chunk(&self, delta: Value, finish: Value) -> Value {
-        json!({"id":self.metadata.id,"object":"chat.completion.chunk","created":self.metadata.created,"model":self.metadata.model,"choices":[{"index":0,"delta":delta,"finish_reason":finish}],"usage":null})
+        let mut value = json!({"id":self.metadata.id,"object":"chat.completion.chunk","created":self.metadata.created,"model":self.metadata.model,"choices":[{"index":0,"delta":delta,"finish_reason":finish}],"usage":null});
+        if let Some(fingerprint) = self.metadata.context.system_fingerprint.value() {
+            value["system_fingerprint"] = json!(fingerprint);
+        }
+        value
     }
     fn call_index(&self, item: ItemId) -> Result<usize, CodecError> {
         self.state()?
@@ -248,8 +385,9 @@ impl EventEncoder {
             StreamEvent::ItemStarted{item,kind:ItemKind::ToolCall{call_id,name,..},..}=>vec![self.chunk(json!({"tool_calls":[{"index":self.call_index(*item)?,"id":call_id.as_str(),"type":"function","function":{"name":name.as_str(),"arguments":""}}]}),Value::Null)],
             StreamEvent::PartStarted{kind:PartKind::Text,..}=>vec![self.chunk(json!({"content":""}),Value::Null)],
             StreamEvent::PartStarted{kind:PartKind::Refusal,..}=>vec![self.chunk(json!({"refusal":""}),Value::Null)],
+            StreamEvent::PartStarted{kind:PartKind::ReasoningText,..}=>vec![self.chunk(json!({"reasoning_content":""}),Value::Null)],
             StreamEvent::Delta{item,part,fragment,..}=>{
-                let delta=match self.state()?.part(*item,*part)?.kind{PartKind::Text=>json!({"content":fragment}),PartKind::Refusal=>json!({"refusal":fragment}),PartKind::Arguments=>json!({"tool_calls":[{"index":self.call_index(*item)?,"function":{"arguments":fragment}}]}),_=>return Err(CodecError::Unsupported("Chat reasoning".into()))};vec![self.chunk(delta,Value::Null)]
+                let delta=match self.state()?.part(*item,*part)?.kind{PartKind::Text=>json!({"content":fragment}),PartKind::Refusal=>json!({"refusal":fragment}),PartKind::Arguments=>json!({"tool_calls":[{"index":self.call_index(*item)?,"function":{"arguments":fragment}}]}),PartKind::ReasoningText=>json!({"reasoning_content":fragment}),_=>return Err(CodecError::Unsupported("Chat reasoning".into()))};vec![self.chunk(delta,Value::Null)]
             }
             StreamEvent::Terminal{terminal,..}=>{
                 let response=materialize(self.state()?)?;

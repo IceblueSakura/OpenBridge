@@ -167,6 +167,11 @@ impl EventEncoder {
             v.as_object_mut().expect("object"),
             status == "completed",
         )?;
+        super::super::envelope::write_response_extras(
+            &self.fidelity,
+            self.profile,
+            v.as_object_mut().expect("object"),
+        );
         Ok(v)
     }
     fn responses(&self, event: &StreamEvent) -> Result<Vec<Value>, CodecError> {

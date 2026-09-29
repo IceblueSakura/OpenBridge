@@ -111,16 +111,47 @@ pub(super) fn decode_message(
                 "tool_calls",
                 "tool_call_id",
                 "refusal",
+                "reasoning_content",
                 "parsed",
             ]
         } else {
-            &["role", "content", "tool_calls", "tool_call_id", "refusal"]
+            &[
+                "role",
+                "content",
+                "tool_calls",
+                "tool_call_id",
+                "refusal",
+                "reasoning_content",
+            ]
         },
     )?;
     let role = string(m, "role")?;
     if replay && role != "assistant" && m.contains_key("parsed") {
         // The pinned SDK attaches its parsed view to assistant messages only.
         return Err(CodecError::Invalid("parsed"));
+    }
+    // Readable provider thinking text on an assistant message maps to a
+    // reasoning item ordered immediately ahead of its carrier message. Absent,
+    // null and empty carry no reasoning; anything else must be a string.
+    let reasoning = match (role, m.get("reasoning_content")) {
+        (_, None) | (_, Some(Value::Null)) => None,
+        ("assistant", Some(Value::String(s))) if s.is_empty() => None,
+        ("assistant", Some(Value::String(s))) => Some(
+            crate::semantic::value::Text::new(s, "reasoning_content", MAX_TEXT_BYTES)
+                .map_err(|_| CodecError::Limit)?,
+        ),
+        _ => return Err(CodecError::Invalid("reasoning_content")),
+    };
+    if let Some(text) = reasoning {
+        let part_id = b.part_id()?;
+        let rid = b.id()?;
+        b.items.push((
+            rid,
+            Item::Reasoning(ReasoningItem {
+                parts: vec![(part_id, ReasoningContent::Text(text))],
+                status: ItemLifecycle::Completed,
+            }),
+        ));
     }
     let id = b.id()?;
     match role {
@@ -182,10 +213,10 @@ pub(super) fn decode_message(
                 .get("tool_calls")
                 .filter(|v| !v.is_null())
                 .map(|v| v.as_array().ok_or(CodecError::Invalid("tool_calls")))
-                .transpose()?;
-            if calls.is_some_and(Vec::is_empty) {
-                return Err(CodecError::Invalid("empty tool_calls"));
-            }
+                .transpose()?
+                // An explicitly empty list declares no calls and normalizes to
+                // absent, matching the streaming path (ADR 0008).
+                .filter(|calls| !calls.is_empty());
             let refusal = match m.get("refusal") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(value)) if role == "assistant" => Some(
@@ -223,13 +254,12 @@ pub(super) fn decode_message(
                 for (position, c) in calls.iter().enumerate() {
                     let call = object(c)?;
                     // The SDK's chat stream accumulation leaks the chunk index into
-                    // message-level calls; on replay it must agree with the position.
-                    if replay {
-                        match call.get("index") {
-                            None | Some(Value::Null) => {}
-                            Some(v) if v.as_u64() == Some(position as u64) => {}
-                            _ => return Err(CodecError::Invalid("tool index")),
-                        }
+                    // message-level calls and providers echo it; whenever present it
+                    // must agree with the message position.
+                    match call.get("index") {
+                        None | Some(Value::Null) => {}
+                        Some(v) if v.as_u64() == Some(position as u64) => {}
+                        _ => return Err(CodecError::Invalid("tool index")),
                     }
                     let call = tool_call(call, Profile::Chat, Some(id), None, replay)?;
                     let cid = b.id()?;
@@ -272,8 +302,18 @@ pub(super) fn call_wire(c: &ToolCall) -> Value {
 pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
     let mut messages = Vec::<Value>::new();
     let mut standalone_calls = false;
+    let mut reasoning: Option<String> = None;
     for (_, item) in items {
         match item {
+            Item::Reasoning(r) => {
+                // Chat carries readable reasoning text on its carrier message.
+                standalone_calls = false;
+                let text = match r.parts.as_slice() {
+                    [(_, ReasoningContent::Text(t))] if !t.as_str().is_empty() => t.as_str(),
+                    _ => unreachable!("lowering rejects non-Chat reasoning shapes"),
+                };
+                reasoning = Some(text.to_owned());
+            }
             Item::Instruction(i) => {
                 standalone_calls = false;
                 messages.push(json!({"role":match i.authority { InstructionAuthority::System => "system", InstructionAuthority::Developer => "developer" },"content":i.parts[0].1.as_str()}));
@@ -282,6 +322,9 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
                 standalone_calls = false;
                 let mut message =
                     json!({"role":if m.role == MessageRole::User { "user" } else { "assistant" }});
+                if let Some(text) = reasoning.take() {
+                    message["reasoning_content"] = json!(text);
+                }
                 match m.parts.as_slice() {
                     [] => message["content"] = Value::Null,
                     [part] => match &part.content {
@@ -298,7 +341,11 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
             }
             Item::ToolCall(c) => {
                 if c.message.is_none() && !standalone_calls {
-                    messages.push(json!({"role":"assistant","content":null}));
+                    let mut message = json!({"role":"assistant","content":null});
+                    if let Some(text) = reasoning.take() {
+                        message["reasoning_content"] = json!(text);
+                    }
+                    messages.push(message);
                 }
                 let message = messages
                     .last_mut()
@@ -311,8 +358,7 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
                 calls.as_array_mut().expect("calls").push(call_wire(c));
                 standalone_calls = c.message.is_none();
             }
-            Item::Reasoning(_)
-            | Item::CustomCall(_)
+            Item::CustomCall(_)
             | Item::CustomResult(_)
             | Item::ConfigurationUpdate(_)
             | Item::Program(_)

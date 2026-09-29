@@ -17,6 +17,7 @@
 
 | 日期 | 记录 | 覆盖范围 |
 |---|---|---|
+| 2026-09-28 | [DeepSeek / Xiaomi MiMo Provider 接入与双协议真实矩阵](2026-09-28-deepseek-xiaomi-provider-live-matrix.md) | 新执行链的双模型 × 双协议 × 双交付真实矩阵；Chat 侧 provider wire 准入收敛后全绿；Responses 侧 provider 缺 SDK 必填 reported facts 的非一致；DeepSeek 目录缺 `deepseek-v4.1-flash` |
 | 2026-09-16 | [Bailian GLM-5.3 接入前能力探测](2026-09-16-bailian-glm-5-3-capability-probe.md) | 固定 case 的 Chat/Responses 支撑面与工具/structured 行为；Chat-only 接入与能力收窄依据 |
 | 2026-09-09 | [OpenAI SDK Responses loopback](2026-09-09-openai-responses-sdk-loopback.md) | 固定官方 SDK 的 JSON/SSE 工具续轮、独立 wire oracle 与负向控制；无真实 Provider |
 | 2026-09-09 | [DeepSeek Vision tool choice](2026-09-09-deepseek-vision-tool-choice.md) | auto/none 对照与 required/named 拒绝的双协议 JSON/SSE 复测；Target 收窄依据 |

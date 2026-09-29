@@ -8,9 +8,23 @@ use crate::{
 };
 use std::collections::BTreeSet;
 
+/// Delivery policy for reported response facts (ADR 0008). Absence is a
+/// reported fact; a target that demands the SDK-strict complete form fails
+/// lowering instead of omitting the fact.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReportedFactPolicy {
+    /// Absent facts stay absent and are never filled or synthesized.
+    Faithful,
+    /// The target requires complete reported facts; absence is a
+    /// representability failure, not an omission.
+    StrictComplete,
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenerationRepresentationContract {
     pub replay_origin: Option<crate::semantic::value::ReplayOrigin>,
+    /// Delivery policy for reported facts; `Faithful` unless a consumer
+    /// explicitly demands the strict complete form.
+    pub reported_facts: ReportedFactPolicy,
     pub instructions: bool,
     pub temperature: bool,
     pub max_output_tokens: bool,
@@ -28,11 +42,15 @@ pub struct GenerationRepresentationContract {
     pub file_input: bool,
     pub parallel_tool_calls: bool,
     pub strict_tools: bool,
+    /// Endpoint accepts cache-affinity hint fields (`prompt_cache_key` and
+    /// friends) on its wire; otherwise lowering omits them as inactive hints.
+    pub cache_hints: bool,
 }
 impl GenerationRepresentationContract {
     pub const fn full() -> Self {
         Self {
             replay_origin: None,
+            reported_facts: ReportedFactPolicy::Faithful,
             instructions: true,
             temperature: true,
             max_output_tokens: true,
@@ -50,6 +68,7 @@ impl GenerationRepresentationContract {
             file_input: true,
             parallel_tool_calls: true,
             strict_tools: true,
+            cache_hints: true,
         }
     }
 }
@@ -198,6 +217,36 @@ pub fn lower_request<'a>(
         profile,
     })
 }
+/// A strict-complete target cannot deliver a response whose reported facts are
+/// absent: the settings echo and, when usage is reported, its sub-details.
+pub fn require_reported_facts(
+    r: &GenerationResponse,
+    metadata: &ResponseMetadata,
+    c: &GenerationRepresentationContract,
+) -> Result<(), RepresentationError> {
+    if c.reported_facts != ReportedFactPolicy::StrictComplete {
+        return Ok(());
+    }
+    let echo_complete = metadata.context.settings.as_ref().is_some_and(|settings| {
+        settings.tools.is_some()
+            && settings.tool_choice.is_some()
+            && settings.parallel_tool_calls.is_some()
+    });
+    let usage_complete = match r.usage() {
+        None => true,
+        Some(usage) => {
+            usage.cached_input_tokens.is_some()
+                && usage.input_cache_write_tokens.is_some()
+                && usage.reasoning_tokens.is_some()
+        }
+    };
+    if echo_complete && usage_complete {
+        Ok(())
+    } else {
+        Err(RepresentationError::ReportedFacts)
+    }
+}
+
 pub fn lower_response<'a>(
     r: &'a GenerationResponse,
     fidelity: &'a FidelityRecords,
@@ -205,11 +254,16 @@ pub fn lower_response<'a>(
     profile: Profile,
     c: GenerationRepresentationContract,
 ) -> Result<ResponseRepresentation<'a>, RepresentationError> {
+    require_reported_facts(r, metadata, &c)?;
     // Cache-write tokens are a reported Responses detail with no Chat wire projection.
     if profile == Profile::Chat
         && r.usage()
             .is_some_and(|usage| usage.input_cache_write_tokens.is_some())
     {
+        return Err(RepresentationError::UnmigratedSemantic);
+    }
+    // `system_fingerprint` is a Chat reported fact with no Responses wire position.
+    if profile == Profile::Responses && !metadata.context.system_fingerprint.is_absent() {
         return Err(RepresentationError::UnmigratedSemantic);
     }
     // Phase labels are Responses-only; reject instead of dropping the label.
@@ -285,6 +339,23 @@ pub fn lower_response<'a>(
         profile,
     })
 }
+/// Chat can carry readable reasoning text on its carrier message: each reasoning
+/// item must hold exactly one non-empty text part and sit immediately before the
+/// message item that carries it.
+fn chat_reasoning_shape(items: &[(ItemId, Item)]) -> bool {
+    items
+        .iter()
+        .enumerate()
+        .all(|(index, (_, item))| match item {
+            Item::Reasoning(reasoning) => {
+                matches!(
+                    reasoning.parts.as_slice(),
+                    [(_, ReasoningContent::Text(text))] if !text.as_str().is_empty()
+                ) && matches!(items.get(index + 1), Some((_, Item::Message(_))))
+            }
+            _ => true,
+        })
+}
 fn represent_reasoning(
     controls: &ReasoningRequest,
     items: &[(ItemId, Item)],
@@ -305,7 +376,7 @@ fn represent_reasoning(
             return Err(RepresentationError::ReplayOrigin);
         }
     }
-    let items = items
+    let has_reasoning_items = items
         .iter()
         .any(|(_, item)| matches!(item, Item::Reasoning(_)));
     if profile == Profile::Chat && (!controls.context.is_absent() || !controls.mode.is_absent()) {
@@ -313,7 +384,10 @@ fn represent_reasoning(
     }
     let chat_control = controls.presence() == ReasoningPresence::Present
         && (controls.effort().is_none() || controls.summary().is_some());
-    if items && profile != Profile::Responses {
+    if has_reasoning_items
+        && profile != Profile::Responses
+        && !(profile == Profile::Chat && chat_reasoning_shape(items))
+    {
         return Err(RepresentationError::Reasoning);
     }
     if controls.encrypted_output() && profile != Profile::Responses {
@@ -397,6 +471,9 @@ fn chat_message_count(items: &[(ItemId, Item)]) -> usize {
                 run = true;
             }
             Item::ToolCall(_) => run = false,
+            // Readable reasoning rides its carrier message and is validated as
+            // part of that message's representable shape.
+            Item::Reasoning(_) => {}
             _ => {
                 count += 1;
                 run = false;
@@ -435,6 +512,8 @@ pub enum RepresentationError {
     Semantic(#[from] GenerationError),
     #[error(transparent)]
     Event(#[from] EventError),
+    #[error("target requires complete reported facts")]
+    ReportedFacts,
     #[error("target cannot represent text metadata")]
     TextMetadata,
     #[error("target cannot represent generation controls")]

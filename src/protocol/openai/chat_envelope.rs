@@ -162,7 +162,18 @@ fn validate_response(v: &Value) -> Result<(), CodecError> {
 }
 pub(super) fn headers(v: &Value, kind: &str) -> Result<(), CodecError> {
     let o = object(v)?;
-    fields(o, &["id", "object", "created", "model", "choices", "usage"])?;
+    fields(
+        o,
+        &[
+            "id",
+            "object",
+            "created",
+            "model",
+            "choices",
+            "usage",
+            "system_fingerprint",
+        ],
+    )?;
     text(string(o, "id")?, "response id", 256)?;
     text(string(o, "model")?, "response model", 256)?;
     if string(o, "object")? != kind || o.get("created").and_then(Value::as_u64).is_none() {

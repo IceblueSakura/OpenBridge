@@ -16,6 +16,8 @@ pub struct EventDecoder {
     pub(super) chat_pending: Option<(StreamTerminal, TerminalDetails)>,
     pub(super) chat_owner: Option<ItemId>,
     pub(super) chat_calls: Vec<ItemId>,
+    pub(super) chat_reasoning: Option<ItemId>,
+    pub(super) chat_pending_part: Option<PartKind>,
 }
 impl EventDecoder {
     pub fn new(profile: Profile) -> Self {
@@ -33,6 +35,8 @@ impl EventDecoder {
             chat_pending: None,
             chat_owner: None,
             chat_calls: vec![],
+            chat_reasoning: None,
+            chat_pending_part: None,
         }
     }
     pub fn with_replay_origin(mut self, origin: ReplayOrigin) -> Self {
@@ -166,15 +170,25 @@ impl EventDecoder {
         Ok(PartId::new(self.next_part))
     }
     pub(super) fn observe_metadata(&mut self, o: &Map<String, Value>) -> Result<(), CodecError> {
-        let m = super::super::static_response::metadata(o, self.profile)?;
-        if self
-            .metadata
-            .as_ref()
-            .is_some_and(|old| old.id != m.id || old.model != m.model || old.created != m.created)
-        {
-            return Err(CodecError::Invalid("metadata changed"));
+        let mut m = super::super::static_response::metadata(o, self.profile)?;
+        if let Some(old) = &self.metadata {
+            // Response identity is strict; providers re-stamp scalar facts such
+            // as `created` and `system_fingerprint` per chunk, so the first
+            // reported value binds and later drift is normalized away.
+            if old.id != m.id || old.model != m.model {
+                return Err(CodecError::Invalid("metadata changed"));
+            }
+            if old.created != m.created {
+                m.created = old.created.clone();
+            }
+            if !old.context.system_fingerprint.is_absent() {
+                m.context.system_fingerprint = old.context.system_fingerprint.clone();
+            }
         }
         self.metadata = Some(m);
+        // Vendor adaptation (ADR 0008) also covers response snapshots in streams.
+        let profile = self.profile;
+        super::super::envelope::record_vendor_shapes(profile, o, &mut self.fidelity)?;
         Ok(())
     }
     fn responses(&mut self, o: &Map<String, Value>) -> Result<Vec<StreamEvent>, CodecError> {

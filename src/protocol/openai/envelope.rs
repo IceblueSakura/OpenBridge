@@ -376,22 +376,23 @@ pub struct ResponseContext {
     pub execution: ExecutionHints,
     pub completed_at: Presence<Number>,
     pub cache_diagnostics: Presence<CacheDiagnostics>,
+    /// Standard Chat reported fact with no Responses wire position. Presence is
+    /// preserved; cross-profile projection rejects instead of dropping it.
+    pub system_fingerprint: Presence<String>,
 }
 impl ResponseContext {
-    /// Required SDK envelope fields are reported facts; the codec must not invent defaults.
-    pub fn validate_complete(&self) -> Result<(), CodecError> {
-        self.validate()?;
-        let s = self
-            .settings
-            .as_ref()
-            .ok_or(CodecError::Invalid("missing reported settings"))?;
-        if s.tools.is_none() || s.tool_choice.is_none() || s.parallel_tool_calls.is_none() {
-            return Err(CodecError::Invalid("incomplete reported settings"));
-        }
-        Ok(())
-    }
+    /// Reported facts are presence-preserving (ADR 0008): absence is a fact and
+    /// the codec never invents defaults or request copies. Structural snapshot
+    /// completeness lives in `validate_response_snapshot`.
     pub fn validate(&self) -> Result<(), CodecError> {
         self.execution.validate()?;
+        if self
+            .system_fingerprint
+            .value()
+            .is_some_and(|fingerprint| fingerprint.is_empty() || fingerprint.len() > 256)
+        {
+            return Err(CodecError::Invalid("system fingerprint"));
+        }
         if let Some(s) = &self.settings {
             s.validate()?;
         }
@@ -437,6 +438,9 @@ impl ResponseContext {
                 serde_json::from_value(v.clone())
                     .map_err(|_| CodecError::Invalid("cache diagnostics"))
             })?,
+            // Responses wire has no `system_fingerprint` position; the field is
+            // Chat-only and rejected on Responses bodies by `response_fields`.
+            system_fingerprint: crate::semantic::value::Presence::Absent,
         };
         value.validate()?;
         Ok(value)
@@ -483,32 +487,79 @@ pub fn decode_response_bytes(bytes: &[u8]) -> Result<super::DecodedResponse, Cod
 /// A pre-parsed value cannot prove original JSON syntax, duplicate-key or raw-byte validity.
 pub fn decode_response(v: &Value) -> Result<super::DecodedResponse, CodecError> {
     bounded(v)?;
-    validate_complete_response(v)?;
-    super::responses::decode_response(v)
+    validate_response_snapshot(v)?;
+    let mut decoded = super::responses::decode_response(v)?;
+    record_vendor_shapes(Profile::Responses, object(v)?, &mut decoded.fidelity)?;
+    Ok(decoded)
 }
 pub fn encode_response(target: &super::ResponseRepresentation<'_>) -> Result<Value, CodecError> {
-    target.metadata.context.validate_complete()?;
-    let v = super::responses::encode_response(target)?;
-    validate_complete_response(&v)?;
+    target.metadata.context.validate()?;
+    let mut v = super::responses::encode_response(target)?;
+    write_response_extras(
+        target.fidelity,
+        target.profile,
+        v.as_object_mut().expect("object"),
+    );
+    validate_response_snapshot(&v)?;
     Ok(v)
 }
-pub(super) fn validate_complete_response(v: &Value) -> Result<(), CodecError> {
-    let o = object(v)?;
-    ResponseContext::read(o)?.validate_complete()?;
-    if let Some(u) = o.get("usage").filter(|v| !v.is_null())
-        && (u
-            .pointer("/input_tokens_details/cached_tokens")
-            .and_then(Value::as_u64)
-            .is_none()
-            || u.pointer("/input_tokens_details/cache_write_tokens")
-                .and_then(Value::as_u64)
-                .is_none()
-            || u.pointer("/output_tokens_details/reasoning_tokens")
-                .and_then(Value::as_u64)
-                .is_none())
-    {
-        return Err(CodecError::Invalid("incomplete usage details"));
+/// Vendor adaptation (ADR 0008): validate-then-drop derived views, then record
+/// classified response extras into fidelity for same-origin re-encode.
+pub(crate) fn record_vendor_shapes(
+    profile: Profile,
+    o: &Map<String, Value>,
+    fidelity: &mut crate::protocol::fidelity::FidelityRecords,
+) -> Result<(), CodecError> {
+    if let Some(view) = o.get("output_text").filter(|v| !v.is_null()) {
+        let view = view.as_str().ok_or(CodecError::Invalid("output_text"))?;
+        // The equality rule applies where the snapshot claims finality: a
+        // non-terminal snapshot may report a partial view while items stream.
+        let terminal = o
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(|s| matches!(s, "completed" | "incomplete" | "failed" | "cancelled"));
+        if terminal {
+            let mut authoritative = String::new();
+            if let Some(items) = o.get("output").and_then(Value::as_array) {
+                for item in items {
+                    if item.get("type").and_then(Value::as_str) != Some("message") {
+                        continue;
+                    }
+                    if let Some(parts) = item.get("content").and_then(Value::as_array) {
+                        for part in parts {
+                            if part.get("type").and_then(Value::as_str) == Some("output_text")
+                                && let Some(text) = part.get("text").and_then(Value::as_str)
+                            {
+                                authoritative.push_str(text);
+                            }
+                        }
+                    }
+                }
+            }
+            if view != authoritative {
+                return Err(CodecError::Invalid("output_text"));
+            }
+        }
     }
+    fidelity.record_response_extras(profile, o)
+}
+/// Same-origin re-encode of classified vendor extras; never standard semantics.
+pub(crate) fn write_response_extras(
+    fidelity: &crate::protocol::fidelity::FidelityRecords,
+    profile: Profile,
+    o: &mut Map<String, Value>,
+) {
+    for name in crate::protocol::fidelity::declared_response_extras(profile) {
+        if let Some(value) = fidelity.response_extras().get(*name) {
+            o.insert((*name).to_string(), value.clone());
+        }
+    }
+}
+/// Structural snapshot validation (ADR 0008): reported facts are presence-preserving
+/// and typed by the task codec; this layer keeps the structural requirements.
+pub(super) fn validate_response_snapshot(v: &Value) -> Result<(), CodecError> {
+    let o = object(v)?;
+    ResponseContext::read(o)?.validate()?;
     // A complete Response snapshot requires the output array; an absent value is
     // never the explicit empty array and no lower layer may backfill it.
     for item in o
@@ -531,7 +582,7 @@ pub(super) fn validate_stream_payload(v: &Value) -> Result<(), CodecError> {
         return Err(CodecError::Invalid("sequence"));
     }
     if let Some(response) = v.get("response") {
-        validate_complete_response(response)?;
+        validate_response_snapshot(response)?;
     }
     if let Some(item) = v.get("item") {
         validate_item_snapshot(item)?;
@@ -615,6 +666,12 @@ pub(super) fn response_fields(o: &Map<String, Value>) -> Result<(), CodecError> 
             "error",
             "incomplete_details",
             "prompt_cache_diagnostics",
+            // Classified vendor extras (ADR 0008), captured into fidelity.
+            "content_filters",
+            "frequency_penalty",
+            "presence_penalty",
+            // Derived view, validated then dropped.
+            "output_text",
         ])
         .collect();
     fields(o, &allowed)

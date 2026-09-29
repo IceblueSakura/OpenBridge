@@ -93,7 +93,7 @@ Provider code may contribute:
 
 Provider code may not perform arbitrary semantic JSON mutation after encoding.
 
-A provider quirk that changes meaning must be modeled as endpoint lowering or a typed protocol profile, not a body hook.
+A provider quirk that changes meaning must be modeled as endpoint lowering or a typed protocol profile, not a body hook. The stable-core/vendor-adapter split and its three sanctioned adaptation mechanisms (scoped typed shapes, derived views, classified bounded fidelity) are recorded in [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md).
 
 ## Native and cross-protocol
 

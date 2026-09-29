@@ -71,6 +71,7 @@ fn part_kind(part: &Map<String, Value>) -> Result<PartKind, CodecError> {
         "output_text" => Ok(PartKind::Text),
         "refusal" => Ok(PartKind::Refusal),
         "summary_text" => Ok(PartKind::Summary),
+        "reasoning_text" => Ok(PartKind::ReasoningText),
         _ => Err(CodecError::Unsupported("part kind".into())),
     }
 }

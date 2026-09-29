@@ -7,6 +7,7 @@
 最终产品是**多模态、Chat Completions / Responses 兼容、Agent 友好、缓存亲和性强的 IR 化网关**。当前以仅文本 Generation 验证整体流程，验证后再扩展 Provider 与多模态；离线库是实现基础，不是最终交付边界。
 
 - **IR 化与双协议兼容**：请求、响应和事件都经同一语义权威；同协议无旁路，跨协议按可表示性映射或明确拒绝，不以 Chat 最小交集定义 IR。
+- **语义核心与厂商适配分离**：semantic core 必须足够完善——provider 差异背后的真实语义（缺省、回显、派生 view、扩展字段）在 core 中有确定性归属或显式登记的缺口，不靠丢弃消化；厂商为主的兼容差异留在 encode/decode 层，用 scoped typed 形状、派生 view 校验、有界 classified fidelity 吸收，不以厂商形状扩张 core schema。机制见 [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md)。
 - **Agent 友好**：工具定义/选择、调用身份、原始参数、结果回传、reasoning/派生 view 的续轮回放和流式非成功边界一致；不等于网关代替 Agent 执行所有工具，也不以单个 SDK gate 宣称全面 Agent 兼容。
 - **缓存亲和性强**：尽量保持合法续轮的稳定前缀、工具/Schema 顺序、cache affinity 与来源约束；session/cache/thread/turn 各有 owner，不为缓存复活被删除语义，不跨认证所有权重放 opaque state。稳定投影、实际缓存命中和成本/延迟效果是不同验收层。
 - **可扩展多模态**：保留标准媒体、资源和独立任务的正确所有权；文本先行不授权把未来媒体语义压成字符串，也不要求先实现未来所有任务才验证网关主链。

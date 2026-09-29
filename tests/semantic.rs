@@ -4,6 +4,8 @@ mod events_support;
 #[path = "support/responses_profile.rs"]
 mod wire;
 
+#[path = "semantic/chat_wire.rs"]
+mod chat_wire;
 #[path = "semantic/extensions.rs"]
 mod extensions;
 #[path = "semantic/function_events.rs"]
@@ -26,3 +28,5 @@ mod text_events;
 mod text_profile;
 #[path = "semantic/tools.rs"]
 mod tools;
+#[path = "semantic/vendor_shapes.rs"]
+mod vendor_shapes;

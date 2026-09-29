@@ -1,6 +1,5 @@
 //! Chat byte boundaries, explicit DONE lifecycle and independent static/event closure.
-#[path = "../support/chat_profile.rs"]
-mod wire;
+use crate::chat_wire as wire;
 use openbridge::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, lower_request, lower_response,

@@ -11,9 +11,14 @@ pub fn check_event(
     match event {
         StreamEvent::ItemStarted { kind, replay, .. } => {
             match kind {
-                ItemKind::Reasoning | ItemKind::ConfigurationUpdate { .. }
+                ItemKind::ConfigurationUpdate { .. }
                     if profile != Profile::Responses || !contract.reasoning =>
                 {
+                    return Err(RepresentationError::Reasoning);
+                }
+                // Chat reasoning is provisional at event time: its carrier
+                // message and single text part are validated at the terminal.
+                ItemKind::Reasoning if !contract.reasoning => {
                     return Err(RepresentationError::Reasoning);
                 }
                 ItemKind::CustomCall { .. }

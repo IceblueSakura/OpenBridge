@@ -15,7 +15,7 @@
 | 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证，不是待从零建立的 codec | `tests/transport/chat.rs`；部分标准文本 metadata、usage 与终态仍被拒绝，不等于 Chat 协议无法表达 |
 | 固定消费者 / Agent 场景 | 已有 Responses/Chat 三轮 JSON/SSE synthetic gates，尚非网关全链 | `tests/sdk_loopback.rs`、`tests/sdk/` 的 handler 直接构造 fixture 回答，不经真实 Provider adapter；显式 ignored，默认 Rust tests 不执行，覆盖范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
 | 缓存亲和性 | 有表示与保序基础，尚无执行亲和策略或命中效果验收 | CacheHints、schema order、origin-bound replay 已存在；缓存 scope 的执行绑定、跨轮/跨目标策略及真实 hit/成本/延迟效果不能由字段往返推出 |
-| 生产执行 | 未实现 | 无服务入口、Public Model resolver、Provider/registry、credential、重试或生产响应提交链路；旧 runtime 仅在[归档](../archive.md)中 |
+| 生产执行 | 最小执行链已接线（synthetic 全链 + 受控真实探测），仍非网关 | `src/provider/`、`src/topology/`、`src/execution/`、`tests/transport/chain.rs`、`examples/live_probe.rs`；无服务入口、credential 池、重试/自动 fallback 与生产提交链路，见[当前焦点](../implementation-plans/current-focus.md) |
 
 ## 已实现的纯文本基线
 
@@ -35,7 +35,7 @@
 
 ## 当前正确性缺口
 
-暂无已复现的正确性反例。固定 SDK 标准事件的 required/presence 与完整 Response snapshot 必填性已闭合：标准事件缺失 `sequence_number`、完整 snapshot 缺失 `output` 数组（含 queued/created/in_progress 初始 snapshot）在完整字节入口与低层 snapshot 分支都被拒绝，显式空数组仍然合法，拒绝后不能恢复为成功。规则与回归测试入口由 [Responses text profile](responses-text-profile.md#complete-stream-required-fields) 维护。
+真实 Provider 侧的上游 wire 差异已由[双轨](decisions/0008-stable-core-and-vendor-adapters.md)收敛：厂商适配 encode/decode 吸收 usage 缺省三态（两家无 cache-write 计费维度，缺席属预期）、回显缺省、`output_text` 派生 view、`content_filters` 等 classified 扩展、`reasoning_content`/`reasoning_text` 与 replay scope 绑定后，[2026-09-28 真实矩阵](../implementation-status/evidence/2026-09-28-deepseek-xiaomi-provider-live-matrix.md) 32/32 场景（双模型 × 双协议 × 双交付 × text/json_object/tool 含续轮）全部真实消费通过，核心 IR 未改。编码端永不填充缺省或伪造回显。固定 SDK 标准事件的 required/presence 与完整 Response snapshot 必填性已闭合：标准事件缺失 `sequence_number`、完整 snapshot 缺失 `output` 数组（含 queued/created/in_progress 初始 snapshot）在完整字节入口与低层 snapshot 分支都被拒绝，显式空数组仍然合法，拒绝后不能恢复为成功。规则与回归测试入口由 [Responses text profile](responses-text-profile.md#complete-stream-required-fields) 维护。
 
 仍未声称所有事件的 required/null/跨 kind 检查均已审计：更广标准分支的 required/presence 按[尚未映射的文本能力](#尚未映射的文本能力)收敛，新反例按 owner 立项，不以“全部标准分支已审计”为前提。
 
@@ -45,9 +45,12 @@
 
 | 域 | 具体缺口 | 对下一步的意义 |
 |---|---|---|
-| Chat usage | `prompt_tokens_details.cache_write_tokens`、text token 细分、prediction token 细分未映射；当前只接受 cached/reasoning 等有限 details | 固定 SDK 已有这些字段，尤其 cache-write 不是 Responses-only；IR 已有 `input_cache_write_tokens`，但 `static_response.rs::usage` 和 Chat lowering 尚未接通 |
+| Chat usage | `prompt_tokens_details.cache_write_tokens`、text token 细分、prediction token 细分未映射；当前只接受 cached/reasoning 等有限 details | 固定 SDK 已有这些字段，尤其 cache-write 不是 Responses-only；IR 已有 `input_cache_write_tokens`，Chat lowering 尚未接通（`static_response.rs::usage` 编码侧已就绪） |
+| Responses 厂商形状适配 | 已由[双轨厂商适配](decisions/0008-stable-core-and-vendor-adapters.md)收敛：回显与 usage 细分缺省按三态忠实保留、`output_text` 派生 view 校验后丢弃、`content_filters`/`frequency_penalty`/`presence_penalty` 有界 classified fidelity 同源保留、流式 `reasoning_text` part 与 encrypted replay 的同源 scope 绑定 | 编码端永不填充缺省或伪造回显；未知键仍拒绝。厂商 wire 再变化时新增观察，不改核心 IR |
+
+
 | Chat 非成功终态 | `content_filter` 未映射；静态与流式仅准入 stop/tool_calls/length | 现有 `IncompleteReason::ContentFilter` 可作为语义起点；需同时验收 JSON、SSE、partial output、DONE 与跨协议投影，不把过滤伪装成 length/success |
-| Chat 标准上下文 | `service_tier`、`metadata`、`system_fingerprint` 等相应 request/response/chunk 位置尚未准入 | `chat_envelope.rs`、`static_response.rs`、`events/chat.rs` 使用闭合字段表；即使正文可表达，带这些字段的标准 envelope 仍可能拒绝，不能称通用兼容 |
+| Chat 标准上下文 | `system_fingerprint` 已按标准 reported fact 准入（presence 保留、流内首值绑定）；`service_tier`、`metadata` 仍无 Chat 投影 | `chat_envelope.rs`、`static_response.rs`、`events/chat.rs` 闭合字段表按 [Chat profile](chat-text-profile.md) 演进；带未准入字段的 envelope 仍确定性拒绝，不能称通用兼容 |
 | 其余 Chat 文本投影 | logprobs、其他生成控制、文本 content-array 等未准入；Responses `phase`、reasoning replay/custom/program 等也不能无损投影 | 前者按具体消费需求逐项立项；后者不能靠丢字段强行变成 Chat，也不以 Chat 限制反向缩减 Responses IR |
 | Context 扩展 | response body 自定义段、typed observation headers、body/header 跨位置一致性、namespace 版本和 turn 管理模式尚未闭合 | [ADR 0007](decisions/0007-stateless-cache-affinity-and-extensions.md) 已定义 carrier，不等于 scoped runtime 已实现；继续扩张前须有具体来源和生命周期 |
 | 更广标准准入 | 尚无固定 union 的完整逐分支验收；部分 required/presence、snapshot/event 组合仍需审查 | 按当前已支持分支及反例收敛，不以“全部标准事件”作为一个实现切片的退出条件 |

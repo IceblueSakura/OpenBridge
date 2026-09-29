@@ -4,7 +4,26 @@ use crate::semantic::{
     task::generation::*,
     value::{ReplayOrigin, Text},
 };
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
+
+/// ADR 0008: classified vendor response extras observed on Responses bodies.
+/// Names stay on a declared admit list; unknown keys stay rejected and recorded
+/// values share one bounded budget.
+const RESPONSES_EXTRAS: &[&str] = &["content_filters", "frequency_penalty", "presence_penalty"];
+
+/// Classified extras a wire profile declares (ADR 0008). Recording and
+/// re-encoding share this table, so cross-profile portability is a declared
+/// property of the profile instead of an encoder habit.
+pub(crate) const fn declared_response_extras(
+    profile: crate::protocol::openai::Profile,
+) -> &'static [&'static str] {
+    match profile {
+        crate::protocol::openai::Profile::Responses => RESPONSES_EXTRAS,
+        crate::protocol::openai::Profile::Chat => &[],
+    }
+}
+const RESPONSE_EXTRAS_BUDGET: usize = 4096;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FidelityRecords {
@@ -12,6 +31,7 @@ pub struct FidelityRecords {
     cache_breakpoints: std::collections::BTreeSet<PartId>,
     input_text_forms: std::collections::BTreeSet<PartId>,
     encrypted_reasoning: BTreeMap<ItemId, (ReasoningReplay, [u8; 32])>,
+    response_extras: BTreeMap<String, Value>,
 }
 impl FidelityRecords {
     pub fn record_input_text(&mut self, owner: PartId) -> Result<(), CodecError> {
@@ -118,6 +138,40 @@ impl FidelityRecords {
             replay.origin = Some(origin.clone());
         }
         Ok(())
+    }
+    /// Classified vendor response extras (ADR 0008): named fields only, bounded
+    /// and preserved verbatim for same-origin re-encode. The first report binds.
+    pub fn record_response_extras(
+        &mut self,
+        profile: crate::protocol::openai::Profile,
+        o: &Map<String, Value>,
+    ) -> Result<(), CodecError> {
+        for name in declared_response_extras(profile) {
+            if self.response_extras.contains_key(*name) {
+                continue;
+            }
+            if let Some(value) = o.get(*name) {
+                let size = crate::semantic::value::json_size(value, RESPONSE_EXTRAS_BUDGET)
+                    .map_err(|_| CodecError::Limit)?;
+                let used: usize = self
+                    .response_extras
+                    .values()
+                    .map(|value| {
+                        crate::semantic::value::json_size(value, RESPONSE_EXTRAS_BUDGET)
+                            .unwrap_or(usize::MAX)
+                    })
+                    .sum();
+                if used.saturating_add(size) > RESPONSE_EXTRAS_BUDGET {
+                    return Err(CodecError::Limit);
+                }
+                self.response_extras
+                    .insert((*name).to_string(), value.clone());
+            }
+        }
+        Ok(())
+    }
+    pub fn response_extras(&self) -> &BTreeMap<String, Value> {
+        &self.response_extras
     }
     pub fn retain_owners(&mut self, items: &[(ItemId, Item)]) {
         self.response_item_ids

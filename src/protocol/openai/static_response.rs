@@ -28,7 +28,14 @@ pub(super) fn metadata(
     let context = if profile == Profile::Responses {
         super::envelope::ResponseContext::read(o)?
     } else {
-        Default::default()
+        super::envelope::ResponseContext {
+            system_fingerprint: read_presence(o, "system_fingerprint", |v| {
+                v.as_str()
+                    .map(str::to_owned)
+                    .ok_or(CodecError::Invalid("system fingerprint"))
+            })?,
+            ..Default::default()
+        }
     };
     Ok(ResponseMetadata {
         id,
@@ -64,9 +71,12 @@ pub(super) fn usage(value: Option<&Value>, profile: Profile) -> Result<Option<Us
             "total_tokens",
             input_details,
             output_details,
+            // DeepSeek Chat reports these aliases of the standard details.
+            "prompt_cache_hit_tokens",
+            "prompt_cache_miss_tokens",
         ],
     )?;
-    let parsed = Usage {
+    let mut parsed = Usage {
         input_tokens: count(usage, input_key)?,
         output_tokens: count(usage, output_key)?,
         total_tokens: count(usage, "total_tokens")?,
@@ -78,6 +88,27 @@ pub(super) fn usage(value: Option<&Value>, profile: Profile) -> Result<Option<Us
         },
         reasoning_tokens: detail(usage, output_details, "reasoning_tokens")?,
     };
+    // DeepSeek Chat reports `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`
+    // as aliases of the standard details. Normalize the hit count into
+    // `cached_input_tokens` and validate both aliases against the reported
+    // totals: no count is lost, none is estimated, and disagreement is rejected.
+    if let Some(hit) = usage.get("prompt_cache_hit_tokens") {
+        let hit = hit.as_u64().ok_or(CodecError::Invalid("usage detail"))?;
+        if parsed
+            .cached_input_tokens
+            .is_some_and(|cached| cached != hit)
+        {
+            return Err(CodecError::Invalid("usage alias"));
+        }
+        parsed.cached_input_tokens = Some(hit);
+    }
+    if let Some(miss) = usage.get("prompt_cache_miss_tokens") {
+        let miss = miss.as_u64().ok_or(CodecError::Invalid("usage detail"))?;
+        let cached = parsed.cached_input_tokens.unwrap_or(0);
+        if parsed.input_tokens.checked_sub(cached) != Some(miss) {
+            return Err(CodecError::Invalid("usage alias"));
+        }
+    }
     if parsed.input_tokens.checked_add(parsed.output_tokens) != Some(parsed.total_tokens) {
         return Err(CodecError::Invalid("usage total"));
     }
@@ -152,7 +183,18 @@ pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
 pub fn decode_chat(v: &Value) -> Result<DecodedResponse, CodecError> {
     bounded(v)?;
     let o = object(v)?;
-    fields(o, &["id", "object", "created", "model", "choices", "usage"])?;
+    fields(
+        o,
+        &[
+            "id",
+            "object",
+            "created",
+            "model",
+            "choices",
+            "usage",
+            "system_fingerprint",
+        ],
+    )?;
     if string(o, "object")? != "chat.completion" {
         return Err(CodecError::Invalid("response object"));
     }
@@ -185,6 +227,7 @@ pub fn decode_chat(v: &Value) -> Result<DecodedResponse, CodecError> {
             match item {
                 Item::ToolCall(call) => call.status = ItemLifecycle::Incomplete,
                 Item::Message(m) => m.status = ItemLifecycle::Incomplete,
+                Item::Reasoning(r) => r.status = ItemLifecycle::Incomplete,
                 _ => {}
             }
         }
@@ -275,9 +318,12 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
         .first()
         .ok_or(CodecError::Invalid("empty Chat candidate"))?;
     let m = target.metadata;
-    let value = json!({"id":m.id,"object":"chat.completion","created":m.created,"model":m.model,
+    let mut value = json!({"id":m.id,"object":"chat.completion","created":m.created,"model":m.model,
         "choices":[{"index":0,"message":message,"finish_reason":finish}],
         "usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Chat))});
+    if let Some(fingerprint) = m.context.system_fingerprint.value() {
+        value["system_fingerprint"] = json!(fingerprint);
+    }
     bounded(&value)?;
     Ok(value)
 }

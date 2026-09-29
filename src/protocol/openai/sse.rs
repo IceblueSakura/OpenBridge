@@ -218,7 +218,7 @@ impl ResponsesSseEncoder {
         padding: Obfuscation,
     ) -> Result<Self, SseError> {
         limits.validate()?;
-        metadata.context.validate_complete()?;
+        metadata.context.validate()?;
         Ok(Self {
             codec: EventEncoder::new(Profile::Responses, metadata)?.with_contract(contract),
             limits,

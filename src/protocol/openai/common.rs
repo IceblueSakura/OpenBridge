@@ -210,14 +210,7 @@ pub(super) fn tool_call(
 ) -> Result<ToolCall, CodecError> {
     let (f, id) = match profile {
         Profile::Chat => {
-            fields(
-                o,
-                if replay {
-                    &["id", "type", "function", "index"]
-                } else {
-                    &["id", "type", "function"]
-                },
-            )?;
+            fields(o, &["id", "type", "function", "index"])?;
             if string(o, "type")? != "function" {
                 return Err(CodecError::Unsupported("tool kind".into()));
             }

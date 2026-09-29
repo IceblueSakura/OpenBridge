@@ -18,7 +18,7 @@ Rust/Cargo 由根 `rust-toolchain.toml` 固定；rustfmt/clippy 随该工具链�
 
 | Target | 模块与边界 |
 |---|---|
-| `semantic` | `tests/semantic/`：instructions、phase、tools、reasoning、schema、parsed replay、extensions、text profile/events、function events、response；纯语义与 codec/lowering |
+| `semantic` | `tests/semantic/`：instructions、phase、tools、reasoning、schema、parsed replay、extensions、text profile/events、function events、response、chat wire（`reasoning_content`/`system_fingerprint`/usage 归一）；纯语义与 codec/lowering |
 | `transport` | `tests/transport/`：framing、Responses/Chat SSE、Chat envelope、body lifecycle；基础 framer 和真实 body I/O 各自验证 |
 | `sdk_loopback` | 显式 ignored 的固定 Python SDK 的 Responses/Chat 三轮 JSON/SSE gates，不进入默认外部依赖检查 |
 
