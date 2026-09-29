@@ -1,6 +1,6 @@
 # 阿里云百炼 API 协议入口
 
-- Last reverified：2026-08-31；刷新官方 Responses、structured output、GLM、DeepSeek 与 Qwen 来源，并以北京真实 endpoint 复核 DeepSeek V4 Flash Responses JSON/SSE。
+- Last reverified：2026-09-29 UTC；重读官方 Chat 与 Qwen3.8 Max 页面。2026-08-31 的 Responses 等来源与实测仍仅按当时边界解释。
 - Recheck trigger：地域域名、兼容协议、认证、原生媒体 API 或 hosted tool 变化。
 
 ## 来源与范围
@@ -35,6 +35,8 @@ Chat 与 Responses 相对入口分别为 `/chat/completions` 和 `/responses`。
 - Models 目录或控制台可见性不证明账户 entitlement、参数组合、streaming 或长期可用性。
 
 ## 执行证据
+
+本轮选定北京 Chat 绑定的来源规则（含固定 null message 占位字段）见 [API-key profiles](../../architecture-v2/api-key-text-profiles.md)；现有 key 的认证阻塞见 [onboarding evidence](../../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)，不据历史成功宣称当前认证或 v2 全链可用。
 
 2026-08-27 对 `glm-5.2`、`deepseek-v4-flash-0731` 与 `qwen3.8-max` 的真实北京 Responses 对比见[带日期证据记录](../../implementation-status/evidence/2026-08-27-bailian-responses-model-comparison.md)。2026-08-31 又以管理员工具确认 `deepseek-v4-flash-0731` 的有界 Responses JSON/SSE 均成功；该复核不扩张原记录中的 structured output、parallel 或 state 结论。本文不复制动态模型级结果。
 

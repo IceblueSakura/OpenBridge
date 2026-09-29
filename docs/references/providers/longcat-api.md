@@ -1,6 +1,6 @@
 # LongCat API 协议入口
 
-- Last reverified：外部来源最后复核 2026-08-08；2026-08-24 仅整理本地文档，未刷新外部来源。
+- Last reverified：2026-09-29 UTC；重新读取 Chat 与 Codex 官方页面，并核对现有账号模型目录与选定模型的 Chat wire。
 - Recheck trigger：Chat/Responses endpoint、认证或 reasoning wire 变化。
 
 ## 来源与范围
@@ -15,7 +15,8 @@
 
 - OpenAI-compatible base URL 为 `https://api.longcat.chat/openai/v1`，使用 Bearer API key。
 - Chat reasoning 使用 `thinking.type` 的 `enabled`/`disabled` 二态 wire。
-- 官方 Codex 配置使用 Responses wire；具体模型、effort、context 和当前可用性应直接读取 LongCat 官方文档。
+- 官方 Codex 配置使用 Responses wire，其当前示例选用 `LongCat-2.5-Preview`；本轮 v2 只准入该绑定的 Chat，不从配置示例推定 Responses codec 已兼容。
+- 已观察的 Chat `lastOne`、`matched_stop`、零值 usage 子字段和逐 chunk `created` 漂移，映射合同见 [API-key profiles](../../architecture-v2/api-key-text-profiles.md)，实际验收见 [onboarding evidence](../../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)。
 
 OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。
 

@@ -232,7 +232,10 @@ impl FidelityRecords {
         self.routing_extras = if values.is_empty() {
             None
         } else {
-            if !adaptation.rules.routing_extras {
+            if !(adaptation.rules.routing_extras
+                || adaptation.rules.chat_stop_diagnostics
+                || adaptation.rules.reported_request_id)
+            {
                 return Err(CodecError::Unsupported("routing extras".into()));
             }
             Some(ResponseExtras {
@@ -260,7 +263,9 @@ impl FidelityRecords {
         self.routing_extras
             .as_ref()
             .filter(|r| {
-                adaptation.rules.routing_extras
+                (adaptation.rules.routing_extras
+                    || adaptation.rules.chat_stop_diagnostics
+                    || adaptation.rules.reported_request_id)
                     && r.protocol == protocol
                     && r.profile == adaptation.profile_id
                     && Some(&r.origin) == adaptation.scope.as_ref()

@@ -1,6 +1,6 @@
 # Zhipu AI China / Z.AI API 协议入口
 
-- Last reverified：2026-08-31；刷新官方 OpenAI-compatible Chat、GLM-5.3 Responses 与 structured output 来源，并对已配置中国 endpoint 执行有界 JSON/SSE 探测。
+- Last reverified：2026-09-29 UTC；重读 GLM-5.3 官方页面并核对当前目录与选定 Chat wire。2026-08-31 的其他来源/协议证据仍按其原范围解释。
 - Recheck trigger：`/api/paas/v4` 或 `/api/v1` 路径、认证、Responses 模型范围、SSE 终态、structured output 或工具合同变化。
 
 ## 来源与范围
@@ -21,6 +21,8 @@
 - 模型页未明确列出的 Responses 模型、参数和工具能力保持未知，不能从 GLM-5.3 外推。
 
 ## 执行边界
+
+本轮只准入 GLM-5.3 的 Chat 绑定；`request_id` 等具名映射见 [API-key profiles](../../architecture-v2/api-key-text-profiles.md)，v2 实际入口与 pi 验收见 [onboarding evidence](../../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)。官方页还提示有过 Coding Plan 订阅的账号可能仅能用 Chat；未直接将历史 Responses 成功移植为当前 native entry。
 
 2026-08-31 对已配置 `glm-5.3` 执行 16-token 上限的 Chat/Responses × JSON/SSE probe，四种组合均返回 200；Responses JSON 以 completed response 结束，SSE 产生 typed events 并以 `response.completed` 结束。该 probe 不证明 structured output、reasoning 参数、function tool、state、媒体、外部 SDK/Agent、负载、长期运行、其他账户/地域或未来可达性。
 

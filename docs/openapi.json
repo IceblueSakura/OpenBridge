@@ -66,7 +66,7 @@
         "type": "object", "required": ["model", "messages"],
         "properties": {
           "model": {"type": "string", "minLength": 1},
-          "messages": {"type": "array", "items": {"type": "object"}},
+          "messages": {"type": "array", "items": {"type": "object"}, "description": "User/assistant and system/developer content accepts a string or nonempty ordered plain-text part array. Tool result content remains a string. Media is not admitted."},
           "stream": {"type": ["boolean", "null"], "default": false},
           "max_completion_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
         },
@@ -82,7 +82,7 @@
           "max_output_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
         },
         "additionalProperties": true,
-        "description": "Detailed input, settings and inactive-state admission follow the Responses text profile. No arbitrary endpoint, credential or header selection."
+        "description": "Detailed input, settings and inactive-state admission follow the Responses text profile. Models with only a Chat startup entry return model_not_found here; no implicit protocol fallback. No arbitrary endpoint, credential or header selection."
       },
       "Error": {
         "type": "object", "required": ["error"], "additionalProperties": false,

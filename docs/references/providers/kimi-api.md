@@ -1,6 +1,6 @@
 # Kimi CN API 协议入口
 
-- Last reverified：外部来源最后复核 2026-08-09；2026-08-24 仅整理本地文档，未刷新外部来源。
+- Last reverified：2026-09-29 UTC；重读官方模型参数页并核对现有账号目录。
 - Recheck trigger：base URL、认证、Chat endpoint 或官方兼容范围变化。
 
 ## 来源与范围
@@ -15,7 +15,8 @@
 
 - 服务地址为 `https://api.moonshot.cn`，OpenAI-compatible SDK base URL 为 `https://api.moonshot.cn/v1`。
 - 文本生成入口为 `POST /v1/chat/completions`，使用 Bearer API key。
-- OpenAI-compatible 只描述请求/响应形状；具体模型参数、reasoning 和当前可用性以官方模型参考为准。
+- OpenAI-compatible 只描述请求/响应形状；具体模型参数、reasoning 和当前可用性以官方模型参考为准。当前选定 K3 的官方合同要求保留 `reasoning_content` 历史，effort 使用顶层 `reasoning_effort`，不能套用 K2.x 的 `thinking` wire。
+- 当前绑定的请求投影和可读 reasoning 规则见 [API-key profiles](../../architecture-v2/api-key-text-profiles.md)，实际生成的 429 阻塞见 [onboarding evidence](../../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)。
 
 OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不是 v2 当前能力。
 

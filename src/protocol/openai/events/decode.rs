@@ -273,7 +273,9 @@ impl EventDecoder {
                 return Err(CodecError::Invalid("metadata changed"));
             }
             if old.created != m.created {
-                if !self.adaptation.rules.chunk_metadata_drift {
+                if !(self.adaptation.rules.chunk_metadata_drift
+                    || self.adaptation.rules.chunk_created_drift)
+                {
                     return Err(CodecError::Invalid("metadata changed"));
                 }
                 m.created = old.created.clone();

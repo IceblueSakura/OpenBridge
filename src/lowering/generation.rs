@@ -181,7 +181,7 @@ pub fn lower_request<'a>(
         c.adaptation.rules.structured_chat_reasoning,
         true,
     )?;
-    text_items(r.items(), profile)?;
+    text_items(r.items(), profile, true)?;
     let expected_default = if profile == Profile::Chat {
         StrictDefault::NonStrict
     } else {
@@ -321,7 +321,7 @@ pub fn lower_response<'a>(
     {
         return Err(RepresentationError::Terminal);
     }
-    text_items(r.items(), profile)?;
+    text_items(r.items(), profile, false)?;
     if profile == Profile::Chat && chat_message_count(r.items()) != 1 {
         return Err(RepresentationError::MessageGrouping);
     }
@@ -437,7 +437,11 @@ fn represent_reasoning(
     }
     Ok(())
 }
-fn text_items(items: &[(ItemId, Item)], profile: Profile) -> Result<(), RepresentationError> {
+fn text_items(
+    items: &[(ItemId, Item)],
+    profile: Profile,
+    request: bool,
+) -> Result<(), RepresentationError> {
     for (_, i) in items {
         if profile == Profile::Chat {
             match i {
@@ -462,7 +466,7 @@ fn text_items(items: &[(ItemId, Item)], profile: Profile) -> Result<(), Represen
                 Item::ConfigurationUpdate(_) => {
                     return Err(RepresentationError::Reasoning);
                 }
-                Item::Instruction(i) if i.parts.len() != 1 => {
+                Item::Instruction(i) if !request && i.parts.len() != 1 => {
                     return Err(RepresentationError::MessageGrouping);
                 }
                 Item::ToolResult(r)
@@ -489,7 +493,13 @@ fn text_items(items: &[(ItemId, Item)], profile: Profile) -> Result<(), Represen
             {
                 return Err(RepresentationError::UnmigratedSemantic);
             }
-            if profile == Profile::Chat && m.parts.len() > 1 {
+            if profile == Profile::Chat
+                && m.parts.len() > 1
+                && (!request
+                    || m.parts
+                        .iter()
+                        .any(|p| !matches!(p.content, ContentPart::Text(_))))
+            {
                 return Err(RepresentationError::MessageGrouping);
             }
         }

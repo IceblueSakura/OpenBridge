@@ -41,6 +41,8 @@
 
 OpenRouter 的固定 `gpt-6-luna` → `openai/gpt-6-luna` 已接入环境变量 bootstrap、双协议目标和 JSON/SSE adapter。根据 live 差异补齐了限定格式的 Chat summary/encrypted reasoning、标准 service-tier 回显、零值媒体计数归一化、Responses 格式/费用字段和尾随 DONE；准入与拒绝边界由 [OpenRouter text adapter](openrouter-text-profile.md)维护，执行范围见[带日期验收](../implementation-status/evidence/2026-09-29-openrouter-luna-acceptance.md)。[加密 reasoning 专项验收](../implementation-status/evidence/2026-09-29-reasoning-continuation-acceptance.md)另行覆盖了实际密文获取与同目标续轮，并保护了 partial/final、owner 与 response 各自生命周期；readable-only reasoning 不要求密文或 opaque origin。这不恢复历史 GLM 绑定，也不表示任意 OpenRouter backend/媒体/工具均兼容。
 
+额外五家 API-key Provider 已有固定 Chat 绑定与具名 adapter 合同，见 [API-key text profiles](api-key-text-profiles.md)。Provider 的 native Responses entry 现可缺省，未准入的协议不能编译成候选或由 bootstrap 自动开放。本轮实测与百炼认证、Kimi 生成配额/限流、NVIDIA 间歇性失败及模型输出格式边界由 [onboarding evidence](../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)维护；接线完成不等于八家全部 live 验收通过。
+
 ## 尚未映射的文本能力
 
 这些是当前显式拒绝或尚无合同的分支，与上面的错误接受分开。
@@ -50,7 +52,7 @@ OpenRouter 的固定 `gpt-6-luna` → `openai/gpt-6-luna` 已接入环境变量 
 | Chat usage | text token 与 prediction token 细分尚未映射 | cached/cache-write/reasoning 的双协议 JSON/SSE 映射已有；新细分按真实语义归属补齐，不另建 Provider Usage |
 | Chat 非成功终态 | `content_filter` 未映射；静态与流式仅准入 stop/tool_calls/length | 现有 `IncompleteReason::ContentFilter` 可作为语义起点；需同时验收 JSON、SSE、partial output、DONE 与跨协议投影，不把过滤伪装成 length/success |
 | Chat 标准上下文 | `system_fingerprint`、响应 `service_tier` 已按标准 reported fact 准入（presence 保留、Chat 流内首值绑定）；请求 service-tier、metadata 仍无 Chat 投影 | `chat_envelope.rs`、`static_response.rs`、`events/chat.rs` 闭合字段表按 [Chat profile](chat-text-profile.md) 演进；带未准入字段的 envelope 仍确定性拒绝，不能称通用兼容 |
-| 其余 Chat 文本投影 | logprobs、其他生成控制、文本 content-array 等未准入；Responses `phase`、custom/program 等也不能无损投影；reasoning replay 仅在显式限定格式的 Chat 扩展中映射 | 前者按具体消费需求逐项立项；后者不能靠丢字段强行变成 Chat，也不以 Chat 限制反向缩减 Responses IR |
+| 其余 Chat 文本投影 | logprobs、其他生成控制等未准入；请求中的非空有序纯文本 content-array 已准入，响应与媒体数组未扩张；Responses `phase`、custom/program 等也不能无损投影；reasoning replay 仅在显式限定格式的 Chat 扩展中映射 | 前者按具体消费需求逐项立项；后者不能靠丢字段强行变成 Chat，也不以 Chat 限制反向缩减 Responses IR |
 | Context 扩展 | response body 自定义段、typed observation headers、body/header 跨位置一致性、namespace 版本和 turn 管理模式尚未闭合 | [ADR 0007](decisions/0007-stateless-cache-affinity-and-extensions.md) 已定义 carrier，不等于 scoped runtime 已实现；继续扩张前须有具体来源和生命周期 |
 | 更广标准准入 | 尚无固定 union 的完整逐分支验收；部分 required/presence、snapshot/event 组合仍需审查 | 按当前已支持分支及反例收敛，不以“全部标准事件”作为一个实现切片的退出条件 |
 

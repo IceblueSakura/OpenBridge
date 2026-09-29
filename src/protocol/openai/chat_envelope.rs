@@ -78,6 +78,21 @@ pub(crate) fn decode_request_with(
     adaptation: &crate::protocol::adaptation::Adaptation,
 ) -> Result<DecodedChatRequest, CodecError> {
     bounded(v)?;
+    let mut normalized;
+    let v = if adaptation.rules.legacy_max_tokens && v.get("max_tokens").is_some() {
+        normalized = v.clone();
+        let o = normalized
+            .as_object_mut()
+            .ok_or(CodecError::Invalid("request"))?;
+        if o.contains_key("max_completion_tokens") {
+            return Err(CodecError::Invalid("conflicting token limits"));
+        }
+        let limit = o.shift_remove("max_tokens").expect("checked field");
+        o.insert("max_completion_tokens".into(), limit);
+        &normalized
+    } else {
+        v
+    };
     let o = object(v)?;
     let allowed: Vec<_> = chat::FIELDS
         .iter()

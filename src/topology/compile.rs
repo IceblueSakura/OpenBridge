@@ -147,7 +147,10 @@ pub fn compile(
         }
         let bound_path = match endpoint.protocol {
             ProtocolProfile::OpenAiChat => &definition.chat_completions,
-            ProtocolProfile::OpenAiResponses => &definition.responses,
+            ProtocolProfile::OpenAiResponses => definition
+                .responses
+                .as_ref()
+                .ok_or(TopologyError::TargetMismatch)?,
         };
         if bound_path != &endpoint.target.path {
             return Err(TopologyError::TargetMismatch);
@@ -228,7 +231,7 @@ mod tests {
             id: ProviderId::new("fixture").unwrap(),
             origin: TrustedOrigin::parse("http://127.0.0.1:39217").unwrap(),
             chat_completions: EndpointPath::new("/chat/completions").unwrap(),
-            responses: EndpointPath::new("/responses").unwrap(),
+            responses: Some(EndpointPath::new("/responses").unwrap()),
             auth: AuthScheme::Bearer,
         }
     }
@@ -237,7 +240,7 @@ mod tests {
         let definition = provider();
         let path = match protocol {
             ProtocolProfile::OpenAiChat => definition.chat_completions,
-            ProtocolProfile::OpenAiResponses => definition.responses,
+            ProtocolProfile::OpenAiResponses => definition.responses.expect("test Responses entry"),
         };
         Endpoint {
             id: EndpointId::new("fixture-endpoint").unwrap(),
@@ -350,6 +353,26 @@ mod tests {
 
     #[test]
     fn target_must_stay_bound_to_provider_origin_and_protocol_entry() {
+        let mut chat_only = provider();
+        chat_only.responses = None;
+        assert_eq!(
+            compile(
+                vec![chat_only.clone()],
+                vec![endpoint(ProtocolProfile::OpenAiResponses)],
+                vec![route()],
+                vec![model(GenerationRepresentationContract::full())]
+            ),
+            Err(TopologyError::TargetMismatch)
+        );
+        assert!(
+            compile(
+                vec![chat_only],
+                vec![endpoint(ProtocolProfile::OpenAiChat)],
+                vec![route()],
+                vec![model(GenerationRepresentationContract::full())]
+            )
+            .is_ok()
+        );
         // Wrong origin: business-selectable targets never compile.
         let mut wrong_origin = endpoint(ProtocolProfile::OpenAiResponses);
         wrong_origin.target.origin = TrustedOrigin::parse("http://127.0.0.1:40000").unwrap();

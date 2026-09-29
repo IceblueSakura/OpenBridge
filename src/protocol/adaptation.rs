@@ -13,6 +13,8 @@ pub struct WireRules {
     pub response_extras: bool,
     pub derived_output_text: bool,
     pub chunk_metadata_drift: bool,
+    /// Normalize timestamp drift only, without permitting fingerprint changes.
+    pub chunk_created_drift: bool,
     /// Bounded, source-bound router and billing facts, never task semantics.
     pub routing_extras: bool,
     pub reasoning_alias: bool,
@@ -23,6 +25,15 @@ pub struct WireRules {
     pub repeated_finish_usage: bool,
     /// Trusted request policy; business JSON cannot override parameter admission.
     pub require_parameters: bool,
+    /// Provider request spelling; downstream still uses max_completion_tokens.
+    pub legacy_max_tokens: bool,
+    /// Advisory lastOne marker and source-bound numeric matched_stop diagnostics.
+    pub chat_stop_diagnostics: bool,
+    pub reported_request_id: bool,
+    /// Normalize only explicit integer-zero unsupported usage details.
+    pub zero_usage_details: bool,
+    /// Documented null placeholders do not enable active media or legacy calls.
+    pub inactive_chat_fields: bool,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

@@ -20,6 +20,11 @@ pub enum Dialect {
     DeepSeek,
     Xiaomi,
     OpenRouter,
+    LongCat,
+    Nvidia,
+    Bailian,
+    Kimi,
+    Zhipu,
 }
 impl Dialect {
     fn adaptation(self, scope: Option<ReplayOrigin>) -> Adaptation {
@@ -56,6 +61,51 @@ impl Dialect {
                     structured_chat_reasoning: true,
                     repeated_finish_usage: true,
                     require_parameters: true,
+                    ..Default::default()
+                },
+            ),
+            Self::LongCat => (
+                "longcat-v1",
+                WireRules {
+                    readable_reasoning: true,
+                    legacy_max_tokens: true,
+                    chat_stop_diagnostics: true,
+                    zero_usage_details: true,
+                    chunk_created_drift: true,
+                    ..Default::default()
+                },
+            ),
+            Self::Nvidia => (
+                "nvidia-v1",
+                WireRules {
+                    readable_reasoning: true,
+                    legacy_max_tokens: true,
+                    ..Default::default()
+                },
+            ),
+            Self::Bailian => (
+                "bailian-v1",
+                WireRules {
+                    readable_reasoning: true,
+                    legacy_max_tokens: true,
+                    inactive_chat_fields: true,
+                    ..Default::default()
+                },
+            ),
+            Self::Kimi => (
+                "kimi-v1",
+                WireRules {
+                    readable_reasoning: true,
+                    legacy_max_tokens: true,
+                    ..Default::default()
+                },
+            ),
+            Self::Zhipu => (
+                "zhipu-v1",
+                WireRules {
+                    readable_reasoning: true,
+                    legacy_max_tokens: true,
+                    reported_request_id: true,
                     ..Default::default()
                 },
             ),

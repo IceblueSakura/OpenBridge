@@ -20,7 +20,7 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         id: ProviderId::new("fixture").unwrap(),
         origin: TrustedOrigin::parse(origin).unwrap(),
         chat_completions: EndpointPath::new("/chat/completions").unwrap(),
-        responses: EndpointPath::new("/responses").unwrap(),
+        responses: Some(EndpointPath::new("/responses").unwrap()),
         auth: AuthScheme::Bearer,
     };
     let endpoints = [
@@ -36,7 +36,7 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
             path: if protocol == ProtocolProfile::OpenAiChat {
                 provider.chat_completions.clone()
             } else {
-                provider.responses.clone()
+                provider.responses.clone().expect("test Responses entry")
             },
         },
         task: TaskKind::Generation,

@@ -72,6 +72,21 @@ impl Bootstrap {
                 }
             }
         }
+        for binding in catalog::CHAT_BINDINGS {
+            if let Some(key) = get(binding.variable)? {
+                credentials.insert(
+                    CredentialBindingId::new(binding.credential)
+                        .map_err(|_| StartupError::Binding)?,
+                    Arc::new(SecretMaterial::new(&key).map_err(|_| StartupError::Credentials)?),
+                );
+                entries.push(Entry {
+                    model: binding.model.into(),
+                    protocol: Profile::Chat,
+                    endpoint: EndpointId::new(&format!("{}-chat", binding.provider))
+                        .map_err(|_| StartupError::Binding)?,
+                });
+            }
+        }
         let proxy = get("OPENBRIDGE_PROXY")?;
         let gateway = Gateway::new(
             catalog::default_topology().map_err(|_| StartupError::Binding)?,
@@ -121,6 +136,34 @@ mod tests {
             }),
             Err(StartupError::Credentials)
         ));
+    }
+
+    #[test]
+    fn chat_only_bootstrap_admits_chat_but_not_an_invented_responses_entry() {
+        let boot = Bootstrap::from_lookup(|name| {
+            Ok(match name {
+                "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
+                "OPENBRIDGE_LONGCAT_API_KEY" => Some("synthetic-upstream".into()),
+                _ => None,
+            })
+        })
+        .unwrap();
+        assert!(
+            super::super::admission::prepare(
+                &boot.gateway.state,
+                Profile::Chat,
+                br#"{"model":"longcat-2.5-preview","messages":[{"role":"user","content":"hi"}]}"#
+            )
+            .is_ok()
+        );
+        assert!(
+            super::super::admission::prepare(
+                &boot.gateway.state,
+                Profile::Responses,
+                br#"{"model":"longcat-2.5-preview","input":"hi"}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

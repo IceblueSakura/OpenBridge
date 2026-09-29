@@ -142,6 +142,10 @@ pub(crate) fn decode<'a>(
     if !adaptation.rules.routing_extras
         && !adaptation.rules.reasoning_alias
         && !adaptation.rules.responses_reasoning_format
+        && !adaptation.rules.chat_stop_diagnostics
+        && !adaptation.rules.reported_request_id
+        && !adaptation.rules.zero_usage_details
+        && !adaptation.rules.inactive_chat_fields
     {
         return Ok((Cow::Borrowed(value), Extras::new()));
     }
@@ -149,11 +153,93 @@ pub(crate) fn decode<'a>(
     let o = value
         .as_object_mut()
         .ok_or(CodecError::Invalid("response object"))?;
-    let extras = if adaptation.rules.routing_extras {
+    let mut extras = if adaptation.rules.routing_extras {
         extract(o, profile)?
     } else {
         Extras::new()
     };
+    if profile == Profile::Chat {
+        if adaptation.rules.inactive_chat_fields
+            && let Some(choices) = o.get_mut("choices").and_then(Value::as_array_mut)
+        {
+            for choice in choices {
+                for field in ["message", "delta"] {
+                    if let Some(message) = choice.get_mut(field).and_then(Value::as_object_mut) {
+                        for name in ["audio", "function_call"] {
+                            if let Some(value) = message.shift_remove(name)
+                                && !value.is_null()
+                            {
+                                return Err(CodecError::Unsupported(
+                                    "active message extension".into(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if adaptation.rules.reported_request_id {
+            if o.get("request_id")
+                .is_some_and(|v| !v.is_null() && !v.as_str().is_some_and(|s| !s.is_empty()))
+            {
+                return Err(CodecError::Invalid("reported request id"));
+            }
+            take(o, "request_id", "/request_id", &mut extras);
+        }
+        if adaptation.rules.chat_stop_diagnostics {
+            // lastOne is advisory framing metadata, never a semantic terminal.
+            if let Some(marker) = o.shift_remove("lastOne")
+                && !marker.is_boolean()
+            {
+                return Err(CodecError::Invalid("lastOne"));
+            }
+            let static_body = o.get("object").and_then(Value::as_str) == Some("chat.completion");
+            if let Some(choices) = o.get_mut("choices").and_then(Value::as_array_mut)
+                && choices.len() == 1
+                && let Some(choice) = choices[0].as_object_mut()
+            {
+                if choice
+                    .get("matched_stop")
+                    .is_some_and(|v| !v.is_null() && v.as_u64().is_none())
+                {
+                    return Err(CodecError::Invalid("matched stop"));
+                }
+                take(
+                    choice,
+                    "matched_stop",
+                    "/choices/0/matched_stop",
+                    &mut extras,
+                );
+                if static_body
+                    && let Some(delta) = choice.shift_remove("delta")
+                    && !delta.is_null()
+                {
+                    return Err(CodecError::Unsupported("static delta".into()));
+                }
+            }
+        }
+        if adaptation.rules.zero_usage_details
+            && let Some(usage) = o.get_mut("usage").and_then(Value::as_object_mut)
+        {
+            for name in ["prompt_tokens_details", "completion_tokens_details"] {
+                if let Some(details) = usage.get_mut(name).and_then(Value::as_object_mut) {
+                    for name in [
+                        "audio_tokens",
+                        "image_tokens",
+                        "video_tokens",
+                        "text_tokens",
+                    ] {
+                        if let Some(value) = details.shift_remove(name)
+                            && value.as_u64() != Some(0)
+                        {
+                            return Err(CodecError::Unsupported("nonzero unmapped usage".into()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    check_budget(&extras)?;
     if profile == Profile::Chat
         && adaptation.rules.reasoning_alias
         && let Some(choices) = o.get_mut("choices").and_then(Value::as_array_mut)
@@ -202,8 +288,8 @@ pub(crate) fn encode_message(value: &mut Value) {
 pub(crate) fn write_extras(o: &mut Map<String, Value>, values: &Extras) {
     for (path, value) in values {
         match path.as_str() {
-            "/provider" => {
-                o.insert("provider".into(), value.clone());
+            "/provider" | "/request_id" => {
+                o.insert(path.trim_start_matches('/').into(), value.clone());
             }
             "/usage/cost" | "/usage/is_byok" | "/usage/cost_details" => {
                 if let Some(usage) = o.get_mut("usage").and_then(Value::as_object_mut) {
@@ -213,14 +299,17 @@ pub(crate) fn write_extras(o: &mut Map<String, Value>, values: &Extras) {
                     );
                 }
             }
-            "/choices/0/native_finish_reason" => {
+            "/choices/0/native_finish_reason" | "/choices/0/matched_stop" => {
                 if let Some(choice) = o
                     .get_mut("choices")
                     .and_then(Value::as_array_mut)
                     .and_then(|a| a.first_mut())
                     .and_then(Value::as_object_mut)
                 {
-                    choice.insert("native_finish_reason".into(), value.clone());
+                    choice.insert(
+                        path.rsplit('/').next().expect("fixed path").into(),
+                        value.clone(),
+                    );
                 }
             }
             _ => unreachable!("closed classified fields"),

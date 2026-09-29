@@ -9,7 +9,7 @@
 //!   in-process only for auth headers; nothing secret is logged or reported;
 //! - the matrix is chat/responses × {text, json_object, tool} × {JSON, SSE};
 //!   tools continue with actual response history, never reconstructed reasoning;
-//! - OpenRouter is opt-in with `OPENBRIDGE_PROBE_MODEL=gpt-6-luna`; optional
+//! - OpenRouter and additional Providers require explicit `OPENBRIDGE_PROBE_MODEL`; optional
 //!   PROTOCOL/CASE/DELIVERY filters narrow calls; MAX_TOKENS is bounded at 2048;
 //! - one request per call, 120s timeout, 2s spacing, bounded `max_output_tokens`;
 //! - model ids are verified through the free Models listing before any paid call;
@@ -51,17 +51,17 @@ struct ModelSpec {
     provider: &'static str,
     models_path: &'static str,
     chat_endpoint: &'static str,
-    responses_endpoint: &'static str,
+    responses_endpoint: Option<&'static str>,
 }
 
-const MODELS: [ModelSpec; 3] = [
+const MODELS: [ModelSpec; 8] = [
     ModelSpec {
         label: "deepseek-flash",
         pool: "deepseek-primary",
         provider: "deepseek",
         models_path: "/models",
         chat_endpoint: "deepseek-chat",
-        responses_endpoint: "deepseek-responses",
+        responses_endpoint: Some("deepseek-responses"),
     },
     ModelSpec {
         label: "mimo-v2.6-pro",
@@ -69,7 +69,7 @@ const MODELS: [ModelSpec; 3] = [
         provider: "xiaomi",
         models_path: "/v1/models",
         chat_endpoint: "xiaomi-chat",
-        responses_endpoint: "xiaomi-responses",
+        responses_endpoint: Some("xiaomi-responses"),
     },
     ModelSpec {
         label: "gpt-6-luna",
@@ -77,7 +77,47 @@ const MODELS: [ModelSpec; 3] = [
         provider: "openrouter",
         models_path: "/api/v1/models",
         chat_endpoint: "openrouter-chat",
-        responses_endpoint: "openrouter-responses",
+        responses_endpoint: Some("openrouter-responses"),
+    },
+    ModelSpec {
+        label: "longcat-2.5-preview",
+        pool: "longcat-primary",
+        provider: "longcat",
+        models_path: "/openai/v1/models",
+        chat_endpoint: "longcat-chat",
+        responses_endpoint: None,
+    },
+    ModelSpec {
+        label: "nemotron-3-super",
+        pool: "nvidia-primary",
+        provider: "nvidia",
+        models_path: "/v1/models",
+        chat_endpoint: "nvidia-chat",
+        responses_endpoint: None,
+    },
+    ModelSpec {
+        label: "qwen3.8-max",
+        pool: "bailian-primary",
+        provider: "bailian",
+        models_path: "/compatible-mode/v1/models",
+        chat_endpoint: "bailian-chat",
+        responses_endpoint: None,
+    },
+    ModelSpec {
+        label: "kimi-k3",
+        pool: "kimi-primary",
+        provider: "kimi",
+        models_path: "/v1/models",
+        chat_endpoint: "kimi-chat",
+        responses_endpoint: None,
+    },
+    ModelSpec {
+        label: "glm-5.3",
+        pool: "zhipu-primary",
+        provider: "zhipu",
+        models_path: "/api/paas/v4/models",
+        chat_endpoint: "zhipu-chat",
+        responses_endpoint: None,
     },
 ];
 
@@ -220,7 +260,14 @@ fn scenario_request(
             }
             if case == Case::Tool {
                 value["tools"] = json!([chat_tool()]);
-                value["tool_choice"] = json!(if round == 1 { "required" } else { "none" });
+                value["tool_choice"] =
+                    json!(if matches!(label, "deepseek-flash" | "nemotron-3-super") {
+                        "auto"
+                    } else if round == 1 {
+                        "required"
+                    } else {
+                        "none"
+                    });
             }
             value
         }
@@ -243,7 +290,13 @@ fn scenario_request(
             }
             if case == Case::Tool {
                 value["tools"] = json!([responses_tool()]);
-                value["tool_choice"] = json!(if round == 1 { "required" } else { "none" });
+                value["tool_choice"] = json!(if label == "deepseek-flash" {
+                    "auto"
+                } else if round == 1 {
+                    "required"
+                } else {
+                    "none"
+                });
             }
             value
         }
@@ -1020,7 +1073,16 @@ async fn main() {
     }
     let only = selection(
         "OPENBRIDGE_PROBE_MODEL",
-        &["deepseek-flash", "mimo-v2.6-pro", "gpt-6-luna"],
+        &[
+            "deepseek-flash",
+            "mimo-v2.6-pro",
+            "gpt-6-luna",
+            "longcat-2.5-preview",
+            "nemotron-3-super",
+            "qwen3.8-max",
+            "kimi-k3",
+            "glm-5.3",
+        ],
     );
     let protocol_only = selection("OPENBRIDGE_PROBE_PROTOCOL", &["chat", "responses"]);
     let case_only = selection("OPENBRIDGE_PROBE_CASE", &["text", "json_object", "tool"]);
@@ -1090,7 +1152,7 @@ async fn main() {
     // Free model-listing precheck: never spend a paid call on a wrong model id.
     for spec in &MODELS {
         if only.as_ref().is_some_and(|label| label != spec.label)
-            || only.is_none() && spec.provider == "openrouter"
+            || only.is_none() && !matches!(spec.provider, "deepseek" | "xiaomi")
         {
             continue;
         }
@@ -1151,7 +1213,10 @@ async fn main() {
             }
             let endpoint_id = match protocol {
                 ProtocolProfile::OpenAiChat => spec.chat_endpoint,
-                ProtocolProfile::OpenAiResponses => spec.responses_endpoint,
+                ProtocolProfile::OpenAiResponses => match spec.responses_endpoint {
+                    Some(id) => id,
+                    None => continue,
+                },
             };
             let endpoint = topology
                 .endpoint(&EndpointId::new(endpoint_id).expect("endpoint id"))

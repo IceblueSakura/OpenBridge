@@ -1,7 +1,7 @@
-//! Trusted text bindings for DeepSeek, Xiaomi MiMo and OpenRouter.
+//! Trusted text bindings for the fixed API-key Provider catalog.
 //! Each entry fixes its upstream model, wire adapter and credential ownership.
 //!
-//! Facts come from `docs/references/providers/{deepseek,xiaomi,openrouter}-api.md`. Model
+//! Facts come from the scoped sources in `docs/references/providers/`. Model
 //! capability is deliberately not widened here: the representation contract
 //! claims wire-level representability plus documented protocol limits
 //! (function strict is only guaranteed on DeepSeek `/beta`; custom tools and
@@ -60,12 +60,19 @@ fn endpoint(
     debug_assert!(ident_ok(id));
     let path = match protocol {
         ProtocolProfile::OpenAiChat => provider.chat_completions,
-        ProtocolProfile::OpenAiResponses => provider.responses,
+        ProtocolProfile::OpenAiResponses => {
+            provider.responses.expect("admitted native Responses entry")
+        }
     };
     let dialect = match provider.id.as_str() {
         "deepseek" => crate::adapter::Dialect::DeepSeek,
         "xiaomi" => crate::adapter::Dialect::Xiaomi,
         "openrouter" => crate::adapter::Dialect::OpenRouter,
+        "longcat" => crate::adapter::Dialect::LongCat,
+        "nvidia" => crate::adapter::Dialect::Nvidia,
+        "bailian" => crate::adapter::Dialect::Bailian,
+        "kimi" => crate::adapter::Dialect::Kimi,
+        "zhipu" => crate::adapter::Dialect::Zhipu,
         _ => unreachable!("fixed provider catalog"),
     };
     let family = match protocol {
@@ -238,19 +245,94 @@ pub fn gpt_6_luna() -> PublicModel {
     }
 }
 
+/// Fixed Chat-only onboarding bindings. Native Responses is not inferred from
+/// OpenAI compatibility; each public label has one trusted route member.
+pub struct ChatBinding {
+    pub provider: &'static str,
+    pub model: &'static str,
+    pub upstream: &'static str,
+    pub credential: &'static str,
+    pub variable: &'static str,
+}
+pub const CHAT_BINDINGS: &[ChatBinding] = &[
+    ChatBinding {
+        provider: "longcat",
+        model: "longcat-2.5-preview",
+        upstream: "LongCat-2.5-Preview",
+        credential: "longcat-api-key",
+        variable: "OPENBRIDGE_LONGCAT_API_KEY",
+    },
+    ChatBinding {
+        provider: "nvidia",
+        model: "nemotron-3-super",
+        upstream: "nvidia/nemotron-3-super-120b-a12b",
+        credential: "nvidia-api-key",
+        variable: "OPENBRIDGE_NVIDIA_API_KEY",
+    },
+    ChatBinding {
+        provider: "bailian",
+        model: "qwen3.8-max",
+        upstream: "qwen3.8-max",
+        credential: "bailian-api-key",
+        variable: "OPENBRIDGE_BAILIAN_API_KEY",
+    },
+    ChatBinding {
+        provider: "kimi",
+        model: "kimi-k3",
+        upstream: "kimi-k3",
+        credential: "kimi-api-key",
+        variable: "OPENBRIDGE_KIMI_API_KEY",
+    },
+    ChatBinding {
+        provider: "zhipu",
+        model: "glm-5.3",
+        upstream: "glm-5.3",
+        credential: "zhipu-api-key",
+        variable: "OPENBRIDGE_ZHIPU_API_KEY",
+    },
+];
+
 /// Compile the fixed default topology for the admitted slice.
 pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
-    compile(
-        catalog::all(),
-        [
-            deepseek_endpoints(),
-            xiaomi_endpoints(),
-            openrouter_endpoints(),
-        ]
-        .concat(),
-        vec![deepseek_route(), xiaomi_route(), openrouter_route()],
-        vec![deepseek_flash(), mimo_v2_6_pro(), gpt_6_luna()],
-    )
+    let providers = catalog::all();
+    let mut endpoints = [
+        deepseek_endpoints(),
+        xiaomi_endpoints(),
+        openrouter_endpoints(),
+    ]
+    .concat();
+    let mut routes = vec![deepseek_route(), xiaomi_route(), openrouter_route()];
+    let mut models = vec![deepseek_flash(), mimo_v2_6_pro(), gpt_6_luna()];
+    for binding in CHAT_BINDINGS {
+        let definition = providers
+            .iter()
+            .find(|p| p.id.as_str() == binding.provider)
+            .expect("fixed provider")
+            .clone();
+        let endpoint_id = format!("{}-chat", binding.provider);
+        let route_id =
+            RouteId::new(&format!("{}-generation", binding.provider)).expect("static identity");
+        endpoints.push(endpoint(
+            &endpoint_id,
+            definition,
+            ProtocolProfile::OpenAiChat,
+            binding.upstream,
+            binding.credential,
+            None,
+        ));
+        routes.push(Route {
+            id: route_id.clone(),
+            task: TaskKind::Generation,
+            endpoints: vec![EndpointId::new(&endpoint_id).expect("static identity")],
+        });
+        models.push(PublicModel {
+            id: ModelId::new(binding.model).expect("static identity"),
+            task: TaskKind::Generation,
+            route: route_id,
+            contract: wire_contract(None),
+        });
+    }
+    compile(providers, endpoints, routes, models)
 }
 
 #[cfg(test)]

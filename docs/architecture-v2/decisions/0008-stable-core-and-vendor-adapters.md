@@ -12,7 +12,7 @@ Generation remains Responses-first, not a lowest-common-denominator model. Task 
 
 ### Protocol families and adapters
 
-Chat and Responses supply shared syntax, structural validation and event grammar. Trusted adapter profiles separately declare standard, OpenBridge-client, DeepSeek, Xiaomi and OpenRouter wire rules. Business JSON cannot choose a dialect, origin or target. Client adapters decode requests and encode responses/events; Provider adapters encode requests and decode responses/events. Both reuse protocol implementations, without generic body hooks or a dynamic plugin framework.
+Chat and Responses supply shared syntax, structural validation and event grammar. Trusted adapter profiles separately declare standard, OpenBridge-client and fixed Provider wire rules; the [additional API-key profiles](../api-key-text-profiles.md) reuse the same boundary mechanisms. Business JSON cannot choose a dialect, origin or target. Client adapters decode requests and encode responses/events; Provider adapters encode requests and decode responses/events. Both reuse protocol implementations, without generic body hooks or a dynamic plugin framework.
 
 A target projection reads immutable final semantics and context, checks representability and produces wire through the selected adapter. Execution binds targets/authentication and coordinates I/O; it does not own field-by-field context conversion. A same-protocol path uses the same semantic authority as a cross-protocol path.
 

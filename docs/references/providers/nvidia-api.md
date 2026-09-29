@@ -1,6 +1,6 @@
 # NVIDIA API Catalog / NIM API 协议入口
 
-- Last reverified：外部来源最后复核 2026-08-08；2026-08-24 仅整理本地文档，未刷新外部来源。
+- Last reverified：2026-09-29 UTC；读取当前 NIM API Reference、选定模型官方页并核对托管目录。
 - Recheck trigger：API Catalog/NIM endpoint、认证或 hosted/self-hosted 边界变化。
 
 ## 来源与范围
@@ -24,4 +24,4 @@ OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/
 
 ## 证据边界
 
-本文未执行真实 NVIDIA 请求，不证明实际响应、错误分类、配额、streaming 或当前账户 entitlement。
+选定 [Nemotron 3 Super 官方页](https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b)声明 Chat 与工具能力；本轮固定绑定的实际 JSON/SSE、工具选择差异与未解决的失败见 [onboarding evidence](../../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)。该证据不能外推其他 NIM 部署、模型、配额或长期可用性。

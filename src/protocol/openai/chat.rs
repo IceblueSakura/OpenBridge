@@ -105,6 +105,25 @@ fn write_response_format(f: &OutputConstraint) -> Value {
         }
     }
 }
+/// Request-only text arrays preserve ordered part ownership; canonical single parts
+/// encode as strings. This does not admit response arrays or media placeholders.
+fn request_text_parts(value: &Value) -> Result<Vec<&str>, CodecError> {
+    match value {
+        Value::String(text) => Ok(vec![text]),
+        Value::Array(parts) if !parts.is_empty() => parts
+            .iter()
+            .map(|part| {
+                let part = object(part)?;
+                fields(part, &["type", "text"])?;
+                if string(part, "type")? != "text" {
+                    return Err(CodecError::Unsupported("message content part".into()));
+                }
+                string(part, "text")
+            })
+            .collect(),
+        _ => Err(CodecError::Invalid("content")),
+    }
+}
 pub(super) fn decode_message(
     b: &mut Items,
     m: &Map<String, Value>,
@@ -181,7 +200,19 @@ pub(super) fn decode_message(
             if m.contains_key("tool_calls") || m.contains_key("tool_call_id") {
                 return Err(CodecError::Invalid("instruction tool fields"));
             }
-            let part_id = b.part_id()?;
+            let mut parts = Vec::new();
+            for text in request_text_parts(m.get("content").ok_or(CodecError::Invalid("content"))?)?
+            {
+                parts.push((
+                    b.part_id()?,
+                    crate::semantic::value::Text::allowing_empty(
+                        text,
+                        "instruction",
+                        MAX_TEXT_BYTES,
+                    )
+                    .map_err(|_| CodecError::Limit)?,
+                ));
+            }
             b.items.push((
                 id,
                 Item::Instruction(Instruction {
@@ -190,15 +221,7 @@ pub(super) fn decode_message(
                     } else {
                         InstructionAuthority::Developer
                     },
-                    parts: vec![(
-                        part_id,
-                        crate::semantic::value::Text::allowing_empty(
-                            string(m, "content")?,
-                            "instruction",
-                            MAX_TEXT_BYTES,
-                        )
-                        .map_err(|_| CodecError::Limit)?,
-                    )],
+                    parts,
                     status: None,
                 }),
             ));
@@ -237,11 +260,15 @@ pub(super) fn decode_message(
                 (_, Some(_)) if calls.is_some() => {
                     return Err(CodecError::Invalid("refusal"));
                 }
-                (Some(Value::String(s)), Some(_)) if !s.is_empty() => {
+                (Some(value), Some(_)) if !value.is_null() && value != "" => {
                     return Err(CodecError::Invalid("refusal"));
                 }
                 (_, Some(refusal)) => vec![b.refusal(refusal)?],
                 (Some(Value::String(s)), None) => vec![b.part(s)?],
+                (Some(value @ Value::Array(_)), None) if replay => request_text_parts(value)?
+                    .into_iter()
+                    .map(|text| b.part(text))
+                    .collect::<Result<Vec<_>, _>>()?,
                 (None | Some(Value::Null), None) if role == "assistant" => Vec::new(),
                 _ => return Err(CodecError::Unsupported("message content".into())),
             };
@@ -293,7 +320,15 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     }
     let mut v = json!({"messages": messages});
     let o = v.as_object_mut().expect("object literal");
-    write_controls(target.semantic, o, "max_completion_tokens");
+    write_controls(
+        target.semantic,
+        o,
+        if target.adaptation.rules.legacy_max_tokens {
+            "max_tokens"
+        } else {
+            "max_completion_tokens"
+        },
+    );
     if let Some(p) = target.semantic.controls().top_p() {
         o.insert("top_p".into(), json!(p));
     }
@@ -342,7 +377,17 @@ pub(super) fn encode_items_with(
             }
             Item::Instruction(i) => {
                 standalone_calls = false;
-                messages.push(json!({"role":match i.authority { InstructionAuthority::System => "system", InstructionAuthority::Developer => "developer" },"content":i.parts[0].1.as_str()}));
+                let content = if i.parts.len() == 1 {
+                    json!(i.parts[0].1.as_str())
+                } else {
+                    json!(
+                        i.parts
+                            .iter()
+                            .map(|(_, t)| json!({"type":"text","text":t.as_str()}))
+                            .collect::<Vec<_>>()
+                    )
+                };
+                messages.push(json!({"role":match i.authority { InstructionAuthority::System => "system", InstructionAuthority::Developer => "developer" },"content":content}));
             }
             Item::Message(m) => {
                 standalone_calls = false;
@@ -364,7 +409,13 @@ pub(super) fn encode_items_with(
                         }
                         ContentPart::Resource(_) => unreachable!("lowering rejects media"),
                     },
-                    _ => unreachable!("lowering rejects multi-part chat text"),
+                    parts => {
+                        message["content"] =
+                            json!(parts.iter().map(|part| match &part.content {
+                        ContentPart::Text(text) => json!({"type":"text","text":text.as_str()}),
+                        _ => unreachable!("lowering rejects non-text request arrays"),
+                    }).collect::<Vec<_>>())
+                    }
                 }
                 messages.push(message);
             }

@@ -18,12 +18,12 @@
 | OpenAI ChatGPT（订阅/Codex） | [订阅 OAuth 登录路径与信息来源](openai-chatgpt-oauth.md) |
 | Zhipu AI China / Z.AI | [API](zhipu-api.md) |
 
-OpenBridge v2 尚无 Provider 注册。旧运行时的 Model、Provider Target 与 Public Model 关系见[固定归档映射](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不表示当前 v2 能力。
+OpenBridge v2 当前有固定 Provider/topology 与环境变量启动绑定，见[当前架构](../../architecture.md)和 [HTTP 指南](../../http-gateway.md)。旧运行时的 Model、Provider Target 与 Public Model 关系见[固定归档映射](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不表示当前 v2 能力。
 
 ## 内容边界
 
 - 本目录不保存 Provider 全量 Models 响应、模型能力表、context、modalities、tokenizer、reasoning levels、supported parameters、价格或原始模型元数据快照。
 - official website 或 OpenRouter 已公开的模型信息优先用来源 URL、来源身份、复核日期和触发条件标注，不在本地重新展开。
-- 模型能力以 `src/models/`、`src/providers/`、运行中的扩展 Models API 和 Provider 官方文档为准。
+- 当前可信绑定由 `src/topology/catalog.rs`、`src/provider/catalog.rs` 维护；模型事实还需对应官方来源与验收证据。v2 未提供 Models discovery API，旧目录和 API 不代表当前实现。
 - Provider reference 只保留协议、认证、endpoint、request/response wire、错误和独立专项观察；模型名称只在解释映射或具体 wire evidence 时出现。
 - 外部动态事实形成实现结论前必须重新核验；一次请求不证明其他账号、区域、模型、参数组合、负载或长期可用性。只有已执行测试与引用来源不一致时，才转入 implementation evidence 记录差异；official 与 OpenRouter 之间的静态目录差异不单独保存为测试结论。

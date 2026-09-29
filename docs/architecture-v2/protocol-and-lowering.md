@@ -13,7 +13,7 @@ decode(profile, task, wire) -> Decoded<TaskIR>
 encode(profile, task, representation) -> wire
 ```
 
-A codec knows wire shapes, field names, event grammar and profile-level presence rules. `adapter::Adapter` composes a protocol family with trusted `Adaptation` rules and scope; Standard, OpenBridge-client, DeepSeek, Xiaomi and OpenRouter are distinct contracts, not one global vendor superset. Standard fields have typed owners; extensions require a declared schema, attachment and scope. Known unsupported standard branches must not be relabeled arbitrary extensions. A codec does not access credentials, routes or provider selection.
+A codec knows wire shapes, field names, event grammar and profile-level presence rules. `adapter::Adapter` composes a protocol family with trusted `Adaptation` rules and scope; Standard, OpenBridge-client and the fixed Provider profiles (including the [additional API-key adapters](api-key-text-profiles.md)) are distinct contracts, not one global vendor superset. Standard fields have typed owners; extensions require a declared schema, attachment and scope. Known unsupported standard branches must not be relabeled arbitrary extensions. A codec does not access credentials, routes or provider selection.
 
 Raw Responses JSON enters through `envelope::decode_request_bytes` / `decode_response_bytes`; SSE data uses the same bounded, duplicate-rejecting parser before event decoding. Existing Value APIs validate envelope/task semantics, not the lost raw JSON representation. Caller-side body collection remains independently bounded. Exact admission and limits are in the [text profile](responses-text-profile.md#raw-json-admission).
 

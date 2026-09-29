@@ -20,7 +20,7 @@ Authenticated, bounded HTTP request
 | Owner | 当前责任 |
 |---|---|
 | `src/semantic/` | Generation ordered items、settings、usage、validation、requirements、reducer；`context.rs` 拥有标准 cache/execution hints、reported context 和 delivery intent，不依赖 protocol/provider/execution |
-| `src/adapter/` | 双向边界 facade；`Dialect` 将 Standard/OpenBridge/DeepSeek/Xiaomi/OpenRouter 组合为显式 wire rules；统一 request 表示与纯目标 context 投影，不访问网络/凭据/registry |
+| `src/adapter/` | 双向边界 facade；`Dialect` 将 Standard/OpenBridge 与固定 Provider profiles 组合为显式 wire rules；统一 request 表示与纯目标 context 投影，不访问网络/凭据/registry |
 | `src/protocol/` | 共用 Chat/Responses 语法、完整 envelope、event codecs、strict JSON/SSE adapter；`adaptation.rs` 执行可信规则，`fidelity.rs` 保管有界来源/依赖记录 |
 | `src/lowering/` | 对不可变最终语义检查固定目标可表示性，构造 codec 输入；不选择 Provider，不恢复删除值 |
 | `src/provider/` | 可信 origin/路径、认证材料边界、HTTP 错误分类；请求 Debug 不打印 auth 或 body |
@@ -45,7 +45,7 @@ OpenRouter 的 routing/billing facts 使用同样的有界来源/响应依赖机
 
 最小 HTTP body worker 等待每个输出 frame 被 body poll 交给 server transport 后才确认 commit；完成所有 handoff 后才 complete，不声称客户端已收到。独立绝对 deadline 在 body 不被消费时仍释放上游，drop/shutdown 同样取消。首帧前失败返回脱敏 JSON 错误；HTTP response 已交出后的错误中止 body，不能换状态或合成成功终态。具体入口、预算与启动合同见 [HTTP 网关指南](http-gateway.md)和 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)。
 
-当前仅执行每个入口预先固定的一个 Route 成员，不做自动 retry/fallback。`tests/transport/chain.rs` 验证 library execution；`tests/gateway.rs` 经过真实 Router 和 synthetic HTTP Provider；固定 SDK 同时保留 codec fixture gates 与经过同一 Gateway 的独立全链 gate。`examples/live_probe.rs` 仍是另需授权的库级诊断入口，旧 live 结果不证明新服务入口的外部兼容。
+当前仅执行每个入口预先固定的一个 Route 成员，不做自动 retry/fallback。Provider 的 native Responses 路径可缺省；topology 编译会拒绝为未声明协议创建 Endpoint。额外五家 API-key 绑定当前仅开放 Chat，不用虚构的 Responses 路径填充结构。`tests/transport/chain.rs` 验证 library execution；`tests/gateway.rs` 经过真实 Router 和 synthetic HTTP Provider；固定 SDK 同时保留 codec fixture gates 与经过同一 Gateway 的独立全链 gate。`examples/live_probe.rs` 仍是另需授权的库级诊断入口，旧 live 结果不证明新服务入口的外部兼容。
 
 ## 验证入口
 

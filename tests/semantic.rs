@@ -18,6 +18,8 @@ mod instructions;
 mod parsed_replay;
 #[path = "semantic/phase.rs"]
 mod phase;
+#[path = "semantic/provider_profiles.rs"]
+mod provider_profiles;
 #[path = "semantic/reasoning.rs"]
 mod reasoning;
 #[path = "semantic/reasoning_boundary.rs"]
