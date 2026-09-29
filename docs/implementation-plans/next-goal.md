@@ -8,10 +8,14 @@
 
 | 优先级 | 建议切片 | 退出条件 |
 |---|---|---|
-| 1 | 新 HTTP 入口的受控外部验收 | 选定现有正式绑定与客户端，明确账号、精确请求矩阵/预算/输出边界；请求实际经过 binary/Router，而非绕入口的库级 probe，覆盖工具续轮与可观察失败 |
-| 2 | 选定 Agent/缓存场景与必要文本投影 | 对具体客户端核对稳定前缀、Schema/工具顺序、replay scope 与派生 view；按场景补 Chat content_filter、service tier/metadata 等。若评价缓存效果，独立设计对照，不把 usage 默认零当计费事实 |
+| 1 | 新 HTTP 入口尚未覆盖的受控外部验收 | 选定现有正式绑定与客户端，明确账号、精确请求矩阵/预算/输出边界；请求实际经过 binary/Router，而非绕入口的库级 probe，覆盖工具续轮与可观察失败 |
+| 2 | 选定 Agent/缓存场景与必要文本投影 | 对具体客户端核对稳定前缀、Schema/工具顺序、replay scope 与派生 view；按场景补 Chat content_filter、service-tier 请求/metadata 等。若评价缓存效果，独立设计对照，不把 usage 默认零当计费事实 |
 | 3 | 与实际使用相称的运行保障 | 按已观察需求决定凭据生命周期、诊断、负载与失败策略；未选定前不预建动态 registry、通用插件或完整旧运行时 |
 | 4 | 扩展 Provider 与多模态 | 新 wire 差异改 adapter，真正的新能力演进共享 task/extension owner；同时验收 request/response/event 与资源边界 |
+
+[OpenRouter Luna 的 binary/SDK 证据](../implementation-status/evidence/2026-09-29-openrouter-luna-acceptance.md)已覆盖选定文本/工具正常路径；[reasoning 专项](../implementation-status/evidence/2026-09-29-reasoning-continuation-acceptance.md)还覆盖了该目标的两轮加密状态回放。后续优先选择尚未覆盖的真实失败路径、带实际加密状态的工具/更长续轮或具体 Agent/缓存场景，不把相同成功矩阵无限重复。
+
+后续更多仅支持 `reasoning_content` 的模型按可读 reasoning profile 验收：分别检查正文/推理归属、工具历史、JSON/SSE 与变换保真，不要求其生成密文，也不借用加密状态的来源约束。遇到独立签名或 opaque continuation 时再固定其格式和 owner 合同；不为尚未选定的模型预建通用透传。
 
 已有[库级 Flash 证据](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)不证明新 HTTP 接线，也不会自动改变正式模型绑定。真实调用与付费请求仍需独立授权；方向文档不授予账号、部署、提交或推送权限。
 

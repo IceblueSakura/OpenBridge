@@ -1,4 +1,4 @@
-//! Authorized live acceptance probe for the DeepSeek and Xiaomi MiMo provider slice.
+//! Explicit live acceptance probe for fixed provider bindings.
 //!
 //! Explicitly gated: refuses to run unless `OPENBRIDGE_PROBE=1`.
 //!
@@ -7,8 +7,10 @@
 //! Boundaries honored here:
 //! - credentials are read from the private local config at run time and used
 //!   in-process only for auth headers; nothing secret is logged or reported;
-//! - the agreed matrix is fixed: 2 models × chat/responses × {text, json_object,
-//!   tool} × {JSON, SSE}, tool cells continue one round with the tool output;
+//! - the matrix is chat/responses × {text, json_object, tool} × {JSON, SSE};
+//!   tools continue with actual response history, never reconstructed reasoning;
+//! - OpenRouter is opt-in with `OPENBRIDGE_PROBE_MODEL=gpt-6-luna`; optional
+//!   PROTOCOL/CASE/DELIVERY filters narrow calls; MAX_TOKENS is bounded at 2048;
 //! - one request per call, 120s timeout, 2s spacing, bounded `max_output_tokens`;
 //! - model ids are verified through the free Models listing before any paid call;
 //! - raw per-call reports go to the gitignored `testdata/runtime/` tree and hold
@@ -22,7 +24,7 @@ use openbridge::{
         chat_sse::ChatSseDecoder,
         sse::{Obfuscation, ResponsesSseDecoder, SseLimits},
     },
-    provider::{ErrorClass, ProviderDefinition, SecretMaterial, catalog as provider_catalog},
+    provider::{ErrorClass, ProviderDefinition, SecretMaterial},
     semantic::{
         context::StreamOptions,
         task::generation::{Completion, ContentPart, Item, Outcome, Usage},
@@ -36,6 +38,7 @@ use tokio::time::{Duration, sleep};
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 const CALL_INTERVAL: Duration = Duration::from_secs(2);
 const EXCERPT_CHARS: usize = 120;
+const CAPTURE_LIMIT: usize = 2 * 1024 * 1024;
 
 const TEXT_PROMPT: &str = "Reply with exactly the word pong.";
 const JSON_PROMPT: &str = "Return a JSON object with keys pong (boolean) and note (string).";
@@ -51,7 +54,7 @@ struct ModelSpec {
     responses_endpoint: &'static str,
 }
 
-const MODELS: [ModelSpec; 2] = [
+const MODELS: [ModelSpec; 3] = [
     ModelSpec {
         label: "deepseek-flash",
         pool: "deepseek-primary",
@@ -67,6 +70,14 @@ const MODELS: [ModelSpec; 2] = [
         models_path: "/v1/models",
         chat_endpoint: "xiaomi-chat",
         responses_endpoint: "xiaomi-responses",
+    },
+    ModelSpec {
+        label: "gpt-6-luna",
+        pool: "openrouter-primary",
+        provider: "openrouter",
+        models_path: "/api/v1/models",
+        chat_endpoint: "openrouter-chat",
+        responses_endpoint: "openrouter-responses",
     },
 ];
 
@@ -139,6 +150,7 @@ struct ToolCallInfo {
     call_id: String,
     name: String,
     arguments: String,
+    history: Vec<Value>,
 }
 
 struct Credentials {
@@ -162,7 +174,9 @@ struct CredentialPool {
 
 fn load_credentials(path: &str) -> Result<Credentials, String> {
     let raw = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-    let parsed: CredentialFile = toml::from_str(&raw).map_err(|e| format!("parse {path}: {e}"))?;
+    // TOML diagnostics may embed source lines containing credentials.
+    let parsed: CredentialFile =
+        toml::from_str(&raw).map_err(|_| "invalid credential configuration".to_string())?;
     let mut pools = BTreeMap::new();
     for pool in parsed.credential_pools {
         if let Some(key) = pool.api_keys.first() {
@@ -195,9 +209,7 @@ fn scenario_request(
             }})];
             if round == 2 {
                 let call = call.expect("round two carries a tool call");
-                messages.push(json!({"role":"assistant","content":null,"tool_calls":[
-                    {"id":call.call_id,"type":"function","function":{"name":call.name,"arguments":call.arguments}}
-                ]}));
+                messages.extend(call.history.clone());
                 messages
                     .push(json!({"role":"tool","tool_call_id":call.call_id,"content":TOOL_OUTPUT}));
             }
@@ -208,7 +220,7 @@ fn scenario_request(
             }
             if case == Case::Tool {
                 value["tools"] = json!([chat_tool()]);
-                value["tool_choice"] = json!("auto");
+                value["tool_choice"] = json!(if round == 1 { "required" } else { "none" });
             }
             value
         }
@@ -222,7 +234,7 @@ fn scenario_request(
                 vec![json!({"role":"user","content":[{"type":"input_text","text":prompt}]})];
             if round == 2 {
                 let call = call.expect("round two carries a tool call");
-                input.push(json!({"type":"function_call","call_id":call.call_id,"name":call.name,"arguments":call.arguments}));
+                input.extend(call.history.clone());
                 input.push(json!({"type":"function_call_output","call_id":call.call_id,"output":TOOL_OUTPUT}));
             }
             let mut value = json!({"model":label,"input":input,"max_output_tokens":case.cap()});
@@ -231,7 +243,7 @@ fn scenario_request(
             }
             if case == Case::Tool {
                 value["tools"] = json!([responses_tool()]);
-                value["tool_choice"] = json!("auto");
+                value["tool_choice"] = json!(if round == 1 { "required" } else { "none" });
             }
             value
         }
@@ -320,6 +332,16 @@ struct CallContext<'a> {
     case: Case,
 }
 
+fn write_capture(path: &str, body: &[u8], secret: &SecretMaterial) {
+    if body.len() <= CAPTURE_LIMIT
+        && !body
+            .windows(secret.expose().len())
+            .any(|w| w == secret.expose().as_bytes())
+    {
+        let _ = std::fs::write(path, body);
+    }
+}
+
 async fn run_call(
     client: &reqwest::Client,
     ctx: &CallContext<'_>,
@@ -358,7 +380,7 @@ async fn run_call(
                 report: &mut CallReport| {
         report.stage = stage.into();
         report.error_class = error_class;
-        report.error = error;
+        report.error = error.map(|e| e.replace(ctx.secret.expose(), "[redacted]"));
         report.latency_ms = started.elapsed().as_millis() as u64;
     };
 
@@ -431,7 +453,7 @@ async fn run_call(
         round
     );
     let _ = std::fs::create_dir_all(format!("{}/raw", ctx.out_dir));
-    let _ = std::fs::write(format!("{raw_stem}.req.json"), &upstream.body);
+    write_capture(&format!("{raw_stem}.req.json"), &upstream.body, ctx.secret);
 
     // 3. Transport attempt. The request carries no target, credential or profile.
     let mut call = client.post(format!("{}{}", upstream.origin, upstream.path));
@@ -473,6 +495,14 @@ async fn run_call(
         SseLimits::default(),
     );
     if let Err(error) = attempt.begin(report.http_status.unwrap_or(0), &content_type) {
+        let mut body = Vec::new();
+        while let Ok(Some(chunk)) = response.chunk().await {
+            if body.len() + chunk.len() > CAPTURE_LIMIT {
+                break;
+            }
+            body.extend_from_slice(&chunk);
+        }
+        write_capture(&format!("{raw_stem}.resp.txt"), &body, ctx.secret);
         fail(
             "response-head",
             error_class(&error).map(|c| format!("{c:?}")),
@@ -504,7 +534,7 @@ async fn run_call(
             } else {
                 ErrorClass::Upstream
             };
-            let _ = std::fs::write(format!("{raw_stem}.resp.txt"), &raw_body);
+            write_capture(&format!("{raw_stem}.resp.txt"), &raw_body, ctx.secret);
             fail(
                 "transport",
                 Some(format!("{class:?}")),
@@ -517,7 +547,7 @@ async fn run_call(
             };
         }
     } {
-        if raw_body.len().saturating_add(chunk.len()) > SseLimits::default().max_wire_bytes {
+        if raw_body.len().saturating_add(chunk.len()) > CAPTURE_LIMIT {
             intake_error = Some(AttemptError::Limit);
             break;
         }
@@ -530,7 +560,15 @@ async fn run_call(
                         rest = &rest[used..];
                         if matches!(ctx.delivery, Delivery::Stream) {
                             match delivery.encode_events(&attempt, &events) {
-                                Ok(frames) => rendered_stream.extend(frames.into_iter().flatten()),
+                                Ok(frames) => {
+                                    for frame in frames {
+                                        if rendered_stream.len() + frame.len() > CAPTURE_LIMIT {
+                                            intake_error = Some(AttemptError::Limit);
+                                            break;
+                                        }
+                                        rendered_stream.extend_from_slice(&frame);
+                                    }
+                                }
                                 Err(error) => {
                                     intake_error = Some(error);
                                     break;
@@ -548,7 +586,17 @@ async fn run_call(
         }
     }
 
-    let _ = std::fs::write(format!("{raw_stem}.resp.txt"), &raw_body);
+    if raw_body
+        .windows(ctx.secret.expose().len())
+        .any(|w| w == ctx.secret.expose().as_bytes())
+    {
+        fail("sensitive-body", None, None, &mut report);
+        return CallOutcome {
+            report,
+            tool_call: None,
+        };
+    }
+    write_capture(&format!("{raw_stem}.resp.txt"), &raw_body, ctx.secret);
     if let Some(error) = intake_error {
         fail(
             "intake",
@@ -578,7 +626,45 @@ async fn run_call(
             };
         }
     };
-    let (text, tool_call) = extract(&finished.semantic);
+    let (text, mut tool_call) = extract(&finished.semantic);
+    if let Some(call) = &mut tool_call
+        && let Ok(projection) =
+            client_adapter.encode_response(finished, &ctx.endpoint.representation)
+    {
+        call.history = if family == Profile::Chat {
+            vec![projection["choices"][0]["message"].clone()]
+        } else {
+            projection["output"].as_array().cloned().unwrap_or_default()
+        };
+    }
+    let scenario_ok = finished.semantic.outcome()
+        == if ctx.case == Case::Tool && round == 1 {
+            Outcome::Completed(Completion::ToolCalls)
+        } else {
+            Outcome::Completed(Completion::Stop)
+        }
+        && match ctx.case {
+            Case::Text => text.trim() == "pong",
+            Case::JsonObject => serde_json::from_str::<Value>(&text)
+                .ok()
+                .is_some_and(|v| v["pong"].is_boolean() && v["note"].is_string()),
+            Case::Tool if round == 1 => {
+                tool_call.as_ref().is_some_and(|c| {
+                    c.name == "lookup"
+                        && !c.history.is_empty()
+                        && serde_json::from_str::<Value>(&c.arguments)
+                            .ok()
+                            .is_some_and(|v| v["key"] == "alpha")
+                }) && finished
+                    .semantic
+                    .items()
+                    .iter()
+                    .filter(|(_, i)| matches!(i, Item::ToolCall(_)))
+                    .count()
+                    == 1
+            }
+            Case::Tool => tool_call.is_none() && text.contains("42"),
+        };
     report.outcome = Some(outcome_label(finished.semantic.outcome()));
     report.usage = finished.semantic.usage().map(|u| usage_value(&u));
     report.normalizations = finished
@@ -595,9 +681,14 @@ async fn run_call(
 
     let delivered = match ctx.delivery {
         Delivery::Json => delivery.encode_json(&attempt),
-        Delivery::Stream => delivery.finish_stream(&attempt).map(|frames| {
-            rendered_stream.extend(frames.into_iter().flatten());
-            rendered_stream
+        Delivery::Stream => delivery.finish_stream(&attempt).and_then(|frames| {
+            for frame in frames {
+                if rendered_stream.len() + frame.len() > CAPTURE_LIMIT {
+                    return Err(AttemptError::Limit);
+                }
+                rendered_stream.extend_from_slice(&frame);
+            }
+            Ok(rendered_stream)
         }),
     };
     let delivered = match delivered {
@@ -612,6 +703,10 @@ async fn run_call(
             return CallOutcome { report, tool_call };
         }
     };
+    if delivered.len() > CAPTURE_LIMIT {
+        fail("delivery-limit", None, None, &mut report);
+        return CallOutcome { report, tool_call };
+    }
     report.delivered_bytes = delivered.len();
 
     // 5. Client consumption of the delivered bytes through the same profile codec.
@@ -633,6 +728,15 @@ async fn run_call(
     }
     if let Err(error) = delivery.commit().and_then(|()| delivery.complete(&attempt)) {
         fail("delivery", None, Some(error.to_string()), &mut report);
+        return CallOutcome { report, tool_call };
+    }
+    if !scenario_ok {
+        fail(
+            "scenario",
+            None,
+            Some("decoded response did not meet the scenario oracle".into()),
+            &mut report,
+        );
         return CallOutcome { report, tool_call };
     }
     report.stage = "consumed".into();
@@ -660,6 +764,7 @@ fn extract(
                     call_id: tool.call_id.as_str().into(),
                     name: tool.name.as_str().into(),
                     arguments: tool.arguments.clone(),
+                    history: vec![],
                 });
             }
             _ => {}
@@ -737,10 +842,20 @@ async fn model_listing(
         .await
         .map_err(|e| e.to_string())?;
     let status = response.status().as_u16();
-    let body = response.bytes().await.map_err(|e| e.to_string())?;
     if status != 200 {
-        let excerpt: String = String::from_utf8_lossy(&body).chars().take(300).collect();
-        return Err(format!("HTTP {status}: {excerpt}"));
+        return Err(format!("HTTP {status}"));
+    }
+    let mut response = response;
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "model listing transport".to_string())?
+    {
+        if body.len() + chunk.len() > CAPTURE_LIMIT {
+            return Err("model listing limit".into());
+        }
+        body.extend_from_slice(&chunk);
     }
     let value: Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
     Ok(value["data"]
@@ -755,6 +870,10 @@ async fn model_listing(
 }
 
 fn report_dir() -> String {
+    let run = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis();
     let date = std::process::Command::new("date")
         .arg("+%F")
         .output()
@@ -763,15 +882,158 @@ fn report_dir() -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "undated".into());
-    format!("testdata/runtime/probe-{date}")
+    format!("testdata/runtime/probe-{date}-{run}-{}", std::process::id())
+}
+
+fn selection(name: &str, allowed: &[&str]) -> Option<String> {
+    std::env::var(name).ok().inspect(|value| {
+        if !allowed.contains(&value.as_str()) {
+            eprintln!("invalid probe selection");
+            std::process::exit(2);
+        }
+    })
+}
+
+/// Replay only the fixed synthetic matrix captures, without credentials or I/O to providers.
+fn replay_capture(dir: &str) -> Result<(), String> {
+    let topology = topology_catalog::default_topology().map_err(|e| e.to_string())?;
+    let mut failures = 0;
+    for (name, profile) in [("chat", Profile::Chat), ("responses", Profile::Responses)] {
+        let endpoint = topology
+            .endpoint(&EndpointId::new(&format!("openrouter-{name}")).unwrap())
+            .unwrap();
+        for case in CASES {
+            for delivery in [Delivery::Json, Delivery::Stream] {
+                let path = format!(
+                    "{dir}/raw/gpt-6-luna-{name}-{}-{}-r1.resp.txt",
+                    case.name(),
+                    delivery.name()
+                );
+                let result = (|| -> Result<(), String> {
+                    use std::io::Read;
+                    let mut bytes = vec![];
+                    std::fs::File::open(&path)
+                        .map_err(|_| "missing capture")?
+                        .take(CAPTURE_LIMIT as u64 + 1)
+                        .read_to_end(&mut bytes)
+                        .map_err(|_| "capture read")?;
+                    if bytes.len() > CAPTURE_LIMIT {
+                        return Err("capture limit".into());
+                    }
+                    let client = Adapter::new(
+                        profile,
+                        Dialect::OpenBridge,
+                        endpoint.representation.adaptation.scope.clone(),
+                    );
+                    let mut attempt =
+                        Attempt::new(endpoint.adapter(), CAPTURE_LIMIT, SseLimits::default());
+                    attempt
+                        .begin(
+                            200,
+                            if delivery == Delivery::Json {
+                                "application/json"
+                            } else {
+                                "text/event-stream"
+                            },
+                        )
+                        .map_err(|e| e.to_string())?;
+                    let mut output = ResponseDelivery::new(
+                        client.clone(),
+                        endpoint.representation.clone(),
+                        "gpt-6-luna",
+                        SseLimits::default(),
+                        chat_stream_options(),
+                        Obfuscation::Disabled,
+                    );
+                    let mut rest = bytes.as_slice();
+                    let mut wire = vec![];
+                    while !rest.is_empty() {
+                        let (used, events) = attempt.push(rest).map_err(|e| e.to_string())?;
+                        if used == 0 {
+                            return Err("no progress".into());
+                        }
+                        rest = &rest[used..];
+                        if delivery == Delivery::Stream {
+                            wire.extend(
+                                output
+                                    .encode_events(&attempt, &events)
+                                    .map_err(|e| e.to_string())?
+                                    .into_iter()
+                                    .flatten(),
+                            );
+                        }
+                        if wire.len() > CAPTURE_LIMIT {
+                            return Err("delivery limit".into());
+                        }
+                    }
+                    attempt.finish().map_err(|e| e.to_string())?;
+                    if delivery == Delivery::Json {
+                        wire = output.encode_json(&attempt).map_err(|e| e.to_string())?;
+                        client.decode_response(&wire).map_err(|e| e.to_string())?;
+                    } else {
+                        wire.extend(
+                            output
+                                .finish_stream(&attempt)
+                                .map_err(|e| e.to_string())?
+                                .into_iter()
+                                .flatten(),
+                        );
+                        if profile == Profile::Chat {
+                            consume_chat_stream(&wire)?;
+                        } else {
+                            consume_responses_stream(&wire)?;
+                        }
+                    }
+                    Ok(())
+                })();
+                if result.is_err() {
+                    failures += 1;
+                }
+                println!(
+                    "replay {name} {} {}: {}",
+                    case.name(),
+                    delivery.name(),
+                    result.err().unwrap_or_else(|| "consumed".into())
+                );
+            }
+        }
+    }
+    if failures > 0 {
+        Err(format!("{failures} replay failures"))
+    } else {
+        Ok(())
+    }
 }
 
 #[tokio::main]
 async fn main() {
+    if let Ok(dir) = std::env::var("OPENBRIDGE_PROBE_REPLAY_DIR") {
+        if let Err(error) = replay_capture(&dir) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if std::env::var("OPENBRIDGE_PROBE").as_deref() != Ok("1") {
         eprintln!("live probe is an explicit paid gate; set OPENBRIDGE_PROBE=1 to run");
         std::process::exit(2);
     }
+    let only = selection(
+        "OPENBRIDGE_PROBE_MODEL",
+        &["deepseek-flash", "mimo-v2.6-pro", "gpt-6-luna"],
+    );
+    let protocol_only = selection("OPENBRIDGE_PROBE_PROTOCOL", &["chat", "responses"]);
+    let case_only = selection("OPENBRIDGE_PROBE_CASE", &["text", "json_object", "tool"]);
+    let delivery_only = selection("OPENBRIDGE_PROBE_DELIVERY", &["json", "sse"]);
+    let cap = std::env::var("OPENBRIDGE_PROBE_MAX_TOKENS").ok().map(|s| {
+        s.parse::<u64>()
+            .ok()
+            .filter(|n| (1..=2048).contains(n))
+            .unwrap_or_else(|| {
+                eprintln!("probe token cap must be 1..=2048");
+                std::process::exit(2)
+            })
+    });
     let credentials_path = std::env::var("OPENBRIDGE_CREDENTIALS")
         .unwrap_or_else(|_| "config/upstream-credentials.toml".into());
     let credentials = match load_credentials(&credentials_path) {
@@ -795,7 +1057,10 @@ async fn main() {
     // build their own `no_proxy` clients and are unaffected.
     let mut client_builder = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(30))
-        .timeout(CALL_TIMEOUT);
+        .timeout(CALL_TIMEOUT)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never());
     for variable in [
         "https_proxy",
         "HTTPS_PROXY",
@@ -824,10 +1089,12 @@ async fn main() {
 
     // Free model-listing precheck: never spend a paid call on a wrong model id.
     for spec in &MODELS {
-        let definition = match spec.provider {
-            "deepseek" => provider_catalog::deepseek(),
-            _ => provider_catalog::xiaomi(),
-        };
+        if only.as_ref().is_some_and(|label| label != spec.label)
+            || only.is_none() && spec.provider == "openrouter"
+        {
+            continue;
+        }
+        let definition = topology.provider(spec.provider).expect("fixed provider");
         let secret = secret_for(spec.pool);
         match model_listing(
             &client,
@@ -838,17 +1105,15 @@ async fn main() {
         .await
         {
             Ok(ids) => {
-                let found = ids.iter().any(|id| id == spec.label);
-                let mut shown = ids.clone();
-                shown.truncate(24);
+                let endpoint = topology
+                    .endpoint(&EndpointId::new(spec.chat_endpoint).expect("id"))
+                    .expect("endpoint");
+                let found = ids.iter().any(|id| id == &endpoint.upstream_model);
                 let _ = writeln!(
                     precheck,
-                    "- {} (`{}`): listing ok ({} ids), exact id {} — ids: {:?}",
+                    "- {}: exact upstream model {}",
                     spec.label,
-                    spec.models_path,
-                    ids.len(),
-                    if found { "found" } else { "MISSING" },
-                    shown
+                    if found { "found" } else { "MISSING" }
                 );
                 if found {
                     eligible.push(spec);
@@ -864,23 +1129,26 @@ async fn main() {
         }
     }
 
-    // Agreed matrix: 2 models × 2 protocols × 3 cases × 2 deliveries.
-    // `OPENBRIDGE_PROBE_MODEL=<label>` narrows paid calls to one model.
-    let only = std::env::var("OPENBRIDGE_PROBE_MODEL").ok();
+    // Filters only narrow this fixed matrix; no automatic retries or extra models.
     for spec in &eligible {
         if only.as_ref().is_some_and(|label| label != spec.label) {
             continue;
         }
-        let definition = match spec.provider {
-            "deepseek" => provider_catalog::deepseek(),
-            _ => provider_catalog::xiaomi(),
-        };
+        let definition = topology.provider(spec.provider).expect("fixed provider");
         let secret = secret_for(spec.pool);
         let public = topology.model(spec.label).expect("public model binding");
         for protocol in [
             ProtocolProfile::OpenAiChat,
             ProtocolProfile::OpenAiResponses,
         ] {
+            let protocol_name = if protocol == ProtocolProfile::OpenAiChat {
+                "chat"
+            } else {
+                "responses"
+            };
+            if protocol_only.as_deref().is_some_and(|s| s != protocol_name) {
+                continue;
+            }
             let endpoint_id = match protocol {
                 ProtocolProfile::OpenAiChat => spec.chat_endpoint,
                 ProtocolProfile::OpenAiResponses => spec.responses_endpoint,
@@ -889,12 +1157,21 @@ async fn main() {
                 .endpoint(&EndpointId::new(endpoint_id).expect("endpoint id"))
                 .expect("compiled endpoint");
             for case in CASES {
+                if case_only.as_deref().is_some_and(|s| s != case.name()) {
+                    continue;
+                }
                 for delivery in [Delivery::Json, Delivery::Stream] {
+                    if delivery_only
+                        .as_deref()
+                        .is_some_and(|s| s != delivery.name())
+                    {
+                        continue;
+                    }
                     let ctx = CallContext {
                         out_dir: &out_dir,
                         label: spec.label,
                         provider_name: spec.provider,
-                        provider_def: &definition,
+                        provider_def: definition,
                         secret: &secret,
                         endpoint,
                         public,
@@ -902,16 +1179,40 @@ async fn main() {
                         delivery,
                         case,
                     };
-                    let request = scenario_request(protocol, spec.label, case, delivery, 1, None);
+                    let mut request =
+                        scenario_request(protocol, spec.label, case, delivery, 1, None);
+                    if let Some(cap) = cap {
+                        request[if protocol == ProtocolProfile::OpenAiChat {
+                            "max_completion_tokens"
+                        } else {
+                            "max_output_tokens"
+                        }] = json!(cap);
+                    }
                     let first = run_call(&client, &ctx, request, 1).await;
                     let mut tool_call = first.tool_call.clone();
+                    let first_ok = first.report.ok;
+                    println!(
+                        "{} {} {} r1: {}",
+                        protocol_name,
+                        case.name(),
+                        delivery.name(),
+                        first.report.stage
+                    );
                     reports.push(first.report);
-                    if case == Case::Tool
+                    if first_ok
+                        && case == Case::Tool
                         && let Some(call) = tool_call.take()
                     {
                         sleep(CALL_INTERVAL).await;
-                        let request =
+                        let mut request =
                             scenario_request(protocol, spec.label, case, delivery, 2, Some(&call));
+                        if let Some(cap) = cap {
+                            request[if protocol == ProtocolProfile::OpenAiChat {
+                                "max_completion_tokens"
+                            } else {
+                                "max_output_tokens"
+                            }] = json!(cap);
+                        }
                         let second = run_call(&client, &ctx, request, 2).await;
                         reports.push(second.report);
                     }
@@ -985,4 +1286,69 @@ async fn main() {
     std::fs::write(format!("{out_dir}/summary.md"), &summary).expect("write summary");
     println!("{summary}");
     println!("reports written to {out_dir}/ (gitignored)");
+    if reports.is_empty() || reports.iter().any(|r| !r.ok) {
+        std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn continuation_uses_actual_reasoning_and_call_history() {
+        for protocol in [
+            ProtocolProfile::OpenAiChat,
+            ProtocolProfile::OpenAiResponses,
+        ] {
+            let history = if protocol == ProtocolProfile::OpenAiChat {
+                vec![
+                    json!({"role":"assistant","content":null,"reasoning_details":[{"type":"reasoning.encrypted","data":"synthetic","id":"rs","index":0,"format":"openai-responses-v1"}],"tool_calls":[{"type":"function","id":"c","function":{"name":"lookup","arguments":"{\"key\":\"alpha\"}"}}]}),
+                ]
+            } else {
+                vec![
+                    json!({"type":"reasoning","id":"rs","summary":[],"encrypted_content":"synthetic"}),
+                    json!({"type":"function_call","call_id":"c","name":"lookup","arguments":"{\"key\":\"alpha\"}"}),
+                ]
+            };
+            let call = ToolCallInfo {
+                call_id: "c".into(),
+                name: "lookup".into(),
+                arguments: "{\"key\":\"alpha\"}".into(),
+                history: history.clone(),
+            };
+            let request =
+                scenario_request(protocol, "m", Case::Tool, Delivery::Json, 2, Some(&call));
+            let key = if protocol == ProtocolProfile::OpenAiChat {
+                "messages"
+            } else {
+                "input"
+            };
+            assert_eq!(
+                &request[key].as_array().unwrap()[1..1 + history.len()],
+                history.as_slice()
+            );
+            assert_eq!(request["tool_choice"], "none");
+        }
+    }
+    #[test]
+    fn credential_parse_errors_never_include_source_lines() {
+        let path = std::env::temp_dir().join(format!(
+            "openbridge-synthetic-invalid-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        struct Remove(std::path::PathBuf);
+        impl Drop for Remove {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = Remove(path.clone());
+        std::fs::write(&path, "api_keys = [\"synthetic-must-not-appear\" invalid").unwrap();
+        let error = load_credentials(path.to_str().unwrap()).err().unwrap();
+        assert_eq!(error, "invalid credential configuration");
+    }
 }

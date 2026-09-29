@@ -15,9 +15,12 @@ pub struct EventDecoder {
     sequence: Option<u64>,
     events: usize,
     pub(super) chat_pending: Option<(StreamTerminal, TerminalDetails)>,
+    pub(super) chat_finish_reason: Option<String>,
+    chat_extras: super::super::adapter_shapes::Extras,
     pub(super) chat_owner: Option<ItemId>,
     pub(super) chat_calls: Vec<ItemId>,
     pub(super) chat_reasoning: Option<ItemId>,
+    pub(super) chat_replay: Option<ReasoningReplay>,
     pub(super) chat_pending_part: Option<PartKind>,
 }
 impl EventDecoder {
@@ -35,11 +38,17 @@ impl EventDecoder {
             sequence: None,
             events: 0,
             chat_pending: None,
+            chat_finish_reason: None,
+            chat_extras: Default::default(),
             chat_owner: None,
             chat_calls: vec![],
             chat_reasoning: None,
+            chat_replay: None,
             chat_pending_part: None,
         }
+    }
+    pub(crate) fn permits_responses_done(&self) -> bool {
+        self.profile == Profile::Responses && self.adaptation.rules.responses_done_marker
     }
     pub(crate) fn profile(&self) -> Profile {
         self.profile
@@ -65,7 +74,31 @@ impl EventDecoder {
                 return Err(CodecError::Limit);
             }
             bounded(payload)?;
-            let o = object(payload)?;
+            let (normalized, extras) = if self.profile == Profile::Responses {
+                if let Some(snapshot) = payload.get("response")
+                    && self.adaptation.rules.routing_extras
+                {
+                    let (snapshot, extras) = super::super::adapter_shapes::decode(
+                        snapshot,
+                        self.profile,
+                        &self.adaptation,
+                    )?;
+                    let mut mapped = payload.clone();
+                    mapped["response"] = snapshot.into_owned();
+                    (std::borrow::Cow::Owned(mapped), extras)
+                } else if self.adaptation.rules.responses_reasoning_format
+                    && payload.get("item").is_some()
+                {
+                    let mut mapped = payload.clone();
+                    super::super::adapter_shapes::reasoning_marker(&mut mapped["item"])?;
+                    (std::borrow::Cow::Owned(mapped), Default::default())
+                } else {
+                    (std::borrow::Cow::Borrowed(payload), Default::default())
+                }
+            } else {
+                super::super::adapter_shapes::decode(payload, self.profile, &self.adaptation)?
+            };
+            let o = object(&normalized)?;
             if self.profile == Profile::Chat {
                 self.adaptation.validate_response(self.profile, o)?;
             }
@@ -83,11 +116,36 @@ impl EventDecoder {
                 }
                 self.sequence = Some(n);
             }
-            if self.profile == Profile::Responses {
-                self.responses(o)
+            let events = if self.profile == Profile::Responses {
+                self.responses(o)?
             } else {
-                self.chat(o)
+                self.chat(o)?
+            };
+            if self.profile == Profile::Chat && self.chat_pending.is_some() {
+                self.chat_extras.extend(extras);
+                super::super::adapter_shapes::check_budget(&self.chat_extras)?;
+            } else if self.profile == Profile::Responses
+                && !extras.is_empty()
+                && self
+                    .state()?
+                    .terminal()
+                    .is_some_and(|t| t != StreamTerminal::Error)
+            {
+                let semantic = materialize(self.state()?)?;
+                let id = &self
+                    .metadata
+                    .as_ref()
+                    .ok_or(CodecError::Invalid("metadata"))?
+                    .id;
+                self.fidelity.capture_routing_extras(
+                    self.profile,
+                    &self.adaptation,
+                    extras,
+                    &semantic,
+                    id,
+                )?;
             }
+            Ok(events)
         })();
         if result.is_err() {
             self.poisoned = true;
@@ -121,9 +179,30 @@ impl EventDecoder {
             self.poisoned = true;
             return Err(CodecError::Invalid("DONE before finish"));
         };
-        let mut out = vec![];
-        self.emit(StreamEvent::Terminal { terminal, details }, &mut out)?;
-        Ok(out)
+        let result = (|| {
+            let mut out = vec![];
+            self.emit(StreamEvent::Terminal { terminal, details }, &mut out)?;
+            if !self.chat_extras.is_empty() {
+                let semantic = materialize(self.state()?)?;
+                let id = &self
+                    .metadata
+                    .as_ref()
+                    .ok_or(CodecError::Invalid("metadata"))?
+                    .id;
+                self.fidelity.capture_routing_extras(
+                    self.profile,
+                    &self.adaptation,
+                    std::mem::take(&mut self.chat_extras),
+                    &semantic,
+                    id,
+                )?;
+            }
+            Ok(out)
+        })();
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
     }
     pub fn materialize(&self) -> Result<super::super::DecodedResponse, CodecError> {
         self.finish()?;
@@ -198,6 +277,14 @@ impl EventDecoder {
                     return Err(CodecError::Invalid("metadata changed"));
                 }
                 m.created = old.created.clone();
+            }
+            if self.profile == Profile::Chat && !old.context.execution.service_tier.is_absent() {
+                if !m.context.execution.service_tier.is_absent()
+                    && old.context.execution.service_tier != m.context.execution.service_tier
+                {
+                    return Err(CodecError::Invalid("service tier changed"));
+                }
+                m.context.execution.service_tier = old.context.execution.service_tier.clone();
             }
             if !old.context.system_fingerprint.is_absent() {
                 if !m.context.system_fingerprint.is_absent()
@@ -715,9 +802,15 @@ impl EventDecoder {
                 "arguments",
                 "input",
                 "logprobs",
+                "name",
             ],
         )?;
         let (item, part, kind) = self.value_identity(o, true, out)?;
+        if let Some(name) = o.get("name")
+            && !matches!(&self.state()?.item(item)?.kind, ItemKind::ToolCall{name:expected,..} if kind==PartKind::Arguments && name.as_str()==Some(expected.as_str()))
+        {
+            return Err(CodecError::Invalid("function name echo"));
+        }
         let key = match kind {
             PartKind::Arguments => "arguments",
             PartKind::CustomInput => "input",

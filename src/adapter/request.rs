@@ -127,7 +127,7 @@ impl Adapter {
             self.protocol,
             self.contract(contract),
         )?;
-        Ok(match self.protocol {
+        let mut value = match self.protocol {
             Profile::Chat => {
                 let mut options = request.delivery.options.clone();
                 // Cross-protocol delivery still needs actual upstream usage; request
@@ -173,6 +173,24 @@ impl Adapter {
                     },
                 )?
             }
-        })
+        };
+        if self.protocol == Profile::Chat
+            && self.adaptation.rules.reasoning_alias
+            && let Some(messages) = value.get_mut("messages").and_then(Value::as_array_mut)
+        {
+            for message in messages {
+                openai::adapter_shapes::encode_message(message);
+            }
+        }
+        if self.adaptation.rules.require_parameters {
+            // Fixed adapter policy, not a user-controlled routing extension.
+            value["provider"] = serde_json::json!({"require_parameters": true});
+        }
+        crate::semantic::value::json_size(
+            &value,
+            crate::semantic::task::generation::MAX_TOTAL_BYTES,
+        )
+        .map_err(|_| CodecError::Limit)?;
+        Ok(value)
     }
 }

@@ -1,6 +1,6 @@
 # OpenRouter API 调研
 
-- Last reverified：2026-08-30；本次只复核 OpenRouter 官方 Responses、routing、server tools、plugins 和 router metadata 页面；未发送 API 请求。2026-08-27 的模型接入实测边界保持不变。
+- Last reverified：2026-09-29；本轮文档复核读取公共 Models/选定模型 endpoints GET、Chat reference、API overview、streaming 与 Responses basic/reasoning 文档；文档复核本身未使用认证或推理。随后独立执行的 Luna 真实验收见下文证据入口。routing/server tools/plugins/router metadata 的既有结论仍按 2026-08-30 复核解释，2026-08-27 的实测边界保持不变。
 - Recheck trigger：Responses beta、Provider routing、server tool/plugin contract、router metadata、Models/endpoint schema 或数据政策变化。
 
 ## 来源与范围
@@ -46,9 +46,23 @@ Models 目录、用户过滤视图和单模型 endpoint 列表是不同资源；
 
 `X-OpenRouter-Metadata: enabled` 可请求返回 `openrouter_metadata`。官方页面称其可记录候选、尝试、fallback 和实际运行的 pipeline stage，包括 plugin、server tools、response healing 与 context compression；streaming 时出现在终端事件或 `[DONE]` 前的最终 chunk。该 metadata 是 opt-in、可追加字段的调试面，cache replay 会剥离它，部分 edge/500 错误也不会携带，因此不能作为业务语义或完整审计日志。
 
+## v2 文本接入依据
+
+2026-09-29 的 [公共目录](https://openrouter.ai/api/v1/models)与 [GPT-6 Luna endpoints](https://openrouter.ai/api/v1/models/openai/gpt-6-luna/endpoints)确认精确 ID `openai/gpt-6-luna`；不把 Pro、batch 或 latest alias 混为同一绑定。动态目录仅用于本次选择和准入依据，不复制价格、可用率或完整模型/endpoint 清单，也不证明账户调用可用。
+
+本轮补充来源：[API overview](https://openrouter.ai/docs/api_reference/overview)、[streaming](https://openrouter.ai/docs/api_reference/streaming)、[Responses basic usage](https://openrouter.ai/docs/api_reference/responses/basic-usage)、[Responses reasoning](https://openrouter.ai/docs/api_reference/responses/reasoning)。均为官方动态文档，未提供固定协议版本；这里只归纳协议事实，不复制外部实现或测试资产，fixtures 为独立 synthetic 数据。
+
+- overview 文档给出 Chat `native_finish_reason`、费用/BYOK breakdown 和标准 token usage；streaming 文档明确 usage tail 可以用 content-free choice 重复前一 `finish_reason`，并非标准 OpenAI 的 `choices: []`。
+- Responses basic 的静态示例符合常见完整消息形式，但流式示例有省略 `sequence_number`/`output`、`response.done` 等形式；同站 streaming 页面则描述 `response.completed`。这是文档间差异，不是新模型 live 观察，不能据此放宽结构性必填或合成成功。
+- wire capability、模型参数目录与真实 backend 支持分开；`require_parameters=true` 不等于固定 backend、禁用 fallback 或证明参数执行效果。
+
+当前实现合同与具体未映射分支见 [OpenRouter text adapter](../../architecture-v2/openrouter-text-profile.md)，源码绑定见 [topology catalog](../../../src/topology/catalog.rs)。离线测试不会刷新下方历史实测结论。
+
 ## 固定 wire 观察
 
 2026-08-02 的一次 Responses streaming 请求得到 data-only SSE：终态 JSON 顶层 `type` 为 `response.completed`，嵌套 `response.status` 为 `completed`，随后另有 `[DONE]`。该结果只证明当时账户、模型、网络和 payload，不证明其他 endpoint、模型或未来版本。
+
+2026-09-29 对 `openai/gpt-6-luna` 的 JSON/SSE、reasoning/usage 差异、普通工具续轮以及固定 SDK → 实际 binary 的观察见 [Luna 验收](../../implementation-status/evidence/2026-09-29-openrouter-luna-acceptance.md)。已执行的 wire 差异与真实加密 token 续轮尚未覆盖的边界分别记录，不将简单成功提升为完整兼容。
 
 2026-08-27 对 `z-ai/glm-5.3-flash` 的 Chat/Responses、image、tool、structured output 与 Hermes 接入观察见[带日期证据记录](../../implementation-status/evidence/2026-08-27-openrouter-glm-5-3-flash-integration.md)；本文不复制模型级结果或当前代码结论。
 

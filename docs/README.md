@@ -10,6 +10,7 @@
 | [实施基线与差距](architecture-v2/migration.md) | Generation 分层完成度、已复现正确性缺口、未映射能力与暂缓边界；当前状态的唯一汇总 |
 | [Responses text profile](architecture-v2/responses-text-profile.md) | 当前 Responses 纯文本准入与字段归属 |
 | [Chat text profile](architecture-v2/chat-text-profile.md) | 单候选 Chat envelope/SSE 准入与双协议验证边界 |
+| [OpenRouter text adapter](architecture-v2/openrouter-text-profile.md) | 固定 GPT-6 Luna 接入、厂商 wire 映射、来源保真及未映射边界 |
 | [Schema profile](architecture-v2/schema-profile.md) | Schema 结构、strict/default 模式、本地引用与独立资源预算 |
 | [当前焦点](implementation-plans/current-focus.md) | 已选定行为切片的范围与验收条件；无进行中切片时保持空，不把建议变成授权 |
 | [下一步目标](implementation-plans/next-goal.md) | 推进顺序、推荐切片与进入下一阶段的门槛，不重复能力清单或完成日志 |

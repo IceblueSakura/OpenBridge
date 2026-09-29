@@ -32,8 +32,19 @@ pub fn xiaomi() -> ProviderDefinition {
     }
 }
 
+/// OpenRouter aggregator entries (`docs/references/providers/openrouter-api.md`).
+pub fn openrouter() -> ProviderDefinition {
+    ProviderDefinition {
+        id: ProviderId::new("openrouter").expect("static identity"),
+        origin: TrustedOrigin::parse("https://openrouter.ai").expect("static origin"),
+        chat_completions: EndpointPath::new("/api/v1/chat/completions").expect("static path"),
+        responses: EndpointPath::new("/api/v1/responses").expect("static path"),
+        auth: AuthScheme::Bearer,
+    }
+}
+
 pub fn all() -> Vec<ProviderDefinition> {
-    vec![deepseek(), xiaomi()]
+    vec![deepseek(), xiaomi(), openrouter()]
 }
 
 #[cfg(test)]
@@ -56,6 +67,6 @@ mod tests {
         assert_eq!(xiaomi.responses.as_str(), "/v1/responses");
         assert_eq!(xiaomi.auth, AuthScheme::Bearer);
 
-        assert_eq!(all().len(), 2);
+        assert_eq!(all().len(), 3);
     }
 }

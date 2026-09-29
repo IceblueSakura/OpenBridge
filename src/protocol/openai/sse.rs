@@ -79,6 +79,7 @@ pub struct ResponsesSseDecoder {
     wire_bytes: usize,
     events: usize,
     obfuscation_bytes: usize,
+    done_marker: bool,
     closed: bool,
     rejected: bool,
 }
@@ -102,6 +103,7 @@ impl ResponsesSseDecoder {
             wire_bytes: 0,
             events: 0,
             obfuscation_bytes: 0,
+            done_marker: false,
             closed: false,
             rejected: false,
         })
@@ -145,11 +147,27 @@ impl ResponsesSseDecoder {
         result
     }
     fn frame(&mut self, frame: SseEvent) -> Result<Vec<StreamEvent>, SseError> {
+        if self.done_marker {
+            return Err(SseError::Closed);
+        }
         self.events += 1;
         if self.events > self.limits.max_events {
             return Err(SseError::Limit);
         }
         if frame.data().is_empty() {
+            return Ok(vec![]);
+        }
+        if frame.data() == "[DONE]" && self.codec.permits_responses_done() {
+            if frame
+                .event()
+                .is_some_and(|e| !e.is_empty() && e != "message")
+            {
+                return Err(SseError::EventType);
+            }
+            // Optional transport trailer only: it can never replace or create
+            // the already validated semantic terminal.
+            self.codec.finish()?;
+            self.done_marker = true;
             return Ok(vec![]);
         }
         let mut payload = super::json::decode(frame.data().as_bytes())?;

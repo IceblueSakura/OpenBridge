@@ -17,6 +17,8 @@
 
 | 日期 | 记录 | 覆盖范围 |
 |---|---|---|
+| 2026-09-29 | [Reasoning ownership 与加密续轮专项](2026-09-29-reasoning-continuation-acceptance.md) | 实际密文获取、SDK 序列化保真与同目标双协议 JSON/SSE 续轮；独立保护可读-only、partial/final 和 owner/response 生命周期 |
+| 2026-09-29 | [OpenRouter GPT-6 Luna adapter 与 binary/SDK 验收](2026-09-29-openrouter-luna-acceptance.md) | 固定 Luna 双协议 JSON/SSE、真实 wire 差异修复、工具续轮及 SDK → 临时 binary → OpenRouter；区分普通续轮与未覆盖的真实加密 token 续轮 |
 | 2026-09-29 | [Flash Provider adapter 重构后真实验收](2026-09-29-flash-provider-adapter-acceptance.md) | `2e18ba4` 上 DeepSeek Flash / MiMo Flash 的双协议 JSON/SSE、单/双工具续轮与 JSON 参数对照；区分 codec 消费、输出格式异常和中断证据边界 |
 | 2026-09-28 | [DeepSeek / Xiaomi MiMo Provider 接入与双协议真实矩阵](2026-09-28-deepseek-xiaomi-provider-live-matrix.md) | 前一执行链在 DeepSeek Flash / MiMo Pro 上的分阶段拒绝与适配后验收；不替代新 adapter 或 MiMo Flash 证据 |
 | 2026-09-16 | [Bailian GLM-5.3 接入前能力探测](2026-09-16-bailian-glm-5-3-capability-probe.md) | 固定 case 的 Chat/Responses 支撑面与工具/structured 行为；Chat-only 接入与能力收窄依据 |

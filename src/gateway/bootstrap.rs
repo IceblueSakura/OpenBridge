@@ -48,6 +48,12 @@ impl Bootstrap {
                 "mimo-v2.6-pro",
                 "xiaomi",
             ),
+            (
+                "OPENBRIDGE_OPENROUTER_API_KEY",
+                "openrouter-api-key",
+                "gpt-6-luna",
+                "openrouter",
+            ),
         ] {
             if let Some(key) = get(variable)? {
                 credentials.insert(
@@ -81,6 +87,42 @@ impl Bootstrap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn openrouter_key_enables_only_its_fixed_model_and_rejects_empty_credentials() {
+        let settings = |name: &str| {
+            Ok(match name {
+                "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
+                "OPENBRIDGE_OPENROUTER_API_KEY" => Some("synthetic-openrouter-only".into()),
+                _ => None,
+            })
+        };
+        let boot = Bootstrap::from_lookup(settings).unwrap();
+        for profile in [Profile::Chat, Profile::Responses] {
+            let entry =
+                &boot.gateway.state.entries[&(super::super::family(profile), "gpt-6-luna".into())];
+            assert_eq!(entry.endpoint.upstream_model, "openai/gpt-6-luna");
+            assert_eq!(entry.provider.origin.as_str(), "https://openrouter.ai");
+            assert_eq!(entry.endpoint.credential.as_str(), "openrouter-api-key");
+        }
+        assert!(
+            boot.gateway
+                .state
+                .entries
+                .keys()
+                .all(|(_, model)| model == "gpt-6-luna")
+        );
+        assert!(matches!(
+            Bootstrap::from_lookup(|name| {
+                if name == "OPENBRIDGE_OPENROUTER_API_KEY" {
+                    Ok(Some(String::new()))
+                } else {
+                    settings(name)
+                }
+            }),
+            Err(StartupError::Credentials)
+        ));
+    }
+
     #[test]
     fn bootstrap_is_loopback_and_requires_explicit_auth_and_provider_keys() {
         let settings = |name: &str| {

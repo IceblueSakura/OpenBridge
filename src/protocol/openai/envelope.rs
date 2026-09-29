@@ -327,6 +327,11 @@ pub(crate) fn write_response_extras(
                 .map(|(name, value)| (name.clone(), value.clone())),
         );
     }
+    if let Some(extras) =
+        fidelity.projected_routing_extras(profile, adaptation, semantic, response_id)
+    {
+        super::adapter_shapes::write_extras(o, extras);
+    }
 }
 /// Structural snapshot validation (ADR 0008): reported facts are presence-preserving
 /// and typed by the task codec; this layer keeps the structural requirements.

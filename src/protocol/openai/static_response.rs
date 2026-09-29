@@ -30,6 +30,7 @@ pub(super) fn metadata(
     } else {
         (
             crate::semantic::context::ResponseContext {
+                execution: crate::semantic::context::ExecutionHints::read(o)?,
                 system_fingerprint: read_presence(o, "system_fingerprint", |v| {
                     v.as_str()
                         .map(str::to_owned)
@@ -208,8 +209,8 @@ pub(crate) fn decode_chat_with(
     v: &Value,
     adaptation: &crate::protocol::adaptation::Adaptation,
 ) -> Result<DecodedResponse, CodecError> {
-    bounded(v)?;
-    let o = object(v)?;
+    let (v, extras) = super::adapter_shapes::decode(v, Profile::Chat, adaptation)?;
+    let o = object(&v)?;
     adaptation.validate_response(Profile::Chat, o)?;
     fields(
         o,
@@ -221,6 +222,7 @@ pub(crate) fn decode_chat_with(
             "choices",
             "usage",
             "system_fingerprint",
+            "service_tier",
         ],
     )?;
     if string(o, "object")? != "chat.completion" {
@@ -249,31 +251,45 @@ pub(crate) fn decode_chat_with(
     };
     let message = object(c.get("message").ok_or(CodecError::Invalid("message"))?)?;
     let mut b = Items::default();
-    chat::decode_message(&mut b, message, false)?;
+    let message = super::chat_reasoning::decode_static(&mut b, message, adaptation)?;
+    chat::decode_message(&mut b, &message, false)?;
     if matches!(outcome, Outcome::Incomplete) {
-        for (_, item) in &mut b.items {
+        for (id, item) in &mut b.items {
             match item {
                 Item::ToolCall(call) => call.status = ItemLifecycle::Incomplete,
                 Item::Message(m) => m.status = ItemLifecycle::Incomplete,
-                Item::Reasoning(r) => r.status = ItemLifecycle::Incomplete,
+                // A complete encrypted detail already closed its owner. The
+                // carrier can truncate later without making that token partial.
+                Item::Reasoning(r) if b.fidelity.encrypted_reasoning_replay(*id).is_none() => {
+                    r.status = ItemLifecycle::Incomplete;
+                }
                 _ => {}
             }
         }
     }
     let usage = usage(o.get("usage"), Profile::Chat, adaptation, &mut b.fidelity)?;
+    let semantic = response_with_usage(b.items, outcome, usage)?.with_details(
+        if outcome == Outcome::Incomplete {
+            TerminalDetails {
+                error: None,
+                incomplete: Some(IncompleteReason::MaxOutputTokens),
+            }
+        } else {
+            TerminalDetails::default()
+        },
+    )?;
+    let metadata = metadata(o, Profile::Chat)?;
+    b.fidelity.capture_routing_extras(
+        Profile::Chat,
+        adaptation,
+        extras,
+        &semantic,
+        &metadata.id,
+    )?;
     Ok(DecodedResponse {
-        semantic: response_with_usage(b.items, outcome, usage)?.with_details(
-            if outcome == Outcome::Incomplete {
-                TerminalDetails {
-                    error: None,
-                    incomplete: Some(IncompleteReason::MaxOutputTokens),
-                }
-            } else {
-                TerminalDetails::default()
-            },
-        )?,
+        semantic,
         fidelity: b.fidelity,
-        metadata: metadata(o, Profile::Chat)?,
+        metadata,
     })
 }
 pub fn decode_responses(v: &Value) -> Result<DecodedResponse, CodecError> {
@@ -283,8 +299,8 @@ pub(crate) fn decode_responses_with(
     v: &Value,
     adaptation: &crate::protocol::adaptation::Adaptation,
 ) -> Result<DecodedResponse, CodecError> {
-    bounded(v)?;
-    let o = object(v)?;
+    let (v, extras) = super::adapter_shapes::decode(v, Profile::Responses, adaptation)?;
+    let o = object(&v)?;
     adaptation.validate_response(Profile::Responses, o)?;
     super::envelope::response_fields(o)?;
     if string(o, "object")? != "response" {
@@ -328,10 +344,18 @@ pub(crate) fn decode_responses_with(
         &mut b.fidelity,
         Some(&semantic),
     )?;
+    let metadata = metadata(o, Profile::Responses)?;
+    b.fidelity.capture_routing_extras(
+        Profile::Responses,
+        adaptation,
+        extras,
+        &semantic,
+        &metadata.id,
+    )?;
     Ok(DecodedResponse {
         semantic,
         fidelity: b.fidelity,
-        metadata: metadata(o, Profile::Responses)?,
+        metadata,
     })
 }
 fn response_with_usage(
@@ -360,7 +384,16 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
             return Err(CodecError::Unsupported("failed terminal".into()));
         }
     };
-    let messages = chat::encode_items(target.semantic.items());
+    let mut messages = chat::encode_items_with(
+        target.semantic.items(),
+        target.fidelity,
+        target.adaptation.rules.structured_chat_reasoning,
+    );
+    if target.adaptation.rules.reasoning_alias {
+        for message in &mut messages {
+            super::adapter_shapes::encode_message(message);
+        }
+    }
     let message = messages
         .first()
         .ok_or(CodecError::Invalid("empty Chat candidate"))?;
@@ -373,6 +406,20 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
         "system_fingerprint",
         &m.context.system_fingerprint,
         |v| json!(v),
+    );
+    put_presence(
+        value.as_object_mut().expect("object"),
+        "service_tier",
+        &m.context.execution.service_tier,
+        |v| json!(v),
+    );
+    super::envelope::write_response_extras(
+        target.fidelity,
+        target.profile,
+        &target.adaptation,
+        target.semantic,
+        &target.metadata.id,
+        value.as_object_mut().expect("object"),
     );
     bounded(&value)?;
     Ok(value)

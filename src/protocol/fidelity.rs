@@ -44,6 +44,7 @@ pub struct FidelityRecords {
     input_text_forms: std::collections::BTreeSet<PartId>,
     encrypted_reasoning: BTreeMap<ItemId, (ReasoningReplay, [u8; 32])>,
     response_extras: Option<ResponseExtras>,
+    routing_extras: Option<ResponseExtras>,
     normalizations: std::collections::BTreeSet<Normalization>,
 }
 impl FidelityRecords {
@@ -219,6 +220,55 @@ impl FidelityRecords {
             })
             .map(|r| &r.values)
     }
+    pub(crate) fn capture_routing_extras(
+        &mut self,
+        protocol: Profile,
+        adaptation: &Adaptation,
+        values: crate::protocol::openai::adapter_shapes::Extras,
+        semantic: &GenerationResponse,
+        response_id: &str,
+    ) -> Result<(), CodecError> {
+        crate::protocol::openai::adapter_shapes::check_budget(&values)?;
+        self.routing_extras = if values.is_empty() {
+            None
+        } else {
+            if !adaptation.rules.routing_extras {
+                return Err(CodecError::Unsupported("routing extras".into()));
+            }
+            Some(ResponseExtras {
+                protocol,
+                profile: adaptation.profile_id,
+                origin: adaptation
+                    .scope
+                    .clone()
+                    .ok_or(CodecError::Invalid("unbound routing extras"))?,
+                response_id: Text::new(response_id, "response identity", 256)
+                    .map_err(|_| CodecError::Limit)?,
+                dependency: response_dependency(semantic),
+                values,
+            })
+        };
+        Ok(())
+    }
+    pub(crate) fn projected_routing_extras(
+        &self,
+        protocol: Profile,
+        adaptation: &Adaptation,
+        semantic: &GenerationResponse,
+        response_id: &str,
+    ) -> Option<&BTreeMap<String, Value>> {
+        self.routing_extras
+            .as_ref()
+            .filter(|r| {
+                adaptation.rules.routing_extras
+                    && r.protocol == protocol
+                    && r.profile == adaptation.profile_id
+                    && Some(&r.origin) == adaptation.scope.as_ref()
+                    && r.response_id.as_str() == response_id
+                    && r.dependency == response_dependency(semantic)
+            })
+            .map(|r| &r.values)
+    }
     pub fn normalizations(&self) -> &std::collections::BTreeSet<Normalization> {
         &self.normalizations
     }
@@ -228,6 +278,7 @@ impl FidelityRecords {
     }
     pub(crate) fn copy_response_records(&mut self, source: &Self) {
         self.response_extras = source.response_extras.clone();
+        self.routing_extras = source.routing_extras.clone();
         self.normalizations = source.normalizations.clone();
     }
     pub fn retain_owners(&mut self, items: &[(ItemId, Item)]) {

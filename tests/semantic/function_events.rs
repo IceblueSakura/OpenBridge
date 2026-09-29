@@ -54,6 +54,20 @@ fn independent_wire_decodes_arguments_and_close_without_inventing_a_terminal() {
     assert_eq!(c.status, ItemLifecycle::Incomplete);
 }
 #[test]
+fn function_done_name_echo_must_match_its_existing_call_owner() {
+    for name in [json!("lookup"), json!("different"), json!(null)] {
+        let mut decoder = EventDecoder::new(Profile::Responses);
+        decoder.push(&created()).unwrap();
+        decoder.push(&json!({"type":"response.output_item.added","output_index":0,"item":call_item("fc","c","{}","in_progress")})).unwrap();
+        let result=decoder.push(&json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc","name":name,"arguments":"{}"}));
+        assert_eq!(result.is_ok(), name == json!("lookup"));
+        if result.is_err() {
+            assert!(decoder.finish().is_err());
+        }
+    }
+}
+
+#[test]
 fn value_done_disallows_later_delta_and_poisoned_decoders_cannot_resume() {
     let mut d = EventDecoder::new(Profile::Responses);
     d.push(&created()).unwrap();

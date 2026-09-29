@@ -69,11 +69,19 @@ pub fn check_event(
             }
         }
         StreamEvent::ItemFinished { replay, .. }
-            if replay
-                .as_ref()
-                .is_some_and(|r| !r.permits(contract.replay_origin.as_ref())) =>
+            if replay.as_ref().is_some_and(|r| {
+                !r.permits(contract.replay_origin.as_ref())
+                    || profile == Profile::Chat && r.value.replay_token().is_none()
+            }) =>
         {
             return Err(RepresentationError::ReplayOrigin);
+        }
+        StreamEvent::ItemFinished {
+            status,
+            replay: Some(_),
+            ..
+        } if profile == Profile::Chat && *status != ItemLifecycle::Completed => {
+            return Err(RepresentationError::Terminal);
         }
         StreamEvent::AnnotationAdded { .. }
             if profile == Profile::Chat || !contract.text_metadata =>

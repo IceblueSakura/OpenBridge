@@ -71,7 +71,7 @@
           "max_completion_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
         },
         "additionalProperties": true,
-        "description": "Additional fields require admission by the Chat text profile and selected public contract; additionalProperties does not authorize arbitrary upstream parameters."
+        "description": "Additional fields require admission by the Chat text profile and selected public contract; additionalProperties does not authorize arbitrary upstream parameters. OpenBridge's Chat extension admits scoped openai-responses-v1 reasoning_details on assistant history; preserve those actual output details for replay rather than treating them as ordinary assistant text."
       },
       "ResponsesRequest": {
         "type": "object", "required": ["model"],

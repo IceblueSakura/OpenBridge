@@ -364,6 +364,107 @@ fn unified_request_projection_keeps_targets_trusted_and_debug_redacted() {
         assert!(prepare(endpoint, &providers::deepseek(), &secret, &request).is_err());
     }
 }
+#[test]
+fn router_request_policy_is_fixed_and_luna_controls_are_not_silently_ignored() {
+    let topology = catalog::default_topology().unwrap();
+    let secret = SecretMaterial::new("synthetic-router-secret").unwrap();
+    for (profile, suffix, mut body) in [
+        (
+            Profile::Chat,
+            "chat",
+            json!({"model":"gpt-6-luna","messages":[
+            {"role":"user","content":"hello"},
+            {"role":"assistant","content":"pong","reasoning_content":"think"}],
+            "max_completion_tokens":64,"reasoning_effort":"low","stream":true}),
+        ),
+        (
+            Profile::Responses,
+            "responses",
+            json!({"model":"gpt-6-luna","input":"hello",
+            "max_output_tokens":64,"reasoning":{"effort":"low"},"stream":true}),
+        ),
+    ] {
+        let client = Adapter::new(profile, Dialect::OpenBridge, None);
+        let request = client.decode_request(body.to_string().as_bytes()).unwrap();
+        admit(&catalog::gpt_6_luna(), &request).unwrap();
+        let endpoint = topology
+            .endpoint(&EndpointId::new(&format!("openrouter-{suffix}")).unwrap())
+            .unwrap();
+        let prepared = prepare(endpoint, &providers::openrouter(), &secret, &request).unwrap();
+        let wire: Value = serde_json::from_slice(&prepared.body).unwrap();
+        assert_eq!(wire["model"], "openai/gpt-6-luna");
+        assert_eq!(wire["provider"], json!({"require_parameters":true}));
+        assert_eq!(prepared.origin, "https://openrouter.ai");
+        assert_eq!(
+            prepared.path,
+            if profile == Profile::Chat {
+                "/api/v1/chat/completions"
+            } else {
+                "/api/v1/responses"
+            }
+        );
+        assert_eq!(
+            prepared.auth_header,
+            (
+                "authorization".into(),
+                "Bearer synthetic-router-secret".into()
+            )
+        );
+        if profile == Profile::Chat {
+            assert_eq!(wire["messages"][1]["reasoning"], "think");
+            assert!(wire["messages"][1].get("reasoning_content").is_none());
+            assert_eq!(wire["max_completion_tokens"], 64);
+        } else {
+            assert_eq!(wire["store"], false);
+            assert_eq!(wire["max_output_tokens"], 64);
+        }
+        body["temperature"] = json!(0.5);
+        let unsupported = client.decode_request(body.to_string().as_bytes()).unwrap();
+        assert!(admit(&catalog::gpt_6_luna(), &unsupported).is_err());
+        assert!(prepare(endpoint, &providers::openrouter(), &secret, &unsupported).is_err());
+        body.as_object_mut().unwrap().remove("temperature");
+        body["provider"] = json!({"require_parameters":false,"order":["untrusted"]});
+        assert!(client.decode_request(body.to_string().as_bytes()).is_err());
+    }
+}
+
+#[test]
+fn opaque_replay_reaches_prepared_body_only_for_its_bound_origin() {
+    let topology = catalog::default_topology().unwrap();
+    let secret = SecretMaterial::new("synthetic-replay-secret").unwrap();
+    for (profile, suffix, body, pointer) in [
+        (
+            Profile::Chat,
+            "chat",
+            json!({"model":"gpt-6-luna","messages":[{"role":"assistant","content":"answer","reasoning_details":[{"type":"reasoning.encrypted","format":"openai-responses-v1","index":0,"id":"rs","data":"synthetic-cipher"}]},{"role":"user","content":"next"}]}),
+            "/messages/0/reasoning_details/0/data",
+        ),
+        (
+            Profile::Responses,
+            "responses",
+            json!({"model":"gpt-6-luna","input":[{"type":"reasoning","id":"rs","summary":[],"encrypted_content":"synthetic-cipher"},{"role":"user","content":"next"}]}),
+            "/input/0/encrypted_content",
+        ),
+    ] {
+        let endpoint = topology
+            .endpoint(&EndpointId::new(&format!("openrouter-{suffix}")).unwrap())
+            .unwrap();
+        let client = Adapter::new(
+            profile,
+            Dialect::OpenBridge,
+            endpoint.representation.adaptation.scope.clone(),
+        );
+        let request = client.decode_request(body.to_string().as_bytes()).unwrap();
+        let prepared = prepare(endpoint, &providers::openrouter(), &secret, &request).unwrap();
+        let wire: Value = serde_json::from_slice(&prepared.body).unwrap();
+        assert_eq!(wire.pointer(pointer), Some(&json!("synthetic-cipher")));
+        let mut wrong = endpoint.clone();
+        wrong.representation.replay_origin =
+            Some(openbridge::semantic::value::ReplayOrigin::new("other-credential-owner").unwrap());
+        assert!(prepare(&wrong, &providers::openrouter(), &secret, &request).is_err());
+    }
+}
+
 #[tokio::test]
 async fn synthetic_http_chain_uses_prepared_request_and_adapter_response() {
     use axum::{Router, routing::post};

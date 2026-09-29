@@ -13,7 +13,6 @@ use crate::{
     transport::sse::{SseDecoder, SseEvent},
 };
 use bytes::Bytes;
-use serde_json::Value;
 
 pub struct ChatSseDecoder {
     framing: SseDecoder,
@@ -227,12 +226,9 @@ impl ChatSseEncoder {
             }
             let mut frames = vec![];
             for mut value in values {
-                if value
-                    .get("choices")
-                    .and_then(Value::as_array)
-                    .is_some_and(Vec::is_empty)
-                    && !self.options.usage()
-                {
+                // Both standard empty-choice and repeated-finish adapters emit
+                // usage in a separate terminal tail. Honor the delivery option.
+                if value.get("usage").is_some_and(|v| !v.is_null()) && !self.options.usage() {
                     continue;
                 }
                 chat_envelope::headers(&value, "chat.completion.chunk")?;

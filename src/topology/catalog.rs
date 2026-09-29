@@ -1,7 +1,7 @@
-//! Trusted bindings for the admitted provider slice: DeepSeek and Xiaomi MiMo,
-//! chat and responses entries, with the two admitted public models.
+//! Trusted text bindings for DeepSeek, Xiaomi MiMo and OpenRouter.
+//! Each entry fixes its upstream model, wire adapter and credential ownership.
 //!
-//! Facts come from `docs/references/providers/{deepseek,xiaomi}-api.md`. Model
+//! Facts come from `docs/references/providers/{deepseek,xiaomi,openrouter}-api.md`. Model
 //! capability is deliberately not widened here: the representation contract
 //! claims wire-level representability plus documented protocol limits
 //! (function strict is only guaranteed on DeepSeek `/beta`; custom tools and
@@ -65,6 +65,7 @@ fn endpoint(
     let dialect = match provider.id.as_str() {
         "deepseek" => crate::adapter::Dialect::DeepSeek,
         "xiaomi" => crate::adapter::Dialect::Xiaomi,
+        "openrouter" => crate::adapter::Dialect::OpenRouter,
         _ => unreachable!("fixed provider catalog"),
     };
     let family = match protocol {
@@ -83,7 +84,11 @@ fn endpoint(
         task: TaskKind::Generation,
         protocol,
         upstream_model: upstream_model.into(),
-        representation: adapter.contract(&wire_contract(replay_origin)),
+        representation: adapter.contract(&if dialect == crate::adapter::Dialect::OpenRouter {
+            luna_contract(replay_origin)
+        } else {
+            wire_contract(replay_origin)
+        }),
         execution: execution_contract(),
         credential: CredentialBindingId::new(credential).expect("static binding"),
     }
@@ -176,13 +181,75 @@ pub fn mimo_v2_6_pro() -> PublicModel {
     }
 }
 
+// Public catalog parameters do not declare sampling, logprobs or parallel calls.
+// Media is a codec gap, not a claim that the upstream model lacks media support.
+fn luna_contract(
+    replay_origin: Option<crate::semantic::value::ReplayOrigin>,
+) -> GenerationRepresentationContract {
+    GenerationRepresentationContract {
+        temperature: false,
+        top_p: false,
+        logprobs: false,
+        verbosity: false,
+        truncation: false,
+        parallel_tool_calls: false,
+        ..wire_contract(replay_origin)
+    }
+}
+
+pub fn openrouter_endpoints() -> Vec<Endpoint> {
+    vec![
+        endpoint(
+            "openrouter-responses",
+            catalog::openrouter(),
+            ProtocolProfile::OpenAiResponses,
+            "openai/gpt-6-luna",
+            "openrouter-api-key",
+            Some(replay_scope("openrouter")),
+        ),
+        endpoint(
+            "openrouter-chat",
+            catalog::openrouter(),
+            ProtocolProfile::OpenAiChat,
+            "openai/gpt-6-luna",
+            "openrouter-api-key",
+            Some(replay_scope("openrouter")),
+        ),
+    ]
+}
+
+pub fn openrouter_route() -> Route {
+    Route {
+        id: RouteId::new("openrouter-generation").expect("static identity"),
+        task: TaskKind::Generation,
+        endpoints: vec![
+            EndpointId::new("openrouter-responses").expect("static identity"),
+            EndpointId::new("openrouter-chat").expect("static identity"),
+        ],
+    }
+}
+
+pub fn gpt_6_luna() -> PublicModel {
+    PublicModel {
+        id: ModelId::new("gpt-6-luna").expect("static identity"),
+        task: TaskKind::Generation,
+        route: RouteId::new("openrouter-generation").expect("static identity"),
+        contract: luna_contract(None),
+    }
+}
+
 /// Compile the fixed default topology for the admitted slice.
 pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
     compile(
         catalog::all(),
-        [deepseek_endpoints(), xiaomi_endpoints()].concat(),
-        vec![deepseek_route(), xiaomi_route()],
-        vec![deepseek_flash(), mimo_v2_6_pro()],
+        [
+            deepseek_endpoints(),
+            xiaomi_endpoints(),
+            openrouter_endpoints(),
+        ]
+        .concat(),
+        vec![deepseek_route(), xiaomi_route(), openrouter_route()],
+        vec![deepseek_flash(), mimo_v2_6_pro(), gpt_6_luna()],
     )
 }
 

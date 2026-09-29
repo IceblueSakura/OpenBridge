@@ -82,6 +82,19 @@ impl EventEncoder {
                     .unwrap_or_else(|| format!("item_{}", item.get()));
                 self.fidelity.record_response_item_id(*item, &id)?;
             }
+            // Chat summary chunks have not emitted a wire item identity yet.
+            // Bind the issuer's late identity before rendering encrypted replay.
+            if self.profile == Profile::Chat
+                && self.contract.adaptation.rules.structured_chat_reasoning
+                && let StreamEvent::ItemFinished {
+                    item,
+                    replay: Some(_),
+                    ..
+                } = event
+                && let Some(id) = source.response_item_id(*item)
+            {
+                self.fidelity.record_response_item_id(*item, id)?;
+            }
             self.state = Some(reduce(
                 self.state.take().ok_or(CodecError::Invalid("state"))?,
                 event.clone(),

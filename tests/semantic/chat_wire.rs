@@ -101,9 +101,20 @@ fn history_reasoning_maps_to_a_carrier_and_rejects_unrepresentable_edits() {
             &ir,
             &request.task.fidelity,
             Profile::Chat,
-            client().contract(&Contract::full())
+            vendor().contract(&Contract::full())
         )
         .is_err()
+    );
+    // The OpenBridge client now has the scoped structured-summary carrier;
+    // readable-only vendor profiles still cannot flatten a summary into text.
+    assert!(
+        lower_request(
+            &ir,
+            &request.task.fidelity,
+            Profile::Chat,
+            client().contract(&Contract::full())
+        )
+        .is_ok()
     );
     let mut unpaired = request.task.semantic.items().to_vec();
     unpaired.retain(|(_, item)| !matches!(item,Item::Message(m) if m.role==MessageRole::Assistant));

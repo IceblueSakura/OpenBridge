@@ -19,6 +19,7 @@ pub enum Dialect {
     OpenBridge,
     DeepSeek,
     Xiaomi,
+    OpenRouter,
 }
 impl Dialect {
     fn adaptation(self, scope: Option<ReplayOrigin>) -> Adaptation {
@@ -28,6 +29,7 @@ impl Dialect {
                 "openbridge-v1",
                 WireRules {
                     readable_reasoning: true,
+                    structured_chat_reasoning: true,
                     ..Default::default()
                 },
             ),
@@ -39,6 +41,21 @@ impl Dialect {
                     default_cache_write: true,
                     response_extras: true,
                     chunk_metadata_drift: true,
+                    ..Default::default()
+                },
+            ),
+            Self::OpenRouter => (
+                "openrouter-v1",
+                WireRules {
+                    readable_reasoning: true,
+                    routing_extras: true,
+                    response_extras: true,
+                    responses_reasoning_format: true,
+                    responses_done_marker: true,
+                    reasoning_alias: true,
+                    structured_chat_reasoning: true,
+                    repeated_finish_usage: true,
+                    require_parameters: true,
                     ..Default::default()
                 },
             ),

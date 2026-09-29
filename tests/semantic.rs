@@ -20,8 +20,12 @@ mod parsed_replay;
 mod phase;
 #[path = "semantic/reasoning.rs"]
 mod reasoning;
+#[path = "semantic/reasoning_boundary.rs"]
+mod reasoning_boundary;
 #[path = "semantic/response.rs"]
 mod response;
+#[path = "semantic/router_adapter.rs"]
+mod router_adapter;
 #[path = "semantic/schema.rs"]
 mod schema;
 #[path = "semantic/text_events.rs"]

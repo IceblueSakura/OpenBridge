@@ -16,7 +16,7 @@ This is the ownership and admission map for the **currently implemented offline 
 
 ## Adapter admission
 
-Low-level Responses entry points use the standard profile. DeepSeek alone admits the classified `content_filters`, `frequency_penalty` and `presence_penalty` extras; they are bounded, scoped to protocol/adapter/origin, dependent on final response semantics, and emitted only in a compatible terminal projection. Partial snapshots are validated but do not bind final extras. Missing/different target scope or changed response semantics drops nonportable extras. Xiaomi alone admits `output_text` as a validated-then-discarded derived view (type check on partial snapshots, equality at terminal). These rules do not change standard task types or allow unknown keys.
+Low-level Responses entry points use the standard profile. DeepSeek and OpenRouter admit the classified `content_filters`, `frequency_penalty` and `presence_penalty` extras; they are bounded, scoped to protocol/adapter/origin, dependent on final response semantics, and emitted only in a compatible terminal projection. Partial snapshots are validated but do not bind final extras. Missing/different target scope or changed response semantics drops nonportable extras. Xiaomi alone admits `output_text` as a validated-then-discarded derived view (type check on partial snapshots, equality at terminal). The [OpenRouter adapter](openrouter-text-profile.md) also owns its checked reasoning format marker, billing fields and optional post-terminal `[DONE]` trailer. These rules do not change standard task types or allow unknown keys.
 
 ## Complete-stream required fields
 

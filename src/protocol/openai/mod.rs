@@ -1,6 +1,8 @@
 //! Pure codecs for the explicitly supported Generation migration slice.
+pub(crate) mod adapter_shapes;
 pub mod chat;
 pub mod chat_envelope;
+mod chat_reasoning;
 pub mod chat_sse;
 mod common;
 pub mod envelope;
@@ -66,6 +68,7 @@ pub enum CodecError {
 
 /// Only lowering can construct an encoding input; codecs cannot bypass representability.
 pub struct RequestRepresentation<'a> {
+    pub(crate) adaptation: crate::protocol::adaptation::Adaptation,
     pub(crate) semantic: &'a GenerationRequest,
     pub(crate) fidelity: &'a FidelityRecords,
     pub(crate) profile: Profile,

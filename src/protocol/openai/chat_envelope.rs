@@ -154,18 +154,8 @@ pub(crate) fn validate_response(v: &Value) -> Result<(), CodecError> {
 }
 pub(super) fn headers(v: &Value, kind: &str) -> Result<(), CodecError> {
     let o = object(v)?;
-    fields(
-        o,
-        &[
-            "id",
-            "object",
-            "created",
-            "model",
-            "choices",
-            "usage",
-            "system_fingerprint",
-        ],
-    )?;
+    // Field admission belongs to the selected static/event codec, after its
+    // named adapter mappings. Structural identity remains strict here.
     text(string(o, "id")?, "response id", 256)?;
     text(string(o, "model")?, "response model", 256)?;
     if string(o, "object")? != kind || o.get("created").and_then(Value::as_u64).is_none() {

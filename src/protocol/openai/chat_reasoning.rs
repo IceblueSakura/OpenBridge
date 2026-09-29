@@ -1,0 +1,172 @@
+//! Scoped Responses-format reasoning on a Chat carrier, not opaque JSON passthrough.
+use super::{CodecError, common::*};
+use crate::{
+    protocol::{adaptation::Adaptation, fidelity::FidelityRecords},
+    semantic::{task::generation::*, value::Text},
+};
+use serde_json::{Map, Value, json};
+
+pub(super) struct Details {
+    pub part: Option<(PartKind, String)>,
+    pub encrypted: Option<(String, String)>,
+}
+/// One ordered readable part plus an optional final encrypted token. Fragment
+/// indices belong to the carrier, not to separately invented semantic items.
+pub(super) fn parse(
+    m: &Map<String, Value>,
+    a: &Adaptation,
+    prior: Option<PartKind>,
+) -> Result<Option<Details>, CodecError> {
+    let Some(value) = m.get("reasoning_details") else {
+        return Ok(None);
+    };
+    if !a.rules.structured_chat_reasoning {
+        return Err(CodecError::Unsupported("reasoning details".into()));
+    }
+    if value.is_null() {
+        return Ok(None);
+    }
+    let values = value
+        .as_array()
+        .ok_or(CodecError::Invalid("reasoning details"))?;
+    if values.is_empty() {
+        return Ok(None);
+    }
+    if values.len() > 2 {
+        return Err(CodecError::Unsupported("reasoning detail grouping".into()));
+    }
+    let mut result = Details {
+        part: None,
+        encrypted: None,
+    };
+    for value in values {
+        let o = object(value)?;
+        if string(o, "format")? != "openai-responses-v1" {
+            return Err(CodecError::Unsupported("reasoning format".into()));
+        }
+        let kind = string(o, "type")?;
+        match kind {
+            "reasoning.summary" | "reasoning.text" => {
+                let field = if kind == "reasoning.summary" {
+                    "summary"
+                } else {
+                    "text"
+                };
+                fields(o, &["type", "format", "index", field])?;
+                let part_kind = if kind == "reasoning.summary" {
+                    PartKind::Summary
+                } else {
+                    PartKind::ReasoningText
+                };
+                if result.part.is_some()
+                    || result.encrypted.is_some()
+                    || prior.is_some_and(|p| p != part_kind)
+                    || o.get("index").and_then(Value::as_u64) != Some(0)
+                {
+                    return Err(CodecError::Invalid("reasoning detail order"));
+                }
+                let text = string(o, field)?;
+                if text.len() > MAX_TEXT_BYTES {
+                    return Err(CodecError::Limit);
+                }
+                result.part = Some((part_kind, text.into()));
+            }
+            "reasoning.encrypted" => {
+                fields(o, &["type", "format", "index", "id", "data"])?;
+                let expected = u64::from(prior.is_some() || result.part.is_some());
+                if result.encrypted.is_some()
+                    || o.get("index").and_then(Value::as_u64) != Some(expected)
+                {
+                    return Err(CodecError::Invalid("reasoning detail order"));
+                }
+                let id = text(string(o, "id")?, "reasoning identity", 256)?;
+                let data = text(string(o, "data")?, "encrypted reasoning", MAX_TEXT_BYTES)?;
+                result.encrypted = Some((id.as_str().into(), data.as_str().into()));
+            }
+            _ => return Err(CodecError::Unsupported("reasoning detail kind".into())),
+        }
+    }
+    for key in ["reasoning", "reasoning_content"] {
+        if let Some(view) = m.get(key).filter(|v| !v.is_null()) {
+            let view = view.as_str().ok_or(CodecError::Invalid("reasoning view"))?;
+            if view != result.part.as_ref().map(|(_, s)| s.as_str()).unwrap_or("") {
+                return Err(CodecError::Invalid("reasoning view disagreement"));
+            }
+        }
+    }
+    Ok(Some(result))
+}
+pub(super) fn decode_static(
+    b: &mut Items,
+    m: &Map<String, Value>,
+    a: &Adaptation,
+) -> Result<Map<String, Value>, CodecError> {
+    let mut clean = m.clone();
+    if let Some(details) = parse(m, a, None)? {
+        if string(m, "role")? != "assistant" {
+            return Err(CodecError::Invalid("reasoning owner"));
+        }
+        let id = b.id()?;
+        let parts = if let Some((kind, value)) = details.part {
+            let text = Text::allowing_empty(&value, "reasoning", MAX_TEXT_BYTES)
+                .map_err(|_| CodecError::Limit)?;
+            vec![(
+                b.part_id()?,
+                if kind == PartKind::Summary {
+                    ReasoningContent::Summary(text)
+                } else {
+                    ReasoningContent::Text(text)
+                },
+            )]
+        } else {
+            vec![]
+        };
+        let item = ReasoningItem {
+            parts,
+            status: ItemLifecycle::Completed,
+        };
+        if let Some((wire_id, data)) = details.encrypted {
+            b.fidelity.record_response_item_id(id, &wire_id)?;
+            b.fidelity.record_replay(
+                id,
+                ReasoningReplay {
+                    value: EncryptedReasoning::Final(text(
+                        &data,
+                        "encrypted reasoning",
+                        MAX_TEXT_BYTES,
+                    )?),
+                    origin: a.scope.clone(),
+                },
+                &item,
+            )?;
+        }
+        b.items.push((id, Item::Reasoning(item)));
+        clean.shift_remove("reasoning");
+        clean.shift_remove("reasoning_content");
+    }
+    if a.rules.structured_chat_reasoning {
+        clean.shift_remove("reasoning_details");
+    }
+    Ok(clean)
+}
+pub(super) fn wire(id: ItemId, item: &ReasoningItem, fidelity: &FidelityRecords) -> Vec<Value> {
+    let mut details = vec![];
+    for (_, part) in &item.parts {
+        let mut value = json!({"format":"openai-responses-v1","index":details.len()});
+        match part {
+            ReasoningContent::Summary(t) => {
+                value["type"] = json!("reasoning.summary");
+                value["summary"] = json!(t.as_str());
+            }
+            ReasoningContent::Text(t) => {
+                value["type"] = json!("reasoning.text");
+                value["text"] = json!(t.as_str());
+            }
+        }
+        details.push(value);
+    }
+    if let Some(token) = fidelity.encrypted_reasoning_replay(id) {
+        details.push(json!({"format":"openai-responses-v1","index":details.len(),"type":"reasoning.encrypted","data":token,"id":fidelity.response_item_id(id).map(str::to_owned).unwrap_or_else(||format!("item_{}",id.get()))}));
+    }
+    details
+}

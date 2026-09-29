@@ -11,6 +11,7 @@
 | `OPENBRIDGE_CLIENT_KEY` | 必填：单一入口 Bearer token，32–4096 个可打印 ASCII 非空白字符；应使用高熵随机值 |
 | `OPENBRIDGE_DEEPSEEK_API_KEY` | 可选：启用固定 catalog 中的 DeepSeek 模型 |
 | `OPENBRIDGE_XIAOMI_API_KEY` | 可选：启用固定 catalog 中的 Xiaomi 模型 |
+| `OPENBRIDGE_OPENROUTER_API_KEY` | 可选：启用 `gpt-6-luna`，固定上游 ID 为 `openai/gpt-6-luna` |
 | `OPENBRIDGE_BIND` | 可选：默认 `127.0.0.1:8080`；仅接受 literal loopback SocketAddr（也可 `[::1]:8080`） |
 | `OPENBRIDGE_PROXY` | 可选：受信启动配置中的显式出站代理 URL；不继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` |
 
@@ -51,6 +52,8 @@ cargo run --locked --offline --bin openbridge
 ```json
 {"model":"deepseek-flash","messages":[{"role":"user","content":"Reply with exactly pong."}],"max_completion_tokens":64}
 ```
+
+OpenRouter 启用后，上述两个示例可将 `model` 改为 `gpt-6-luna`；只接入普通版本，不是 Pro/batch。adapter 固定发送 `provider.require_parameters=true`，客户端不得传入 `provider` 覆盖 routing。其文本准入、reasoning/费用字段映射和未支持的 wire 分支见 [OpenRouter text adapter](architecture-v2/openrouter-text-profile.md)。`openai-responses-v1` 的 Chat summary/encrypted details 已按 owner/origin 约束接入；其他格式仍拒绝，实际验收范围见该页关联的证据。
 
 模型必须已通过启动凭据启用；其他字段按关联 text profile 准入。固定 SDK 使用 `base_url` 指向本机 `/v1`，`api_key` 使用入口 token，不把上游 key 交给客户端。
 
@@ -94,4 +97,4 @@ SSE 不收完整流再回放。每次最多消费一个上游 frame；下游 fra
 - `tests/gateway.rs` 使用真实 Router 与 synthetic HTTP Provider；另外通过隔离环境启动 binary，拒绝代理捕获器阻止任何意外外部请求。
 - `tests/sdk/gateway.rs` 与 `gateway_text_loop.py` 让固定 SDK 经同一 Router/Provider 完成双协议 JSON/SSE 工具与 reasoning 续轮；与旧的纯 fixture SDK gates 分开。
 
-运行方式见[开发指南](development.md)。本片未做真实 Provider 经新 binary 的复测、部署、长稳压测、缓存收益或多租户验收。旧 live 库级证据不能替代新 HTTP 服务的外部验收。
+运行方式见[开发指南](development.md)。[GPT-6 Luna 受控验收](implementation-status/evidence/2026-09-29-openrouter-luna-acceptance.md)包含固定 SDK 经实际 binary 的双协议 JSON/SSE 文本与工具续轮；只证明其指定场景。部署、长稳压测、缓存收益、多租户和更广 Agent 行为仍未验收。旧 live 库级证据不能替代新 HTTP 服务的外部验收。

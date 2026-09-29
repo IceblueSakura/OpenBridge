@@ -13,6 +13,16 @@ pub struct WireRules {
     pub response_extras: bool,
     pub derived_output_text: bool,
     pub chunk_metadata_drift: bool,
+    /// Bounded, source-bound router and billing facts, never task semantics.
+    pub routing_extras: bool,
+    pub reasoning_alias: bool,
+    /// Scoped OpenAI Responses-format reasoning details on a Chat carrier.
+    pub structured_chat_reasoning: bool,
+    pub responses_reasoning_format: bool,
+    pub responses_done_marker: bool,
+    pub repeated_finish_usage: bool,
+    /// Trusted request policy; business JSON cannot override parameter admission.
+    pub require_parameters: bool,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

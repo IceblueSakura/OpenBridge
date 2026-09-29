@@ -35,7 +35,8 @@ pub(crate) fn decode_generation_with(
     let mut b = Items::default();
     for message in messages {
         adaptation.validate_message(object(message)?)?;
-        decode_message(&mut b, object(message)?, true)?;
+        let message = super::chat_reasoning::decode_static(&mut b, object(message)?, adaptation)?;
+        decode_message(&mut b, &message, true)?;
     }
     let mut controls = controls(o, "max_completion_tokens")?;
     if let Some(v) = o.get("top_p").filter(|v| !v.is_null()) {
@@ -282,7 +283,11 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     if target.profile != Profile::Chat {
         return Err(CodecError::ProfileMismatch);
     }
-    let mut messages = encode_items(target.semantic.items());
+    let mut messages = encode_items_with(
+        target.semantic.items(),
+        target.fidelity,
+        target.adaptation.rules.structured_chat_reasoning,
+    );
     if let Some(t) = target.semantic.instructions().value() {
         messages.insert(0, json!({"role":"developer","content":t.as_str()}));
     }
@@ -306,15 +311,29 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
 pub(super) fn call_wire(c: &ToolCall) -> Value {
     json!({"id":c.call_id.as_str(),"type":"function","function":{"name":c.name.as_str(),"arguments":c.arguments}})
 }
-pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
+pub(super) fn encode_items_with(
+    items: &[(ItemId, Item)],
+    fidelity: &crate::protocol::fidelity::FidelityRecords,
+    structured: bool,
+) -> Vec<Value> {
     let mut messages = Vec::<Value>::new();
     let mut standalone_calls = false;
     let mut reasoning: Option<String> = None;
-    for (_, item) in items {
+    let mut details: Option<Vec<Value>> = None;
+    for (id, item) in items {
         match item {
             Item::Reasoning(r) => {
                 // Chat carries readable reasoning text on its carrier message.
                 standalone_calls = false;
+                if structured
+                    && (fidelity.replay(*id).is_some()
+                        || r.parts
+                            .iter()
+                            .any(|(_, p)| matches!(p, ReasoningContent::Summary(_))))
+                {
+                    details = Some(super::chat_reasoning::wire(*id, r, fidelity));
+                    continue;
+                }
                 let text = match r.parts.as_slice() {
                     [(_, ReasoningContent::Text(t))] if !t.as_str().is_empty() => t.as_str(),
                     _ => unreachable!("lowering rejects non-Chat reasoning shapes"),
@@ -331,6 +350,9 @@ pub(super) fn encode_items(items: &[(ItemId, Item)]) -> Vec<Value> {
                     json!({"role":if m.role == MessageRole::User { "user" } else { "assistant" }});
                 if let Some(text) = reasoning.take() {
                     message["reasoning_content"] = json!(text);
+                }
+                if let Some(value) = details.take() {
+                    message["reasoning_details"] = json!(value);
                 }
                 match m.parts.as_slice() {
                     [] => message["content"] = Value::Null,

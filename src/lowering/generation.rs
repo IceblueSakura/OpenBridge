@@ -178,6 +178,7 @@ pub fn lower_request<'a>(
         fidelity,
         profile,
         c.replay_origin.as_ref(),
+        c.adaptation.rules.structured_chat_reasoning,
         true,
     )?;
     text_items(r.items(), profile)?;
@@ -226,6 +227,7 @@ pub fn lower_request<'a>(
     }
     validate_wire_ids(r.items(), fidelity, false)?;
     Ok(RequestRepresentation {
+        adaptation: c.adaptation,
         semantic: r,
         fidelity,
         profile,
@@ -300,6 +302,7 @@ pub fn lower_response<'a>(
         fidelity,
         profile,
         c.replay_origin.as_ref(),
+        c.adaptation.rules.structured_chat_reasoning,
         false,
     )?;
     let chat_status = if r.outcome() == Outcome::Incomplete {
@@ -308,9 +311,13 @@ pub fn lower_response<'a>(
         ItemLifecycle::Completed
     };
     if profile == Profile::Chat
-        && r.items()
-            .iter()
-            .any(|(_, item)| item.lifecycle().is_some_and(|status| status != chat_status))
+        && r.items().iter().any(|(id, item)| {
+            let completed_replay_owner = c.adaptation.rules.structured_chat_reasoning
+                && chat_status == ItemLifecycle::Incomplete
+                && matches!(item, Item::Reasoning(r) if r.status == ItemLifecycle::Completed)
+                && fidelity.encrypted_reasoning_replay(*id).is_some();
+            item.lifecycle().is_some_and(|status| status != chat_status) && !completed_replay_owner
+        })
     {
         return Err(RepresentationError::Terminal);
     }
@@ -378,15 +385,24 @@ fn represent_reasoning(
     fidelity: &FidelityRecords,
     profile: Profile,
     origin: Option<&crate::semantic::value::ReplayOrigin>,
+    structured_chat: bool,
     request: bool,
 ) -> Result<(), RepresentationError> {
     for (id, item) in items {
+        if profile == Profile::Chat
+            && fidelity.replay(*id).is_some()
+            && matches!(item, Item::Reasoning(r) if r.status != ItemLifecycle::Completed)
+        {
+            return Err(RepresentationError::Terminal);
+        }
         if let Item::Reasoning(reasoning) = item
             && let Some(replay) = fidelity.replay(*id)
-            && (profile != Profile::Responses
+            && (profile != Profile::Responses && !(profile == Profile::Chat && structured_chat)
                 || !replay.permits(origin)
                 || replay.value.replay_token().is_none()
-                    && (request || reasoning.status == ItemLifecycle::Completed)
+                    && (request
+                        || reasoning.status == ItemLifecycle::Completed
+                        || profile == Profile::Chat)
                 || !fidelity.replay_matches(*id, reasoning))
         {
             return Err(RepresentationError::ReplayOrigin);
@@ -402,7 +418,14 @@ fn represent_reasoning(
         && (controls.effort().is_none() || controls.summary().is_some());
     if has_reasoning_items
         && profile != Profile::Responses
-        && !(profile == Profile::Chat && chat_reasoning_shape(items))
+        && !(profile == Profile::Chat && (chat_reasoning_shape(items)
+            || structured_chat && items.iter().enumerate().all(|(n,(id,item))| match item {
+                Item::Reasoning(r) => r.parts.len() <= 1
+                    && !r.parts.iter().any(|(_,p)|matches!(p,ReasoningContent::Text(t) if t.as_str().is_empty()))
+                    && (!r.parts.is_empty() || fidelity.replay(*id).is_some())
+                    && matches!(items.get(n+1),Some((_,Item::Message(m))) if m.role==MessageRole::Assistant),
+                _ => true,
+            })))
     {
         return Err(RepresentationError::Reasoning);
     }

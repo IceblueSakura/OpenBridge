@@ -20,7 +20,7 @@ Authenticated, bounded HTTP request
 | Owner | 当前责任 |
 |---|---|
 | `src/semantic/` | Generation ordered items、settings、usage、validation、requirements、reducer；`context.rs` 拥有标准 cache/execution hints、reported context 和 delivery intent，不依赖 protocol/provider/execution |
-| `src/adapter/` | 双向边界 facade；`Dialect` 将 Standard/OpenBridge/DeepSeek/Xiaomi 组合为显式 wire rules；统一 request 表示与纯目标 context 投影，不访问网络/凭据/registry |
+| `src/adapter/` | 双向边界 facade；`Dialect` 将 Standard/OpenBridge/DeepSeek/Xiaomi/OpenRouter 组合为显式 wire rules；统一 request 表示与纯目标 context 投影，不访问网络/凭据/registry |
 | `src/protocol/` | 共用 Chat/Responses 语法、完整 envelope、event codecs、strict JSON/SSE adapter；`adaptation.rs` 执行可信规则，`fidelity.rs` 保管有界来源/依赖记录 |
 | `src/lowering/` | 对不可变最终语义检查固定目标可表示性，构造 codec 输入；不选择 Provider，不恢复删除值 |
 | `src/provider/` | 可信 origin/路径、认证材料边界、HTTP 错误分类；请求 Debug 不打印 auth 或 body |
@@ -36,6 +36,8 @@ Authenticated, bounded HTTP request
 厂商差异不形成另一套 Generation/Usage。DeepSeek 有效 usage 缺失/null cache-write 时按 [ADR 0008](architecture-v2/decisions/0008-stable-core-and-vendor-adapters.md)归一为 0，并记录其兼容来源；其他 profiles 不继承此默认。reported 值和非法值不能被默认覆盖。
 
 标准 response context 在 semantic 中，instruction echo 的 wire fidelity 独立保存。classified extras 绑定协议、适配合同、可信来源和响应依赖；仅终态捕获/输出，目标不兼容或语义修改后不恢复旧值。encrypted replay 继续使用其更严格的 owner/origin/finality 合同。
+
+OpenRouter 的 routing/billing facts 使用同样的有界来源/响应依赖机制；Chat `reasoning` 映射到现有 typed reasoning，content-free 重复 finish 的 usage tail 只在该 adapter 准入。固定 GPT-6 Luna 启动与 wire 子集见 [OpenRouter text adapter](architecture-v2/openrouter-text-profile.md)；选定场景的真实验收见该 profile 关联证据，不代表完整兼容。
 
 ## 流式与执行边界
 
