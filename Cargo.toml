@@ -2,10 +2,16 @@
 name = "openbridge"
 version = "0.1.0"
 edition = "2024"
-description = "Semantic IR, OpenAI-compatible codecs and lowering for OpenBridge v2."
+description = "Semantic IR and a minimal OpenAI-compatible text gateway for OpenBridge v2."
 license = "MIT"
 
 [dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+getrandom = "0.4"
+reqwest = { version = "0.13", default-features = false, features = ["stream", "rustls"] }
+subtle = "2.6"
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"], default-features = false }
 bytes = "1.12"
 mime = "0.3"
 serde = { version = "1.0", features = ["derive"] }
@@ -14,8 +20,7 @@ sha2 = "0.11"
 thiserror = "2.0"
 
 [dev-dependencies]
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
-reqwest = { version = "0.13", default-features = false, features = ["stream", "rustls"] }
-tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "sync", "time"], default-features = false }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1.53", default-features = false, features = ["process", "io-util"] }
 toml = "1"

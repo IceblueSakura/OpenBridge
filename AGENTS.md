@@ -4,7 +4,7 @@ These instructions apply to the repository and all subdirectories. More specific
 
 ## Scope and Authorization
 
-- OpenBridge's current checkout is the experimental v2 Rust semantic library and offline codec suite, not a runnable gateway. The predecessor runtime, templates, corpus and dedicated tests are archived at the fixed Git ref in [archive.md](docs/archive.md). Ground work in current source/tests and v2 contracts; archived behavior is migration evidence, not a current feature or instruction to restore legacy code.
+- OpenBridge's current checkout is the experimental v2 Rust semantic library and minimal loopback text gateway, not a production-ready service. The predecessor runtime, templates, corpus and dedicated tests are archived at the fixed Git ref in [archive.md](docs/archive.md). Ground work in current source/tests and v2 contracts; archived behavior is migration evidence, not a current feature or instruction to restore legacy code.
 - Inspect the branch, `git status`, and the target-file diff before editing. Preserve unrelated work; do not overwrite, revert, stage, or commit it. Stop on overlapping external edits.
 - Reviews, diagnosis, status, and planning are read-only. Implement explicitly requested changes within scope; a design-first step is not an extra approval gate when implementation is already authorized. Stop for unresolved material design choices, not an arbitrary phase boundary.
 - Commit, push, external publication, service/production changes, and paid Provider requests require explicit authorization for the relevant action and target. A commit request does not authorize a push.
@@ -20,7 +20,7 @@ Before non-trivial work, read the root [README](README.md) and [documentation in
 | Cross-module ownership or data flow | [Current architecture](docs/architecture.md), [v2 design](docs/architecture-v2/README.md), affected module docs and callers |
 | Task IR, media semantics, or encode/decode | [Semantic IR](docs/architecture-v2/semantic-ir.md), [thematic research](docs/references/semantic-baseline.md), [fixed upstream baseline](docs/references/upstream-sync.md), relevant standard/extension/media leaves, [protocol/lowering](docs/architecture-v2/protocol-and-lowering.md), and actual `src/semantic/`, `src/protocol/`, `src/lowering/` types/callers |
 | Implementation, dependency, or test changes | [Development guide](docs/development.md), affected tests and manifests |
-| Provider onboarding or protocol changes | Relevant `docs/references/` snapshots, v2 contracts and affected source/tests; caller-driven adapter/execution exists, but production ingress and Provider I/O are not implemented |
+| Provider onboarding or protocol changes | Relevant `docs/references/` snapshots, v2 contracts and affected source/tests; the minimal HTTP ingress/Provider transport exists, but its new wiring and production behavior require their own evidence |
 | Corpus or semantic testing | [Development guide](docs/development.md), independent `tests/semantic/` and `tests/support/` fixtures and affected Rust contracts; archived corpus is evidence only, not an active test dependency |
 | Documentation or instruction maintenance | Documentation responsibilities, canonical sources, incoming links, and affected guidance |
 
@@ -44,7 +44,7 @@ Read only relevant leaves, not every document. Product contracts state intended 
 - Before an approved behavior change, record the observable result, requirement, failing test, non-goals, and validation boundary in the current focus; then use TDD. Pure instruction/comment/documentation maintenance does not require a manufactured behavior focus.
 - A breaking change must update implementation, parsing/serialization, OpenAPI, examples, fixtures, docs, and tests together. Unpublished prototype APIs may be replaced within approved scope without legacy aliases, compatibility shims, or meaningless schema bumps.
 - Keep dependencies intentional. Update `Cargo.lock` with `Cargo.toml` and repeat locked validation.
-- Follow the development guide for code-comment conventions. There are no active service configuration templates; private files left in `config/` are not a source of test data. Rust comments/docs and Python docstrings use concise English; document non-obvious protocol, security, concurrency, cleanup, and failure boundaries.
+- Follow the development guide for code-comment conventions. The minimal binary uses the documented environment bootstrap, not archived service configuration templates; private files left in `config/` are not a source of test data. Rust comments/docs and Python docstrings use concise English; document non-obvious protocol, security, concurrency, cleanup, and failure boundaries.
 
 ## Security and Resource Boundaries
 
@@ -54,7 +54,7 @@ Read only relevant leaves, not every document. Product contracts state intended 
 - Preserve fail-closed authentication, credential ownership, bounded allocation/capture, protocol terminal, retry/fallback/cooldown, cancellation, and resource-lifetime behavior. Do not buffer without bounds, replay after downstream commit, or fabricate a successful terminal.
 - Content logging starts only after downstream authentication, observes the final downstream boundary, and always redacts sensitive headers. It is not an upstream wire dump. Bounded content snapshots remain in the dedicated local JSONL sink, absent from stdout and reviewed OTLP traces; sink failure must not change business responses.
 - Checked-in logging profiles are for controlled development. Do not run them against sensitive traffic merely to verify logging; production owners must reduce or disable content capture first.
-- The corpus/testkit must not load OpenBridge credentials, call a real Provider, implicitly start OpenBridge, or implement automatic retry/fallback. Live, paid, ignored network, and external-dependency checks require explicit approval; paid probes also require an agreed target, exact request matrix, output limits, and sanitized report boundary.
+- The corpus/testkit must not load OpenBridge credentials, call a real Provider, implicitly start OpenBridge, or implement automatic retry/fallback. Explicit Rust bootstrap tests may own a disposable loopback binary with synthetic keys, an isolated environment and a rejecting loopback egress proxy. Live, paid, ignored network, and external-dependency checks require explicit approval; paid probes also require an agreed target, exact request matrix, output limits, and sanitized report boundary.
 - Do not inspect or manually edit `target/`, `tools/corpus/.venv/`, `tools/corpus/.pytest_cache/`, or Python `__pycache__/` unless explicitly targeted. Normal build/test tools may populate their own caches; do not treat generated output as source.
 - Do not commit derived output under `testdata/generated/`, `testdata/reports/`, `testdata/dist/`, or `testdata/runtime/`. Canonical `testdata/` files are contracts; change wire data only for requested behavior and do not add comments to formats that forbid them.
 

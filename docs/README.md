@@ -1,6 +1,6 @@
 # OpenBridge 文档
 
-当前工作区维护 v2 语义核心、双向 adapters、codec/lowering、固定 topology、caller-driven execution 与离线验收；没有服务 listener 或生产 Provider I/O。旧路线在 [Git 归档](archive.md)中，不保留工作区兼容副本。
+当前工作区维护 v2 语义核心、双向 adapters、codec/lowering、固定 topology、caller-driven execution 和最小 loopback HTTP 网关；已有 synthetic 全链验收，不等于生产验收。旧路线在 [Git 归档](archive.md)中，不保留工作区兼容副本。
 
 | 文档 | 事实所有权 |
 |---|---|
@@ -14,6 +14,7 @@
 | [当前焦点](implementation-plans/current-focus.md) | 已选定行为切片的范围与验收条件；无进行中切片时保持空，不把建议变成授权 |
 | [下一步目标](implementation-plans/next-goal.md) | 推进顺序、推荐切片与进入下一阶段的门槛，不重复能力清单或完成日志 |
 | [开发指南](development.md) | 本地与固定 SDK 验证入口 |
+| [HTTP 网关指南](http-gateway.md) / [OpenAPI](openapi.json) | 最小环境变量启动、HTTP 外层接口与实际 I/O 边界；字段准入仍归各 profile |
 | [实施边界](implementation-status/README.md) | 验证层级与历史证据解释 |
 | [主题化参考](references/README.md) | 已整合的历史结论、Responses 标准、扩展、多模态和验收；不再按来源撰写 |
 | [上游同步](references/upstream-sync.md) | 本次官方页面、SDK/Codex 固定版本、差异与证据冲突；旧来源原文只作追溯 |

@@ -1,6 +1,9 @@
-//! Explicit, ignored SDK gate. The only HTTP listener is test-owned loopback; no Provider/router.
+//! Explicit, ignored SDK gates: codec fixtures plus the actual gateway Router
+//! against a synthetic HTTP Provider. All listeners and credentials are test-owned.
 #[path = "sdk/chat.rs"]
 mod chat_sdk;
+#[path = "sdk/gateway.rs"]
+mod gateway_sdk;
 #[path = "support/responses_profile.rs"]
 mod wire;
 

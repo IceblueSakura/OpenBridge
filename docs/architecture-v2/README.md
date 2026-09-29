@@ -1,6 +1,6 @@
 # OpenBridge Semantic Architecture v2
 
-**设计基线：Responses-first 标准语义 + scoped extensions。** 当前实现仍为 Rust 语义库与离线验收，不是完整标准实现或可运行网关。
+**设计基线：Responses-first 标准语义 + scoped extensions。** 当前实现为 Rust 语义库与最小 loopback 文本网关，具有 synthetic HTTP/SDK 全链验收；不是完整标准实现或生产就绪服务。
 
 ## 产品目标与阶段判据
 
@@ -38,9 +38,9 @@ Wire + trusted admission context
 ## 设计与实现边界
 
 - 旧运行时已[归档](../archive.md)，不要求功能对等或保留旧 crate path。
-- 当前源码实现 Generation 的部分 Responses/Chat 语义、标准 context、显式 adapters、lowering、纯 SSE、固定 topology 和 caller-driven execution。
+- 当前源码实现 Generation 的部分 Responses/Chat 语义、标准 context、显式 adapters、lowering、纯 SSE、固定 topology、caller-driven execution 与最小认证 HTTP 入口。
 - Responses 标准全景是目标；stateless text 是现有实施子集，不是长期 IR 表达力上限。
-- 固定 Responses/Chat SDK gates 验证有限纯文本 JSON/SSE；hosted tools、state/WS 与生产 ingress/Provider I/O 仍未实现。历史受控 probe 不能证明本轮重构的 live 兼容。
+- 固定 SDK 既有 codec fixture gates，也有经实际 Router 和 synthetic HTTP Provider 的双协议 JSON/SSE 续轮 gate；hosted tools、state/WS 与生产级保障仍未实现。库级 live 证据不能代替新服务入口的外部验收。
 - 当前分层完成度与具体缺口由[实施基线](migration.md)维护，推进顺序只由[下一步目标](../implementation-plans/next-goal.md)维护。现有纯文本基线不等于完整标准；未来任务或工具执行也不是无限延迟最小执行设计的前置条件。
 
 ## 文档所有权
@@ -50,14 +50,14 @@ Wire + trusted admission context
 - [protocol-and-lowering.md](protocol-and-lowering.md)：codec、fidelity、固定 profile 和目标可表示性。
 - [capability-model.md](capability-model.md)：标准可表达、模型支持、表示与执行能力分开。
 - [invariants.md](invariants.md)：语义、扩展、安全与资源不变量。
-- [execution-model.md](execution-model.md)：执行职责和交付合同；现有 library 与未接线生产边界见当前架构。
+- [execution-model.md](execution-model.md)：执行职责和交付合同；现有 library、最小 HTTP 接线与生产边界见当前架构。
 - [rust-layout.md](rust-layout.md)：职责布局方向，不复制 SDK 文件树。
 - [migration.md](migration.md)：分层完成度、目标相对当前代码的差距、可复现反例与边界；不重复实施顺序。
 - [responses-text-profile.md](responses-text-profile.md)：当前 Responses stateless text 的实现准入，不代表完整标准。
 - [chat-text-profile.md](chat-text-profile.md)：同一 IR 的单候选 Chat 静态/流式映射与拒绝边界。
 - [schema-profile.md](schema-profile.md)：请求/报告设置共享的 Schema 结构、strict/default、本地引用与预算准入。
 
-既有 decisions 维护其当前有效规则，不添加完成日志或平行 schema；reasoning 的 owner/origin/finality 见[专项规则](decisions/0006-reasoning-ownership.md)。设计与历史来源有冲突时，依据当前需求及固定一手证据显式解决；来源快照不构成冻结设计的理由。
+最小 HTTP 入口、启动固定候选与 body handoff 边界见 [ADR 0009](decisions/0009-minimal-http-text-gateway.md)。既有 decisions 维护其当前有效规则，不添加完成日志或平行 schema；reasoning 的 owner/origin/finality 见[专项规则](decisions/0006-reasoning-ownership.md)。设计与历史来源有冲突时，依据当前需求及固定一手证据显式解决；来源快照不构成冻结设计的理由。
 
 ## 验收原则
 

@@ -1,4 +1,5 @@
-//! Pure byte framing shared by protocol codecs and offline transport tests.
-//! Socket I/O, authentication, provider execution and retry are outside this crate's current scope.
+//! Semantically blind transport edges. Framing remains pure; HTTP receives only
+//! prepared trusted targets/headers/body and never chooses semantic policy.
 
+pub mod http;
 pub mod sse;

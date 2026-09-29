@@ -1,13 +1,14 @@
 # 当前架构
 
-当前 crate 是 v2 Rust 库：统一语义核心、显式边界 adapters、纯目标 lowering、固定 topology 和 caller-driven execution。**没有网关 listener、凭据池或生产 HTTP client。**旧运行时见 [Git 归档](archive.md)；设计合同见 [v2 架构](architecture-v2/README.md)。
+当前 crate 是 v2 Rust 库：统一语义核心、显式边界 adapters、纯目标 lowering、固定 topology 和 caller-driven execution。`gateway` 和 `transport::http` 已将其接成最小 loopback 文本服务；没有凭据池或生产级运行保障。旧运行时见 [Git 归档](archive.md)；设计合同见 [v2 架构](architecture-v2/README.md)。
 
 ```text
-Client request bytes
+Authenticated, bounded HTTP request
+ → fixed Public Model/task lookup (strict envelope identity only)
  → Client Adapter.decode_request
  → adapter::Request
      task semantics + semantic context/delivery + scoped carriers/fidelity
- → public admission / trusted transform / requirements
+ → trusted output-budget transform / public admission / requirements
  → fixed endpoint Adapter.encode_request (lowering + context projection)
  → prepared target/auth/body → caller-owned transport
  → Attempt: Provider Adapter JSON/SSE decode
@@ -26,6 +27,9 @@ Client request bytes
 | `src/topology/` | 固定 Model/Route/Endpoint 编译，绑定协议、适配规则、表示/执行合同与凭据 locator；不持有秘密 |
 | `src/execution/` | 固定 plan、请求准备、单帧增量 intake、响应投影和单调交付生命周期；I/O 调用方确认 commit/complete |
 | `src/transport/sse.rs` | 有界 SSE framing，无语义判断或 socket 所有权 |
+| `src/transport/http.rs` | 对已准备请求执行 HTTP；不继承入站 headers、不跟随重定向或隐式重试，不解释 IR |
+| `src/gateway/` | `config` 在启动时绑定 entry/credential/scope；`admission` 拥有 body 与可信输出预算；`http` 拥有认证入口和 shutdown；`body` 拥有上游及实际交付 acknowledgement/deadline |
+| `src/bin/openbridge.rs` | 显式环境变量 bootstrap 与 loopback listener；不读取旧私有配置 |
 
 ## 适配与保真
 
@@ -37,12 +41,15 @@ Client request bytes
 
 `Attempt::push` 最多消费一个 frame，返回已验证语义 events；不保存整个 event log。`ResponseDelivery::encode_events` 增量投影，I/O caller 保留未消费后缀并控制背压。Attempt 只暂存终态，严格 EOF 验证成功后，`finish_stream` 才编码成功/非成功终态。输出字节不等于实际提交：调用方在外部可见边界调用 `commit`，最终交付后调用 `complete`。late failure/cancel 不得恢复为成功或 post-commit fallback。
 
-当前没有生产 ingress 或自动 retry/fallback。固定 SDK handler 仍是独立 synthetic 消费者，不是生产链。`tests/transport/chain.rs` 验证 library execution 与 synthetic HTTP，`examples/live_probe.rs` 是另需精确授权的受控诊断入口，不是服务。
+最小 HTTP body worker 等待每个输出 frame 被 body poll 交给 server transport 后才确认 commit；完成所有 handoff 后才 complete，不声称客户端已收到。独立绝对 deadline 在 body 不被消费时仍释放上游，drop/shutdown 同样取消。首帧前失败返回脱敏 JSON 错误；HTTP response 已交出后的错误中止 body，不能换状态或合成成功终态。具体入口、预算与启动合同见 [HTTP 网关指南](http-gateway.md)和 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)。
+
+当前仅执行每个入口预先固定的一个 Route 成员，不做自动 retry/fallback。`tests/transport/chain.rs` 验证 library execution；`tests/gateway.rs` 经过真实 Router 和 synthetic HTTP Provider；固定 SDK 同时保留 codec fixture gates 与经过同一 Gateway 的独立全链 gate。`examples/live_probe.rs` 仍是另需授权的库级诊断入口，旧 live 结果不证明新服务入口的外部兼容。
 
 ## 验证入口
 
 - `tests/semantic.rs`：独立语义/codec/profile/变换反例。
 - `tests/transport.rs`：framing、协议终态、增量执行/显式 commit 与 synthetic body I/O。
-- `tests/sdk_loopback.rs`：显式 ignored 的固定 SDK gate。
+- `tests/gateway.rs`：真实 Router 全链 smoke 与隔离环境 binary 启动边界。
+- `tests/sdk_loopback.rs`：显式 ignored 的固定 SDK codec / gateway gates。
 
 具体命令与外部验收边界见[开发指南](development.md)，当前缺口只由[实施基线](architecture-v2/migration.md)维护。

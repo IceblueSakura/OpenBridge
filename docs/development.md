@@ -1,6 +1,6 @@
 # 开发指南
 
-当前开发对象为 v2 Rust library（semantic、adapter、topology、execution）与独立离线验收。没有旧网关、auth 或 MCP binary；受控 live probe example 不是默认验证入口，旧 corpus/运行配置的使用方式见 [Git 归档](archive.md)，不是当前开发前置条件。
+当前开发对象为 v2 Rust library（semantic、adapter、topology、execution）与独立离线验收。最小 `openbridge` binary 的启动见 [HTTP 网关指南](http-gateway.md)；没有旧网关或 MCP binary；受控 live probe example 不是默认验证入口，旧 corpus/运行配置的使用方式见 [Git 归档](archive.md)，不是当前开发前置条件。
 
 ## 变更流程
 
@@ -14,13 +14,14 @@
 
 Rust/Cargo 由根 `rust-toolchain.toml` 固定；rustfmt/clippy 随该工具链安装。不要保留覆盖这个文件的旧目录级 rustup override，也不要为项目更新全局默认工具链。
 
-集成测试收敛为三个入口，按职责筛选，不再按迁移批次增加 binary：
+集成测试按以下入口分工，按职责筛选，不再按迁移批次增加 binary：
 
 | Target | 模块与边界 |
 |---|---|
 | `semantic` | `tests/semantic/`：instructions、phase、tools、reasoning、schema、parsed replay、extensions、text profile/events、function events、response、chat wire、adapter profile 隔离、usage 缺省规则与来源/依赖保真；纯语义与 codec/lowering |
 | `transport` | `tests/transport/`：framing、Responses/Chat SSE、Chat envelope、body lifecycle；基础 framer、增量 Attempt/ResponseDelivery、实际 I/O commit 边界和 synthetic body I/O 各自验证 |
-| `sdk_loopback` | 显式 ignored 的固定 Python SDK 的 Responses/Chat 三轮 JSON/SSE gates，不进入默认外部依赖检查 |
+| `gateway` | 一个真实 Router→synthetic HTTP Provider smoke；另一个隔离环境 binary bootstrap gate，使用 synthetic keys 与拒绝出站的 loopback 代理，不调用真实 Provider |
+| `sdk_loopback` | 显式 ignored 的固定 Python SDK codec fixture gates，以及真实 Gateway Router→synthetic Provider 的双协议 JSON/SSE 续轮 gate，不进入默认外部依赖检查 |
 
 `tests/support/` 只共享 synthetic builders 和独立 wire 预期，不从被测 encoder 生成 oracle。相同字段的 decode、独立 encode、变换、失败和 I/O 可能保护不同边界，不按测试数量裁剪；删除重复 smoke/自比较检查前，确认剩余独立预期覆盖其有效断言。
 
@@ -54,7 +55,9 @@ uv run --project tests/sdk --locked --offline python -m pip check
 uv run --project tests/sdk --locked --offline cargo test --locked --offline --test sdk_loopback -- --ignored --test-threads=1
 ```
 
-该 target 显式运行两个 gates：Responses 覆盖 function/custom/reasoning 历史与派生视图回放（三轮）；Chat 覆盖单候选 function 三轮，通过 SDK `parse()`/stream helper 与 create/typed chunks 消费后把携带派生 view 的真实 dump 回放进后续请求。两者请求使用各自完整 envelope bytes 入口，synthetic 响应经静态 bytes / SSE decoder；SDK 使用严格响应验证，最终正文来自修改后的 IR，回放请求的 raw body 权威性在服务端断言。它们只用 `parse()` 产生真实派生 dump 以验收回放准入，不构成 parse/parsed 派生、模型输出 adherence 或全部 replay 分支的验收。测试专用 Router 只访问临时 literal loopback，使用 synthetic Bearer；不读取私有配置、不继承 Provider credential，不执行真实工具、环境代理或自动重试。不启动旧 OpenBridge 服务，也不证明真实 Provider、完整 Agent 或生产接线兼容。
+该 target 显式运行三个 gates。原有两个 codec gates：Responses 覆盖 function/custom/reasoning 历史与派生视图回放（三轮）；Chat 覆盖单候选 function 三轮，通过 SDK `parse()`/stream helper 与 create/typed chunks 消费后把携带派生 view 的真实 dump 回放进后续请求。两者请求使用各自完整 envelope bytes 入口，synthetic 响应经静态 bytes / SSE decoder；SDK 使用严格响应验证，最终正文来自修改后的 IR，回放请求的 raw body 权威性在服务端断言。它们只用 `parse()` 产生真实派生 dump 以验收回放准入，不构成 parse/parsed 派生、模型输出 adherence 或全部 replay 分支的验收。测试专用 Router 只访问临时 literal loopback，使用 synthetic Bearer；不读取私有配置、不继承 Provider credential，不执行真实工具、环境代理或自动重试。不启动旧 OpenBridge 服务，也不证明真实 Provider、完整 Agent 或生产就绪。
+
+新增 `gateway_sdk::sdk_uses_gateway_for_both_protocols_and_deliveries` 使用实际 `Gateway::serve` 与独立 synthetic HTTP Provider。固定 SDK 的 Chat/Responses JSON/SSE 请求经过认证、模型绑定、缺省 token 预算写入 IR、request lowering、真实 HTTP、response/event adapter 与 HTTP body，再回放实际工具/derived views/encrypted reasoning。上游 oracle 独立检查 model 重绑定、默认预算、call ID、原始参数和工具结果；不由网关 handler 直接构造客户端回答。所有凭据为 synthetic，SDK/transport 禁止环境代理继承与重试，进程有 deadline 与取消清理。该 gate 不代替真实 Provider 经新 binary 的验收。
 
 `transport::body_lifecycle` 保护首帧、取消、背压与异常 body；`transport::responses_sse`、`transport::chat` 和 `transport::framing` 分别保护协议 adapter 与共用 framer 的终态。生命周期场景使用 channel/readiness 和有界 timeout，不用 sleep 隐藏竞争。子进程/listener/producer 需要失败路径清理。
 

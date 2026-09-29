@@ -67,7 +67,17 @@ src/
     lifecycle.rs
     delivery.rs
 
+  gateway/
+    config.rs
+    admission.rs
+    http.rs
+    body.rs
+    bootstrap.rs
+  bin/
+    openbridge.rs
   transport/
+    http.rs
+    sse.rs
   credential/
   observability/
   ingress/
@@ -98,6 +108,7 @@ More precisely:
 - `adapter` composes protocol rules and target lowering, and owns context projection; it does not access topology, credentials or network.
 - `execution` consumes plans and adapters, owns bounded intake/delivery state and exposes commit acknowledgement to the I/O caller. It does not interpret context fields.
 - `transport` is semantically blind.
+- `gateway` owns startup entry/credential resolution, authenticated public-task admission, trusted budget policy and actual HTTP body ownership. Its minimal environment bootstrap is not a general configuration or plugin framework.
 
 ## Types to avoid
 

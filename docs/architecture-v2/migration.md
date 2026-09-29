@@ -4,18 +4,18 @@
 
 ## 完成度判断
 
-**纯文本 Generation 已形成可修改、可重编码的离线语义主链，但尚未完成已准入边界的全部正确性验收，也不是可运行网关。** 不宜用一个百分比混合衡量语义表达、codec、消费者和执行四层。
+**纯文本 Generation 已形成可修改、可重编码的语义主链，并接通最小认证 HTTP 网关与 synthetic SDK 全链；尚未完成全部标准分支和生产验收。** 不宜用一个百分比混合衡量语义表达、codec、消费者和执行四层。
 
-这里的“纯文本”包括文本/refusal、结构化输出、function/custom 的文本调用与结果、reasoning 历史及相关控制/上下文，不仅是一个 prompt 返回一个字符串。它不自动包含所有“结果恰好是文本”的 hosted tools、状态资源或 program 执行。文本是验证[最终网关目标](README.md#产品目标与阶段判据)的阶段性载体：当前最大的产品缺口是尚未把这些机制接成网关整体流程，不是缺少一份更大的字段清单。
+这里的“纯文本”包括文本/refusal、结构化输出、function/custom 的文本调用与结果、reasoning 历史及相关控制/上下文，不仅是一个 prompt 返回一个字符串。它不自动包含所有“结果恰好是文本”的 hosted tools、状态资源或 program 执行。文本是验证[最终网关目标](README.md#产品目标与阶段判据)的阶段性载体：最小整体流程已接线；当前产品门槛转为新入口的受控外部验收、选定 Agent/缓存场景和必要的运行保障，而不是无限扩大字段清单。
 
 | 层级 | 当前判断 | 证据与不能推出的结论 |
 |---|---|---|
-| Task IR / 变换 / lowering | 已有完整主链，目标合同仍为受限子集 | `src/semantic/task/generation/`、`src/lowering/`；最终 IR 权威、候选独立投影与拒绝已有测试，不代表模型 capability 或 Provider selection 已接通 |
+| Task IR / 变换 / lowering | 已有完整主链，目标合同仍为受限子集 | `src/semantic/task/generation/`、`src/lowering/`；最终 IR 权威、候选独立投影与拒绝已有测试；最小入口仅使用启动固定候选，不代表动态选择或任意模型 capability |
 | Responses JSON/SSE | 常用无状态文本分支已实现，必填性已闭合但未审计全部标准分支 | `src/protocol/openai/`、`tests/semantic/`、`tests/transport/responses_sse.rs`；见下方缺口状态，不能称完整标准实现 |
 | 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证，不是待从零建立的 codec | `tests/transport/chat.rs`；部分标准文本 metadata、usage 与终态仍被拒绝，不等于 Chat 协议无法表达 |
-| 固定消费者 / Agent 场景 | 已有 Responses/Chat 三轮 JSON/SSE synthetic gates，尚非网关全链 | `tests/sdk_loopback.rs`、`tests/sdk/` 的 handler 直接构造 fixture 回答，不经真实 Provider adapter；显式 ignored，默认 Rust tests 不执行，覆盖范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
+| 固定消费者 / Agent 场景 | codec fixture gates 与实际 Gateway/HTTP Provider 全链 gate 并存 | `tests/sdk/gateway.rs` 让固定 SDK 经同一 Router 完成双协议 JSON/SSE 工具与 reasoning 续轮；上游为 synthetic，显式 ignored，默认 Rust tests 不执行。范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
 | 缓存亲和性 | 有表示与保序基础，尚无执行亲和策略或命中效果验收 | CacheHints、schema order、origin-bound replay 已存在；缓存 scope 的执行绑定、跨轮/跨目标策略及真实 hit/成本/延迟效果不能由字段往返推出 |
-| 执行库 / 生产接线 | 显式 adapters、固定 topology、增量 intake/delivery 已有离线链和固定文本真实验收，仍非网关 | `src/adapter/`、`src/provider/`、`src/topology/`、`src/execution/`、`tests/transport/chain.rs`；[Flash 外部验收](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)限定于所列版本/场景。I/O caller 显式 commit/complete；无服务入口、credential 池或自动 retry/fallback |
+| 执行库 / HTTP 接线 | 最小 loopback 服务已接通认证、固定入口、Provider transport 与增量 body；未生产验收 | `src/gateway/`、`src/transport/http.rs`、`tests/gateway.rs`；启动与错误边界见 [HTTP 指南](../http-gateway.md)。[Flash 外部验收](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)仍仅证明先前库级版本/场景，不证明新 binary；没有凭据池、自动 retry/fallback 或动态 registry |
 
 ## 已实现的纯文本基线
 
@@ -59,10 +59,10 @@
 - **Configuration / program 表示与执行分开**：固定 SDK 的 configuration update 只声明 reasoning effort，当前有序表示已存在；不虚构“effort 以外配置”作为既定标准缺口。是否计算 effective settings、调度 program、管理 Codex turn 属于独立执行设计。`prewarm` 也仅表示，未建立其 `generate` override 合同。
 - **有状态 API 暂缓**：previous response/conversation/store/background、prompt、compaction/reference、retrieve/cancel 及 WS lane/steering 尚未实现；queued 事件已准入不等于静态 queued/in_progress body 或 state service 可用。当前只准入 inactive state 形式，编码显式 `store:false`。
 - **其他语义域暂缓**：媒体双向映射、hosted/dynamic tools、独立 Embedding/Images/Speech 任务不是当前纯文本闭合的前置条件；基础 Resource 类型和 program item 表示不证明这些任务或执行已迁移。
-- **生产缺口独立存在**：固定 topology/model binding、单帧 intake、增量 delivery 和显式 commit API 已有；生产 ingress、认证/凭据解析、实际 Provider I/O、自动 retry/fallback、跨请求 scope 生命周期尚未接线。需要验证真实 body owner 对 API 的正确调用，不以纯状态机或 synthetic tests 代替生产证据。
+- **生产缺口独立存在**：最小认证 ingress、环境变量凭据绑定、实际 HTTP Provider I/O、body handoff/commit、取消与 deadline 已接通并通过 synthetic 验收。尚无多用户凭据池/OAuth、动态 registry、自动 retry/fallback、生产观测与负载/长稳证据；raw client replay token 的源头真实性仍由 issuer 验证，内部 scope 绑定不是来源证明。不能把最小本机服务称为生产就绪。
 
 ## 验收边界
 
-当前判断基于源码、独立 fixtures、默认离线 Rust tests 与定向变异反例。SDK gates 的存在不等于每次审阅都执行；具体一次检查结果在交付时报告，不在此维护测试数量或完成日记。完整 SDK/Agent、真实 Provider/TLS/网络、模型输出质量、负载与长期生产稳定性均需各自证据。
+当前判断基于源码、独立 fixtures、默认离线 Rust tests、定向变异反例及显式 synthetic SDK/HTTP 全链；外部 live 证据按其固定版本分别解释。SDK gates 的存在不等于每次审阅都执行；具体一次检查结果在交付时报告，不在此维护测试数量或完成日记。完整 SDK/Agent、真实 Provider/TLS/网络、模型输出质量、负载与长期生产稳定性均需各自证据。
 
 每个获准行为切片先记录[当前焦点](../implementation-plans/current-focus.md)，以独立 decode/encode、IR 修改/删除、Static/Event 与失败/资源反例验收。保持最终 typed 语义权威、候选不可变投影、extension 不覆盖标准/认证/目标、失败不变成功。推进顺序只由[下一步目标](../implementation-plans/next-goal.md)维护。

@@ -1,0 +1,107 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OpenBridge minimal text gateway",
+    "version": "0.1.0",
+    "description": "Envelope-level HTTP contract only. Detailed field admission and per-model representation limits are defined by the Chat and Responses text profiles; this is not the complete OpenAI schema. No models discovery, stateful resources or automatic retry/fallback."
+  },
+  "servers": [{"url": "http://127.0.0.1:8080"}],
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/v1/chat/completions": {
+      "post": {
+        "operationId": "chatCompletion",
+        "summary": "Generate through the single-candidate Chat text profile",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ChatRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/Generation"},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "405": {"$ref": "#/components/responses/Error"},
+          "408": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "415": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"},
+          "500": {"$ref": "#/components/responses/Error"},
+          "502": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"},
+          "504": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/v1/responses": {
+      "post": {
+        "operationId": "response",
+        "summary": "Generate through the stateless Responses text profile",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResponsesRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/Generation"},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "405": {"$ref": "#/components/responses/Error"},
+          "408": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "415": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"},
+          "500": {"$ref": "#/components/responses/Error"},
+          "502": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"},
+          "504": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "description": "Exactly one Authorization header. Configured startup secret, not an upstream API key."}},
+    "schemas": {
+      "ChatRequest": {
+        "type": "object", "required": ["model", "messages"],
+        "properties": {
+          "model": {"type": "string", "minLength": 1},
+          "messages": {"type": "array", "items": {"type": "object"}},
+          "stream": {"type": ["boolean", "null"], "default": false},
+          "max_completion_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
+        },
+        "additionalProperties": true,
+        "description": "Additional fields require admission by the Chat text profile and selected public contract; additionalProperties does not authorize arbitrary upstream parameters."
+      },
+      "ResponsesRequest": {
+        "type": "object", "required": ["model"],
+        "properties": {
+          "model": {"type": "string", "minLength": 1},
+          "input": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "object"}}]},
+          "stream": {"type": ["boolean", "null"], "default": false},
+          "max_output_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
+        },
+        "additionalProperties": true,
+        "description": "Detailed input, settings and inactive-state admission follow the Responses text profile. No arbitrary endpoint, credential or header selection."
+      },
+      "Error": {
+        "type": "object", "required": ["error"], "additionalProperties": false,
+        "properties": {"error": {
+          "type": "object", "required": ["message", "type", "param", "code"], "additionalProperties": false,
+          "properties": {"message": {"type": "string"}, "type": {"type": "string", "enum": ["invalid_request_error", "api_error"]}, "param": {"type": "null"}, "code": {"type": "string"}}
+        }}
+      }
+    },
+    "responses": {
+      "Generation": {
+        "description": "A profile-specific JSON response or incremental SSE. The public model label is retained. HTTP 200 alone does not prove successful stream closure or model output adherence; late errors abort the body without a fabricated terminal.",
+        "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}},
+        "content": {"application/json": {"schema": {"type": "object"}}, "text/event-stream": {"schema": {"type": "string"}}}
+      },
+      "Error": {
+        "description": "Sanitized application error. 401 includes WWW-Authenticate: Bearer. No upstream body, origin, credential locator or parser input is reflected. HTTP parser failures occur outside this envelope.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      }
+    }
+  }
+}
