@@ -15,7 +15,7 @@
 | 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证，不是待从零建立的 codec | `tests/transport/chat.rs`；部分标准文本 metadata、usage 与终态仍被拒绝，不等于 Chat 协议无法表达 |
 | 固定消费者 / Agent 场景 | 已有 Responses/Chat 三轮 JSON/SSE synthetic gates，尚非网关全链 | `tests/sdk_loopback.rs`、`tests/sdk/` 的 handler 直接构造 fixture 回答，不经真实 Provider adapter；显式 ignored，默认 Rust tests 不执行，覆盖范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
 | 缓存亲和性 | 有表示与保序基础，尚无执行亲和策略或命中效果验收 | CacheHints、schema order、origin-bound replay 已存在；缓存 scope 的执行绑定、跨轮/跨目标策略及真实 hit/成本/延迟效果不能由字段往返推出 |
-| 执行库 / 生产接线 | 显式 adapters、固定 topology、增量 intake/delivery 已有离线链，仍非网关 | `src/adapter/`、`src/provider/`、`src/topology/`、`src/execution/`、`tests/transport/chain.rs`；I/O caller 显式 commit/complete。无服务入口、credential 池或自动 retry/fallback；历史 probe 不证明重构后 live 兼容 |
+| 执行库 / 生产接线 | 显式 adapters、固定 topology、增量 intake/delivery 已有离线链和固定文本真实验收，仍非网关 | `src/adapter/`、`src/provider/`、`src/topology/`、`src/execution/`、`tests/transport/chain.rs`；[Flash 外部验收](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)限定于所列版本/场景。I/O caller 显式 commit/complete；无服务入口、credential 池或自动 retry/fallback |
 
 ## 已实现的纯文本基线
 
@@ -35,7 +35,7 @@
 
 ## 当前正确性缺口
 
-当前[显式适配合同](decisions/0008-stable-core-and-vendor-adapters.md)把标准语义、厂商形状和兼容默认值分开。DeepSeek 有效 usage 缺失/null cache-write 时归一为 0，并保留 intake 归一化记录；标准/client/Xiaomi 不继承该默认，缺失整个 usage 不补造。extras 绑定来源/协议/方言/语义依赖，仅终态为权威；JSON/SSE 使用同一投影。现有验收见 `tests/semantic/adapters.rs`、`tests/transport/chain.rs`。[历史真实矩阵](../implementation-status/evidence/2026-09-28-deepseek-xiaomi-provider-live-matrix.md)仅证明其当时实现，不能替代本轮重构的 live 验收。固定 SDK 标准事件的 required/presence 与完整 Response snapshot 必填性已闭合：标准事件缺失 `sequence_number`、完整 snapshot 缺失 `output` 数组（含 queued/created/in_progress 初始 snapshot）在完整字节入口与低层 snapshot 分支都被拒绝，显式空数组仍然合法，拒绝后不能恢复为成功。规则与回归测试入口由 [Responses text profile](responses-text-profile.md#complete-stream-required-fields) 维护。
+当前[显式适配合同](decisions/0008-stable-core-and-vendor-adapters.md)把标准语义、厂商形状和兼容默认值分开。DeepSeek 有效 usage 缺失/null cache-write 时归一为 0，并保留 intake 归一化记录；标准/client/Xiaomi 不继承该默认，缺失整个 usage 不补造。extras 绑定来源/协议/方言/语义依赖，仅终态为权威；JSON/SSE 使用同一投影。现有验收见 `tests/semantic/adapters.rs`、`tests/transport/chain.rs`。[历史 MiMo Pro 矩阵](../implementation-status/evidence/2026-09-28-deepseek-xiaomi-provider-live-matrix.md)仅证明其当时实现；[重构后的 Flash 验收](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)覆盖固定双协议文本与工具续轮，并保留 MiMo 单次 JSON 输出格式异常，未据后续复测成功将其宣称为已修复。codec 成功不等于模型输出 adherence，真实样本也不替代完整标准分支或 SDK 验收。固定 SDK 标准事件的 required/presence 与完整 Response snapshot 必填性已闭合：标准事件缺失 `sequence_number`、完整 snapshot 缺失 `output` 数组（含 queued/created/in_progress 初始 snapshot）在完整字节入口与低层 snapshot 分支都被拒绝，显式空数组仍然合法，拒绝后不能恢复为成功。规则与回归测试入口由 [Responses text profile](responses-text-profile.md#complete-stream-required-fields) 维护。
 
 仍未声称所有事件的 required/null/跨 kind 检查均已审计：更广标准分支的 required/presence 按[尚未映射的文本能力](#尚未映射的文本能力)收敛，新反例按 owner 立项，不以“全部标准分支已审计”为前提。
 
@@ -46,8 +46,6 @@
 | 域 | 具体缺口 | 对下一步的意义 |
 |---|---|---|
 | Chat usage | text token 与 prediction token 细分尚未映射 | cached/cache-write/reasoning 的双协议 JSON/SSE 映射已有；新细分按真实语义归属补齐，不另建 Provider Usage |
-
-
 | Chat 非成功终态 | `content_filter` 未映射；静态与流式仅准入 stop/tool_calls/length | 现有 `IncompleteReason::ContentFilter` 可作为语义起点；需同时验收 JSON、SSE、partial output、DONE 与跨协议投影，不把过滤伪装成 length/success |
 | Chat 标准上下文 | `system_fingerprint` 已按标准 reported fact 准入（presence 保留、流内首值绑定）；`service_tier`、`metadata` 仍无 Chat 投影 | `chat_envelope.rs`、`static_response.rs`、`events/chat.rs` 闭合字段表按 [Chat profile](chat-text-profile.md) 演进；带未准入字段的 envelope 仍确定性拒绝，不能称通用兼容 |
 | 其余 Chat 文本投影 | logprobs、其他生成控制、文本 content-array 等未准入；Responses `phase`、reasoning replay/custom/program 等也不能无损投影 | 前者按具体消费需求逐项立项；后者不能靠丢字段强行变成 Chat，也不以 Chat 限制反向缩减 Responses IR |

@@ -10,7 +10,7 @@
 |---|---|---|
 | 1 | 最小文本 ingress 与实际交付接线 | 可信 Public Model/task 先绑定，统一 Request 经 transform/requirements、固定 candidate adapter、synthetic upstream 到真实下游 body；实际 I/O 控制背压、cancel、commit/complete |
 | 2 | 选定 Agent/缓存场景与必要文本投影 | 固定 SDK 通过同一执行链完成工具续轮；按场景补 Chat content_filter、service tier/metadata 等，不要求完整 Chat API 对等 |
-| 3 | 重构后的受控 Provider 验收 | 另行确定 Provider/account/model、精确请求矩阵与输出边界；历史 live 通过不自动覆盖新 adapters/默认值/流式链 |
+| 3 | 新接线后的受控 Provider 回归 | 已有[重构后 Flash 固定文本证据](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)；随 ingress/SDK 接线变化重新选定 Provider/account/model、精确矩阵与输出边界，旧样本不证明新链或更广兼容 |
 | 4 | 扩展 Provider 与多模态 | 新 wire 差异只改 adapter；真正的新能力演进共享 task/extension owner，验收 request/response/event 与资源边界 |
 
 Chat cache-write 的双向投影和 DeepSeek 缺省零规则已属于当前合同，不再列为待建能力；兼容零不证明实际缓存写入、计费或缓存命中效果。其他 usage 细分、文本投影与上下文限制见[缺口表](../architecture-v2/migration.md#尚未映射的文本能力)。
