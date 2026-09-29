@@ -89,7 +89,9 @@ Uncommitted -> Committed -> Terminal
 
 Only Uncommitted requests may retry or advance to another candidate.
 
-For streaming, a bounded precommit stage may validate enough upstream semantics to safely emit the first downstream event. After the first visible semantic event, fallback is forbidden.
+For streaming, `Attempt::push` consumes at most one upstream frame and returns semantic events without retaining a replay log. `ResponseDelivery::encode_events` projects these incrementally. Only the terminal is withheld until `Attempt::finish` validates strict EOF; `finish_stream` then emits it. The I/O caller retains unconsumed suffixes and controls readiness/backpressure.
+
+Encoding bytes does not commit. The I/O owner calls `ResponseDelivery::commit` at the external visibility boundary and `complete` only after upstream closure and final downstream delivery. After commit, fallback is forbidden. Late errors poison the chain; cancellation releases owned decoder/encoder state. `StrictComplete` may reject at terminal after partial delivery; complete-result consumers must choose bounded non-streaming delivery if they require pre-delivery completeness.
 
 ## Credential and transport isolation
 

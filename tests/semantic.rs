@@ -4,6 +4,8 @@ mod events_support;
 #[path = "support/responses_profile.rs"]
 mod wire;
 
+#[path = "semantic/adapters.rs"]
+mod adapters;
 #[path = "semantic/chat_wire.rs"]
 mod chat_wire;
 #[path = "semantic/extensions.rs"]

@@ -15,15 +15,18 @@
 //!   no keys, auth headers or credential locators.
 
 use openbridge::{
-    execution::{Attempt, AttemptError, admit, prepare_chat, prepare_responses},
+    adapter::{Adapter, Dialect},
+    execution::{Attempt, AttemptError, ResponseDelivery, admit, prepare},
     protocol::openai::{
-        chat_envelope,
+        Profile,
         chat_sse::ChatSseDecoder,
-        envelope,
         sse::{Obfuscation, ResponsesSseDecoder, SseLimits},
     },
     provider::{ErrorClass, ProviderDefinition, SecretMaterial, catalog as provider_catalog},
-    semantic::task::generation::{Completion, ContentPart, Item, Outcome, Usage},
+    semantic::{
+        context::StreamOptions,
+        task::generation::{Completion, ContentPart, Item, Outcome, Usage},
+    },
     topology::{Endpoint, EndpointId, ProtocolProfile, PublicModel, catalog as topology_catalog},
 };
 use serde_json::{Value, json};
@@ -122,6 +125,7 @@ struct CallReport {
     error_class: Option<String>,
     outcome: Option<String>,
     usage: Option<Value>,
+    normalizations: Vec<String>,
     text_chars: Option<usize>,
     excerpt: Option<String>,
     tool_call: Option<String>,
@@ -259,8 +263,8 @@ fn responses_tool() -> Value {
     })
 }
 
-fn chat_stream_options() -> chat_envelope::StreamOptions {
-    chat_envelope::StreamOptions {
+fn chat_stream_options() -> StreamOptions {
+    StreamOptions {
         include_usage: openbridge::semantic::value::Presence::Value(true),
         include_obfuscation: openbridge::semantic::value::Presence::Value(false),
     }
@@ -340,6 +344,7 @@ async fn run_call(
         error_class: None,
         outcome: None,
         usage: None,
+        normalizations: vec![],
         text_chars: None,
         excerpt: None,
         tool_call: None,
@@ -359,51 +364,29 @@ async fn run_call(
 
     // 1. Downstream request bytes must decode through the real admission codecs.
     let bytes = serde_json::to_vec(&request_json).expect("request serializes");
-    enum Downstream {
-        Chat(chat_envelope::DecodedChatRequest),
-        Responses(envelope::DecodedResponsesRequest),
-    }
-    let decoded = match ctx.downstream {
-        ProtocolProfile::OpenAiChat => match chat_envelope::decode_request_bytes(&bytes) {
-            Ok(request) => Downstream::Chat(request),
-            Err(error) => {
-                let mut report = base;
-                fail(
-                    "request-decode",
-                    None,
-                    Some(format!("{error}")),
-                    &mut report,
-                );
-                return CallOutcome {
-                    report,
-                    tool_call: None,
-                };
-            }
-        },
-        ProtocolProfile::OpenAiResponses => match envelope::decode_request_bytes(&bytes) {
-            Ok(request) => Downstream::Responses(request),
-            Err(error) => {
-                let mut report = base;
-                fail(
-                    "request-decode",
-                    None,
-                    Some(format!("{error}")),
-                    &mut report,
-                );
-                return CallOutcome {
-                    report,
-                    tool_call: None,
-                };
-            }
-        },
+    let family = match ctx.downstream {
+        ProtocolProfile::OpenAiChat => Profile::Chat,
+        ProtocolProfile::OpenAiResponses => Profile::Responses,
+    };
+    let client_adapter = Adapter::new(
+        family,
+        Dialect::OpenBridge,
+        ctx.endpoint.representation.adaptation.scope.clone(),
+    );
+    let decoded = match client_adapter.decode_request(&bytes) {
+        Ok(request) => request,
+        Err(error) => {
+            let mut report = base;
+            fail("request-decode", None, Some(error.to_string()), &mut report);
+            return CallOutcome {
+                report,
+                tool_call: None,
+            };
+        }
     };
 
     // 2. Entry admission against the public contract, then candidate preparation.
-    let task = match &decoded {
-        Downstream::Chat(request) => &request.task,
-        Downstream::Responses(request) => &request.task,
-    };
-    if let Err(error) = admit(ctx.public, task) {
+    if let Err(error) = admit(ctx.public, &decoded) {
         let mut report = base;
         fail(
             "admission",
@@ -416,14 +399,7 @@ async fn run_call(
             tool_call: None,
         };
     }
-    let upstream = match &decoded {
-        Downstream::Chat(request) => {
-            prepare_chat(ctx.endpoint, ctx.provider_def, ctx.secret, request)
-        }
-        Downstream::Responses(request) => {
-            prepare_responses(ctx.endpoint, ctx.provider_def, ctx.secret, request)
-        }
-    };
+    let upstream = prepare(ctx.endpoint, ctx.provider_def, ctx.secret, &decoded);
     let upstream = match upstream {
         Ok(upstream) => upstream,
         Err(error) => {
@@ -492,10 +468,9 @@ async fn run_call(
         .map(|v| v.to_str().unwrap_or_default().to_string())
         .unwrap_or_default();
     let mut attempt = Attempt::new(
-        ctx.endpoint.protocol,
+        ctx.endpoint.adapter(),
         ctx.endpoint.execution.response_body_limit,
         SseLimits::default(),
-        ctx.endpoint.representation.replay_origin.clone(),
     );
     if let Err(error) = attempt.begin(report.http_status.unwrap_or(0), &content_type) {
         fail(
@@ -510,6 +485,16 @@ async fn run_call(
         };
     }
     let mut raw_body: Vec<u8> = vec![];
+    let mut delivery = ResponseDelivery::new(
+        client_adapter.clone(),
+        ctx.endpoint.representation.clone(),
+        ctx.label,
+        SseLimits::default(),
+        chat_stream_options(),
+        Obfuscation::Disabled,
+    );
+    // This diagnostic consumer retains bounded output; the execution chain does not.
+    let mut rendered_stream = Vec::new();
     let mut intake_error: Option<AttemptError> = None;
     while let Some(chunk) = match response.chunk().await {
         Ok(chunk) => chunk,
@@ -532,12 +517,27 @@ async fn run_call(
             };
         }
     } {
+        if raw_body.len().saturating_add(chunk.len()) > SseLimits::default().max_wire_bytes {
+            intake_error = Some(AttemptError::Limit);
+            break;
+        }
         raw_body.extend_from_slice(&chunk);
         if intake_error.is_none() {
             let mut rest = &chunk[..];
             while !rest.is_empty() {
                 match attempt.push(rest) {
-                    Ok((used, _)) if used > 0 => rest = &rest[used..],
+                    Ok((used, events)) if used > 0 => {
+                        rest = &rest[used..];
+                        if matches!(ctx.delivery, Delivery::Stream) {
+                            match delivery.encode_events(&attempt, &events) {
+                                Ok(frames) => rendered_stream.extend(frames.into_iter().flatten()),
+                                Err(error) => {
+                                    intake_error = Some(error);
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     Ok(_) => break,
                     Err(error) => {
                         intake_error = Some(error);
@@ -581,6 +581,12 @@ async fn run_call(
     let (text, tool_call) = extract(&finished.semantic);
     report.outcome = Some(outcome_label(finished.semantic.outcome()));
     report.usage = finished.semantic.usage().map(|u| usage_value(&u));
+    report.normalizations = finished
+        .fidelity
+        .normalizations()
+        .iter()
+        .map(|rule| format!("{rule:?}"))
+        .collect();
     report.text_chars = Some(text.chars().count());
     report.excerpt = Some(excerpt(&text));
     report.tool_call = tool_call
@@ -588,19 +594,11 @@ async fn run_call(
         .map(|c| format!("{} {}", c.name, c.call_id));
 
     let delivered = match ctx.delivery {
-        Delivery::Json => {
-            attempt.render_json(ctx.downstream, &ctx.endpoint.representation, ctx.label)
-        }
-        Delivery::Stream => attempt
-            .render_stream(
-                ctx.downstream,
-                &ctx.endpoint.representation,
-                ctx.label,
-                SseLimits::default(),
-                chat_stream_options(),
-                Obfuscation::Disabled,
-            )
-            .map(|frames| frames.iter().flat_map(|f| f.to_vec()).collect()),
+        Delivery::Json => delivery.encode_json(&attempt),
+        Delivery::Stream => delivery.finish_stream(&attempt).map(|frames| {
+            rendered_stream.extend(frames.into_iter().flatten());
+            rendered_stream
+        }),
     };
     let delivered = match delivered {
         Ok(delivered) => delivered,
@@ -618,10 +616,7 @@ async fn run_call(
 
     // 5. Client consumption of the delivered bytes through the same profile codec.
     let consumed = match ctx.delivery {
-        Delivery::Json => match ctx.downstream {
-            ProtocolProfile::OpenAiChat => chat_envelope::decode_response_bytes(&delivered).is_ok(),
-            ProtocolProfile::OpenAiResponses => envelope::decode_response_bytes(&delivered).is_ok(),
-        },
+        Delivery::Json => client_adapter.decode_response(&delivered).is_ok(),
         Delivery::Stream => match ctx.downstream {
             ProtocolProfile::OpenAiChat => consume_chat_stream(&delivered).is_ok(),
             ProtocolProfile::OpenAiResponses => consume_responses_stream(&delivered).is_ok(),
@@ -634,6 +629,10 @@ async fn run_call(
             Some("delivered bytes failed client decode".into()),
             &mut report,
         );
+        return CallOutcome { report, tool_call };
+    }
+    if let Err(error) = delivery.commit().and_then(|()| delivery.complete(&attempt)) {
+        fail("delivery", None, Some(error.to_string()), &mut report);
         return CallOutcome { report, tool_call };
     }
     report.stage = "consumed".into();
@@ -670,10 +669,11 @@ fn extract(
 }
 
 fn consume_chat_stream(delivered: &[u8]) -> Result<(), String> {
-    let mut decoder = ChatSseDecoder::new(
+    let mut decoder = ChatSseDecoder::with_decoder(
         200,
         "text/event-stream; charset=utf-8",
         SseLimits::default(),
+        Adapter::new(Profile::Chat, Dialect::OpenBridge, None).event_decoder(),
     )
     .map_err(|e| e.to_string())?;
     feed(

@@ -20,6 +20,7 @@ pub fn metadata() -> ResponseMetadata {
         model: "synthetic".into(),
         created: 0.into(),
         context: Default::default(),
+        instruction_fidelity: Default::default(),
     }
 }
 pub fn origin() -> ReplayOrigin {

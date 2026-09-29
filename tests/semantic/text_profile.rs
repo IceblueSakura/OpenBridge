@@ -865,23 +865,13 @@ fn static_file_path_is_not_an_annotation_added_event() {
 }
 
 #[test]
-fn reported_cache_write_usage_is_typed_and_never_invented_for_chat() {
+fn standard_profile_preserves_reported_cache_write_and_absence() {
     let mut source = wire::response(2);
     source["usage"]["input_tokens_details"]["cache_write_tokens"] = json!(2);
     let decoded = envelope::decode_response(&source).unwrap();
     assert_eq!(
         decoded.semantic.usage().unwrap().input_cache_write_tokens,
         Some(2)
-    );
-    assert!(
-        lower_response(
-            &decoded.semantic,
-            &decoded.fidelity,
-            &decoded.metadata,
-            Profile::Chat,
-            contract()
-        )
-        .is_err()
     );
     let output = envelope::encode_response(
         &lower_response(
@@ -899,8 +889,8 @@ fn reported_cache_write_usage_is_typed_and_never_invented_for_chat() {
         .as_object_mut()
         .unwrap()
         .remove("cache_write_tokens");
-    // Presence-preserving three states (ADR 0008): absence is not a defect and
-    // is never filled in on the way back out.
+    // The standard profile has no compatibility default; only the declared
+    // DeepSeek adapter may normalize this absence at intake.
     let decoded = envelope::decode_response(&source).unwrap();
     assert_eq!(
         decoded.semantic.usage().unwrap().input_cache_write_tokens,

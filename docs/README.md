@@ -1,6 +1,6 @@
 # OpenBridge 文档
 
-当前工作区只维护 v2 语义核心、codec、lowering 与离线验收；没有服务或 Provider 执行入口。旧路线在 [Git 归档](archive.md)中，不保留工作区兼容副本。
+当前工作区维护 v2 语义核心、双向 adapters、codec/lowering、固定 topology、caller-driven execution 与离线验收；没有服务 listener 或生产 Provider I/O。旧路线在 [Git 归档](archive.md)中，不保留工作区兼容副本。
 
 | 文档 | 事实所有权 |
 |---|---|

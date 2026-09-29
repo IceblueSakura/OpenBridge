@@ -1,6 +1,6 @@
 # 开发指南
 
-当前开发对象为 v2 Rust library 与独立离线验收。没有旧网关、auth、probe 或 MCP binary；旧 corpus/运行配置的使用方式见 [Git 归档](archive.md)，不是当前开发前置条件。
+当前开发对象为 v2 Rust library（semantic、adapter、topology、execution）与独立离线验收。没有旧网关、auth 或 MCP binary；受控 live probe example 不是默认验证入口，旧 corpus/运行配置的使用方式见 [Git 归档](archive.md)，不是当前开发前置条件。
 
 ## 变更流程
 
@@ -18,8 +18,8 @@ Rust/Cargo 由根 `rust-toolchain.toml` 固定；rustfmt/clippy 随该工具链�
 
 | Target | 模块与边界 |
 |---|---|
-| `semantic` | `tests/semantic/`：instructions、phase、tools、reasoning、schema、parsed replay、extensions、text profile/events、function events、response、chat wire（`reasoning_content`/`system_fingerprint`/usage 归一）；纯语义与 codec/lowering |
-| `transport` | `tests/transport/`：framing、Responses/Chat SSE、Chat envelope、body lifecycle；基础 framer 和真实 body I/O 各自验证 |
+| `semantic` | `tests/semantic/`：instructions、phase、tools、reasoning、schema、parsed replay、extensions、text profile/events、function events、response、chat wire、adapter profile 隔离、usage 缺省规则与来源/依赖保真；纯语义与 codec/lowering |
+| `transport` | `tests/transport/`：framing、Responses/Chat SSE、Chat envelope、body lifecycle；基础 framer、增量 Attempt/ResponseDelivery、实际 I/O commit 边界和 synthetic body I/O 各自验证 |
 | `sdk_loopback` | 显式 ignored 的固定 Python SDK 的 Responses/Chat 三轮 JSON/SSE gates，不进入默认外部依赖检查 |
 
 `tests/support/` 只共享 synthetic builders 和独立 wire 预期，不从被测 encoder 生成 oracle。相同字段的 decode、独立 encode、变换、失败和 I/O 可能保护不同边界，不按测试数量裁剪；删除重复 smoke/自比较检查前，确认剩余独立预期覆盖其有效断言。

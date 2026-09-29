@@ -1,172 +1,63 @@
-//! Chat wire admission for readable reasoning text (`reasoning_content`) and the
-//! standard `system_fingerprint` reported fact, including Static/Event consistency.
+//! Explicit Chat dialect mappings over one semantic model.
 use openbridge::{
-    lowering::generation::{
-        GenerationRepresentationContract as Contract, RepresentationError, lower_request,
-        lower_response,
-    },
-    protocol::openai::{
-        DecodedResponse, Profile, chat, chat_envelope, events::EventDecoder, events::EventEncoder,
-    },
+    adapter::{Adapter, Dialect},
+    lowering::generation::{GenerationRepresentationContract as Contract, lower_request},
+    protocol::openai::{Profile, chat, events::EventEncoder},
     semantic::{
         task::generation::*,
         value::{Presence, Text},
     },
 };
 use serde_json::{Value, json};
-
-fn response_with_reasoning(fingerprint: Option<&str>) -> Value {
-    let mut wire = json!({"id":"c1","object":"chat.completion","created":1,"model":"m",
-        "choices":[{"index":0,"message":{"role":"assistant","content":"pong","reasoning_content":"think"},"finish_reason":"stop"}],
-        "usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}});
-    if let Some(fingerprint) = fingerprint {
-        wire["system_fingerprint"] = json!(fingerprint);
-    }
-    wire
+fn vendor() -> Adapter {
+    Adapter::new(Profile::Chat, Dialect::Xiaomi, None)
 }
-
-fn message_text(decoded: &DecodedResponse) -> String {
-    decoded
-        .semantic
-        .items()
-        .iter()
-        .find_map(|(_, item)| match item {
-            Item::Message(m) => match &m.parts[0].content {
-                ContentPart::Text(t) => Some(t.as_str().to_owned()),
-                _ => None,
-            },
-            _ => None,
-        })
-        .expect("one assistant message")
+fn client() -> Adapter {
+    Adapter::new(Profile::Chat, Dialect::OpenBridge, None)
 }
-
+fn response(content: &str) -> Value {
+    json!({"id":"c1","object":"chat.completion","created":1,"model":"m",
+        "choices":[{"index":0,"message":{"role":"assistant","content":content,"reasoning_content":"think"},"finish_reason":"stop"}],
+        "usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}})
+}
+fn chunk(delta: Value, finish: Value) -> Value {
+    json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m",
+        "choices":[{"index":0,"delta":delta,"finish_reason":finish}],"usage":null})
+}
 #[test]
-fn chat_reasoning_content_is_typed_and_round_trips_its_message() {
-    let wire = response_with_reasoning(None);
-    let decoded = chat_envelope::decode_response_bytes(wire.to_string().as_bytes()).unwrap();
-    let kinds: Vec<&str> = decoded
-        .semantic
-        .items()
-        .iter()
-        .map(|(_, item)| match item {
-            Item::Reasoning(reasoning) => {
-                assert!(matches!(
-                    &reasoning.parts[0].1,
-                    ReasoningContent::Text(text) if text.as_str() == "think"
-                ));
-                "reasoning"
-            }
-            Item::Message(_) => "message",
-            _ => unreachable!(),
-        })
-        .collect();
-    assert_eq!(
-        kinds,
-        ["reasoning", "message"],
-        "reasoning stays ahead of its carrier message"
+fn readable_reasoning_has_independent_static_and_event_oracles() {
+    let decoded = vendor()
+        .decode_response(response("pong").to_string().as_bytes())
+        .unwrap();
+    assert!(
+        matches!(&decoded.semantic.items()[0].1, Item::Reasoning(r) if matches!(&r.parts[0].1, ReasoningContent::Text(t) if t.as_str()=="think"))
     );
-
-    let target = lower_response(
-        &decoded.semantic,
-        &decoded.fidelity,
-        &decoded.metadata,
-        Profile::Chat,
-        Contract::full(),
-    )
-    .unwrap();
-    let output = chat_envelope::encode_response(&target).unwrap();
+    let output = client()
+        .encode_response(&decoded, &Contract::full())
+        .unwrap();
     assert_eq!(
-        output["choices"][0]["message"]["reasoning_content"], "think",
-        "native re-encode keeps the reported reasoning text"
+        output["choices"][0]["message"]["reasoning_content"],
+        "think"
     );
     assert_eq!(output["choices"][0]["message"]["content"], "pong");
-}
-
-#[test]
-fn request_history_reasoning_content_replays_through_chat_encoding() {
-    let wire = json!({"messages":[
-        {"role":"user","content":"hi"},
-        {"role":"assistant","content":"checking","reasoning_content":"think",
-         "tool_calls":[{"id":"call_a","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
-        {"role":"tool","tool_call_id":"call_a","content":"ok"}
-    ],"tools":[{"type":"function","function":{"name":"lookup","description":"","parameters":{"type":"object","properties":{"k":{"type":"string"}}},"strict":false}}]});
-    let decoded = chat::decode_generation(&wire).unwrap();
-    let target = lower_request(
-        &decoded.semantic,
-        &decoded.fidelity,
-        Profile::Chat,
-        Contract::full(),
-    )
-    .expect("chat-representable reasoning shape");
-    let output = chat::encode_generation(&target).unwrap();
-    assert_eq!(output["messages"][1]["reasoning_content"], "think");
-    assert_eq!(output["messages"][1]["content"], "checking");
-    assert_eq!(output["messages"][1]["tool_calls"][0]["id"], "call_a");
-}
-
-#[test]
-fn chat_reasoning_stream_orders_ahead_of_the_message_consistently() {
-    let chunks = [
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"reasoning_content":"think"},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"pong"},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}),
-    ];
-    let mut decoder = EventDecoder::new(Profile::Chat);
+    let mut decoder = vendor().event_decoder();
     let mut events = vec![];
-    for chunk in &chunks {
-        events.extend(decoder.push(chunk).unwrap());
-    }
-    events.extend(decoder.done().unwrap());
-    decoder.finish().unwrap();
-    let kinds: Vec<String> = events
-        .iter()
-        .filter_map(|event| match event {
-            StreamEvent::ItemStarted { kind, .. } => Some(format!("{kind:?}")),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        kinds,
-        [
-            "Reasoning".to_string(),
-            "Message { phase: None }".to_string()
-        ],
-        "readable reasoning stays ahead of its carrier message in event order"
-    );
-    let streamed = decoder.materialize().unwrap();
-    let static_decoded =
-        chat_envelope::decode_response_bytes(response_with_reasoning(None).to_string().as_bytes())
-            .unwrap();
-    assert_eq!(
-        streamed.semantic.items().len(),
-        static_decoded.semantic.items().len(),
-        "Static/Event item closure agrees"
-    );
-    assert_eq!(message_text(&streamed), message_text(&static_decoded));
-}
-
-#[test]
-fn encoded_chat_reasoning_frames_decode_back_to_the_same_semantics() {
-    let wire = response_with_reasoning(None);
-    let decoded = chat_envelope::decode_response_bytes(wire.to_string().as_bytes()).unwrap();
-
-    let mut decoder = EventDecoder::new(Profile::Chat);
-    let mut events = vec![];
-    for chunk in [
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"think"},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"pong"},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}),
+    for delta in [
+        json!({"role":"assistant","content":"","tool_calls":null,"reasoning_content":null}),
+        json!({"role":null,"content":null,"reasoning_content":"think"}),
+        json!({"content":"pong"}),
     ] {
-        events.extend(decoder.push(&chunk).unwrap());
+        events.extend(decoder.push(&chunk(delta, Value::Null)).unwrap());
     }
+    let mut finish = chunk(json!({}), json!("stop"));
+    finish["usage"] = response("pong")["usage"].clone();
+    events.extend(decoder.push(&finish).unwrap());
     events.extend(decoder.done().unwrap());
     decoder.finish().unwrap();
-
+    assert_eq!(decoder.materialize().unwrap().semantic, decoded.semantic);
     let mut encoder = EventEncoder::new(Profile::Chat, decoded.metadata.clone())
         .unwrap()
-        .with_contract(Contract::full());
+        .with_contract(client().contract(&Contract::full()));
     let mut frames = vec![];
     for event in &events {
         frames.extend(encoder.encode(event, decoder.fidelity()).unwrap());
@@ -175,388 +66,225 @@ fn encoded_chat_reasoning_frames_decode_back_to_the_same_semantics() {
     assert!(
         frames
             .iter()
-            .any(|frame| frame.to_string().contains("reasoning_content")),
-        "reasoning fragments render as reasoning deltas"
+            .any(|f| f.pointer("/choices/0/delta/reasoning_content") == Some(&json!("think")))
     );
-
-    let mut replay = EventDecoder::new(Profile::Chat);
-    for frame in &frames {
-        replay.push(frame).unwrap();
+    let mut replay = client().event_decoder();
+    for frame in frames {
+        replay.push(&frame).unwrap();
     }
     replay.done().unwrap();
-    replay.finish().unwrap();
     assert_eq!(replay.materialize().unwrap().semantic, decoded.semantic);
 }
-
 #[test]
-fn reasoning_shapes_outside_the_chat_mapping_are_rejected() {
-    for wire in [
-        json!({"messages":[{"role":"user","content":"x","reasoning_content":"bad"}]}),
-        json!({"messages":[{"role":"assistant","content":"x","reasoning_content":5}]}),
-    ] {
-        assert!(
-            chat::decode_generation(&wire).is_err(),
-            "reasoning_content belongs to assistant text only: {wire}"
-        );
-    }
-
-    // Summary-only or unpaired reasoning has no Chat carrier and must not be dropped.
-    let wire = json!({"messages":[
-        {"role":"user","content":"hi"},
-        {"role":"assistant","content":"a","reasoning_content":"think"}
-    ]});
-    let decoded = chat::decode_generation(&wire).unwrap();
-    let mut items = decoded.semantic.items().to_vec();
-    for (_, item) in &mut items {
-        if let Item::Reasoning(reasoning) = item {
-            reasoning.parts[0].1 =
-                ReasoningContent::Summary(Text::new("think", "fixture", 128).unwrap());
+fn history_reasoning_maps_to_a_carrier_and_rejects_unrepresentable_edits() {
+    let wire = json!({"model":"m","messages":[{"role":"user","content":"hi"},
+        {"role":"assistant","content":"checking","reasoning_content":"think","tool_calls":[{"id":"call_a","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
+        {"role":"tool","tool_call_id":"call_a","content":"ok"}],
+        "tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object","properties":{}},"strict":false}}]});
+    let request = client()
+        .decode_request(wire.to_string().as_bytes())
+        .unwrap();
+    let output = vendor()
+        .encode_request(&request, "bound-model", &Contract::full())
+        .unwrap();
+    assert_eq!(output["messages"][1]["reasoning_content"], "think");
+    assert_eq!(output["messages"][1]["tool_calls"][0]["id"], "call_a");
+    let mut edited = request.task.semantic.items().to_vec();
+    for (_, item) in &mut edited {
+        if let Item::Reasoning(r) = item {
+            r.parts[0].1 = ReasoningContent::Summary(Text::new("think", "fixture", 128).unwrap());
         }
     }
-    let request = GenerationRequest::new(items, GenerationControls::default()).unwrap();
-    assert!(matches!(
-        lower_request(&request, &decoded.fidelity, Profile::Chat, Contract::full()),
-        Err(RepresentationError::Reasoning)
-    ));
-
-    let mut items = decoded.semantic.items().to_vec();
-    items.retain(|(_, item)| !matches!(item, Item::Message(m) if m.role == MessageRole::Assistant));
-    let request = GenerationRequest::new(items, GenerationControls::default()).unwrap();
+    let ir = GenerationRequest::new(edited, GenerationControls::default()).unwrap();
     assert!(
-        matches!(
-            lower_request(&request, &decoded.fidelity, Profile::Chat, Contract::full()),
-            Err(RepresentationError::Reasoning)
-        ),
-        "reasoning without its carrier message cannot be silently dropped"
+        lower_request(
+            &ir,
+            &request.task.fidelity,
+            Profile::Chat,
+            client().contract(&Contract::full())
+        )
+        .is_err()
     );
-}
-
-#[test]
-fn system_fingerprint_is_a_chat_reported_fact_with_stream_identity() {
-    let decoded = chat_envelope::decode_response_bytes(
-        response_with_reasoning(Some("fp-1")).to_string().as_bytes(),
-    )
-    .unwrap();
-    assert_eq!(
-        decoded.metadata.context.system_fingerprint,
-        Presence::Value("fp-1".to_string())
-    );
-    let target = lower_response(
-        &decoded.semantic,
-        &decoded.fidelity,
-        &decoded.metadata,
-        Profile::Chat,
-        Contract::full(),
-    )
-    .unwrap();
-    let output = chat_envelope::encode_response(&target).unwrap();
-    assert_eq!(output["system_fingerprint"], "fp-1");
-
-    // No fingerprint reported means none is invented downstream.
-    let plain =
-        chat_envelope::decode_response_bytes(response_with_reasoning(None).to_string().as_bytes())
-            .unwrap();
-    let target = lower_response(
-        &plain.semantic,
-        &plain.fidelity,
-        &plain.metadata,
-        Profile::Chat,
-        Contract::full(),
-    )
-    .unwrap();
-    assert!(
-        chat_envelope::encode_response(&target)
-            .unwrap()
-            .get("system_fingerprint")
-            .is_none()
-    );
-
-    // The first reported fingerprint and creation time bind the stream; providers
-    // re-stamp these scalars per chunk and later drift is normalized away, while
-    // response identity (id/model) stays strict.
-    let chunk = |fingerprint: &str, created: u64| {
-        json!({"id":"c1","object":"chat.completion.chunk","created":created,"model":"m","system_fingerprint":fingerprint,
-            "choices":[{"index":0,"delta":{"content":"x"},"finish_reason":null}],"usage":null})
-    };
-    let mut decoder = EventDecoder::new(Profile::Chat);
-    decoder.push(&chunk("fp-1", 1)).unwrap();
-    decoder.push(&chunk("fp-2", 2)).unwrap();
-    let metadata = decoder.metadata().unwrap();
-    assert_eq!(
-        metadata.context.system_fingerprint,
-        Presence::Value("fp-1".to_string())
-    );
-    assert_eq!(metadata.created.as_u64(), Some(1));
-    let mut mixed = EventDecoder::new(Profile::Chat);
-    mixed.push(&chunk("fp-1", 1)).unwrap();
-    assert!(
-        mixed
-            .push(&json!({"id":"other","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"x"},"finish_reason":null}],"usage":null}))
-            .is_err(),
-        "response identity stays strict"
-    );
-
-    // Responses wire has no position for the fact: projection rejects, never drops.
-    assert!(matches!(
-        lower_response(
-            &decoded.semantic,
-            &decoded.fidelity,
-            &decoded.metadata,
-            Profile::Responses,
-            Contract::full(),
-        ),
-        Err(RepresentationError::UnmigratedSemantic)
-    ));
-}
-
-#[test]
-fn usage_aliases_are_normalized_and_disagreement_is_rejected() {
-    let mut wire = response_with_reasoning(None);
-    wire["usage"] = json!({"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,
-        "prompt_tokens_details":{"cached_tokens":1},
-        "completion_tokens_details":{"reasoning_tokens":1},
-        "prompt_cache_hit_tokens":1,"prompt_cache_miss_tokens":2});
-    let decoded = chat_envelope::decode_response_bytes(wire.to_string().as_bytes()).unwrap();
-    let usage = decoded.semantic.usage().unwrap();
-    assert_eq!(
-        usage.cached_input_tokens,
-        Some(1),
-        "alias normalizes to the standard count"
-    );
-    let target = lower_response(
-        &decoded.semantic,
-        &decoded.fidelity,
-        &decoded.metadata,
-        Profile::Chat,
-        Contract::full(),
-    )
-    .unwrap();
-    let output = chat_envelope::encode_response(&target).unwrap();
-    assert_eq!(
-        output["usage"].get("prompt_cache_hit_tokens"),
-        None,
-        "aliases never re-emit beside their standard form"
-    );
-    assert_eq!(output["usage"]["prompt_tokens_details"]["cached_tokens"], 1);
-
-    let mut disagreeing = wire.clone();
-    disagreeing["usage"]["prompt_cache_hit_tokens"] = json!(0);
-    assert!(chat_envelope::decode_response_bytes(disagreeing.to_string().as_bytes()).is_err());
-    let mut inconsistent = wire.clone();
-    inconsistent["usage"]["prompt_cache_miss_tokens"] = json!(9);
-    assert!(chat_envelope::decode_response_bytes(inconsistent.to_string().as_bytes()).is_err());
-    let mut unknown = wire.clone();
-    unknown["usage"]["mystery_tokens"] = json!(1);
-    assert!(
-        chat_envelope::decode_response_bytes(unknown.to_string().as_bytes()).is_err(),
-        "unknown usage keys are rejected, not silently dropped"
-    );
-}
-
-#[test]
-fn usage_belongs_to_the_terminal_chunk_or_the_trailing_tail() {
-    let finish_with_usage = json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m",
-        "choices":[{"index":0,"delta":{},"finish_reason":"stop"}],
-        "usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}});
-    let mut decoder = EventDecoder::new(Profile::Chat);
-    decoder
-        .push(&json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"pong"},"finish_reason":null}],"usage":null}))
-        .unwrap();
-    let mut events = decoder.push(&finish_with_usage).unwrap();
-    events.extend(decoder.done().unwrap());
-    decoder.finish().unwrap();
-    assert!(
-        events.iter().any(|e| matches!(e, StreamEvent::Usage(_))),
-        "usage on the finish chunk is the terminal tail"
-    );
-
-    let early = json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m",
-        "choices":[{"index":0,"delta":{"content":"pong"},"finish_reason":null}],
-        "usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}});
-    let mut decoder = EventDecoder::new(Profile::Chat);
-    assert!(
-        decoder.push(&early).is_err(),
-        "mid-stream usage is never guessed"
-    );
-}
-
-#[test]
-fn tool_call_index_and_null_roles_follow_provider_stream_shapes() {
-    let wire = json!({"messages":[
-        {"role":"user","content":"hi"},
-        {"role":"assistant","content":null,"tool_calls":[
-            {"index":0,"id":"call_a","type":"function","function":{"name":"lookup","arguments":"{}"}},
-            {"index":1,"id":"call_b","type":"function","function":{"name":"lookup","arguments":"{}"}}
-        ]}
-    ],"tools":[{"type":"function","function":{"name":"lookup","description":"","parameters":{"type":"object","properties":{"k":{"type":"string"}}},"strict":false}}]});
-    let decoded = chat::decode_generation(&wire).unwrap();
-    assert_eq!(
-        decoded
-            .semantic
-            .items()
-            .iter()
-            .filter(|(_, i)| matches!(i, Item::ToolCall(_)))
-            .count(),
-        2
-    );
-    let mut wrong = wire.clone();
-    wrong["messages"][1]["tool_calls"][1]["index"] = json!(7);
-    assert!(chat::decode_generation(&wrong).is_err());
-
-    // Provider streams reuse null for absent delta fields.
-    let mut decoder = EventDecoder::new(Profile::Chat);
-    decoder
-        .push(&json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":null,"reasoning_content":null},"finish_reason":null}],"usage":null}))
-        .unwrap();
-    decoder
-        .push(&json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":null,"role":null,"tool_calls":null,"reasoning_content":"think"},"finish_reason":null}],"usage":null}))
-        .unwrap();
-    decoder
-        .push(&json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}))
-        .unwrap();
-    decoder.done().unwrap();
-    decoder.finish().unwrap();
-    let decoded = decoder.materialize().unwrap();
-    assert_eq!(message_text(&decoded), "");
-}
-
-#[test]
-fn opening_empty_fragments_defer_the_carrier_message() {
-    // Provider streams open with `content: ""` before their thinking text; the
-    // empty fragment defers the message so reasoning keeps its static order.
-    let chunks = [
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"","role":"assistant","tool_calls":null,"reasoning_content":null},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":null,"role":null,"tool_calls":null,"reasoning_content":"think"},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"pong"},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}),
-    ];
-    let mut decoder = EventDecoder::new(Profile::Chat);
-    let mut events = vec![];
-    for chunk in &chunks {
-        events.extend(decoder.push(chunk).unwrap());
-    }
-    events.extend(decoder.done().unwrap());
-    decoder.finish().unwrap();
-    let kinds: Vec<String> = events
-        .iter()
-        .filter_map(|event| match event {
-            StreamEvent::ItemStarted { kind, .. } => Some(format!("{kind:?}")),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        kinds,
-        [
-            "Reasoning".to_string(),
-            "Message { phase: None }".to_string()
-        ]
-    );
-
-    // A stream that only opens an empty part materializes it at the terminal,
-    // matching static `content: ""` messages (e.g. tool-call carriers).
-    let mut decoder = EventDecoder::new(Profile::Chat);
-    let mut events = vec![];
-    for chunk in [
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":""},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":null}),
+    let mut unpaired = request.task.semantic.items().to_vec();
+    unpaired.retain(|(_, item)| !matches!(item,Item::Message(m) if m.role==MessageRole::Assistant));
+    // Removing the carrier also invalidates associated calls before projection.
+    assert!(GenerationRequest::new(unpaired, GenerationControls::default()).is_err());
+    for message in [
+        json!({"role":"user","content":"x","reasoning_content":"bad"}),
+        json!({"role":"assistant","content":"x","reasoning_content":5}),
     ] {
-        events.extend(decoder.push(&chunk).unwrap());
+        assert!(
+            client()
+                .decode_request(
+                    json!({"model":"m","messages":[message]})
+                        .to_string()
+                        .as_bytes()
+                )
+                .is_err()
+        );
     }
-    events.extend(decoder.done().unwrap());
-    decoder.finish().unwrap();
-    let materialized = decoder.materialize().unwrap();
-    let message = materialized
-        .semantic
-        .items()
-        .iter()
-        .find_map(|(_, item)| match item {
-            Item::Message(m) => Some(m),
-            _ => None,
-        })
+}
+#[test]
+fn fingerprint_presence_and_vendor_metadata_drift_are_explicit() {
+    for fingerprint in [None, Some(Value::Null), Some(json!("fp-1"))] {
+        let mut body = response("pong");
+        if let Some(fp) = &fingerprint {
+            body["system_fingerprint"] = fp.clone();
+        }
+        let decoded = vendor()
+            .decode_response(body.to_string().as_bytes())
+            .unwrap();
+        let wire = client()
+            .encode_response(&decoded, &Contract::full())
+            .unwrap();
+        assert_eq!(wire.get("system_fingerprint"), fingerprint.as_ref());
+        if fingerprint.is_some() {
+            assert!(
+                Adapter::new(Profile::Responses, Dialect::Standard, None)
+                    .encode_response(&decoded, &Contract::full())
+                    .is_err()
+            );
+        }
+    }
+    let mut first = chunk(json!({"content":"x"}), Value::Null);
+    first["system_fingerprint"] = json!("fp-1");
+    let mut next = first.clone();
+    next["created"] = json!(2);
+    next["system_fingerprint"] = json!("fp-2");
+    let mut decoder = vendor().event_decoder();
+    decoder.push(&first).unwrap();
+    decoder.push(&next).unwrap();
+    assert_eq!(decoder.metadata().unwrap().created.as_u64(), Some(1));
+    assert_eq!(
+        decoder.metadata().unwrap().context.system_fingerprint,
+        Presence::Value("fp-1".into())
+    );
+    next["id"] = json!("other");
+    assert!(decoder.push(&next).is_err());
+    let mut strict = client().event_decoder();
+    strict.push(&first).unwrap();
+    next["id"] = json!("c1");
+    assert!(strict.push(&next).is_err());
+}
+#[test]
+fn aliases_are_normalized_without_losing_counts_or_masking_disagreement() {
+    let adapter = Adapter::new(Profile::Chat, Dialect::DeepSeek, None);
+    let mut body = response("pong");
+    body["usage"] = json!({"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,
+        "prompt_tokens_details":{"cached_tokens":1},"completion_tokens_details":{"reasoning_tokens":1},
+        "prompt_cache_hit_tokens":1,"prompt_cache_miss_tokens":2});
+    let decoded = adapter
+        .decode_response(body.to_string().as_bytes())
         .unwrap();
     assert_eq!(
-        message.parts.len(),
-        1,
-        "the deferred empty part materializes"
+        decoded.semantic.usage().unwrap().cached_input_tokens,
+        Some(1)
     );
-    assert!(
-        matches!(&message.parts[0].content, ContentPart::Text(t) if t.as_str().is_empty()),
-        "static `content: \"\"` and its stream agree"
+    let encoded = client()
+        .encode_response(&decoded, &Contract::full())
+        .unwrap();
+    assert_eq!(
+        encoded["usage"]["prompt_tokens_details"]["cached_tokens"],
+        1
     );
+    assert!(encoded["usage"].get("prompt_cache_hit_tokens").is_none());
+    for (key, value) in [
+        ("prompt_cache_hit_tokens", 0),
+        ("prompt_cache_miss_tokens", 9),
+        ("mystery_tokens", 1),
+    ] {
+        let mut invalid = body.clone();
+        invalid["usage"][key] = json!(value);
+        assert!(
+            adapter
+                .decode_response(invalid.to_string().as_bytes())
+                .is_err()
+        );
+    }
 }
-
 #[test]
-fn tool_call_continuation_chunks_reuse_null_identity() {
-    // Providers announce call identity once and continue with explicit nulls.
+fn usage_only_belongs_to_finish_or_tail_and_duplicates_fail() {
+    let usage = json!({"prompt_tokens":3,"completion_tokens":2,"total_tokens":5});
+    let mut early = chunk(json!({"content":"pong"}), Value::Null);
+    early["usage"] = usage.clone();
+    assert!(vendor().event_decoder().push(&early).is_err());
+    let mut decoder = vendor().event_decoder();
+    decoder
+        .push(&chunk(json!({"content":"pong"}), Value::Null))
+        .unwrap();
+    let mut finish = chunk(json!({}), json!("stop"));
+    finish["usage"] = usage.clone();
+    assert!(
+        decoder
+            .push(&finish)
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e, StreamEvent::Usage(_)))
+    );
+    let duplicate = json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[],"usage":usage});
+    assert!(decoder.push(&duplicate).is_err());
+    assert!(decoder.done().is_err());
+}
+#[test]
+fn deferred_empty_carriers_and_nullable_call_identity_remain_consistent() {
     let chunks = [
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"lookup","arguments":""}}]},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":null,"type":"function","function":{"name":null,"arguments":"{\"k\":1}"}}]},"finish_reason":null}],"usage":null}),
-        json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":null}),
+        chunk(json!({"role":"assistant","content":""}), Value::Null),
+        chunk(
+            json!({"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"lookup","arguments":""}}]}),
+            Value::Null,
+        ),
+        chunk(
+            json!({"tool_calls":[{"index":0,"id":null,"type":"function","function":{"name":null,"arguments":"{\"k\":1}"}}]}),
+            Value::Null,
+        ),
+        chunk(json!({}), json!("tool_calls")),
     ];
-    let mut decoder = EventDecoder::new(Profile::Chat);
-    for chunk in &chunks {
-        decoder.push(chunk).unwrap();
+    let mut decoder = vendor().event_decoder();
+    for frame in &chunks {
+        decoder.push(frame).unwrap();
     }
     decoder.done().unwrap();
-    decoder.finish().unwrap();
-    let materialized = decoder.materialize().unwrap();
-    let call = materialized
-        .semantic
-        .items()
-        .iter()
-        .find_map(|(_, item)| match item {
-            Item::ToolCall(call) => Some(call),
-            _ => None,
-        })
-        .unwrap();
-    assert_eq!(call.call_id.as_str(), "call_a");
-    assert_eq!(call.arguments, "{\"k\":1}");
-
-    let mut conflicting = EventDecoder::new(Profile::Chat);
-    conflicting.push(&chunks[0]).unwrap();
-    conflicting.push(&chunks[1]).unwrap();
+    let decoded = decoder.materialize().unwrap();
     assert!(
-        conflicting
-            .push(&json!({"id":"c1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_b","type":"function","function":{"name":"lookup","arguments":""}}]},"finish_reason":null}],"usage":null}))
-            .is_err(),
-        "conflicting non-null identity is still rejected"
+        matches!(&decoded.semantic.items()[0].1,Item::Message(m) if m.parts.len()==1 && matches!(&m.parts[0].content,ContentPart::Text(t) if t.as_str().is_empty()))
     );
+    assert!(
+        matches!(&decoded.semantic.items()[1].1,Item::ToolCall(c) if c.call_id.as_str()=="call_a" && c.arguments=="{\"k\":1}")
+    );
+    let mut conflict = vendor().event_decoder();
+    conflict.push(&chunks[0]).unwrap();
+    conflict.push(&chunks[1]).unwrap();
+    let mut wrong = chunks[2].clone();
+    wrong["choices"][0]["delta"]["tool_calls"][0]["id"] = json!("call_b");
+    assert!(conflict.push(&wrong).is_err());
+    let mut replay = json!({"messages":[{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"lookup","arguments":"{}"}}]}]});
+    assert!(chat::decode_generation(&replay).is_ok());
+    replay["messages"][0]["tool_calls"][0]["index"] = json!(7);
+    assert!(chat::decode_generation(&replay).is_err());
 }
-
 #[test]
-fn an_empty_tool_calls_array_declares_no_calls() {
-    // Vendor shape: the model hit its budget and declared an explicit empty call
-    // list while emitting its attempt as message text.
-    let wire = json!({"id":"c1","object":"chat.completion","created":1,"model":"m",
-        "choices":[{"index":0,"message":{"role":"assistant","content":"<tool_call>","tool_calls":[]},"finish_reason":"length"}],
-        "usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}});
-    let decoded = chat_envelope::decode_response_bytes(wire.to_string().as_bytes()).unwrap();
+fn empty_tool_calls_do_not_parse_message_text_into_a_call() {
+    let mut body = response("<tool_call>");
+    body["choices"][0]["message"]["tool_calls"] = json!([]);
+    body["choices"][0]["finish_reason"] = json!("length");
+    let decoded = vendor()
+        .decode_response(body.to_string().as_bytes())
+        .unwrap();
     assert!(
         !decoded
             .semantic
             .items()
             .iter()
-            .any(|(_, item)| matches!(item, Item::ToolCall(_))),
-        "an empty declaration invents no calls"
+            .any(|(_, item)| matches!(item, Item::ToolCall(_)))
     );
-    assert_eq!(message_text(&decoded), "<tool_call>");
     assert_eq!(
         decoded.semantic.details().incomplete,
         Some(IncompleteReason::MaxOutputTokens)
     );
-
-    // Re-encoding never fabricates a call list, and the truncation stays visible.
-    let target = lower_response(
-        &decoded.semantic,
-        &decoded.fidelity,
-        &decoded.metadata,
-        Profile::Chat,
-        Contract::full(),
-    )
-    .unwrap();
-    let out = chat_envelope::encode_response(&target).unwrap();
-    assert!(out["choices"][0]["message"].get("tool_calls").is_none());
-    assert_eq!(out["choices"][0]["finish_reason"], "length");
+    let output = client()
+        .encode_response(&decoded, &Contract::full())
+        .unwrap();
+    assert!(output["choices"][0]["message"].get("tool_calls").is_none());
+    assert_eq!(output["choices"][0]["message"]["content"], "<tool_call>");
+    assert_eq!(output["choices"][0]["finish_reason"], "length");
 }

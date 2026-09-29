@@ -1,11 +1,11 @@
 //! Chat data-only SSE over shared bounded framing, strict JSON and Generation event codecs.
 //! EOF is not DONE. Body I/O, cancellation and downstream commit belong to the caller.
 use super::{
-    CodecError, DecodedResponse, Profile, ResponseMetadata,
-    chat_envelope::{self, StreamOptions},
+    CodecError, DecodedResponse, Profile, ResponseMetadata, chat_envelope,
     events::{EventDecoder, EventEncoder},
     sse::{Obfuscation, SseError, SseLimits, charge_padding, pad_payload, validate_http},
 };
+use crate::semantic::context::StreamOptions;
 use crate::{
     lowering::generation::GenerationRepresentationContract,
     protocol::fidelity::FidelityRecords,
@@ -41,6 +41,25 @@ impl ChatSseDecoder {
             closed: false,
             rejected: false,
         })
+    }
+    pub fn with_decoder(
+        status: u16,
+        content_type: &str,
+        limits: SseLimits,
+        codec: EventDecoder,
+    ) -> Result<Self, SseError> {
+        if codec.profile() != Profile::Chat {
+            return Err(CodecError::ProfileMismatch.into());
+        }
+        let mut decoder = Self::new(status, content_type, limits)?;
+        decoder.codec = codec;
+        Ok(decoder)
+    }
+    pub fn metadata(&self) -> Option<&ResponseMetadata> {
+        self.codec.metadata()
+    }
+    pub fn fidelity(&self) -> &FidelityRecords {
+        self.codec.fidelity()
     }
     /// Consume at most one event; the caller must revisit the unconsumed suffix.
     pub fn consume(&mut self, chunk: &[u8]) -> Result<(usize, Vec<StreamEvent>), SseError> {
@@ -154,7 +173,7 @@ impl ChatSseEncoder {
         padding: Obfuscation,
     ) -> Result<Self, SseError> {
         limits.validate()?;
-        options.validate()?;
+        options.validate().map_err(CodecError::from)?;
         if options.obfuscation() != matches!(padding, Obfuscation::Seeded(_)) {
             return Err(SseError::Codec(CodecError::Invalid("Chat padding policy")));
         }
@@ -173,6 +192,16 @@ impl ChatSseEncoder {
             done: false,
             rejected: false,
         })
+    }
+    pub fn update_metadata(&mut self, metadata: ResponseMetadata) -> Result<(), SseError> {
+        if self.rejected {
+            return Err(SseError::Closed);
+        }
+        let result = self.codec.update_metadata(metadata);
+        if result.is_err() {
+            self.rejected = true;
+        }
+        Ok(result?)
     }
     pub fn encode(
         &mut self,

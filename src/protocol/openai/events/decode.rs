@@ -4,6 +4,7 @@ use serde_json::json;
 
 pub struct EventDecoder {
     pub(super) profile: Profile,
+    pub(super) adaptation: crate::protocol::adaptation::Adaptation,
     pub(super) state: Option<StreamState>,
     pub(super) fidelity: FidelityRecords,
     pub(super) metadata: Option<ResponseMetadata>,
@@ -23,6 +24,7 @@ impl EventDecoder {
     pub fn new(profile: Profile) -> Self {
         Self {
             profile,
+            adaptation: Default::default(),
             state: Some(StreamState::new()),
             fidelity: FidelityRecords::default(),
             metadata: None,
@@ -39,6 +41,16 @@ impl EventDecoder {
             chat_pending_part: None,
         }
     }
+    pub(crate) fn profile(&self) -> Profile {
+        self.profile
+    }
+    pub(crate) fn with_adaptation(
+        mut self,
+        adaptation: crate::protocol::adaptation::Adaptation,
+    ) -> Self {
+        self.adaptation = adaptation;
+        self
+    }
     pub fn with_replay_origin(mut self, origin: ReplayOrigin) -> Self {
         self.origin = Some(origin);
         self
@@ -54,6 +66,9 @@ impl EventDecoder {
             }
             bounded(payload)?;
             let o = object(payload)?;
+            if self.profile == Profile::Chat {
+                self.adaptation.validate_response(self.profile, o)?;
+            }
             if let Some(padding) = o.get("obfuscation")
                 && (self.profile != Profile::Responses
                     || !string(o, "type")?.ends_with(".delta")
@@ -179,16 +194,31 @@ impl EventDecoder {
                 return Err(CodecError::Invalid("metadata changed"));
             }
             if old.created != m.created {
+                if !self.adaptation.rules.chunk_metadata_drift {
+                    return Err(CodecError::Invalid("metadata changed"));
+                }
                 m.created = old.created.clone();
             }
             if !old.context.system_fingerprint.is_absent() {
+                if !m.context.system_fingerprint.is_absent()
+                    && old.context.system_fingerprint != m.context.system_fingerprint
+                    && !self.adaptation.rules.chunk_metadata_drift
+                {
+                    return Err(CodecError::Invalid("fingerprint changed"));
+                }
                 m.context.system_fingerprint = old.context.system_fingerprint.clone();
             }
         }
         self.metadata = Some(m);
         // Vendor adaptation (ADR 0008) also covers response snapshots in streams.
         let profile = self.profile;
-        super::super::envelope::record_vendor_shapes(profile, o, &mut self.fidelity)?;
+        super::super::envelope::record_vendor_shapes(
+            profile,
+            &self.adaptation,
+            o,
+            &mut self.fidelity,
+            None,
+        )?;
         Ok(())
     }
     fn responses(&mut self, o: &Map<String, Value>) -> Result<Vec<StreamEvent>, CodecError> {
@@ -860,7 +890,8 @@ impl EventDecoder {
             _ => return Err(CodecError::Invalid("terminal")),
         };
         self.observe_metadata(p)?;
-        let decoded = super::super::static_response::decode_responses(r)?;
+        let decoded = super::super::static_response::decode_responses_with(r, &self.adaptation)?;
+        self.fidelity.copy_response_records(&decoded.fidelity);
         sync_replays(
             self.state.as_ref().ok_or(CodecError::Invalid("state"))?,
             &mut self.fidelity,

@@ -94,6 +94,7 @@ Every lossy or normalizing conversion is named and typed. Examples include:
 - MapReasoningLevel
 - BufferRequiredStreaming
 - EncodeEmbeddingFloat32Base64
+- DefaultDeepSeekCacheWriteZero (valid usage exists; absent/null detail only; audit provenance outside task semantics)
 
 There is no generic `best_effort=true`.
 

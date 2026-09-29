@@ -3,27 +3,13 @@ use super::{
     CodecError, DecodedRequest, DecodedResponse, RequestRepresentation, ResponseRepresentation,
     chat, common::*,
 };
-use crate::semantic::value::Presence;
+use crate::semantic::{
+    context::{CacheHints, StreamOptions},
+    value::Presence,
+};
 use serde_json::{Map, Value, json};
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct StreamOptions {
-    pub include_usage: Presence<bool>,
-    pub include_obfuscation: Presence<bool>,
-}
 impl StreamOptions {
-    pub fn usage(&self) -> bool {
-        self.include_usage == Presence::Value(true)
-    }
-    pub fn obfuscation(&self) -> bool {
-        self.include_obfuscation != Presence::Value(false)
-    }
-    pub(super) fn validate(&self) -> Result<(), CodecError> {
-        if self.include_usage == Presence::Null || self.include_obfuscation == Presence::Null {
-            return Err(CodecError::Invalid("Chat stream options"));
-        }
-        Ok(())
-    }
     fn read(v: &Value) -> Result<Self, CodecError> {
         let o = object(v)?;
         fields(o, &["include_usage", "include_obfuscation"])?;
@@ -54,7 +40,7 @@ pub struct RequestContext {
     pub stream: Presence<bool>,
     pub stream_options: Presence<StreamOptions>,
     /// Cache-affinity hints only; service tier and metadata stay Responses gaps.
-    pub cache: super::envelope::CacheHints,
+    pub cache: CacheHints,
 }
 impl RequestContext {
     pub fn streaming(&self) -> bool {
@@ -71,7 +57,7 @@ impl RequestContext {
             }
             options.validate()?;
         }
-        self.cache.validate()
+        Ok(self.cache.validate()?)
     }
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -85,6 +71,12 @@ pub fn decode_request_bytes(bytes: &[u8]) -> Result<DecodedChatRequest, CodecErr
 }
 /// Pre-parsed values cannot prove original raw-byte or duplicate-key validity.
 pub fn decode_request(v: &Value) -> Result<DecodedChatRequest, CodecError> {
+    decode_request_with(v, &Default::default())
+}
+pub(crate) fn decode_request_with(
+    v: &Value,
+    adaptation: &crate::protocol::adaptation::Adaptation,
+) -> Result<DecodedChatRequest, CodecError> {
     bounded(v)?;
     let o = object(v)?;
     let allowed: Vec<_> = chat::FIELDS
@@ -101,7 +93,7 @@ pub fn decode_request(v: &Value) -> Result<DecodedChatRequest, CodecError> {
             v.as_bool().ok_or(CodecError::Invalid("stream"))
         })?,
         stream_options: read_presence(o, "stream_options", StreamOptions::read)?,
-        cache: super::envelope::CacheHints::read(o)?,
+        cache: CacheHints::read(o)?,
     };
     context.validate()?;
     let task: Map<_, _> = o
@@ -110,7 +102,7 @@ pub fn decode_request(v: &Value) -> Result<DecodedChatRequest, CodecError> {
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     Ok(DecodedChatRequest {
-        task: chat::decode_generation(&Value::Object(task))?,
+        task: chat::decode_generation_with(&Value::Object(task), adaptation)?,
         context,
     })
 }
@@ -148,7 +140,7 @@ pub fn encode_response(target: &ResponseRepresentation<'_>) -> Result<Value, Cod
     validate_response(&v)?;
     Ok(v)
 }
-fn validate_response(v: &Value) -> Result<(), CodecError> {
+pub(crate) fn validate_response(v: &Value) -> Result<(), CodecError> {
     headers(v, "chat.completion")?;
     let choices = v
         .get("choices")

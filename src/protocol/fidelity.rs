@@ -7,23 +7,35 @@ use crate::semantic::{
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
-/// ADR 0008: classified vendor response extras observed on Responses bodies.
-/// Names stay on a declared admit list; unknown keys stay rejected and recorded
-/// values share one bounded budget.
-const RESPONSES_EXTRAS: &[&str] = &["content_filters", "frequency_penalty", "presence_penalty"];
-
-/// Classified extras a wire profile declares (ADR 0008). Recording and
-/// re-encoding share this table, so cross-profile portability is a declared
-/// property of the profile instead of an encoder habit.
-pub(crate) const fn declared_response_extras(
-    profile: crate::protocol::openai::Profile,
+use crate::protocol::{adaptation::Adaptation, openai::Profile};
+const RESPONSE_EXTRAS_BUDGET: usize = 4096;
+pub(crate) const RESPONSE_EXTRA_FIELDS: &[&str] =
+    &["content_filters", "frequency_penalty", "presence_penalty"];
+pub(crate) fn declared_response_extras(
+    profile: Profile,
+    adaptation: &Adaptation,
 ) -> &'static [&'static str] {
-    match profile {
-        crate::protocol::openai::Profile::Responses => RESPONSES_EXTRAS,
-        crate::protocol::openai::Profile::Chat => &[],
+    if profile == Profile::Responses && adaptation.rules.response_extras {
+        RESPONSE_EXTRA_FIELDS
+    } else {
+        &[]
     }
 }
-const RESPONSE_EXTRAS_BUDGET: usize = 4096;
+
+/// Intake audit facts only; never used to restore or change semantic values.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Normalization {
+    CacheWriteDefault { profile: &'static str },
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResponseExtras {
+    protocol: Profile,
+    profile: &'static str,
+    origin: ReplayOrigin,
+    response_id: Text,
+    dependency: [u8; 32],
+    values: BTreeMap<String, Value>,
+}
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FidelityRecords {
@@ -31,7 +43,8 @@ pub struct FidelityRecords {
     cache_breakpoints: std::collections::BTreeSet<PartId>,
     input_text_forms: std::collections::BTreeSet<PartId>,
     encrypted_reasoning: BTreeMap<ItemId, (ReasoningReplay, [u8; 32])>,
-    response_extras: BTreeMap<String, Value>,
+    response_extras: Option<ResponseExtras>,
+    normalizations: std::collections::BTreeSet<Normalization>,
 }
 impl FidelityRecords {
     pub fn record_input_text(&mut self, owner: PartId) -> Result<(), CodecError> {
@@ -139,39 +152,83 @@ impl FidelityRecords {
         }
         Ok(())
     }
-    /// Classified vendor response extras (ADR 0008): named fields only, bounded
-    /// and preserved verbatim for same-origin re-encode. The first report binds.
-    pub fn record_response_extras(
+    /// Partial snapshots are checked but cannot bind response-wide facts.
+    pub(crate) fn capture_response_extras(
         &mut self,
-        profile: crate::protocol::openai::Profile,
+        protocol: Profile,
+        adaptation: &Adaptation,
         o: &Map<String, Value>,
+        semantic: Option<&GenerationResponse>,
     ) -> Result<(), CodecError> {
-        for name in declared_response_extras(profile) {
-            if self.response_extras.contains_key(*name) {
-                continue;
-            }
+        let mut values = BTreeMap::new();
+        let mut used = 0usize;
+        for name in declared_response_extras(protocol, adaptation) {
             if let Some(value) = o.get(*name) {
-                let size = crate::semantic::value::json_size(value, RESPONSE_EXTRAS_BUDGET)
-                    .map_err(|_| CodecError::Limit)?;
-                let used: usize = self
-                    .response_extras
-                    .values()
-                    .map(|value| {
-                        crate::semantic::value::json_size(value, RESPONSE_EXTRAS_BUDGET)
-                            .unwrap_or(usize::MAX)
-                    })
-                    .sum();
-                if used.saturating_add(size) > RESPONSE_EXTRAS_BUDGET {
+                used = used.saturating_add(
+                    crate::semantic::value::json_size(value, RESPONSE_EXTRAS_BUDGET)
+                        .map_err(|_| CodecError::Limit)?,
+                );
+                if used > RESPONSE_EXTRAS_BUDGET {
                     return Err(CodecError::Limit);
                 }
-                self.response_extras
-                    .insert((*name).to_string(), value.clone());
+                values.insert((*name).into(), value.clone());
             }
+        }
+        if let Some(semantic) = semantic {
+            self.response_extras = if values.is_empty() {
+                None
+            } else {
+                Some(ResponseExtras {
+                    protocol,
+                    profile: adaptation.profile_id,
+                    origin: adaptation
+                        .scope
+                        .clone()
+                        .ok_or(CodecError::Invalid("unbound response extras"))?,
+                    response_id: Text::new(
+                        o.get("id")
+                            .and_then(Value::as_str)
+                            .ok_or(CodecError::Invalid("response identity"))?,
+                        "response identity",
+                        256,
+                    )
+                    .map_err(|_| CodecError::Limit)?,
+                    dependency: response_dependency(semantic),
+                    values,
+                })
+            };
         }
         Ok(())
     }
-    pub fn response_extras(&self) -> &BTreeMap<String, Value> {
-        &self.response_extras
+    pub(crate) fn projected_response_extras(
+        &self,
+        protocol: Profile,
+        adaptation: &Adaptation,
+        semantic: &GenerationResponse,
+        response_id: &str,
+    ) -> Option<&BTreeMap<String, Value>> {
+        self.response_extras
+            .as_ref()
+            .filter(|r| {
+                r.protocol == protocol
+                    && r.profile == adaptation.profile_id
+                    && Some(&r.origin) == adaptation.scope.as_ref()
+                    && r.response_id.as_str() == response_id
+                    && r.dependency == response_dependency(semantic)
+                    && adaptation.rules.response_extras
+            })
+            .map(|r| &r.values)
+    }
+    pub fn normalizations(&self) -> &std::collections::BTreeSet<Normalization> {
+        &self.normalizations
+    }
+    pub(crate) fn record_cache_write_default(&mut self, profile: &'static str) {
+        self.normalizations
+            .insert(Normalization::CacheWriteDefault { profile });
+    }
+    pub(crate) fn copy_response_records(&mut self, source: &Self) {
+        self.response_extras = source.response_extras.clone();
+        self.normalizations = source.normalizations.clone();
     }
     pub fn retain_owners(&mut self, items: &[(ItemId, Item)]) {
         self.response_item_ids
@@ -183,6 +240,13 @@ impl FidelityRecords {
         });
     }
 }
+// This in-process fingerprint is not persisted or exposed as a wire identity.
+// Hashing the complete typed response conservatively invalidates extras after edits.
+fn response_dependency(response: &GenerationResponse) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(format!("{response:?}").as_bytes()).into()
+}
+
 // A digest binds replay to its typed owner without retaining a second readable payload.
 fn fingerprint(item: &ReasoningItem) -> [u8; 32] {
     use sha2::{Digest, Sha256};

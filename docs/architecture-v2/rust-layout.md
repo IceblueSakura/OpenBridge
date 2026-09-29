@@ -7,6 +7,7 @@ src/
   semantic/
     mod.rs
     value/
+    context.rs
     resource/
     task/
       mod.rs
@@ -22,9 +23,13 @@ src/
       image/
       speech/
 
+  adapter/
+    mod.rs
+    request.rs
+
   protocol/
     mod.rs
-    profile.rs
+    adaptation.rs
     fidelity.rs
     openai/
       chat/
@@ -60,7 +65,7 @@ src/
     plan.rs
     attempt.rs
     lifecycle.rs
-    response.rs
+    delivery.rs
 
   transport/
   credential/
@@ -90,7 +95,8 @@ More precisely:
 - `protocol` depends on semantic values and protocol-local DTOs.
 - `topology` depends on semantic task/capability vocabulary but not protocol implementation internals.
 - `lowering` depends on semantic + protocol profile contracts + compiled endpoint contracts.
-- `execution` consumes plans/encoded candidates and owns lifecycle.
+- `adapter` composes protocol rules and target lowering, and owns context projection; it does not access topology, credentials or network.
+- `execution` consumes plans and adapters, owns bounded intake/delivery state and exposes commit acknowledgement to the I/O caller. It does not interpret context fields.
 - `transport` is semantically blind.
 
 ## Types to avoid

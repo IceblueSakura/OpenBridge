@@ -25,30 +25,47 @@ pub(super) fn metadata(
         o.get(created_key)
             .ok_or(CodecError::Invalid("created time"))?,
     )?;
-    let context = if profile == Profile::Responses {
-        super::envelope::ResponseContext::read(o)?
+    let (context, instruction_fidelity) = if profile == Profile::Responses {
+        crate::semantic::context::ResponseContext::read(o)?
     } else {
-        super::envelope::ResponseContext {
-            system_fingerprint: read_presence(o, "system_fingerprint", |v| {
-                v.as_str()
-                    .map(str::to_owned)
-                    .ok_or(CodecError::Invalid("system fingerprint"))
-            })?,
-            ..Default::default()
-        }
+        (
+            crate::semantic::context::ResponseContext {
+                system_fingerprint: read_presence(o, "system_fingerprint", |v| {
+                    v.as_str()
+                        .map(str::to_owned)
+                        .ok_or(CodecError::Invalid("system fingerprint"))
+                })?,
+                ..Default::default()
+            },
+            Default::default(),
+        )
     };
+    context.validate()?;
     Ok(ResponseMetadata {
         id,
         model,
         created,
         context,
+        instruction_fidelity,
     })
 }
-pub(super) fn usage(value: Option<&Value>, profile: Profile) -> Result<Option<Usage>, CodecError> {
+pub(super) fn usage(
+    value: Option<&Value>,
+    profile: Profile,
+    adaptation: &crate::protocol::adaptation::Adaptation,
+    fidelity: &mut crate::protocol::fidelity::FidelityRecords,
+) -> Result<Option<Usage>, CodecError> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
     };
     let usage = object(value)?;
+    if !adaptation.rules.usage_aliases || profile != Profile::Chat {
+        for key in ["prompt_cache_hit_tokens", "prompt_cache_miss_tokens"] {
+            if usage.contains_key(key) {
+                return Err(CodecError::Unsupported(key.into()));
+            }
+        }
+    }
     let (input_key, output_key, input_details, output_details) = match profile {
         Profile::Chat => (
             "prompt_tokens",
@@ -81,11 +98,7 @@ pub(super) fn usage(value: Option<&Value>, profile: Profile) -> Result<Option<Us
         output_tokens: count(usage, output_key)?,
         total_tokens: count(usage, "total_tokens")?,
         cached_input_tokens: detail(usage, input_details, "cached_tokens")?,
-        input_cache_write_tokens: if profile == Profile::Responses {
-            detail(usage, input_details, "cache_write_tokens")?
-        } else {
-            None
-        },
+        input_cache_write_tokens: detail(usage, input_details, "cache_write_tokens")?,
         reasoning_tokens: detail(usage, output_details, "reasoning_tokens")?,
     };
     // DeepSeek Chat reports `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`
@@ -109,6 +122,10 @@ pub(super) fn usage(value: Option<&Value>, profile: Profile) -> Result<Option<Us
             return Err(CodecError::Invalid("usage alias"));
         }
     }
+    if parsed.input_cache_write_tokens.is_none() && adaptation.rules.default_cache_write {
+        parsed.input_cache_write_tokens = Some(0);
+        fidelity.record_cache_write_default(adaptation.profile_id);
+    }
     if parsed.input_tokens.checked_add(parsed.output_tokens) != Some(parsed.total_tokens) {
         return Err(CodecError::Invalid("usage total"));
     }
@@ -128,7 +145,7 @@ fn detail(
         None | Some(Value::Null) => Ok(None),
         Some(value) => {
             let details = object(value)?;
-            if key == "input_tokens_details" {
+            if matches!(key, "input_tokens_details" | "prompt_tokens_details") {
                 fields(details, &["cached_tokens", "cache_write_tokens"])?;
             } else {
                 fields(details, &[field])?;
@@ -166,7 +183,11 @@ pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
     }
     if let Some(written) = usage.input_cache_write_tokens {
         let details = object
-            .entry("input_tokens_details")
+            .entry(if profile == Profile::Chat {
+                "prompt_tokens_details"
+            } else {
+                "input_tokens_details"
+            })
             .or_insert_with(|| json!({}));
         details["cache_write_tokens"] = json!(written);
     }
@@ -181,8 +202,15 @@ pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
     value
 }
 pub fn decode_chat(v: &Value) -> Result<DecodedResponse, CodecError> {
+    decode_chat_with(v, &Default::default())
+}
+pub(crate) fn decode_chat_with(
+    v: &Value,
+    adaptation: &crate::protocol::adaptation::Adaptation,
+) -> Result<DecodedResponse, CodecError> {
     bounded(v)?;
     let o = object(v)?;
+    adaptation.validate_response(Profile::Chat, o)?;
     fields(
         o,
         &[
@@ -232,23 +260,32 @@ pub fn decode_chat(v: &Value) -> Result<DecodedResponse, CodecError> {
             }
         }
     }
+    let usage = usage(o.get("usage"), Profile::Chat, adaptation, &mut b.fidelity)?;
     Ok(DecodedResponse {
-        semantic: response_with_usage(b.items, outcome, usage(o.get("usage"), Profile::Chat)?)?
-            .with_details(if outcome == Outcome::Incomplete {
+        semantic: response_with_usage(b.items, outcome, usage)?.with_details(
+            if outcome == Outcome::Incomplete {
                 TerminalDetails {
                     error: None,
                     incomplete: Some(IncompleteReason::MaxOutputTokens),
                 }
             } else {
                 TerminalDetails::default()
-            })?,
+            },
+        )?,
         fidelity: b.fidelity,
         metadata: metadata(o, Profile::Chat)?,
     })
 }
 pub fn decode_responses(v: &Value) -> Result<DecodedResponse, CodecError> {
+    decode_responses_with(v, &Default::default())
+}
+pub(crate) fn decode_responses_with(
+    v: &Value,
+    adaptation: &crate::protocol::adaptation::Adaptation,
+) -> Result<DecodedResponse, CodecError> {
     bounded(v)?;
     let o = object(v)?;
+    adaptation.validate_response(Profile::Responses, o)?;
     super::envelope::response_fields(o)?;
     if string(o, "object")? != "response" {
         return Err(CodecError::Invalid("response object"));
@@ -276,13 +313,23 @@ pub fn decode_responses(v: &Value) -> Result<DecodedResponse, CodecError> {
     } else {
         Outcome::Completed(Completion::Stop)
     });
+    let usage = usage(
+        o.get("usage"),
+        Profile::Responses,
+        adaptation,
+        &mut b.fidelity,
+    )?;
+    let semantic =
+        response_with_usage(b.items, outcome, usage)?.with_details(decode_details(o)?)?;
+    super::envelope::record_vendor_shapes(
+        Profile::Responses,
+        adaptation,
+        o,
+        &mut b.fidelity,
+        Some(&semantic),
+    )?;
     Ok(DecodedResponse {
-        semantic: response_with_usage(
-            b.items,
-            outcome,
-            usage(o.get("usage"), Profile::Responses)?,
-        )?
-        .with_details(decode_details(o)?)?,
+        semantic,
         fidelity: b.fidelity,
         metadata: metadata(o, Profile::Responses)?,
     })
@@ -321,9 +368,12 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
     let mut value = json!({"id":m.id,"object":"chat.completion","created":m.created,"model":m.model,
         "choices":[{"index":0,"message":message,"finish_reason":finish}],
         "usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Chat))});
-    if let Some(fingerprint) = m.context.system_fingerprint.value() {
-        value["system_fingerprint"] = json!(fingerprint);
-    }
+    put_presence(
+        value.as_object_mut().expect("object"),
+        "system_fingerprint",
+        &m.context.system_fingerprint,
+        |v| json!(v),
+    );
     bounded(&value)?;
     Ok(value)
 }
@@ -346,6 +396,14 @@ pub fn encode_responses(target: &ResponseRepresentation<'_>) -> Result<Value, Co
         value.as_object_mut().expect("object"),
         status == "completed",
     )?;
+    super::envelope::write_response_extras(
+        target.fidelity,
+        target.profile,
+        &target.adaptation,
+        target.semantic,
+        &target.metadata.id,
+        value.as_object_mut().expect("object"),
+    );
     if target.semantic.details().error.is_some() {
         value["error"] = encode_error(target.semantic.details().error.as_ref());
     }

@@ -106,6 +106,19 @@ impl ResponsesSseDecoder {
             rejected: false,
         })
     }
+    pub fn with_decoder(
+        status: u16,
+        content_type: &str,
+        limits: SseLimits,
+        codec: EventDecoder,
+    ) -> Result<Self, SseError> {
+        if codec.profile() != Profile::Responses {
+            return Err(CodecError::ProfileMismatch.into());
+        }
+        let mut decoder = Self::new(status, content_type, limits, None)?;
+        decoder.codec = codec;
+        Ok(decoder)
+    }
     /// The caller retains and revisits unconsumed bytes, respecting downstream backpressure.
     pub fn consume(&mut self, chunk: &[u8]) -> Result<(usize, Vec<StreamEvent>), SseError> {
         if self.closed || self.rejected {
@@ -218,7 +231,7 @@ impl ResponsesSseEncoder {
         padding: Obfuscation,
     ) -> Result<Self, SseError> {
         limits.validate()?;
-        metadata.context.validate()?;
+        metadata.context.validate().map_err(CodecError::from)?;
         Ok(Self {
             codec: EventEncoder::new(Profile::Responses, metadata)?.with_contract(contract),
             limits,

@@ -13,7 +13,7 @@ decode(profile, task, wire) -> Decoded<TaskIR>
 encode(profile, task, representation) -> wire
 ```
 
-A codec knows wire shapes, field names, event grammar and profile-level presence rules. Standard fields have typed owners; extensions require a declared schema, attachment and scope. Known unsupported standard branches must not be relabeled arbitrary extensions. A codec does not access credentials, routes or provider selection.
+A codec knows wire shapes, field names, event grammar and profile-level presence rules. `adapter::Adapter` composes a protocol family with trusted `Adaptation` rules and scope; Standard, OpenBridge-client, DeepSeek and Xiaomi are distinct contracts, not one global vendor superset. Standard fields have typed owners; extensions require a declared schema, attachment and scope. Known unsupported standard branches must not be relabeled arbitrary extensions. A codec does not access credentials, routes or provider selection.
 
 Raw Responses JSON enters through `envelope::decode_request_bytes` / `decode_response_bytes`; SSE data uses the same bounded, duplicate-rejecting parser before event decoding. Existing Value APIs validate envelope/task semantics, not the lost raw JSON representation. Caller-side body collection remains independently bounded. Exact admission and limits are in the [text profile](responses-text-profile.md#raw-json-admission).
 
@@ -31,7 +31,7 @@ lower(final_ir, source_records, endpoint_contract)
 
 It owns explicit target mappings such as supported reasoning-level mapping, approved omission of semantically inactive hints, and endpoint-specific representation restrictions.
 
-It cannot mutate the shared final IR. Context/extension mappings use the same rule: a candidate may project an admitted session fact or source-bound resource only where its profile permits, not create a second semantic authority. Pure codecs must validate complete envelopes separately from permissive input abbreviations and low-level snapshots.
+It cannot mutate the shared final IR. `adapter::Request` carries shared task semantics, `semantic::context` hints/delivery and separate source records; target context projection lives in the adapter rather than execution. Context/extension mappings use the same rule: a candidate may project an admitted session fact or source-bound resource only where its profile permits, not create a second semantic authority. Pure codecs must validate complete envelopes separately from permissive input abbreviations and low-level snapshots.
 
 ## Why encode does not consume raw IR blindly
 
@@ -65,7 +65,7 @@ Decoded<T> {
 
 Fidelity records may preserve unknown fields, exact spelling/form choices or opaque same-origin values only when bounded and classified.
 
-They are keyed to stable semantic identities where applicable.
+They are keyed to stable semantic identities where applicable. Response-wide classified extras also bind protocol, adapter contract, trusted scope and a digest of the final typed response. Partial extras are validated but not captured; final extras project only at a compatible terminal and invalidate after semantic edits. Normalization audit records identify intake defaults without restoring or overriding semantic values.
 
 During lowering, fidelity may be reused only if:
 
@@ -93,7 +93,7 @@ Provider code may contribute:
 
 Provider code may not perform arbitrary semantic JSON mutation after encoding.
 
-A provider quirk that changes meaning must be modeled as endpoint lowering or a typed protocol profile, not a body hook. The stable-core/vendor-adapter split and its three sanctioned adaptation mechanisms (scoped typed shapes, derived views, classified bounded fidelity) are recorded in [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md).
+A provider quirk that changes meaning must be modeled as endpoint lowering or an explicit adapter rule, not a body hook. Mapping, validated derived views, scoped fidelity and field-specific compatibility defaults are defined in [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md). DeepSeek may default an unreported cache-write detail to zero in otherwise valid usage; that does not invent whole usage, mask malformed input or claim measured billing. Client and Provider adapters share these boundaries.
 
 ## Native and cross-protocol
 

@@ -37,7 +37,7 @@ Generation request representation
 
 但这不包含运行时对象：真实 credential、选中的 upstream URL/EndpointId、socket、retry counter、downstream commit flag 和可执行脚本不进入 IR。Provider namespace、可信 origin label 与已经选定的路由/网络目标不是同一概念。
 
-响应相应拥有标准 ordered output、status/details/usage、reported context 与 scoped output extensions。request hint 不能冒充实际 response fact。
+响应相应拥有标准 ordered output、status/details/usage、reported context 与 scoped output extensions。`semantic::context` 拥有标准 hints、reported context 与 delivery intent；instruction echo 的 wire fidelity 留在表示侧，不成为第二份正文。request hint 不能冒充实际 response fact。
 
 ## 3. 标准语义域
 
@@ -51,7 +51,7 @@ Message 保留 role、phase、item status、ordered content；Instruction author
 
 ### 控制与 presence
 
-按字段表达 Absent、Null、Value，以及显式空/false/default 的差别。只有来源证明等价时才规范化。受验证的设置不能同时声明“容器不存在”与“子字段存在”；TextOptions 的 presence=false 必须同时要求 format 和 verbosity 为 Absent，包括不能隐藏显式 Null。
+按字段表达 Absent、Null、Value，以及显式空/false/default 的差别。等价规范化或兼容默认值必须有逐字段、明确作用域的 adapter 合同；不能全局把缺失当零。[ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md)允许 DeepSeek 有效 usage 缺失/null cache-write 归一为 0，记录其兼容来源而不建立厂商 Usage 分支；该值不是上游实测报告。受验证的设置不能同时声明“容器不存在”与“子字段存在”；TextOptions 的 presence=false 必须同时要求 format 和 verbosity 为 Absent，包括不能隐藏显式 Null。
 
 Schema 不是通用无序 JSON：保留定义的属性顺序、strictness、固定方言、局部引用和有界图结构；当前共享验证与默认模式见 [schema profile](schema-profile.md)。不在 pure codec 下载 `$ref` 或执行 schema 程序。声明结构验证、目标 strict 子集准入与最终输出 adherence 各有独立责任。
 

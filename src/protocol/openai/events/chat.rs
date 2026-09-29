@@ -31,8 +31,13 @@ impl EventDecoder {
             if !choices.is_empty() {
                 return Err(CodecError::Invalid("chunk after finish"));
             }
-            let usage = super::super::static_response::usage(o.get("usage"), Profile::Chat)?
-                .ok_or(CodecError::Invalid("usage tail"))?;
+            let usage = super::super::static_response::usage(
+                o.get("usage"),
+                Profile::Chat,
+                &self.adaptation,
+                &mut self.fidelity,
+            )?
+            .ok_or(CodecError::Invalid("usage tail"))?;
             self.emit(StreamEvent::Usage(usage), &mut out)?;
             return Ok(out);
         }
@@ -202,12 +207,10 @@ impl EventDecoder {
                 let call = object(call)?;
                 fields(call, &["index", "id", "type", "function"])?;
                 let n = index(call, "index")?;
-                if call
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .is_some_and(|kind| kind != "function")
-                {
-                    return Err(CodecError::Unsupported("tool kind".into()));
+                match call.get("type") {
+                    None | Some(Value::Null) => {}
+                    Some(Value::String(kind)) if kind == "function" => {}
+                    _ => return Err(CodecError::Unsupported("tool kind".into())),
                 }
                 let f = object(
                     call.get("function")
@@ -355,8 +358,13 @@ impl EventDecoder {
                 },
             ));
             if let Some(value) = terminal_usage {
-                let usage = super::super::static_response::usage(Some(value), Profile::Chat)?
-                    .ok_or(CodecError::Invalid("usage tail"))?;
+                let usage = super::super::static_response::usage(
+                    Some(value),
+                    Profile::Chat,
+                    &self.adaptation,
+                    &mut self.fidelity,
+                )?
+                .ok_or(CodecError::Invalid("usage tail"))?;
                 self.emit(StreamEvent::Usage(usage), &mut out)?;
             }
         }
@@ -366,9 +374,12 @@ impl EventDecoder {
 impl EventEncoder {
     fn chunk(&self, delta: Value, finish: Value) -> Value {
         let mut value = json!({"id":self.metadata.id,"object":"chat.completion.chunk","created":self.metadata.created,"model":self.metadata.model,"choices":[{"index":0,"delta":delta,"finish_reason":finish}],"usage":null});
-        if let Some(fingerprint) = self.metadata.context.system_fingerprint.value() {
-            value["system_fingerprint"] = json!(fingerprint);
-        }
+        put_presence(
+            value.as_object_mut().expect("object"),
+            "system_fingerprint",
+            &self.metadata.context.system_fingerprint,
+            |v| json!(v),
+        );
         value
     }
     fn call_index(&self, item: ItemId) -> Result<usize, CodecError> {

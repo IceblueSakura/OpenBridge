@@ -21,6 +21,7 @@ pub enum ReportedFactPolicy {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenerationRepresentationContract {
+    pub adaptation: crate::protocol::adaptation::Adaptation,
     pub replay_origin: Option<crate::semantic::value::ReplayOrigin>,
     /// Delivery policy for reported facts; `Faithful` unless a consumer
     /// explicitly demands the strict complete form.
@@ -45,10 +46,13 @@ pub struct GenerationRepresentationContract {
     /// Endpoint accepts cache-affinity hint fields (`prompt_cache_key` and
     /// friends) on its wire; otherwise lowering omits them as inactive hints.
     pub cache_hints: bool,
+    /// Target admits metadata/service-tier/tool-budget context fields.
+    pub standard_context: bool,
 }
 impl GenerationRepresentationContract {
-    pub const fn full() -> Self {
+    pub fn full() -> Self {
         Self {
+            adaptation: Default::default(),
             replay_origin: None,
             reported_facts: ReportedFactPolicy::Faithful,
             instructions: true,
@@ -69,6 +73,7 @@ impl GenerationRepresentationContract {
             parallel_tool_calls: true,
             strict_tools: true,
             cache_hints: true,
+            standard_context: true,
         }
     }
 }
@@ -138,6 +143,15 @@ pub fn lower_request<'a>(
     c: GenerationRepresentationContract,
 ) -> Result<RequestRepresentation<'a>, RepresentationError> {
     let q = check(r, c.clone())?;
+    if profile == Profile::Chat
+        && q.reasoning
+        && !c.adaptation.rules.readable_reasoning
+        && r.items()
+            .iter()
+            .any(|(_, item)| matches!(item, Item::Reasoning(_)))
+    {
+        return Err(RepresentationError::Reasoning);
+    }
     if profile == Profile::Chat
         && r.items()
             .iter()
@@ -255,12 +269,13 @@ pub fn lower_response<'a>(
     c: GenerationRepresentationContract,
 ) -> Result<ResponseRepresentation<'a>, RepresentationError> {
     require_reported_facts(r, metadata, &c)?;
-    // Cache-write tokens are a reported Responses detail with no Chat wire projection.
     if profile == Profile::Chat
-        && r.usage()
-            .is_some_and(|usage| usage.input_cache_write_tokens.is_some())
+        && !c.adaptation.rules.readable_reasoning
+        && r.items()
+            .iter()
+            .any(|(_, item)| matches!(item, Item::Reasoning(_)))
     {
-        return Err(RepresentationError::UnmigratedSemantic);
+        return Err(RepresentationError::Reasoning);
     }
     // `system_fingerprint` is a Chat reported fact with no Responses wire position.
     if profile == Profile::Responses && !metadata.context.system_fingerprint.is_absent() {
@@ -337,6 +352,7 @@ pub fn lower_response<'a>(
         fidelity,
         metadata,
         profile,
+        adaptation: c.adaptation,
     })
 }
 /// Chat can carry readable reasoning text on its carrier message: each reasoning
@@ -351,7 +367,7 @@ fn chat_reasoning_shape(items: &[(ItemId, Item)]) -> bool {
                 matches!(
                     reasoning.parts.as_slice(),
                     [(_, ReasoningContent::Text(text))] if !text.as_str().is_empty()
-                ) && matches!(items.get(index + 1), Some((_, Item::Message(_))))
+                ) && matches!(items.get(index + 1), Some((_, Item::Message(message))) if message.role == MessageRole::Assistant)
             }
             _ => true,
         })

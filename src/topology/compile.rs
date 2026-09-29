@@ -62,6 +62,7 @@ fn promised(
         (promise.parallel_tool_calls, endpoint.parallel_tool_calls),
         (promise.strict_tools, endpoint.strict_tools),
         (promise.cache_hints, endpoint.cache_hints),
+        (promise.standard_context, endpoint.standard_context),
     ];
     let replay_ok = promise
         .replay_origin

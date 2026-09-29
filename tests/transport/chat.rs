@@ -13,7 +13,7 @@ use openbridge::{
             sse::{Obfuscation, SseLimits},
         },
     },
-    semantic::{task::generation::*, value::Presence},
+    semantic::{context::StreamOptions, task::generation::*, value::Presence},
 };
 use serde_json::{Value, json};
 fn frame(value: &Value) -> Vec<u8> {
@@ -40,8 +40,8 @@ fn consume(d: &mut ChatSseDecoder, bytes: &[u8], size: usize) -> Vec<StreamEvent
     }
     events
 }
-fn options(usage: bool) -> envelope::StreamOptions {
-    envelope::StreamOptions {
+fn options(usage: bool) -> StreamOptions {
+    StreamOptions {
         include_usage: Presence::Value(usage),
         include_obfuscation: Presence::Value(false),
     }
@@ -279,7 +279,7 @@ fn chat_encoder_padding_limits_and_missing_usage_do_not_emit_done() {
     events.extend(consume(&mut d, b"data: [DONE]\n\n", 4096));
     d.finish().unwrap();
     let r = d.materialize().unwrap();
-    let padded = envelope::StreamOptions {
+    let padded = StreamOptions {
         include_usage: Presence::Value(true),
         include_obfuscation: Presence::Value(true),
     };

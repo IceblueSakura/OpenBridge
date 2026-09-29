@@ -9,9 +9,11 @@
 //! and byte chunks so tests and the authorized probe entry drive the same chain.
 
 pub mod attempt;
+pub mod delivery;
 pub mod lifecycle;
 pub mod plan;
 
-pub use attempt::{Attempt, AttemptError, UpstreamRequest, admit, prepare_chat, prepare_responses};
+pub use attempt::{Attempt, AttemptError, UpstreamRequest, admit, prepare};
+pub use delivery::ResponseDelivery;
 pub use lifecycle::{DeliveryState, Lifecycle, LifecycleError};
 pub use plan::{Delivery, ExecutionPlan, PlanError};

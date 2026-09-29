@@ -12,7 +12,7 @@ const MAX_DEPTH: usize = 64;
 const MAX_NODES: usize = 65_536;
 
 /// Bound the raw input before parsing; never expose parser diagnostics containing wire data.
-pub(super) fn decode(input: &[u8]) -> Result<Value, CodecError> {
+pub(crate) fn decode(input: &[u8]) -> Result<Value, CodecError> {
     if input.len() > MAX_TOTAL_BYTES {
         return Err(CodecError::Limit);
     }

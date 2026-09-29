@@ -6,12 +6,12 @@ mod common;
 pub mod envelope;
 pub mod events;
 mod function_tools;
-mod json;
+pub(crate) mod json;
 mod reasoning;
 pub mod responses;
 mod settings;
 pub mod sse;
-mod static_response;
+pub(crate) mod static_response;
 mod terminal;
 mod text;
 
@@ -42,10 +42,14 @@ pub struct ResponseMetadata {
     pub id: String,
     pub model: String,
     pub created: serde_json::Number,
-    pub context: envelope::ResponseContext,
+    pub context: crate::semantic::context::ResponseContext,
+    /// Representation records for the independently owned instruction echo.
+    pub instruction_fidelity: FidelityRecords,
 }
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 pub enum CodecError {
+    #[error(transparent)]
+    Context(#[from] crate::semantic::context::ContextError),
     #[error("invalid {0}")]
     Invalid(&'static str),
     #[error("unsupported field or representation: {0}")]
@@ -67,6 +71,7 @@ pub struct RequestRepresentation<'a> {
     pub(crate) profile: Profile,
 }
 pub struct ResponseRepresentation<'a> {
+    pub(crate) adaptation: crate::protocol::adaptation::Adaptation,
     pub(crate) semantic: &'a GenerationResponse,
     pub(crate) fidelity: &'a FidelityRecords,
     pub(crate) metadata: &'a ResponseMetadata,

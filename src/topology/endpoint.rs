@@ -46,6 +46,15 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
+    pub fn adapter(&self) -> crate::adapter::Adapter {
+        crate::adapter::Adapter {
+            protocol: match self.protocol {
+                ProtocolProfile::OpenAiChat => crate::protocol::openai::Profile::Chat,
+                ProtocolProfile::OpenAiResponses => crate::protocol::openai::Profile::Responses,
+            },
+            adaptation: self.representation.adaptation.clone(),
+        }
+    }
     pub fn validate(&self) -> Result<(), crate::topology::TopologyError> {
         use crate::topology::TopologyError;
         if self.upstream_model.is_empty()

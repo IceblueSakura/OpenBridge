@@ -7,7 +7,7 @@
 最终产品是**多模态、Chat Completions / Responses 兼容、Agent 友好、缓存亲和性强的 IR 化网关**。当前以仅文本 Generation 验证整体流程，验证后再扩展 Provider 与多模态；离线库是实现基础，不是最终交付边界。
 
 - **IR 化与双协议兼容**：请求、响应和事件都经同一语义权威；同协议无旁路，跨协议按可表示性映射或明确拒绝，不以 Chat 最小交集定义 IR。
-- **语义核心与厂商适配分离**：semantic core 必须足够完善——provider 差异背后的真实语义（缺省、回显、派生 view、扩展字段）在 core 中有确定性归属或显式登记的缺口，不靠丢弃消化；厂商为主的兼容差异留在 encode/decode 层，用 scoped typed 形状、派生 view 校验、有界 classified fidelity 吸收，不以厂商形状扩张 core schema。机制见 [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md)。
+- **统一语义与显式边界适配**：Core 拥有充分的 task/context/delivery 语义，不建立厂商分支。client/Provider adapters 组合公共协议，通过映射、派生 view 校验、准确推导、逐字段兼容默认值与有来源约束的 fidelity 吸收差异。缺省零是兼容结果，不是 Provider 实测报告；默认值不得掩盖非法值、恢复删除值或编造成功终态。机制见 [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md)。
 - **Agent 友好**：工具定义/选择、调用身份、原始参数、结果回传、reasoning/派生 view 的续轮回放和流式非成功边界一致；不等于网关代替 Agent 执行所有工具，也不以单个 SDK gate 宣称全面 Agent 兼容。
 - **缓存亲和性强**：尽量保持合法续轮的稳定前缀、工具/Schema 顺序、cache affinity 与来源约束；session/cache/thread/turn 各有 owner，不为缓存复活被删除语义，不跨认证所有权重放 opaque state。稳定投影、实际缓存命中和成本/延迟效果是不同验收层。
 - **可扩展多模态**：保留标准媒体、资源和独立任务的正确所有权；文本先行不授权把未来媒体语义压成字符串，也不要求先实现未来所有任务才验证网关主链。
@@ -24,7 +24,7 @@ Generation 主要参考 OpenAI Responses 的 request、ordered item/content、to
 
 ```text
 Wire + trusted admission context
- -> Protocol Codec
+ -> Client / Provider Adapter over shared Protocol Codec
  -> Responses-oriented Generation semantics + context/delivery/extensions
  -> Validation / Trusted Transform
  -> Requirements
@@ -38,9 +38,9 @@ Wire + trusted admission context
 ## 设计与实现边界
 
 - 旧运行时已[归档](../archive.md)，不要求功能对等或保留旧 crate path。
-- 当前源码只实现 Generation 的部分 Responses/Chat 语义、lowering 和纯 SSE。
+- 当前源码实现 Generation 的部分 Responses/Chat 语义、标准 context、显式 adapters、lowering、纯 SSE、固定 topology 和 caller-driven execution。
 - Responses 标准全景是目标；stateless text 是现有实施子集，不是长期 IR 表达力上限。
-- 固定 Responses/Chat SDK gates 验证有限纯文本 JSON/SSE；hosted tools、state/WS 与真实 Provider 执行仍未实现。
+- 固定 Responses/Chat SDK gates 验证有限纯文本 JSON/SSE；hosted tools、state/WS 与生产 ingress/Provider I/O 仍未实现。历史受控 probe 不能证明本轮重构的 live 兼容。
 - 当前分层完成度与具体缺口由[实施基线](migration.md)维护，推进顺序只由[下一步目标](../implementation-plans/next-goal.md)维护。现有纯文本基线不等于完整标准；未来任务或工具执行也不是无限延迟最小执行设计的前置条件。
 
 ## 文档所有权
@@ -50,7 +50,7 @@ Wire + trusted admission context
 - [protocol-and-lowering.md](protocol-and-lowering.md)：codec、fidelity、固定 profile 和目标可表示性。
 - [capability-model.md](capability-model.md)：标准可表达、模型支持、表示与执行能力分开。
 - [invariants.md](invariants.md)：语义、扩展、安全与资源不变量。
-- [execution-model.md](execution-model.md)：后续执行目标，不是当前已实现模块。
+- [execution-model.md](execution-model.md)：执行职责和交付合同；现有 library 与未接线生产边界见当前架构。
 - [rust-layout.md](rust-layout.md)：职责布局方向，不复制 SDK 文件树。
 - [migration.md](migration.md)：分层完成度、目标相对当前代码的差距、可复现反例与边界；不重复实施顺序。
 - [responses-text-profile.md](responses-text-profile.md)：当前 Responses stateless text 的实现准入，不代表完整标准。

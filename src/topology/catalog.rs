@@ -33,6 +33,7 @@ fn wire_contract(
         audio_input: false,
         file_input: false,
         cache_hints: false,
+        standard_context: false,
         ..GenerationRepresentationContract::full()
     }
 }
@@ -61,6 +62,17 @@ fn endpoint(
         ProtocolProfile::OpenAiChat => provider.chat_completions,
         ProtocolProfile::OpenAiResponses => provider.responses,
     };
+    let dialect = match provider.id.as_str() {
+        "deepseek" => crate::adapter::Dialect::DeepSeek,
+        "xiaomi" => crate::adapter::Dialect::Xiaomi,
+        _ => unreachable!("fixed provider catalog"),
+    };
+    let family = match protocol {
+        ProtocolProfile::OpenAiChat => crate::protocol::openai::Profile::Chat,
+        ProtocolProfile::OpenAiResponses => crate::protocol::openai::Profile::Responses,
+    };
+    let adapter =
+        crate::adapter::Adapter::new(family, dialect, Some(replay_scope(provider.id.as_str())));
     Endpoint {
         id: EndpointId::new(id).expect("static identity"),
         provider: provider.id,
@@ -71,7 +83,7 @@ fn endpoint(
         task: TaskKind::Generation,
         protocol,
         upstream_model: upstream_model.into(),
-        representation: wire_contract(replay_origin.clone()),
+        representation: adapter.contract(&wire_contract(replay_origin)),
         execution: execution_contract(),
         credential: CredentialBindingId::new(credential).expect("static binding"),
     }

@@ -102,6 +102,9 @@ impl EventEncoder {
                 )?,
                 _ => {}
             }
+            if matches!(event, StreamEvent::Terminal { .. }) {
+                self.fidelity.copy_response_records(source);
+            }
             let mut values = if self.profile == Profile::Responses {
                 self.responses(event)?
             } else {
@@ -167,11 +170,6 @@ impl EventEncoder {
             v.as_object_mut().expect("object"),
             status == "completed",
         )?;
-        super::super::envelope::write_response_extras(
-            &self.fidelity,
-            self.profile,
-            v.as_object_mut().expect("object"),
-        );
         Ok(v)
     }
     fn responses(&self, event: &StreamEvent) -> Result<Vec<Value>, CodecError> {

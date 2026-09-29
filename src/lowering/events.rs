@@ -18,7 +18,11 @@ pub fn check_event(
                 }
                 // Chat reasoning is provisional at event time: its carrier
                 // message and single text part are validated at the terminal.
-                ItemKind::Reasoning if !contract.reasoning => {
+                ItemKind::Reasoning
+                    if !contract.reasoning
+                        || (profile == Profile::Chat
+                            && !contract.adaptation.rules.readable_reasoning) =>
+                {
                     return Err(RepresentationError::Reasoning);
                 }
                 ItemKind::CustomCall { .. }

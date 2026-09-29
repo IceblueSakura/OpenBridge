@@ -4,112 +4,12 @@ use super::{
     settings,
 };
 use crate::semantic::{
+    context::{CacheHints, ExecutionHints, ResponseContext},
     task::generation::*,
-    value::{Presence, json_size},
+    value::Presence,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value, json};
-use std::collections::BTreeMap;
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ServiceTier {
-    Auto,
-    Default,
-    Flex,
-    Fast,
-    Priority,
-    Scale,
-    Ultrafast,
-}
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CacheRetention {
-    InMemory,
-    #[serde(rename = "24h")]
-    Day,
-}
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CacheOptions {
-    pub mode: CacheMode,
-    pub ttl: CacheTtl,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub comparison_response_id: Presence<String>,
-    /// Omitted, explicit false and true stay distinct; `null` is not a bool.
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub prewarm: Presence<bool>,
-}
-impl CacheOptions {
-    fn validate(&self) -> Result<(), CodecError> {
-        if matches!(self.prewarm, Presence::Null) {
-            return Err(CodecError::Invalid("prewarm"));
-        }
-        if self
-            .comparison_response_id
-            .value()
-            .is_some_and(|s| s.len() > 256)
-        {
-            return Err(CodecError::Limit);
-        }
-        Ok(())
-    }
-}
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CacheMode {
-    Implicit,
-    Explicit,
-}
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum CacheTtl {
-    #[serde(rename = "30m")]
-    ThirtyMinutes,
-}
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub enum CacheDiagnostics {
-    CacheHit,
-    ComparisonResponseNotFound,
-    Unavailable,
-    CacheMiss {
-        reason: CacheMissReason,
-        cache_missed_tokens: u64,
-        #[serde(default, skip_serializing_if = "Presence::is_absent")]
-        comparison_reusable_tokens: Presence<u64>,
-    },
-}
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CacheMissReason {
-    ModelChanged,
-    PromptCacheKeyChanged,
-    ToolsChanged,
-    TextFormatChanged,
-    ReasoningEffortChanged,
-    VerbosityChanged,
-    ContextCompacted,
-    InputChanged,
-    ServiceTierChanged,
-}
-/// Cache-affinity and user-bucketing hints shared by Responses and Chat bodies.
-/// A request hint and a reported echo are separate facts: the codec never converts
-/// `prompt_cache_retention` (maximum policy) into `prompt_cache_options.ttl`
-/// (minimum lifetime) or aliases `user` onto `prompt_cache_key`.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CacheHints {
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub prompt_cache_key: Presence<String>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub prompt_cache_retention: Presence<CacheRetention>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub prompt_cache_options: Presence<CacheOptions>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub safety_identifier: Presence<String>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub user: Presence<String>,
-}
 pub(super) const CACHE_FIELDS: &[&str] = &[
     "prompt_cache_key",
     "prompt_cache_retention",
@@ -118,25 +18,6 @@ pub(super) const CACHE_FIELDS: &[&str] = &[
     "user",
 ];
 impl CacheHints {
-    pub fn validate(&self) -> Result<(), CodecError> {
-        for (value, max) in [
-            (&self.safety_identifier, 64),
-            (&self.user, 256),
-            (&self.prompt_cache_key, 256),
-        ] {
-            if value
-                .value()
-                .is_some_and(|s| s.chars().count() > max || s.len() > max * 4)
-            {
-                return Err(CodecError::Limit);
-            }
-        }
-        if let Some(options) = self.prompt_cache_options.value() {
-            options.validate()?;
-        }
-        json_size(self, MAX_TEXT_BYTES).map_err(|_| CodecError::Limit)?;
-        Ok(())
-    }
     pub(super) fn read(o: &Map<String, Value>) -> Result<Self, CodecError> {
         let fields: Map<_, _> = o
             .iter()
@@ -159,31 +40,6 @@ impl CacheHints {
         Ok(())
     }
 }
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ExecutionHints {
-    #[serde(flatten)]
-    pub cache: CacheHints,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub metadata: Presence<BTreeMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub service_tier: Presence<ServiceTier>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub max_tool_calls: Presence<u64>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub store: Presence<bool>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub background: Presence<bool>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub previous_response_id: Presence<()>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub conversation: Presence<()>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub prompt: Presence<()>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub moderation: Presence<()>,
-    #[serde(default, skip_serializing_if = "Presence::is_absent")]
-    pub context_management: Presence<Vec<()>>,
-}
 pub(super) const EXEC_FIELDS: &[&str] = &[
     "metadata",
     "service_tier",
@@ -197,29 +53,6 @@ pub(super) const EXEC_FIELDS: &[&str] = &[
     "context_management",
 ];
 impl ExecutionHints {
-    pub fn validate(&self) -> Result<(), CodecError> {
-        self.cache.validate()?;
-        if self.store == Presence::Value(true)
-            || self.background == Presence::Value(true)
-            || self
-                .context_management
-                .value()
-                .is_some_and(|v| !v.is_empty())
-        {
-            return Err(CodecError::Unsupported("stateful execution".into()));
-        }
-        if self.metadata.value().is_some_and(|m| {
-            m.len() > 16
-                || m.iter()
-                    .any(|(k, v)| k.chars().count() > 64 || v.chars().count() > 512)
-        }) {
-            return Err(CodecError::Limit);
-        }
-        if self.max_tool_calls == Presence::Value(0) {
-            return Err(CodecError::Invalid("max_tool_calls"));
-        }
-        Ok(())
-    }
     pub(super) fn read(o: &Map<String, Value>) -> Result<Self, CodecError> {
         let fields: Map<_, _> = o
             .iter()
@@ -283,7 +116,7 @@ impl RequestContext {
     pub fn validate(&self) -> Result<(), CodecError> {
         text(&self.model, "model", 256)?;
         self.delivery.validate()?;
-        self.execution.validate()
+        Ok(self.execution.validate()?)
     }
 }
 /// `model` is a public binding label, not an upstream address. The caller resolves it outside IR.
@@ -349,78 +182,18 @@ pub fn encode_request(
     bounded(&v)?;
     Ok(v)
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InstructionEcho {
-    pub items: Vec<(ItemId, Item)>,
-    pub fidelity: crate::protocol::fidelity::FidelityRecords,
-}
-impl InstructionEcho {
-    fn validate(&self) -> Result<(), CodecError> {
-        if self
-            .items
-            .iter()
-            .any(|(_, i)| !matches!(i, Item::Instruction(_)))
-        {
-            return Err(CodecError::Unsupported("non-instruction echo item".into()));
-        }
-        if !self.items.is_empty() {
-            GenerationRequest::new(self.items.clone(), GenerationControls::default())?;
-        }
-        Ok(())
-    }
-}
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ResponseContext {
-    pub settings: Option<GenerationSettings>,
-    pub instruction_messages: Option<InstructionEcho>,
-    pub execution: ExecutionHints,
-    pub completed_at: Presence<Number>,
-    pub cache_diagnostics: Presence<CacheDiagnostics>,
-    /// Standard Chat reported fact with no Responses wire position. Presence is
-    /// preserved; cross-profile projection rejects instead of dropping it.
-    pub system_fingerprint: Presence<String>,
-}
 impl ResponseContext {
-    /// Reported facts are presence-preserving (ADR 0008): absence is a fact and
-    /// the codec never invents defaults or request copies. Structural snapshot
-    /// completeness lives in `validate_response_snapshot`.
-    pub fn validate(&self) -> Result<(), CodecError> {
-        self.execution.validate()?;
-        if self
-            .system_fingerprint
-            .value()
-            .is_some_and(|fingerprint| fingerprint.is_empty() || fingerprint.len() > 256)
-        {
-            return Err(CodecError::Invalid("system fingerprint"));
-        }
-        if let Some(s) = &self.settings {
-            s.validate()?;
-        }
-        if let Some(messages) = &self.instruction_messages {
-            if self
-                .settings
-                .as_ref()
-                .is_some_and(|s| !s.instructions.is_absent())
-            {
-                return Err(CodecError::Invalid("conflicting instruction echoes"));
-            }
-            messages.validate()?;
-        }
-        if let Some(n) = self.completed_at.value() {
-            timestamp(&Value::Number(n.clone()))?;
-        }
-        Ok(())
-    }
-    pub(super) fn read(o: &Map<String, Value>) -> Result<Self, CodecError> {
+    pub(super) fn read(
+        o: &Map<String, Value>,
+    ) -> Result<(Self, crate::protocol::fidelity::FidelityRecords), CodecError> {
         let mut controls = o.clone();
+        let mut fidelity = crate::protocol::fidelity::FidelityRecords::default();
         let instruction_messages = if let Some(Value::Array(values)) = o.get("instructions") {
             controls.remove("instructions");
             let mut items = Items::default();
             super::responses::decode_items(&mut items, values, false, "completed")?;
-            Some(InstructionEcho {
-                items: items.items,
-                fidelity: items.fidelity,
-            })
+            fidelity = items.fidelity;
+            Some(items.items)
         } else {
             None
         };
@@ -443,10 +216,11 @@ impl ResponseContext {
             system_fingerprint: crate::semantic::value::Presence::Absent,
         };
         value.validate()?;
-        Ok(value)
+        Ok((value, fidelity))
     }
     pub(super) fn write(
         &self,
+        fidelity: &crate::protocol::fidelity::FidelityRecords,
         o: &mut Map<String, Value>,
         completed: bool,
     ) -> Result<(), CodecError> {
@@ -458,11 +232,7 @@ impl ResponseContext {
         if let Some(messages) = &self.instruction_messages {
             o.insert(
                 "instructions".into(),
-                json!(super::responses::encode_items(
-                    &messages.items,
-                    &messages.fidelity,
-                    false
-                )),
+                json!(super::responses::encode_items(messages, fidelity, false)),
             );
         }
         if completed {
@@ -488,18 +258,11 @@ pub fn decode_response_bytes(bytes: &[u8]) -> Result<super::DecodedResponse, Cod
 pub fn decode_response(v: &Value) -> Result<super::DecodedResponse, CodecError> {
     bounded(v)?;
     validate_response_snapshot(v)?;
-    let mut decoded = super::responses::decode_response(v)?;
-    record_vendor_shapes(Profile::Responses, object(v)?, &mut decoded.fidelity)?;
-    Ok(decoded)
+    super::responses::decode_response(v)
 }
 pub fn encode_response(target: &super::ResponseRepresentation<'_>) -> Result<Value, CodecError> {
     target.metadata.context.validate()?;
-    let mut v = super::responses::encode_response(target)?;
-    write_response_extras(
-        target.fidelity,
-        target.profile,
-        v.as_object_mut().expect("object"),
-    );
+    let v = super::responses::encode_response(target)?;
     validate_response_snapshot(&v)?;
     Ok(v)
 }
@@ -507,9 +270,12 @@ pub fn encode_response(target: &super::ResponseRepresentation<'_>) -> Result<Val
 /// classified response extras into fidelity for same-origin re-encode.
 pub(crate) fn record_vendor_shapes(
     profile: Profile,
+    adaptation: &crate::protocol::adaptation::Adaptation,
     o: &Map<String, Value>,
     fidelity: &mut crate::protocol::fidelity::FidelityRecords,
+    semantic: Option<&GenerationResponse>,
 ) -> Result<(), CodecError> {
+    adaptation.validate_response(profile, o)?;
     if let Some(view) = o.get("output_text").filter(|v| !v.is_null()) {
         let view = view.as_str().ok_or(CodecError::Invalid("output_text"))?;
         // The equality rule applies where the snapshot claims finality: a
@@ -541,25 +307,32 @@ pub(crate) fn record_vendor_shapes(
             }
         }
     }
-    fidelity.record_response_extras(profile, o)
+    fidelity.capture_response_extras(profile, adaptation, o, semantic)
 }
 /// Same-origin re-encode of classified vendor extras; never standard semantics.
 pub(crate) fn write_response_extras(
     fidelity: &crate::protocol::fidelity::FidelityRecords,
     profile: Profile,
+    adaptation: &crate::protocol::adaptation::Adaptation,
+    semantic: &GenerationResponse,
+    response_id: &str,
     o: &mut Map<String, Value>,
 ) {
-    for name in crate::protocol::fidelity::declared_response_extras(profile) {
-        if let Some(value) = fidelity.response_extras().get(*name) {
-            o.insert((*name).to_string(), value.clone());
-        }
+    if let Some(extras) =
+        fidelity.projected_response_extras(profile, adaptation, semantic, response_id)
+    {
+        o.extend(
+            extras
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone())),
+        );
     }
 }
 /// Structural snapshot validation (ADR 0008): reported facts are presence-preserving
 /// and typed by the task codec; this layer keeps the structural requirements.
-pub(super) fn validate_response_snapshot(v: &Value) -> Result<(), CodecError> {
+pub(crate) fn validate_response_snapshot(v: &Value) -> Result<(), CodecError> {
     let o = object(v)?;
-    ResponseContext::read(o)?.validate()?;
+    ResponseContext::read(o)?.0.validate()?;
     // A complete Response snapshot requires the output array; an absent value is
     // never the explicit empty array and no lower layer may backfill it.
     for item in o
@@ -666,13 +439,14 @@ pub(super) fn response_fields(o: &Map<String, Value>) -> Result<(), CodecError> 
             "error",
             "incomplete_details",
             "prompt_cache_diagnostics",
-            // Classified vendor extras (ADR 0008), captured into fidelity.
-            "content_filters",
-            "frequency_penalty",
-            "presence_penalty",
-            // Derived view, validated then dropped.
+            // Derived view, validated then dropped by the admitting adapter.
             "output_text",
         ])
+        .chain(
+            crate::protocol::fidelity::RESPONSE_EXTRA_FIELDS
+                .iter()
+                .copied(),
+        )
         .collect();
     fields(o, &allowed)
 }
@@ -681,5 +455,7 @@ pub(super) fn write_metadata(
     o: &mut Map<String, Value>,
     completed: bool,
 ) -> Result<(), CodecError> {
-    metadata.context.write(o, completed)
+    metadata
+        .context
+        .write(&metadata.instruction_fidelity, o, completed)
 }

@@ -19,6 +19,12 @@ pub(super) const FIELDS: &[&str] = &[
     "response_format",
 ];
 pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
+    decode_generation_with(v, &Default::default())
+}
+pub(crate) fn decode_generation_with(
+    v: &Value,
+    adaptation: &crate::protocol::adaptation::Adaptation,
+) -> Result<DecodedRequest, CodecError> {
     bounded(v)?;
     let o = object(v)?;
     fields(o, FIELDS)?;
@@ -28,6 +34,7 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
         .ok_or(CodecError::Invalid("messages"))?;
     let mut b = Items::default();
     for message in messages {
+        adaptation.validate_message(object(message)?)?;
         decode_message(&mut b, object(message)?, true)?;
     }
     let mut controls = controls(o, "max_completion_tokens")?;

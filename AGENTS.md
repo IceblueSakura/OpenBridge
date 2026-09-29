@@ -20,7 +20,7 @@ Before non-trivial work, read the root [README](README.md) and [documentation in
 | Cross-module ownership or data flow | [Current architecture](docs/architecture.md), [v2 design](docs/architecture-v2/README.md), affected module docs and callers |
 | Task IR, media semantics, or encode/decode | [Semantic IR](docs/architecture-v2/semantic-ir.md), [thematic research](docs/references/semantic-baseline.md), [fixed upstream baseline](docs/references/upstream-sync.md), relevant standard/extension/media leaves, [protocol/lowering](docs/architecture-v2/protocol-and-lowering.md), and actual `src/semantic/`, `src/protocol/`, `src/lowering/` types/callers |
 | Implementation, dependency, or test changes | [Development guide](docs/development.md), affected tests and manifests |
-| Provider onboarding or protocol changes | Relevant `docs/references/` snapshots, v2 contracts and affected source/tests; Provider execution is not currently implemented |
+| Provider onboarding or protocol changes | Relevant `docs/references/` snapshots, v2 contracts and affected source/tests; caller-driven adapter/execution exists, but production ingress and Provider I/O are not implemented |
 | Corpus or semantic testing | [Development guide](docs/development.md), independent `tests/semantic/` and `tests/support/` fixtures and affected Rust contracts; archived corpus is evidence only, not an active test dependency |
 | Documentation or instruction maintenance | Documentation responsibilities, canonical sources, incoming links, and affected guidance |
 

@@ -1,705 +1,453 @@
-//! Full request/response chain against synthetic DeepSeek/Xiaomi-style upstreams.
-//!
-//! The chain uses the same entry points as the authorized probe: plan admission,
-//! attempt preparation, semantically blind transport, response intake and
-//! downstream rendering. Wire oracles are the independent support fixtures, not
-//! encoder output.
+//! Adapter/execution acceptance with independent wire and explicit I/O commit.
 use crate::{chat_wire, wire};
-use axum::{Router, routing::post};
 use openbridge::{
-    execution::{Attempt, AttemptError, UpstreamRequest, admit, prepare_chat, prepare_responses},
-    lowering::generation::{GenerationRepresentationContract, RepresentationError},
+    adapter::{Adapter, Dialect},
+    execution::{Attempt, AttemptError, ResponseDelivery, admit, prepare},
+    lowering::generation::{GenerationRepresentationContract as Contract, ReportedFactPolicy},
     protocol::openai::{
-        chat_envelope,
+        Profile,
         chat_sse::ChatSseDecoder,
-        envelope,
         sse::{Obfuscation, ResponsesSseDecoder, SseLimits},
     },
-    provider::{
-        AuthScheme, CredentialBindingId, CredentialKind, EndpointPath, ErrorClass,
-        ProviderDefinition, ProviderId, SecretMaterial, TrustedOrigin,
+    provider::{ErrorClass, SecretMaterial, catalog as providers},
+    semantic::{
+        context::StreamOptions,
+        task::generation::*,
+        value::{Presence, ReplayOrigin},
     },
-    semantic::{task::generation::*, value::Presence},
-    topology::{
-        Endpoint, EndpointId, EndpointTarget, ExecutionContract, ProtocolProfile, TaskKind,
-        catalog::{deepseek_flash, mimo_v2_6_pro},
-    },
+    topology::{EndpointId, catalog},
 };
 use serde_json::{Value, json};
-use std::sync::{Arc, Mutex};
 
-/// Authorization header values as the synthetic upstream observed them.
-type Seen = Arc<Mutex<Vec<String>>>;
-
-fn contract() -> GenerationRepresentationContract {
-    GenerationRepresentationContract {
-        replay_origin: None,
-        custom_tools: false,
-        strict_tools: false,
-        image_input: false,
-        audio_input: false,
-        file_input: false,
-        cache_hints: false,
-        ..GenerationRepresentationContract::full()
-    }
+fn standard(protocol: Profile) -> Adapter {
+    Adapter::new(protocol, Dialect::Standard, None)
 }
-
-fn provider(origin: &str, chat_path: &str, responses_path: &str) -> ProviderDefinition {
-    ProviderDefinition {
-        id: ProviderId::new("fixture").unwrap(),
-        origin: TrustedOrigin::parse(origin).unwrap(),
-        chat_completions: EndpointPath::new(chat_path).unwrap(),
-        responses: EndpointPath::new(responses_path).unwrap(),
-        auth: AuthScheme::Bearer,
-    }
-}
-
-fn endpoint(definition: &ProviderDefinition, protocol: ProtocolProfile, model: &str) -> Endpoint {
-    let path = match protocol {
-        ProtocolProfile::OpenAiChat => definition.chat_completions.clone(),
-        ProtocolProfile::OpenAiResponses => definition.responses.clone(),
-    };
-    Endpoint {
-        id: EndpointId::new("fixture-endpoint").unwrap(),
-        provider: definition.id.clone(),
-        target: EndpointTarget {
-            origin: definition.origin.clone(),
-            path,
-        },
-        task: TaskKind::Generation,
-        protocol,
-        upstream_model: model.into(),
-        representation: contract(),
-        execution: ExecutionContract {
-            streaming: true,
-            retry_before_commit: false,
-            request_body_limit: 256 * 1024,
-            response_body_limit: 8 * 1024 * 1024,
-            credential_kind: CredentialKind::ApiKey,
-            timeout_ms: 30_000,
-        },
-        credential: CredentialBindingId::new("fixture-key").unwrap(),
-    }
-}
-
-fn secret() -> SecretMaterial {
-    SecretMaterial::new("sk-test-0001").unwrap()
-}
-
-fn chat_request(model: &str, stream: bool) -> chat_envelope::DecodedChatRequest {
-    let mut body = json!({"model": model, "messages": [{"role": "user", "content": "hello"}]});
-    if stream {
-        body["stream"] = json!(true);
-        body["stream_options"] = json!({"include_usage": true, "include_obfuscation": false});
-    }
-    chat_envelope::decode_request_bytes(body.to_string().as_bytes()).unwrap()
-}
-
-fn responses_request(model: &str, stream: bool) -> envelope::DecodedResponsesRequest {
-    let mut body = json!({"model": model, "input": "hello"});
-    if stream {
-        body["stream"] = json!(true);
-    }
-    envelope::decode_request_bytes(body.to_string().as_bytes()).unwrap()
-}
-
-/// Handler factory capturing the authorization header seen by the upstream.
-fn handler(
-    seen: Seen,
-    respond: fn() -> Value,
-) -> impl Fn(axum::http::HeaderMap) -> std::future::Ready<axum::Json<Value>> + Clone {
-    move |headers: axum::http::HeaderMap| {
-        seen.lock().unwrap().push(
-            headers
-                .get("authorization")
-                .map(|v| v.to_str().unwrap_or_default().to_string())
-                .unwrap_or_default(),
-        );
-        std::future::ready(axum::Json(respond()))
-    }
-}
-
-async fn serve(routes: Router) -> String {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let origin = format!("http://{}", listener.local_addr().unwrap());
-    tokio::spawn(async move {
-        axum::serve(listener, routes).await.unwrap();
-    });
-    origin
-}
-
-async fn send(request: &UpstreamRequest) -> (u16, String, Vec<u8>) {
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    let mut call = client.post(format!("{}{}", request.origin, request.path));
-    for (name, value) in &request.safe_headers {
-        call = call.header(name, value);
-    }
-    call = call.header(&request.auth_header.0, &request.auth_header.1);
-    let response = call.body(request.body.clone()).send().await.unwrap();
-    let status = response.status().as_u16();
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .map(|v| v.to_str().unwrap_or_default().to_string())
-        .unwrap_or_default();
-    (
-        status,
-        content_type,
-        response.bytes().await.unwrap().to_vec(),
-    )
-}
-
-fn run_attempt(
-    protocol: ProtocolProfile,
-    status: u16,
-    content_type: &str,
-    body: &[u8],
-    chunk: usize,
-) -> Attempt {
-    run_attempt_with_scope(protocol, status, content_type, body, chunk, None)
-}
-
-fn run_attempt_with_scope(
-    protocol: ProtocolProfile,
-    status: u16,
-    content_type: &str,
-    body: &[u8],
-    chunk: usize,
-    replay_origin: Option<openbridge::semantic::value::ReplayOrigin>,
-) -> Attempt {
-    let mut attempt = Attempt::new(protocol, 8 << 20, SseLimits::default(), replay_origin);
-    attempt.begin(status, content_type).unwrap();
-    for piece in body.chunks(chunk) {
-        let mut rest = piece;
-        while !rest.is_empty() {
-            let (n, _) = attempt.push(rest).unwrap();
-            assert!(n > 0 && n <= rest.len());
-            rest = &rest[n..];
-        }
-    }
-    attempt.finish().unwrap();
-    attempt
-}
-
-fn chat_stream_body(turn: u8) -> Vec<u8> {
-    let mut body = vec![];
-    for value in chat_wire::events(turn) {
-        body.extend_from_slice(format!("data: {value}\n\n").as_bytes());
-    }
-    body.extend_from_slice(b"data: [DONE]\n\n");
-    body
-}
-
-fn responses_stream_body(turn: u8) -> Vec<u8> {
-    wire::events(turn)
-        .iter()
-        .flat_map(|value| {
-            openbridge::protocol::openai::sse::encode_frame(
-                value,
-                SseLimits::default().max_event_bytes,
-            )
-            .unwrap()
-        })
-        .collect()
-}
-
-#[tokio::test]
-async fn replay_target_scope_comes_from_the_delivery_contract() {
-    let body = serde_json::to_vec(&wire::response(1)).unwrap();
-    let source = openbridge::semantic::value::ReplayOrigin::new("deepseek").unwrap();
-    let attempt = || {
-        run_attempt_with_scope(
-            ProtocolProfile::OpenAiResponses,
-            200,
-            "application/json",
-            &body,
-            7,
-            Some(source.clone()),
-        )
-    };
-    let native = GenerationRepresentationContract {
-        replay_origin: Some(source.clone()),
-        ..GenerationRepresentationContract::full()
-    };
-    let other = GenerationRepresentationContract {
-        replay_origin: Some(
-            openbridge::semantic::value::ReplayOrigin::new("other-provider").unwrap(),
-        ),
-        ..GenerationRepresentationContract::full()
-    };
-
-    // A target that declares a different scope cannot receive the replay token.
-    assert!(matches!(
-        attempt().render_json(ProtocolProfile::OpenAiResponses, &other, "deepseek-flash"),
-        Err(AttemptError::Representation(
-            RepresentationError::ReplayOrigin
-        ))
-    ));
-    // A target without any scope still refuses it.
-    assert!(matches!(
-        attempt().render_json(
-            ProtocolProfile::OpenAiResponses,
-            &GenerationRepresentationContract::full(),
-            "deepseek-flash"
-        ),
-        Err(AttemptError::Representation(
-            RepresentationError::ReplayOrigin
-        ))
-    ));
-    // The matching target scope delivers the encrypted token natively.
-    let delivered = attempt()
-        .render_json(ProtocolProfile::OpenAiResponses, &native, "deepseek-flash")
-        .unwrap();
-    let value: Value = serde_json::from_slice(&delivered).unwrap();
-    assert_eq!(
-        value["output"][0]["encrypted_content"],
-        "synthetic-final-token"
-    );
-}
-
-fn stream_options() -> chat_envelope::StreamOptions {
-    chat_envelope::StreamOptions {
+fn options() -> StreamOptions {
+    StreamOptions {
         include_usage: Presence::Value(true),
         include_obfuscation: Presence::Value(false),
     }
 }
-
-#[tokio::test]
-async fn chat_json_chain_delivers_public_label_and_preserved_output() {
-    let seen: Seen = Arc::default();
-    let routes = Router::new().route(
-        "/chat/completions",
-        post(handler(seen.clone(), || chat_wire::response(2))),
-    );
-    let origin = serve(routes).await;
-    let definition = provider(&origin, "/chat/completions", "/responses");
-    let endpoint = endpoint(&definition, ProtocolProfile::OpenAiChat, "deepseek-flash");
-
-    let request = chat_request("deepseek-flash", false);
-    admit(&deepseek_flash(), &request.task).unwrap();
-    let upstream = prepare_chat(&endpoint, &definition, &secret(), &request).unwrap();
-    assert_eq!(upstream.path, "/chat/completions");
-    let sent: Value = serde_json::from_slice(&upstream.body).unwrap();
-    assert_eq!(sent["model"], "deepseek-flash", "upstream model binding");
-    assert_eq!(sent["messages"][0]["content"], "hello");
-
-    let (status, content_type, body) = send(&upstream).await;
-    assert_eq!(status, 200);
-    let mut attempt = run_attempt(ProtocolProfile::OpenAiChat, status, &content_type, &body, 7);
-    let delivered = attempt
-        .render_json(ProtocolProfile::OpenAiChat, &contract(), "deepseek-flash")
-        .unwrap();
-    assert!(
-        !attempt.lifecycle().may_retry_or_fallback(),
-        "post-commit fallback is forbidden"
-    );
-
-    let downstream: Value = serde_json::from_slice(&delivered).unwrap();
-    assert_eq!(downstream["object"], "chat.completion");
-    assert_eq!(
-        downstream["model"], "deepseek-flash",
-        "public label, not upstream locator"
-    );
-    assert_eq!(downstream["choices"][0]["message"]["content"], "old 🧪");
-    assert_eq!(downstream["choices"][0]["finish_reason"], "stop");
-    assert_eq!(downstream["usage"]["prompt_tokens"], 3);
-    // Client consumption through the independent decode path.
-    let decoded = chat_envelope::decode_response_bytes(&delivered).unwrap();
-    assert_eq!(decoded.semantic.items().len(), 1);
-    assert_eq!(
-        seen.lock().unwrap().as_slice(),
-        ["Bearer sk-test-0001".to_string()],
-        "the upstream sees only the bound credential"
-    );
+fn delivery(adapter: Adapter, contract: Contract) -> ResponseDelivery {
+    ResponseDelivery::new(
+        adapter,
+        contract,
+        "public-model",
+        SseLimits::default(),
+        options(),
+        Obfuscation::Disabled,
+    )
+}
+fn bytes(profile: Profile) -> Vec<u8> {
+    match profile {
+        Profile::Chat => {
+            let mut body = chat_wire::events(2)
+                .iter()
+                .flat_map(|v| format!("data: {v}\n\n").into_bytes())
+                .collect::<Vec<_>>();
+            body.extend_from_slice(b"data: [DONE]\n\n");
+            body
+        }
+        Profile::Responses => wire::events(2)
+            .iter()
+            .flat_map(|v| {
+                openbridge::protocol::openai::sse::encode_frame(
+                    v,
+                    SseLimits::default().max_event_bytes,
+                )
+                .unwrap()
+            })
+            .collect(),
+    }
+}
+fn consume(
+    attempt: &mut Attempt,
+    output: &mut ResponseDelivery,
+    body: &[u8],
+) -> Result<Vec<u8>, AttemptError> {
+    let mut remaining = body;
+    let mut wire = vec![];
+    while !remaining.is_empty() {
+        let (n, events) = attempt.push(remaining)?;
+        assert!(n > 0);
+        for frame in output.encode_events(attempt, &events)? {
+            wire.extend_from_slice(&frame);
+        }
+        remaining = &remaining[n..];
+    }
+    Ok(wire)
+}
+#[test]
+fn incremental_chain_emits_before_terminal_and_does_not_commit_by_encoding() {
+    for profile in [Profile::Chat, Profile::Responses] {
+        let mut intake = Attempt::new(standard(profile), 4096, SseLimits::default());
+        let mut output = delivery(standard(profile), Contract::full());
+        intake.begin(200, "text/event-stream").unwrap();
+        let body = bytes(profile);
+        let (n, events) = intake.push(&body).unwrap();
+        assert!(
+            n < body.len(),
+            "one push must not drain the upstream stream"
+        );
+        let first = output.encode_events(&intake, &events).unwrap();
+        assert!(
+            !first.is_empty(),
+            "first downstream frame precedes upstream terminal"
+        );
+        assert!(intake.response().is_err());
+        assert!(
+            output.lifecycle().may_retry_or_fallback(),
+            "encoding is not I/O commit"
+        );
+        output.commit().unwrap();
+        assert!(!output.lifecycle().may_retry_or_fallback());
+        let mut encoded: Vec<u8> = first.into_iter().flatten().collect();
+        encoded.extend(consume(&mut intake, &mut output, &body[n..]).unwrap());
+        assert!(output.complete(&intake).is_err());
+        intake.finish().unwrap();
+        let before_terminal = encoded.len();
+        encoded.extend(output.finish_stream(&intake).unwrap().into_iter().flatten());
+        assert!(encoded.len() > before_terminal);
+        output.complete(&intake).unwrap();
+        assert!(output.finish_stream(&intake).is_err());
+        let decoded = match profile {
+            Profile::Chat => {
+                let mut decoder =
+                    ChatSseDecoder::new(200, "text/event-stream", SseLimits::default()).unwrap();
+                let mut rest = encoded.as_slice();
+                while !rest.is_empty() {
+                    let (n, _) = decoder.consume(rest).unwrap();
+                    rest = &rest[n..];
+                }
+                decoder.finish().unwrap();
+                decoder.materialize().unwrap()
+            }
+            Profile::Responses => {
+                let mut decoder =
+                    ResponsesSseDecoder::new(200, "text/event-stream", SseLimits::default(), None)
+                        .unwrap();
+                let mut rest = encoded.as_slice();
+                while !rest.is_empty() {
+                    let (n, _) = decoder.consume(rest).unwrap();
+                    rest = &rest[n..];
+                }
+                decoder.finish().unwrap();
+                decoder.materialize().unwrap()
+            }
+        };
+        assert_eq!(decoded.metadata.model, "public-model");
+        assert_eq!(decoded.semantic, intake.response().unwrap().semantic);
+    }
+}
+#[test]
+fn delivery_cannot_switch_attempts_even_when_wire_identity_matches() {
+    let profile = Profile::Responses;
+    let body = bytes(profile);
+    let mut first = Attempt::new(standard(profile), 4096, SseLimits::default());
+    first.begin(200, "text/event-stream").unwrap();
+    let (_, events) = first.push(&body).unwrap();
+    let mut output = delivery(standard(profile), Contract::full());
+    output.encode_events(&first, &events).unwrap();
+    output.commit().unwrap();
+    let mut second = Attempt::new(standard(profile), 4096, SseLimits::default());
+    second.begin(200, "text/event-stream").unwrap();
+    let (used, _) = second.push(&body).unwrap();
+    let (_, events) = second.push(&body[used..]).unwrap();
+    assert!(output.encode_events(&second, &events).is_err());
+    assert!(!output.lifecycle().may_retry_or_fallback());
 }
 
-#[tokio::test]
-async fn chat_sse_chain_replays_downstream_frames_with_done_terminal() {
-    let routes = Router::new().route(
-        "/chat/completions",
-        post(|| async {
-            (
-                [(
-                    axum::http::header::CONTENT_TYPE,
-                    "text/event-stream; charset=utf-8",
-                )],
-                chat_stream_body(2),
-            )
-        }),
-    );
-    let origin = serve(routes).await;
-    let definition = provider(&origin, "/chat/completions", "/responses");
-    let endpoint = endpoint(&definition, ProtocolProfile::OpenAiChat, "deepseek-flash");
-
-    let request = chat_request("deepseek-flash", true);
-    let upstream = prepare_chat(&endpoint, &definition, &secret(), &request).unwrap();
-    let sent: Value = serde_json::from_slice(&upstream.body).unwrap();
-    assert_eq!(sent["stream"], true);
-    assert_eq!(
-        sent["stream_options"]["include_usage"], true,
-        "presence survives native projection"
-    );
-
-    let (status, content_type, body) = send(&upstream).await;
-    let mut attempt = run_attempt(ProtocolProfile::OpenAiChat, status, &content_type, &body, 3);
-    assert!(!attempt.events().is_empty());
-    let frames = attempt
-        .render_stream(
-            ProtocolProfile::OpenAiChat,
-            &contract(),
-            "deepseek-flash",
-            SseLimits::default(),
-            stream_options(),
-            Obfuscation::Disabled,
-        )
-        .unwrap();
-    assert_eq!(&frames.last().unwrap()[..], b"data: [DONE]\n\n");
-
-    // Client consumption: the downstream frames decode back to the same semantics.
-    let mut decoder = ChatSseDecoder::new(
-        200,
-        "text/event-stream; charset=utf-8",
-        SseLimits::default(),
-    )
-    .unwrap();
-    let mut text = String::new();
-    for frame in &frames {
-        let mut rest = &frame[..];
-        while !rest.is_empty() {
-            let (n, events) = decoder.consume(rest).unwrap();
-            assert!(n > 0);
-            rest = &rest[n..];
-            for event in events {
-                if let StreamEvent::Delta { fragment, .. } = event {
-                    text.push_str(&fragment);
+#[test]
+fn terminal_is_withheld_on_truncated_eof_or_trailing_invalid_data() {
+    for profile in [Profile::Chat, Profile::Responses] {
+        for trailing in [false, true] {
+            let mut intake = Attempt::new(standard(profile), 4096, SseLimits::default());
+            let mut output = delivery(standard(profile), Contract::full());
+            intake.begin(200, "text/event-stream").unwrap();
+            let mut body = bytes(profile);
+            if trailing {
+                body.extend_from_slice(b"data: broken\n\n");
+            } else {
+                body.pop();
+            }
+            let mut rest = body.as_slice();
+            let mut encoded = vec![];
+            let mut rejected = false;
+            while !rest.is_empty() {
+                match intake.push(rest) {
+                    Ok((n, events)) => {
+                        assert!(
+                            events
+                                .iter()
+                                .all(|e| !matches!(e, StreamEvent::Terminal { .. }))
+                        );
+                        encoded.extend(
+                            output
+                                .encode_events(&intake, &events)
+                                .unwrap()
+                                .into_iter()
+                                .flatten(),
+                        );
+                        if !encoded.is_empty() {
+                            output.commit().unwrap();
+                        }
+                        rest = &rest[n..];
+                    }
+                    Err(_) => {
+                        rejected = true;
+                        break;
+                    }
                 }
+            }
+            assert!(rejected || intake.finish().is_err());
+            assert!(output.finish_stream(&intake).is_err());
+            assert!(!output.lifecycle().may_retry_or_fallback());
+            assert!(
+                !String::from_utf8(encoded)
+                    .unwrap()
+                    .contains(if profile == Profile::Chat {
+                        "[DONE]"
+                    } else {
+                        "response.completed"
+                    })
+            );
+            assert!(intake.push(b"\n\n").is_err());
+        }
+    }
+}
+#[test]
+fn strict_completeness_can_fail_late_without_fabricating_a_terminal() {
+    let adapter = Adapter::new(Profile::Responses, Dialect::Xiaomi, None);
+    let mut intake = Attempt::new(adapter, 4096, SseLimits::default());
+    let mut output = delivery(
+        standard(Profile::Responses),
+        Contract {
+            reported_facts: ReportedFactPolicy::StrictComplete,
+            ..Contract::full()
+        },
+    );
+    intake.begin(200, "text/event-stream").unwrap();
+    let mut frames = wire::events(2);
+    for frame in &mut frames {
+        if let Some(response) = frame.get_mut("response").and_then(Value::as_object_mut) {
+            for key in ["tools", "tool_choice", "parallel_tool_calls"] {
+                response.remove(key);
             }
         }
     }
-    decoder.finish().unwrap();
-    assert_eq!(text, "old 🧪");
+    let body: Vec<u8> = frames
+        .iter()
+        .flat_map(|v| {
+            openbridge::protocol::openai::sse::encode_frame(v, SseLimits::default().max_event_bytes)
+                .unwrap()
+        })
+        .collect();
+    let encoded = consume(&mut intake, &mut output, &body).unwrap();
+    assert!(!encoded.is_empty());
+    output.commit().unwrap();
+    intake.finish().unwrap();
+    assert!(output.finish_stream(&intake).is_err());
+    assert!(!output.lifecycle().may_retry_or_fallback());
 }
-
-#[tokio::test]
-async fn responses_json_chain_preserves_usage_details_and_public_label() {
-    let seen: Seen = Arc::default();
-    let routes = Router::new().route(
-        "/v1/responses",
-        post(handler(seen.clone(), || wire::response(2))),
+#[test]
+fn static_delivery_scope_is_owned_by_the_target_and_commit_is_explicit() {
+    let scope = ReplayOrigin::new("scope-a").unwrap();
+    let source = Adapter::new(Profile::Responses, Dialect::Standard, Some(scope.clone()));
+    let mut body = wire::response(2);
+    body["output"].as_array_mut().unwrap().insert(0, json!({"id":"rs1","type":"reasoning","status":"completed","summary":[],"encrypted_content":"synthetic-token"}));
+    let mut intake = Attempt::new(source.clone(), 1 << 20, SseLimits::default());
+    intake.begin(200, "application/json").unwrap();
+    intake.push(body.to_string().as_bytes()).unwrap();
+    intake.finish().unwrap();
+    let mut denied = delivery(standard(Profile::Responses), Contract::full());
+    assert!(denied.encode_json(&intake).is_err());
+    assert!(denied.lifecycle().may_retry_or_fallback());
+    let mut permitted = delivery(
+        source,
+        Contract {
+            replay_origin: Some(scope),
+            ..Contract::full()
+        },
     );
-    let origin = serve(routes).await;
-    let definition = provider(&origin, "/v1/chat/completions", "/v1/responses");
-    let endpoint = endpoint(
-        &definition,
-        ProtocolProfile::OpenAiResponses,
-        "mimo-v2.6-pro",
-    );
-
-    let request = responses_request("mimo-v2.6-pro", false);
-    admit(&mimo_v2_6_pro(), &request.task).unwrap();
-    let upstream = prepare_responses(&endpoint, &definition, &secret(), &request).unwrap();
-    assert_eq!(
-        upstream.path, "/v1/responses",
-        "Xiaomi entries carry the /v1 prefix"
-    );
-    let sent: Value = serde_json::from_slice(&upstream.body).unwrap();
-    assert_eq!(sent["model"], "mimo-v2.6-pro");
-    assert_eq!(sent["store"], false);
-
-    let (status, content_type, body) = send(&upstream).await;
-    let mut attempt = run_attempt(
-        ProtocolProfile::OpenAiResponses,
-        status,
-        &content_type,
-        &body,
-        11,
-    );
-    let delivered = attempt
-        .render_json(
-            ProtocolProfile::OpenAiResponses,
-            &contract(),
-            "mimo-v2.6-pro",
-        )
-        .unwrap();
-
-    let downstream: Value = serde_json::from_slice(&delivered).unwrap();
-    assert_eq!(downstream["object"], "response");
-    assert_eq!(downstream["model"], "mimo-v2.6-pro");
-    assert_eq!(downstream["status"], "completed");
-    assert_eq!(
-        downstream["usage"]["input_tokens_details"]["cache_write_tokens"], 0,
-        "usage details survive the chain without estimation"
-    );
-    let decoded = envelope::decode_response_bytes(&delivered).unwrap();
-    assert_eq!(decoded.metadata.model, "mimo-v2.6-pro");
+    let encoded: Value = serde_json::from_slice(&permitted.encode_json(&intake).unwrap()).unwrap();
+    assert_eq!(encoded["model"], "public-model");
+    assert_eq!(encoded["output"][0]["encrypted_content"], "synthetic-token");
+    assert!(permitted.lifecycle().may_retry_or_fallback());
+    permitted.commit().unwrap();
+    permitted.complete(&intake).unwrap();
+    assert!(permitted.encode_json(&intake).is_err());
 }
-
-#[tokio::test]
-async fn responses_sse_chain_projects_stream_events_to_downstream_frames() {
-    let routes = Router::new().route(
-        "/v1/responses",
-        post(|| async {
-            (
-                [(
-                    axum::http::header::CONTENT_TYPE,
-                    "text/event-stream; charset=utf-8",
-                )],
-                responses_stream_body(2),
-            )
-        }),
-    );
-    let origin = serve(routes).await;
-    let definition = provider(&origin, "/v1/chat/completions", "/v1/responses");
-    let endpoint = endpoint(
-        &definition,
-        ProtocolProfile::OpenAiResponses,
-        "mimo-v2.6-pro",
-    );
-
-    let request = responses_request("mimo-v2.6-pro", true);
-    let upstream = prepare_responses(&endpoint, &definition, &secret(), &request).unwrap();
-    let (status, content_type, body) = send(&upstream).await;
-    let mut attempt = run_attempt(
-        ProtocolProfile::OpenAiResponses,
-        status,
-        &content_type,
-        &body,
-        5,
-    );
-    let frames = attempt
-        .render_stream(
-            ProtocolProfile::OpenAiResponses,
-            &contract(),
-            "mimo-v2.6-pro",
-            SseLimits::default(),
-            chat_envelope::StreamOptions::default(),
-            Obfuscation::Disabled,
-        )
-        .unwrap();
-    let wire_bytes: Vec<u8> = frames.iter().flat_map(|f| f.to_vec()).collect();
-    assert!(
-        wire_bytes
-            .windows(b"response.completed".len())
-            .any(|w| w == b"response.completed"),
-        "typed terminal survives downstream projection"
-    );
-    assert!(!wire_bytes.windows(b"[DONE]".len()).any(|w| w == b"[DONE]"));
-
-    let mut decoder = ResponsesSseDecoder::new(
-        200,
-        "text/event-stream; charset=utf-8",
-        SseLimits::default(),
-        None,
-    )
-    .unwrap();
-    let mut text = String::new();
-    for frame in &frames {
-        let mut rest = &frame[..];
-        while !rest.is_empty() {
-            let (n, events) = decoder.consume(rest).unwrap();
-            assert!(n > 0);
-            rest = &rest[n..];
-            for event in events {
-                if let StreamEvent::Delta { fragment, .. } = event {
-                    text.push_str(&fragment);
-                }
-            }
-        }
-    }
-    decoder.finish().unwrap();
-    let decoded = decoder.materialize().unwrap();
-    assert_eq!(text, "{\"ok\":false}");
-    assert_eq!(decoded.semantic.items().len(), 1);
-}
-
-#[tokio::test]
-async fn fixed_paths_and_credentials_are_never_request_selectable() {
-    let seen: Seen = Arc::default();
-    let routes = Router::new().route(
-        "/v1/chat/completions",
-        post(handler(seen.clone(), || chat_wire::response(2))),
-    );
-    let origin = serve(routes).await;
-    let definition = provider(&origin, "/v1/chat/completions", "/v1/responses");
-    let endpoint = endpoint(&definition, ProtocolProfile::OpenAiChat, "mimo-v2.6-pro");
-
-    let request = chat_request("mimo-v2.6-pro", false);
-    let upstream = prepare_chat(&endpoint, &definition, &secret(), &request).unwrap();
-    assert_eq!(upstream.path, "/v1/chat/completions");
-    assert_eq!(
-        upstream.auth_header,
-        (
-            "authorization".to_string(),
-            "Bearer sk-test-0001".to_string()
-        )
-    );
-    let (status, _, _) = send(&upstream).await;
-    assert_eq!(status, 200);
-    assert_eq!(
-        seen.lock().unwrap().as_slice(),
-        ["Bearer sk-test-0001".to_string()]
-    );
-}
-
-#[tokio::test]
-async fn failure_boundaries_classify_and_never_fake_success() {
-    // Classified HTTP failures leave the attempt uncommitted: fallback stays legal.
-    let mut attempt = Attempt::new(
-        ProtocolProfile::OpenAiChat,
-        1024,
-        SseLimits::default(),
-        None,
-    );
-    let error = attempt.begin(429, "application/json").unwrap_err();
+#[test]
+fn intake_errors_are_classified_bounded_and_irrecoverable() {
+    let mut rejected = Attempt::new(standard(Profile::Chat), 16, SseLimits::default());
     assert!(matches!(
-        error,
-        AttemptError::Status {
-            status: 429,
-            class: ErrorClass::RateLimit
-        }
+        rejected.begin(429, "application/json"),
+        Err(AttemptError::Status {
+            class: ErrorClass::RateLimit,
+            ..
+        })
     ));
-    assert!(attempt.lifecycle().may_retry_or_fallback());
-    assert!(
-        attempt
-            .render_json(ProtocolProfile::OpenAiChat, &contract(), "deepseek-flash")
-            .is_err()
-    );
-
-    // Truncated static JSON body never becomes a successful terminal.
-    let mut attempt = Attempt::new(
-        ProtocolProfile::OpenAiChat,
-        1024,
-        SseLimits::default(),
-        None,
-    );
-    attempt.begin(200, "application/json").unwrap();
-    attempt.push(b"{\"object\":\"chat.compl").unwrap();
-    assert!(attempt.finish().is_err());
-    assert!(
-        attempt
-            .render_json(ProtocolProfile::OpenAiChat, &contract(), "deepseek-flash")
-            .is_err()
-    );
-
-    // SSE EOF without the Chat [DONE] terminal is not success.
-    let mut body = vec![];
-    for value in chat_wire::events(2).iter().take(2) {
-        body.extend_from_slice(format!("data: {value}\n\n").as_bytes());
-    }
-    let mut attempt = Attempt::new(
-        ProtocolProfile::OpenAiChat,
-        8 << 20,
-        SseLimits::default(),
-        None,
-    );
-    attempt
-        .begin(200, "text/event-stream; charset=utf-8")
-        .unwrap();
-    let mut rest = &body[..];
-    while !rest.is_empty() {
-        let (n, _) = attempt.push(rest).unwrap();
-        rest = &rest[n..];
-    }
-    assert!(
-        attempt.finish().is_err(),
-        "EOF without DONE is not a success"
-    );
-
-    // Oversized static body hits the bounded budget.
-    let mut attempt = Attempt::new(ProtocolProfile::OpenAiChat, 16, SseLimits::default(), None);
-    attempt.begin(200, "application/json").unwrap();
+    assert!(rejected.begin(200, "application/json").is_err());
+    let mut limited = Attempt::new(standard(Profile::Chat), 16, SseLimits::default());
+    limited.begin(200, "application/json").unwrap();
     assert!(matches!(
-        attempt.push(&[b' '; 64]),
+        limited.push(&[b' '; 17]),
         Err(AttemptError::Limit)
     ));
-
-    // Unknown media types are protocol failures, not silent JSON.
-    let mut attempt = Attempt::new(
-        ProtocolProfile::OpenAiChat,
-        1024,
-        SseLimits::default(),
-        None,
-    );
-    assert!(matches!(
-        attempt.begin(200, "text/plain"),
-        Err(AttemptError::Protocol(_))
-    ));
+    assert!(limited.finish().is_err());
+    let mut malformed = Attempt::new(standard(Profile::Chat), 4096, SseLimits::default());
+    malformed.begin(200, "application/json").unwrap();
+    malformed.push(b"{}").unwrap();
+    assert!(malformed.finish().is_err());
+    assert!(malformed.push(b"{}").is_err());
 }
-
+#[test]
+fn cancellation_closes_intake_and_delivery_without_success() {
+    let mut intake = Attempt::new(standard(Profile::Chat), 4096, SseLimits::default());
+    let mut output = delivery(standard(Profile::Chat), Contract::full());
+    intake.begin(200, "text/event-stream").unwrap();
+    let (_, events) = intake.push(&bytes(Profile::Chat)).unwrap();
+    output.encode_events(&intake, &events).unwrap();
+    output.commit().unwrap();
+    intake.cancel();
+    output.cancel();
+    assert!(intake.finish().is_err());
+    assert!(output.finish_stream(&intake).is_err());
+    assert!(!output.lifecycle().may_retry_or_fallback());
+}
+#[test]
+fn unified_request_projection_keeps_targets_trusted_and_debug_redacted() {
+    let topology = catalog::default_topology().unwrap();
+    let endpoint = topology
+        .endpoint(&EndpointId::new("deepseek-chat").unwrap())
+        .unwrap();
+    let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);
+    let request = client.decode_request(json!({"model":"deepseek-flash","input":"hello","stream":true,"prompt_cache_key":"session"}).to_string().as_bytes()).unwrap();
+    admit(&catalog::deepseek_flash(), &request).unwrap();
+    let secret = SecretMaterial::new("synthetic-only-secret").unwrap();
+    let upstream = prepare(endpoint, &providers::deepseek(), &secret, &request).unwrap();
+    let body: Value = serde_json::from_slice(&upstream.body).unwrap();
+    assert_eq!(body["model"], "deepseek-flash");
+    assert_eq!(body["stream_options"]["include_usage"], true);
+    assert!(body.get("prompt_cache_key").is_none());
+    assert_eq!(upstream.origin, "https://api.deepseek.com");
+    assert_eq!(upstream.path, "/chat/completions");
+    assert!(!format!("{upstream:?}").contains("synthetic-only-secret"));
+    assert!(!format!("{upstream:?}").contains("hello"));
+    let mut no_stream = endpoint.clone();
+    no_stream.execution.streaming = false;
+    assert!(matches!(
+        prepare(&no_stream, &providers::deepseek(), &secret, &request),
+        Err(AttemptError::Delivery(_))
+    ));
+    assert!(prepare(endpoint, &providers::xiaomi(), &secret, &request).is_err());
+    let mut no_temperature = catalog::deepseek_flash();
+    no_temperature.contract.temperature = false;
+    let request = client
+        .decode_request(
+            json!({"model":"deepseek-flash","input":"hello","temperature":0.5})
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+    assert!(admit(&no_temperature, &request).is_err());
+    for extra in [
+        json!({"service_tier":"auto"}),
+        json!({"client_metadata":{"trace":"opaque"}}),
+    ] {
+        let mut body = json!({"model":"deepseek-flash","input":"hello"});
+        body.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        let request = client.decode_request(body.to_string().as_bytes()).unwrap();
+        assert!(admit(&catalog::deepseek_flash(), &request).is_err());
+        assert!(prepare(endpoint, &providers::deepseek(), &secret, &request).is_err());
+    }
+}
 #[tokio::test]
-async fn committed_delivery_cannot_be_replayed() {
-    let seen: Seen = Arc::default();
-    let routes = Router::new().route(
+async fn synthetic_http_chain_uses_prepared_request_and_adapter_response() {
+    use axum::{Router, routing::post};
+    use std::time::Duration;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let sender = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
+    let app = Router::new().route(
         "/chat/completions",
-        post(handler(seen.clone(), || chat_wire::response(2))),
+        post(
+            move |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| {
+                let sender = sender.clone();
+                async move {
+                    assert_eq!(headers["authorization"], "Bearer synthetic-http-only");
+                    sender.lock().unwrap().take().unwrap().send(body).unwrap();
+                    axum::Json(chat_wire::response(2))
+                }
+            },
+        ),
     );
-    let origin = serve(routes).await;
-    let definition = provider(&origin, "/chat/completions", "/responses");
-    let endpoint = endpoint(&definition, ProtocolProfile::OpenAiChat, "deepseek-flash");
-    let request = chat_request("deepseek-flash", false);
-    let upstream = prepare_chat(&endpoint, &definition, &secret(), &request).unwrap();
-    let (status, content_type, body) = send(&upstream).await;
-    let mut attempt = run_attempt(ProtocolProfile::OpenAiChat, status, &content_type, &body, 9);
-    attempt
-        .render_json(ProtocolProfile::OpenAiChat, &contract(), "deepseek-flash")
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    struct Guard(tokio::task::JoinHandle<()>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let _guard = Guard(server);
+    let mut provider = providers::deepseek();
+    provider.origin = openbridge::provider::TrustedOrigin::parse(&origin).unwrap();
+    let topology = catalog::default_topology().unwrap();
+    let mut endpoint = topology
+        .endpoint(&EndpointId::new("deepseek-chat").unwrap())
+        .unwrap()
+        .clone();
+    endpoint.target.origin = provider.origin.clone();
+    let client = Adapter::new(Profile::Chat, Dialect::OpenBridge, None);
+    let request = client
+        .decode_request(
+            json!({"model":"deepseek-flash","messages":[{"role":"user","content":"hello"}]})
+                .to_string()
+                .as_bytes(),
+        )
         .unwrap();
-    assert!(
-        attempt
-            .render_json(ProtocolProfile::OpenAiChat, &contract(), "deepseek-flash")
-            .is_err()
-    );
-    assert!(
-        attempt
-            .render_stream(
-                ProtocolProfile::OpenAiChat,
-                &contract(),
-                "deepseek-flash",
-                SseLimits::default(),
-                stream_options(),
-                Obfuscation::Disabled,
-            )
-            .is_err()
-    );
-}
-
-#[tokio::test]
-async fn cross_protocol_projection_is_deterministic_not_lossy() {
-    // Downstream Chat -> upstream Responses: the request projects to the
-    // Responses envelope with the bound upstream model identity.
-    let definition = provider("http://127.0.0.1:39217", "/chat/completions", "/responses");
-    let endpoint = endpoint(
-        &definition,
-        ProtocolProfile::OpenAiResponses,
-        "deepseek-flash",
-    );
-    let request = chat_request("deepseek-flash", false);
-    let upstream = prepare_chat(&endpoint, &definition, &secret(), &request).unwrap();
-    let sent: Value = serde_json::from_slice(&upstream.body).unwrap();
-    assert!(sent.get("object").is_none());
-    assert_eq!(sent["model"], "deepseek-flash");
-    assert!(
-        sent.get("messages").is_none(),
-        "Chat wire is not forwarded opaquely"
-    );
-
-    // Downstream Chat <- upstream Responses with cache-write usage: the Chat
-    // profile has no projection for it yet, so delivery fails instead of
-    // silently deleting the reported detail.
-    let mut attempt = Attempt::new(
-        ProtocolProfile::OpenAiResponses,
-        8 << 20,
-        SseLimits::default(),
-        None,
-    );
-    attempt.begin(200, "application/json").unwrap();
-    attempt
-        .push(wire::response(2).to_string().as_bytes())
+    let upstream = prepare(
+        &endpoint,
+        &provider,
+        &SecretMaterial::new("synthetic-http-only").unwrap(),
+        &request,
+    )
+    .unwrap();
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(3))
+        .build()
         .unwrap();
-    attempt.finish().unwrap();
-    assert!(matches!(
-        attempt.render_json(ProtocolProfile::OpenAiChat, &contract(), "deepseek-flash"),
-        Err(AttemptError::Representation(
-            RepresentationError::UnmigratedSemantic
-        ))
-    ));
+    let response = http
+        .post(format!("{}{}", upstream.origin, upstream.path))
+        .header(&upstream.auth_header.0, &upstream.auth_header.1)
+        .header("content-type", "application/json")
+        .body(upstream.body)
+        .send()
+        .await
+        .unwrap();
+    let body = response.bytes().await.unwrap();
+    let mut intake = Attempt::new(endpoint.adapter(), 4096, SseLimits::default());
+    intake.begin(200, "application/json").unwrap();
+    intake.push(&body).unwrap();
+    intake.finish().unwrap();
+    let mut output = delivery(client, Contract::full());
+    let wire: Value = serde_json::from_slice(&output.encode_json(&intake).unwrap()).unwrap();
+    assert_eq!(wire["model"], "public-model");
+    assert_eq!(
+        wire["usage"]["prompt_tokens_details"]["cache_write_tokens"],
+        0
+    );
+    output.commit().unwrap();
+    output.complete(&intake).unwrap();
+    let observed = tokio::time::timeout(Duration::from_secs(3), receiver)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(observed["model"], "deepseek-flash");
 }

@@ -15,6 +15,7 @@ fn metadata() -> ResponseMetadata {
         model: "fixture-model".into(),
         created: 10.into(),
         context: Default::default(),
+        instruction_fidelity: Default::default(),
     }
 }
 fn chat_refusal() -> Value {
