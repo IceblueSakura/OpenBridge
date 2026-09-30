@@ -1,6 +1,6 @@
 # 当前架构
 
-当前 crate 是 v2 Rust 库：统一语义核心、显式边界 adapters、纯目标 lowering、固定 topology 和 caller-driven execution。`gateway` 和 `transport::http` 已将其接成最小 loopback 文本服务；没有凭据池或生产级运行保障。旧运行时见 [Git 归档](archive.md)；设计合同见 [v2 架构](architecture-v2/README.md)。
+当前 crate 是 v2 Rust 库：统一语义核心、显式边界 adapters、纯目标 lowering、固定 topology 和 caller-driven execution。`gateway` 和 `transport::http` 已将其接成最小 loopback Generation 服务（文本输出及选定 user 图片输入 slice）；没有凭据池或生产级运行保障。旧运行时见 [Git 归档](archive.md)；设计合同见 [v2 架构](architecture-v2/README.md)。
 
 ```text
 Authenticated, bounded HTTP request

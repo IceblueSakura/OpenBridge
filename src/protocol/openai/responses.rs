@@ -455,6 +455,9 @@ pub(super) fn decode_items(
                                     .into(),
                                 )
                             }
+                            "input_image" if !response && role == MessageRole::User => {
+                                ContentPart::Resource(super::image::read(p, Profile::Responses)?)
+                            }
                             "output_text" if role == MessageRole::Assistant => {
                                 ContentPart::Text(super::text::read(p, !response)?)
                             }
@@ -542,7 +545,7 @@ pub(super) fn encode_items(
                 continue;
             }
             Item::Message(m) => {
-                let mut v = json!({"type":"message","role":if m.role==MessageRole::User{"user"}else{"assistant"},"content":m.parts.iter().map(|p|match &p.content{ContentPart::Text(t)=>if !response && (m.role==MessageRole::User || fidelity.input_text_form(p.id) && t.is_plain()){input_part(p.id,t.as_str(),fidelity)}else{super::text::write(t,"output_text")},ContentPart::Refusal(t)=>json!({"type":"refusal","refusal":t.as_str()}),ContentPart::Resource(_)=>unreachable!("lowering rejects media")}).collect::<Vec<_>>()});
+                let mut v = json!({"type":"message","role":if m.role==MessageRole::User{"user"}else{"assistant"},"content":m.parts.iter().map(|p|match &p.content{ContentPart::Text(t)=>if !response && (m.role==MessageRole::User || fidelity.input_text_form(p.id) && t.is_plain()){input_part(p.id,t.as_str(),fidelity)}else{super::text::write(t,"output_text")},ContentPart::Refusal(t)=>json!({"type":"refusal","refusal":t.as_str()}),ContentPart::Resource(resource)=>super::image::write(resource,Profile::Responses)}).collect::<Vec<_>>()});
                 if let Some(p) = m.phase {
                     v["phase"] = json!(p.label());
                 }

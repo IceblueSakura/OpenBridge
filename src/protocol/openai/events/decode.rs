@@ -819,9 +819,11 @@ impl EventDecoder {
         // The pinned text delta/done schemas require the array, including when empty.
         // https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_text_delta_event.py
         let logprobs = if kind == PartKind::Text {
-            super::super::text::read_logprobs(
-                o.get("logprobs").ok_or(CodecError::Invalid("logprobs"))?,
-            )?
+            match o.get("logprobs") {
+                Some(value) => super::super::text::read_logprobs(value)?,
+                None if self.adaptation.rules.responses_unreported_text_logprobs => vec![],
+                None => return Err(CodecError::Invalid("logprobs")),
+            }
         } else {
             vec![]
         };
@@ -877,7 +879,11 @@ impl EventDecoder {
         if string(o, key)? != self.state()?.part(item, part)?.text {
             return Err(CodecError::Invalid("value snapshot"));
         }
-        if kind == PartKind::Text && !o.contains_key("logprobs") {
+        if kind == PartKind::Text
+            && !o.contains_key("logprobs")
+            && (!self.adaptation.rules.responses_unreported_text_logprobs
+                || !self.state()?.part(item, part)?.logprobs.is_absent())
+        {
             return Err(CodecError::Invalid("logprobs"));
         }
         if let Some(v) = o.get("logprobs") {

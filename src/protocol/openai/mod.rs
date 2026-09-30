@@ -9,6 +9,7 @@ mod common;
 pub mod envelope;
 pub mod events;
 mod function_tools;
+mod image;
 pub(crate) mod json;
 mod reasoning;
 pub mod responses;

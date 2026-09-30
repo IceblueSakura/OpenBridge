@@ -1,4 +1,4 @@
-# 最小文本 HTTP 网关
+# 最小 Generation HTTP 网关
 
 当前提供 `openbridge` binary 与可嵌入的 `gateway::Gateway`。它把现有语义库、双向 adapters、固定目标和实际 HTTP body 接通，不是旧服务的恢复或完整生产网关。决策见 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，接口摘要见 [OpenAPI](openapi.json)。
 
@@ -31,12 +31,12 @@ cargo run --locked --offline --bin openbridge
 | `POST /v1/responses` | [无状态 Responses text profile](architecture-v2/responses-text-profile.md)；JSON 或 SSE |
 
 - 所有路由先检查唯一的 `Authorization: Bearer …`，认证通过后才进行应用层 body 收集。其他认证 header 不替代该字段，重复 Authorization 拒绝。
-- Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单 part 编码规范化为字符串，多 part 保序，不准入媒体。工具结果支持字符串或有序纯文本数组，保留空数组和单/多 part，不拼接。function-only `allowed_tools` 使用 Chat 的嵌套 shell；实际目标支持仍须独立核对。
+- Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单文本 part 编码规范化为字符串，多 part 保序。user content 另可包含有序 `image_url` 图片 parts，Responses 使用 `input_image`；只准入 URL/inline 图片输入，且 Public Model/Endpoint 必须声明可表示。详细边界见[图片输入 slice](architecture-v2/responses-text-profile.md#user-image-input)。工具结果支持字符串或有序纯文本数组，保留空数组和单/多 part，不拼接。function-only `allowed_tools` 使用 Chat 的嵌套 shell；实际目标支持仍须独立核对。
 - 请求要求 JSON Content-Type，仅 UTF-8；不接受 Content-Encoding。严格 JSON 解析拒绝重复 key。先解析 envelope 中的 public model，绑定受信 task，再进行语义 decode。
 - 每个 `(public model, client protocol)` 在启动时固定到 Route 中的一个 Endpoint；默认 bootstrap 使用相同 wire family。没有对应协议 entry 的模型返回 `model_not_found`；不从 Chat 绑定推导 Responses，也不隐式转协议。没有运行时候选重排、自动 retry/fallback 或业务 JSON 指定目标。
 - operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。Chat metadata/service-tier 和 logprobs/top_logprobs 经同一 typed IR/context 与 Endpoint gate，不因 codec 准入就自动扩大 catalog 模型能力。响应 reported facts 不从请求复制补齐。
 - Provider URL、path、model 和 auth 都来自启动绑定。入站 headers 不透传，包括独立 `CodexHeaders` carrier；低层 Responses envelope 可读写的 `CustomSections` 也未接线，非空 sections 在请求准入时拒绝。上游非成功 HTTP 状态的诊断正文、认证状态细节、origin、凭据 locator 不回显；下游 `model` 为 public label。
-- 未实现 `/v1/models`、状态资源、WebSocket、媒体或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。Chat 正文/refusal 概率按 owner 保真；静态 reported metadata 没有 Chat chunk 槽位，不能通过丢字段合成 SSE。
+- 未实现 `/v1/models`、状态资源、WebSocket、媒体资源服务/图片输出或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。Chat 正文/refusal 概率按 owner 保真；静态 reported metadata 没有 Chat chunk 槽位，不能通过丢字段合成 SSE。
 
 ### 最小请求示例
 
@@ -51,6 +51,14 @@ cargo run --locked --offline --bin openbridge
 ```json
 {"model":"configured-public-model","messages":[{"role":"user","content":"Reply with exactly pong."}],"max_completion_tokens":64}
 ```
+
+图片输入示例（URL 仅为 synthetic 占位符，不表示上游可获取；实际测试可使用程序生成的 Base64 PNG）：
+
+```json
+{"model":"configured-public-model","input":[{"role":"user","content":[{"type":"input_text","text":"Describe the image."},{"type":"input_image","image_url":"https://example.test/synthetic.png"}]}],"max_output_tokens":64}
+```
+
+Chat 对应图片 part 为 `{"type":"image_url","image_url":{"url":"https://example.test/synthetic.png"}}`，前后的文本 part 用 `type:text`。不以图片作为普通字符串转发；file_id、工具图片结果与非 user 图片仍拒绝。库验证单资源 encoded/decoded 和总请求预算，HTTP 默认 256 KiB body 限制仍适用；不会为媒体自动放宽。URL 获取/尺寸/图像内容有效性由上游另行验证，网关不代为下载或转码。
 
 厂商 routing policy 和 wire 扩展由[所选 adapter](../src/adapter/mod.rs)及 owning codec 维护；客户端不得覆盖上游路由、认证或可信 scope。示例不表示任一模型支持全部请求选项。
 

@@ -224,6 +224,7 @@ def plan_groups(
                             "length",
                             "cancel",
                             "reasoning",
+                            "image",
                         ),
                         "case",
                         "setup",
@@ -250,8 +251,9 @@ def plan_groups(
                         "tool": 2,
                         "history": 4,
                         "reasoning": 2,
+                        "image": 1,
                     }[case]
-                    cap = 8 if case == "length" else min(2048, run.plan["tokens"])
+                    cap = 8 if case == "length" else min(512 if case == "image" else 2048, run.plan["tokens"])
                     require(cap <= run.plan["tokens"], "case_budget", "budget")
                     selected_effort = (
                         "medium" if case == "reasoning" else effort or "default"
@@ -303,7 +305,16 @@ def matrix(
                 )
 
             try:
-                if case in ("text", "json", "length", "cancel"):
+                if case == "image":
+                    from .images import image_history
+
+                    # The explicit vision preset uses effort only, no unrelated summary control.
+                    controls = (
+                        {"reasoning_effort": effort} if proto == "chat"
+                        else {"reasoning": {"effort": effort}}
+                    ) if effort is not None else {}
+                    invoke(1, image_history(proto), extra=controls, oracle=expect_text("red,blue"))
+                elif case in ("text", "json", "length", "cancel"):
                     prompt = {
                         "text": "Reply with exactly pong.",
                         "json": "Return only JSON with exactly one integer field answer equal to 7.",

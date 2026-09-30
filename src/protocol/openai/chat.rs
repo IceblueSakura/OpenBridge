@@ -309,6 +309,30 @@ pub(super) fn decode_message(
                 }
                 (_, Some(refusal)) => vec![b.refusal(refusal)?],
                 (Some(Value::String(s)), None) => vec![b.part(s)?],
+                (Some(Value::Array(values)), None) if replay && role == "user" => {
+                    if values.is_empty() || values.len() > MAX_ITEMS {
+                        return Err(CodecError::Invalid("user content"));
+                    }
+                    let mut parts = Vec::new();
+                    for value in values {
+                        let part = object(value)?;
+                        match string(part, "type")? {
+                            "text" => {
+                                fields(part, &["type", "text"])?;
+                                parts.push(b.part(string(part, "text")?)?);
+                            }
+                            "image_url" => parts.push(Part {
+                                id: b.part_id()?,
+                                content: ContentPart::Resource(super::image::read(
+                                    part,
+                                    Profile::Chat,
+                                )?),
+                            }),
+                            _ => return Err(CodecError::Unsupported("user content part".into())),
+                        }
+                    }
+                    parts
+                }
                 (Some(value @ Value::Array(_)), None) if replay => request_text_parts(value)?
                     .into_iter()
                     .map(|text| b.part(text))
@@ -457,14 +481,24 @@ pub(super) fn encode_items_with(
                             message["content"] = Value::Null;
                             message["refusal"] = json!(t.as_str());
                         }
-                        ContentPart::Resource(_) => unreachable!("lowering rejects media"),
+                        ContentPart::Resource(resource) => {
+                            message["content"] =
+                                json!([super::image::write(resource, Profile::Chat)])
+                        }
                     },
                     parts => {
-                        message["content"] =
-                            json!(parts.iter().map(|part| match &part.content {
-                        ContentPart::Text(text) => json!({"type":"text","text":text.as_str()}),
-                        _ => unreachable!("lowering rejects non-text request arrays"),
-                    }).collect::<Vec<_>>())
+                        message["content"] = json!(
+                            parts
+                                .iter()
+                                .map(|part| match &part.content {
+                                    ContentPart::Text(text) =>
+                                        json!({"type":"text","text":text.as_str()}),
+                                    ContentPart::Resource(resource) =>
+                                        super::image::write(resource, Profile::Chat),
+                                    _ => unreachable!("lowering rejects non-input request arrays"),
+                                })
+                                .collect::<Vec<_>>()
+                        )
                     }
                 }
                 messages.push(message);

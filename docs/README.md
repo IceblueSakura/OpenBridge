@@ -7,8 +7,8 @@
 | [根 README](../README.md) | 当前可用入口、构建与最小使用范围 |
 | [当前架构](architecture.md) | 实际模块结构与依赖 |
 | [v2 架构](architecture-v2/README.md)及其 decisions | Responses-first 标准语义 + scoped extensions 的设计、owner 与目标边界；不表示已实现 |
-| [Generation 当前能力与边界](implementation-status/generation.md) | text Generation 分层完成度、已闭合正确性边界、未准入/不可表示/未接线与验收缺口；当前状态的唯一汇总 |
-| [Responses text profile](architecture-v2/responses-text-profile.md) | 当前 Responses 纯文本准入与字段归属 |
+| [Generation 当前能力与边界](implementation-status/generation.md) | 文本输出/选定图片输入的分层完成度、已闭合正确性边界、未准入/不可表示/未接线与验收缺口；当前状态的唯一汇总 |
+| [Responses text profile](architecture-v2/responses-text-profile.md) | 当前 Responses 文本输出与 user 图片输入 slice 的准入/字段归属 |
 | [Chat text profile](architecture-v2/chat-text-profile.md) | 单候选 Chat envelope/SSE 准入与双协议验证边界 |
 | [AGENTS 查询指南](../AGENTS.md#current-provider-model-and-compatibility-information) | 如何查询当前 Provider/模型、启动准入、adapter 与运行实例；不保留清单 |
 | [Adapter 源码](../src/adapter/mod.rs)与[具名规则](../src/protocol/adaptation.rs) | 厂商 wire 规则由实现、邻近注释及独立测试维护，不另建 Markdown 适配表 |

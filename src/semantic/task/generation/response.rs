@@ -81,6 +81,8 @@ pub struct Usage {
     /// Reported text counts may overlap reasoning/cache/prediction accounting.
     /// Absence is unknown, not zero; no modality breakdown is inferred.
     pub input_text_tokens: Option<u64>,
+    /// Reported image input tokens; unknown stays absent, never inferred from pixels.
+    pub input_image_tokens: Option<u64>,
     pub output_text_tokens: Option<u64>,
     /// Accepted and rejected draft tokens are disjoint subsets of output usage.
     /// Rejected tokens still count toward output billing and limits.
@@ -101,6 +103,9 @@ impl Usage {
                 .is_some_and(|n| n > self.input_tokens)
             || self
                 .input_text_tokens
+                .is_some_and(|n| n > self.input_tokens)
+            || self
+                .input_image_tokens
                 .is_some_and(|n| n > self.input_tokens)
             || self
                 .output_text_tokens

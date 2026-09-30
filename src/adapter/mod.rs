@@ -38,6 +38,9 @@ impl Dialect {
                 WireRules {
                     readable_reasoning: true,
                     structured_chat_reasoning: true,
+                    chat_image_usage: true,
+                    responses_image_usage: true,
+                    bmp_image_input: true,
                     ..Default::default()
                 },
             ),
@@ -45,6 +48,7 @@ impl Dialect {
                 "deepseek-v1",
                 WireRules {
                     readable_reasoning: true,
+                    chat_original_image_detail: true,
                     usage_aliases: true,
                     default_cache_write: true,
                     response_extras: true,
@@ -130,6 +134,10 @@ impl Dialect {
                 "xiaomi-v1",
                 WireRules {
                     readable_reasoning: true,
+                    responses_unreported_text_logprobs: true,
+                    undeclared_image_detail: true,
+                    bmp_image_input: true,
+                    chat_image_usage: true,
                     derived_output_text: true,
                     chunk_metadata_drift: true,
                     ..Default::default()

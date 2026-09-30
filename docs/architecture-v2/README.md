@@ -4,7 +4,7 @@
 
 ## 产品目标与阶段判据
 
-最终产品是**多模态、Chat Completions / Responses 兼容、Agent 友好、缓存亲和性强的 IR 化网关**。当前以仅文本 Generation 验证整体流程，验证后再扩展 Provider 与多模态；离线库是实现基础，不是最终交付边界。
+最终产品是**多模态、Chat Completions / Responses 兼容、Agent 友好、缓存亲和性强的 IR 化网关**。当前以文本 Generation 主链为基础推进选定的 user 图片输入→文本输出 slice，再扩展其他 Provider 与多模态；离线库是实现基础，不是最终交付边界。
 
 - **IR 化与双协议兼容**：请求、响应和事件都经同一语义权威；同协议无旁路，跨协议按可表示性映射或明确拒绝，不以 Chat 最小交集定义 IR。
 - **统一语义与显式边界适配**：Core 拥有充分的 task/context/delivery 语义，不建立厂商分支。client/Provider adapters 组合公共协议，通过映射、派生 view 校验、准确推导、逐字段兼容默认值与有来源约束的 fidelity 吸收差异。缺省零是兼容结果，不是 Provider 实测报告；默认值不得掩盖非法值、恢复删除值或编造成功终态。机制见 [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md)。

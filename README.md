@@ -1,10 +1,10 @@
 # OpenBridge
 
-OpenBridge 的最终目标是**支持多模态、兼容 Chat Completions / Responses、Agent 友好且缓存亲和性强的 IR 化网关**。现阶段以仅文本 Generation 验证整体流程，之后再扩展 Provider 与多模态实现；不是长期只做文本 codec。产品判据见 [v2 目标](docs/architecture-v2/README.md#产品目标与阶段判据)。
+OpenBridge 的最终目标是**支持多模态、兼容 Chat Completions / Responses、Agent 友好且缓存亲和性强的 IR 化网关**。现阶段在文本 Generation 主链上扩展选定的图片输入→文本输出 slice，再逐步推进其他多模态；不是长期只做文本 codec。产品判据见 [v2 目标](docs/architecture-v2/README.md#产品目标与阶段判据)。
 
 当前 `main` 以原 `semantic-v2` 实现为基线，独立推进产品目标；不以迁移、追平或恢复旧版本为目标。旧版只作为 Git refs 与[历史参考](docs/archive.md)保留，主线定位不等于完整标准或生产就绪。
 
-Generation IR **以 OpenAI Responses 标准语义为主干，结合有明确归属和生命周期的扩展字段**，而非多协议最小公分母。设计依据见[主题化调研与上游同步](docs/references/README.md)。**当前工作区包含 Rust 语义库与最小 loopback 文本网关，不是完整标准实现或生产就绪服务。**
+Generation IR **以 OpenAI Responses 标准语义为主干，结合有明确归属和生命周期的扩展字段**，而非多协议最小公分母。设计依据见[主题化调研与上游同步](docs/references/README.md)。**当前工作区包含 Rust 语义库与最小 loopback Generation 网关，不是完整标准实现或生产就绪服务。**
 
 旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。库构造不读取私有配置；`openbridge` binary 通过显式环境变量启动认证的 loopback HTTP 入口，不读取旧配置。启动方式、限制与接口见 [HTTP 网关指南](docs/http-gateway.md)。受控 `examples/live_probe.rs` 仍有独立运行授权与凭据边界，不属于默认验证。
 
@@ -28,7 +28,7 @@ Chat / Responses wire
 - `src/gateway/`、`src/transport/http.rs`、`src/bin/openbridge.rs`：认证入口、可信预算变换、HTTP I/O 与实际 body handoff；不自动重试或 fallback。
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/gateway.rs`、`tests/sdk_loopback.rs`：语义、transport、真实 Router/binary 与固定 SDK 验收；HTTP 测试只使用 synthetic loopback。
 
-**受限的无状态 text Generation 主链已闭合，可推进选定文本场景验收；不是完整文本标准实现或生产就绪服务。** Responses 为语义主干，单候选 Chat 是同一 IR 的第二协议投影，跨协议不可表示时拒绝。语义、codec、扩展接线、SDK/Agent、缓存与执行的分层判断统一见[当前能力与边界](docs/implementation-status/generation.md)；推进方向见[下一步目标](docs/implementation-plans/next-goal.md)，获准行为切片由[当前焦点](docs/implementation-plans/current-focus.md)维护。
+**受限的无状态 text Generation 主链已闭合，并准入选定的 user URL/inline 图片输入→文本输出 slice；不是完整多模态标准实现或生产就绪服务。** 图片语义与明确拒绝范围见[图片输入合同](docs/architecture-v2/responses-text-profile.md#user-image-input)，实际模型/Endpoint 准入仍须现场查询。 Responses 为语义主干，单候选 Chat 是同一 IR 的第二协议投影，跨协议不可表示时拒绝。语义、codec、扩展接线、SDK/Agent、缓存与执行的分层判断统一见[当前能力与边界](docs/implementation-status/generation.md)；推进方向见[下一步目标](docs/implementation-plans/next-goal.md)，获准行为切片由[当前焦点](docs/implementation-plans/current-focus.md)维护。
 
 ## 验证
 

@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "OpenBridge minimal text gateway",
+    "title": "OpenBridge minimal Generation gateway",
     "version": "0.1.0",
     "description": "Envelope-level HTTP contract only. Detailed field admission and per-model representation limits are defined by the Chat and Responses text profiles; this is not the complete OpenAI schema. No models discovery, stateful resources or automatic retry/fallback."
   },
@@ -12,7 +12,7 @@
       "post": {
         "operationId": "chatCompletion",
         "parameters": [{"$ref": "#/components/parameters/ProbeId"}],
-        "summary": "Generate through the single-candidate Chat text profile",
+        "summary": "Generate text from admitted text or user image input through single-candidate Chat",
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ChatRequest"}}}
@@ -38,7 +38,7 @@
       "post": {
         "operationId": "response",
         "parameters": [{"$ref": "#/components/parameters/ProbeId"}],
-        "summary": "Generate through the stateless Responses text profile",
+        "summary": "Generate text from admitted text or user image input through stateless Responses",
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResponsesRequest"}}}
@@ -75,7 +75,7 @@
         "type": "object", "required": ["model", "messages"],
         "properties": {
           "model": {"type": "string", "minLength": 1},
-          "messages": {"type": "array", "items": {"type": "object"}, "description": "User/assistant and system/developer content accepts a string or nonempty ordered plain-text part array. Tool result content accepts a string or ordered plain-text part array, including an empty array; single tool-result parts remain arrays. Media is not admitted."},
+          "messages": {"type": "array", "items": {"type": "object"}, "description": "User/assistant and system/developer content accepts a string or nonempty ordered plain-text part array. Tool result content accepts a string or ordered plain-text part array, including an empty array; single tool-result parts remain arrays. User content additionally admits ordered text/image_url parts when public and endpoint contracts permit image input; one image remains an array. HTTP(S) URL and Base64 image data URL only; file IDs, other roles' images, tool-result media and generated media are rejected."},
           "stream": {"type": ["boolean", "null"], "default": false},
           "max_completion_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."},
           "metadata": {"type": ["object", "null"], "maxProperties": 16, "propertyNames": {"maxLength": 64}, "additionalProperties": {"type": "string", "maxLength": 512}, "description": "Typed request hint, never copied into reported response metadata."},
@@ -96,7 +96,7 @@
           "max_output_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
         },
         "additionalProperties": true,
-        "description": "Detailed input, settings and inactive-state admission follow the Responses text profile. Models with only a Chat startup entry return model_not_found here; no implicit protocol fallback. No arbitrary endpoint, credential or header selection."
+        "description": "Detailed input, settings and inactive-state admission follow the Responses profile, including its user input_image URL/inline slice and target-specific optional detail restrictions. File IDs, instruction/assistant images, tool-result media and generated media remain rejected. Models with only a Chat startup entry return model_not_found here; no implicit protocol fallback. No arbitrary endpoint, credential or header selection."
       },
       "Error": {
         "type": "object", "required": ["error"], "additionalProperties": false,
@@ -108,7 +108,7 @@
     },
     "responses": {
       "Generation": {
-        "description": "A profile-specific JSON response or incremental SSE. The public model label is retained. Chat content_filter is an incomplete terminal distinct from length and refusal. Reported Chat text/prediction token details and content/refusal probabilities are retained; standard Responses projection rejects unrepresentable facts rather than dropping them. Static Chat metadata is reported independently from request hints and has no Chat SSE slot; such a static-to-SSE projection is rejected. HTTP 200 alone does not prove successful stream closure or model output adherence; late errors abort the body without a fabricated terminal.",
+        "description": "A profile-specific JSON response or incremental SSE. The public model label is retained. Chat content_filter is an incomplete terminal distinct from length and refusal. OpenBridge's explicit client extension retains optional reported image_tokens in the protocol's input usage details (Chat prompt_tokens_details / Responses input_tokens_details); this is not a fixed-standard field, and unknown/null versus zero is preserved without estimation. A standard target lacking the extension rejects any reported image count. Reported Chat text/prediction token details and content/refusal probabilities are retained; standard Responses projection rejects unrepresentable facts rather than dropping them. Static Chat metadata is reported independently from request hints and has no Chat SSE slot; such a static-to-SSE projection is rejected. HTTP 200 alone does not prove successful stream closure or model output adherence; late errors abort the body without a fabricated terminal.",
         "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}},
         "content": {"application/json": {"schema": {"type": "object"}}, "text/event-stream": {"schema": {"type": "string"}}}
       },

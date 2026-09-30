@@ -34,6 +34,7 @@ fn text_and_prediction_counts_are_preserved_and_not_summed_with_reasoning() {
         input_cache_write_tokens: Some(1),
         reasoning_tokens: Some(6),
         input_text_tokens: Some(9),
+        input_image_tokens: None,
         output_text_tokens: Some(20),
         accepted_prediction_tokens: Some(7),
         rejected_prediction_tokens: Some(3),

@@ -1,11 +1,11 @@
-//! Trusted text bindings for the fixed API-key Provider catalog.
+//! Trusted Generation bindings for the fixed API-key Provider catalog.
 //! Each entry fixes its upstream model, wire adapter and credential ownership.
 //!
 //! Facts come from the scoped sources in `docs/references/providers/`. Model
 //! capability is deliberately not widened here: the representation contract
 //! claims wire-level representability plus documented protocol limits
 //! (function strict is only guaranteed on DeepSeek `/beta`; custom tools and
-//! media inputs are undeclared; cache-affinity hints are undeclared on these
+//! media inputs are undeclared except for the selected image slice; cache-affinity hints are undeclared on these
 //! entries and are omitted by approved inactive-hint omission). Live behavior
 //! must be checked for the current target; it is not a catalog guarantee.
 
@@ -35,6 +35,18 @@ fn wire_contract(
         cache_hints: false,
         standard_context: false,
         ..GenerationRepresentationContract::full()
+    }
+}
+
+/// URL/inline user image perception only; file IDs and other media stay rejected.
+/// Sources: <https://api-docs.deepseek.com/guides/vision>,
+/// <https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding>.
+fn image_contract(
+    replay_origin: Option<crate::semantic::value::ReplayOrigin>,
+) -> GenerationRepresentationContract {
+    GenerationRepresentationContract {
+        image_input: true,
+        ..wire_contract(replay_origin)
     }
 }
 
@@ -94,6 +106,12 @@ fn endpoint(
         upstream_model: upstream_model.into(),
         representation: adapter.contract(&if dialect == crate::adapter::Dialect::OpenRouter {
             luna_contract(replay_origin)
+        } else if matches!(
+            (dialect, upstream_model),
+            (crate::adapter::Dialect::DeepSeek, "deepseek-flash")
+                | (crate::adapter::Dialect::Xiaomi, "mimo-v2.6-flash")
+        ) {
+            image_contract(replay_origin)
         } else {
             wire_contract(replay_origin)
         }),
@@ -203,7 +221,7 @@ pub fn mimo_v2_6_flash() -> PublicModel {
         id: ModelId::new("mimo-v2.6-flash").expect("static identity"),
         task: TaskKind::Generation,
         route: RouteId::new("xiaomi-flash-generation").expect("static identity"),
-        contract: wire_contract(None),
+        contract: image_contract(None),
     }
 }
 
@@ -212,7 +230,7 @@ pub fn deepseek_flash() -> PublicModel {
         id: ModelId::new("deepseek-flash").expect("static identity"),
         task: TaskKind::Generation,
         route: RouteId::new("deepseek-generation").expect("static identity"),
-        contract: wire_contract(None),
+        contract: image_contract(None),
     }
 }
 
@@ -494,10 +512,7 @@ mod tests {
                 "function strict is only guaranteed on /beta"
             );
             assert!(!c.custom_tools, "custom tools are undeclared");
-            assert!(
-                !c.image_input && !c.audio_input && !c.file_input,
-                "media undeclared"
-            );
+            assert!(!c.audio_input && !c.file_input, "media undeclared");
             assert!(
                 !c.cache_hints,
                 "cache hints are undeclared on these entries"

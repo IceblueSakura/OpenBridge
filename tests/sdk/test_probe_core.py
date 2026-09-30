@@ -43,6 +43,42 @@ class ProbeCoreTests(unittest.TestCase):
             self.assertEqual(sum(group[5] for group in groups), 72)
             run.reserve("mimo-v2.6-flash", "selected", 8)
 
+    def test_image_matrix_is_eight_bounded_requests_with_independent_pixels(self):
+        import base64
+        import struct
+        import zlib
+        from probe_support.scenarios import plan_groups
+        from probe_support.images import image_history
+
+        with tempfile.TemporaryDirectory() as temp:
+            run = Run.create(Path(temp) / "run", providers="deepseek,xiaomi",
+                models=["deepseek-flash", "mimo-v2.6-flash"], limit=8, tokens=512)
+            groups = plan_groups(run, run.plan["models"], cases=("image",), effort="none")
+            self.assertEqual(len(groups), 8)
+            self.assertEqual(sum(group[5] for group in groups), 8)
+            self.assertTrue(all(group[6] == 512 for group in groups))
+        for protocol in ("chat", "responses"):
+            content = image_history(protocol)[0]["content"]
+            self.assertEqual(len(content), 4)
+            for index, rgb in ((1, bytes((255, 0, 0))), (3, bytes((0, 0, 255)))):
+                image = content[index]
+                url = image["image_url"]["url"] if protocol == "chat" else image["image_url"]
+                png = base64.b64decode(url.split(",", 1)[1], validate=True)
+                self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
+                offset, pixels = 8, None
+                while offset < len(png):
+                    size = struct.unpack(">I", png[offset:offset+4])[0]
+                    kind = png[offset+4:offset+8]
+                    data = png[offset+8:offset+8+size]
+                    crc = struct.unpack(">I", png[offset+8+size:offset+12+size])[0]
+                    self.assertEqual(crc, zlib.crc32(kind+data) & 0xFFFFFFFF)
+                    if kind == b"IHDR":
+                        self.assertEqual(struct.unpack(">IIBBBBB", data), (192,192,8,2,0,0,0))
+                    if kind == b"IDAT":
+                        pixels = zlib.decompress(data)
+                    offset += size + 12
+                self.assertEqual(pixels, (b"\x00"+rgb*192)*192)
+
     def test_plan_cannot_be_mutated_in_memory_and_expiry_preserves_readback(self):
         with tempfile.TemporaryDirectory() as temp:
             run = Run.create(Path(temp) / "run", limit=1)

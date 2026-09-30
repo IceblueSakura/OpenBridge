@@ -22,7 +22,10 @@ pub use request::{
     Part, PartId, Phase, Truncation,
 };
 pub use requirements::GenerationRequirements;
-pub use resource::{Resource, ResourceKind, ResourceLocation};
+pub use resource::{
+    ImageDetail, MAX_IMAGE_DECODED_BYTES, MAX_IMAGE_URL_BYTES, Resource, ResourceKind,
+    ResourceLocation,
+};
 pub use text::{
     Annotation, Logprob, RefusalContent, TextContent, TopLogprob, compatible_logprobs,
     validate_logprobs,

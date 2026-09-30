@@ -67,7 +67,7 @@ fn chat_text_arrays_keep_order_and_follow_typed_edits() {
         json!([{"type":"text"}]),
         json!([{"type":"text","text":3}]),
         json!([{"type":"text","text":"x".repeat(MAX_TEXT_BYTES + 1)}]),
-        json!([{"type":"image_url","image_url":{"url":"https://invalid.test/x"}}]),
+        json!([{"type":"image_url","image_url":{"url":"file:///invalid/x"}}]),
         json!([{"type":"text","text":"x","unknown":true}]),
     ] {
         let invalid = json!({"model":"m","messages":[{"role":"user","content":content}]});

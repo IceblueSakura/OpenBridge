@@ -343,6 +343,8 @@ pub enum GenerationError {
     Limit,
     #[error("invalid response semantics")]
     InvalidResponse,
+    #[error("invalid media resource or placement")]
+    InvalidResource,
     #[error("phase labels only apply to assistant messages")]
     PhaseInUserMessage,
     #[error("refusal requires assistant role")]

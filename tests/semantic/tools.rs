@@ -739,6 +739,7 @@ fn usage_projects_known_totals_across_profiles_without_estimating() {
             cached_input_tokens: None,
             input_cache_write_tokens: None,
             input_text_tokens: None,
+            input_image_tokens: None,
             output_text_tokens: None,
             accepted_prediction_tokens: None,
             rejected_prediction_tokens: None,

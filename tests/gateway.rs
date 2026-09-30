@@ -61,7 +61,30 @@ async fn answer(
         assert_eq!(request["top_logprobs"], 1);
     }
     let probability = |token: &str| json!({"token":token,"logprob":-0.5,"bytes":token.as_bytes(),"top_logprobs":[]});
+    let image_case = request.to_string().contains("data:image/png;base64,AQID");
+    if image_case {
+        let expected = if chat {
+            json!([
+                {"type":"text","text":"first"},
+                {"type":"image_url","image_url":{"url":"data:image/png;base64,AQID"}},
+                {"type":"text","text":"second"},
+                {"type":"image_url","image_url":{"url":"https://example.test/synthetic.png","detail":"low"}}
+            ])
+        } else {
+            json!([
+                {"type":"input_text","text":"first"},
+                {"type":"input_image","image_url":"data:image/png;base64,AQID"},
+                {"type":"input_text","text":"second"},
+                {"type":"input_image","image_url":"https://example.test/synthetic.png","detail":"low"}
+            ])
+        };
+        assert_eq!(
+            request[if chat { "messages" } else { "input" }][0]["content"],
+            expected
+        );
+    }
     let turn = if probability_case
+        || image_case
         || request.to_string().contains("tool_call_id")
         || request.to_string().contains("function_call_output")
     {
@@ -279,6 +302,108 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         );
         if stream {
             assert!(decoded.metadata.context.execution.metadata.is_absent());
+        }
+    }
+    // Images traverse the same request IR and real provider I/O, including cross-wire.
+    for (profile, model) in [
+        (Profile::Chat, "public-model"),
+        (Profile::Responses, "public-model"),
+        (Profile::Responses, "cross-model"),
+    ] {
+        for stream in [false, true] {
+            let parts = if profile == Profile::Chat {
+                json!([
+                    {"type":"text","text":"first"},
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,AQID"}},
+                    {"type":"text","text":"second"},
+                    {"type":"image_url","image_url":{"url":"https://example.test/synthetic.png","detail":"low"}}
+                ])
+            } else {
+                json!([
+                    {"type":"input_text","text":"first"},
+                    {"type":"input_image","image_url":"data:image/png;base64,AQID"},
+                    {"type":"input_text","text":"second"},
+                    {"type":"input_image","image_url":"https://example.test/synthetic.png","detail":"low"}
+                ])
+            };
+            let request = if profile == Profile::Chat {
+                json!({"model":model,"messages":[{"role":"user","content":parts}],"stream":stream,"stream_options":if stream {json!({"include_usage":true,"include_obfuscation":false})}else{Value::Null}})
+            } else {
+                json!({"model":model,"input":[{"role":"user","content":parts}],"stream":stream})
+            };
+            let path = if profile == Profile::Chat {
+                "/v1/chat/completions"
+            } else {
+                "/v1/responses"
+            };
+            let response = client
+                .post(format!("{url}{path}"))
+                .bearer_auth(support::CLIENT_KEY)
+                .json(&request)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200);
+            let bytes = response.bytes().await.unwrap();
+            let decoded = if !stream {
+                openbridge::adapter::Adapter::new(
+                    profile,
+                    openbridge::adapter::Dialect::Standard,
+                    None,
+                )
+                .decode_response(&bytes)
+                .unwrap()
+            } else if profile == Profile::Chat {
+                let mut decoder = openbridge::protocol::openai::chat_sse::ChatSseDecoder::new(
+                    200,
+                    "text/event-stream",
+                    Default::default(),
+                )
+                .unwrap();
+                let mut rest = bytes.as_ref();
+                while !rest.is_empty() {
+                    let (used, _) = decoder.consume(rest).unwrap();
+                    assert!(used > 0);
+                    rest = &rest[used..];
+                }
+                decoder.finish().unwrap();
+                decoder.materialize().unwrap()
+            } else {
+                let mut decoder = openbridge::protocol::openai::sse::ResponsesSseDecoder::new(
+                    200,
+                    "text/event-stream",
+                    Default::default(),
+                    None,
+                )
+                .unwrap();
+                let mut rest = bytes.as_ref();
+                while !rest.is_empty() {
+                    let (used, _) = decoder.consume(rest).unwrap();
+                    assert!(used > 0);
+                    rest = &rest[used..];
+                }
+                decoder.finish().unwrap();
+                decoder.materialize().unwrap()
+            };
+            assert_eq!(
+                decoded.semantic.outcome(),
+                openbridge::semantic::task::generation::Outcome::Completed(
+                    openbridge::semantic::task::generation::Completion::Stop
+                )
+            );
+            let openbridge::semantic::task::generation::Item::Message(message) =
+                &decoded.semantic.items()[0].1
+            else {
+                panic!("text output")
+            };
+            let expected = if profile == Profile::Responses && model == "public-model" {
+                "{\"ok\":false}"
+            } else {
+                "old 🧪"
+            };
+            assert!(
+                matches!(&message.parts[0].content,openbridge::semantic::task::generation::ContentPart::Text(text) if text.as_str()==expected)
+            );
         }
     }
     // A fixed Responses entry can project a Chat provider without native bypass.

@@ -97,11 +97,24 @@ pub(super) fn usage(
             "prompt_cache_miss_tokens",
         ],
     )?;
+    let image_usage = match profile {
+        Profile::Chat => adaptation.rules.chat_image_usage,
+        Profile::Responses => adaptation.rules.responses_image_usage,
+    };
+    if !image_usage
+        && usage
+            .get(input_details)
+            .and_then(Value::as_object)
+            .is_some_and(|details| details.contains_key("image_tokens"))
+    {
+        return Err(CodecError::Unsupported("image_tokens".into()));
+    }
     let mut parsed = Usage {
         input_tokens: count(usage, input_key)?,
         output_tokens: count(usage, output_key)?,
         total_tokens: count(usage, "total_tokens")?,
         cached_input_tokens: detail(usage, input_details, "cached_tokens")?,
+        input_image_tokens: detail(usage, input_details, "image_tokens")?,
         input_cache_write_tokens: detail(usage, input_details, "cache_write_tokens")?,
         reasoning_tokens: detail(usage, output_details, "reasoning_tokens")?,
         input_text_tokens: if profile == Profile::Chat {
@@ -172,14 +185,19 @@ fn detail(
             // Closed, protocol-specific schemas: new Chat facts must never be
             // smuggled into the standard Responses detail objects.
             let allowed: &[&str] = match key {
-                "prompt_tokens_details" => &["cached_tokens", "cache_write_tokens", "text_tokens"],
+                "prompt_tokens_details" => &[
+                    "cached_tokens",
+                    "cache_write_tokens",
+                    "text_tokens",
+                    "image_tokens",
+                ],
                 "completion_tokens_details" => &[
                     "reasoning_tokens",
                     "text_tokens",
                     "accepted_prediction_tokens",
                     "rejected_prediction_tokens",
                 ],
-                "input_tokens_details" => &["cached_tokens", "cache_write_tokens"],
+                "input_tokens_details" => &["cached_tokens", "cache_write_tokens", "image_tokens"],
                 "output_tokens_details" => &["reasoning_tokens"],
                 _ => unreachable!("fixed usage detail schema"),
             };
@@ -232,6 +250,15 @@ pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
             "output_tokens_details"
         };
         object.insert(key.into(), json!({"reasoning_tokens": reasoning}));
+    }
+    if let Some(images) = usage.input_image_tokens {
+        // Lowering has already checked the explicitly selected extension slot.
+        let key = if profile == Profile::Chat {
+            "prompt_tokens_details"
+        } else {
+            "input_tokens_details"
+        };
+        object.entry(key).or_insert_with(|| json!({}))["image_tokens"] = json!(images);
     }
     if profile == Profile::Chat {
         for (details, name, count) in [

@@ -1,6 +1,6 @@
 # 下一步目标
 
-**用仅文本 Generation 验证 IR 化网关整体流程，再扩展 Provider 和多模态。** 产品方向见 [v2 目标](../architecture-v2/README.md)，当前 `main` 基于原 `semantic-v2` 独立演进，不以迁移、追平或恢复旧版为目标；语义实现与产品目标的差距由[当前能力与边界](../implementation-status/generation.md)维护。
+**以文本 Generation 主链为基础，按选定的图片输入→文本输出 slice 继续扩展 IR 化网关；后续媒体按资源来源、content owner 与任务分别准入。** 产品方向见 [v2 目标](../architecture-v2/README.md)，当前 `main` 基于原 `semantic-v2` 独立演进，不以迁移、追平或恢复旧版为目标；语义实现与产品目标的差距由[当前能力与边界](../implementation-status/generation.md)维护。
 
 最小 HTTP 入口的职责和运行边界见 [HTTP 指南](../http-gateway.md)。当前 Provider/模型与协议准入按 [AGENTS.md](../../AGENTS.md#current-provider-model-and-compatibility-information)现场查询；本页不维护支持清单、实测结果或临时账号阻塞。
 
@@ -11,7 +11,7 @@
 | 1 | 按实际需求选择端到端文本场景 | 现场核对绑定、客户端和授权范围；请求经过 binary/Router，覆盖 IR、交付、工具续轮与失败边界，不仅是库级 decode 或 HTTP 200 |
 | 2 | 选定 Agent/缓存场景与必要文本投影 | 核对稳定前缀、Schema/工具顺序、replay scope 与派生 view；按消费需求补投影。评价缓存效果时独立设计对照，不把兼容默认值当计费事实 |
 | 3 | 与实际使用相称的运行保障 | 按具体需求决定凭据生命周期、诊断、负载与失败策略；未选定前不预建动态 registry、通用插件或完整旧运行时 |
-| 4 | 扩展 Provider 与多模态 | 新 wire 差异改 adapter，真正的新能力演进共享 task/extension owner；同时验收 request/response/event 与资源边界 |
+| 4 | 扩展 Provider 与多模态 | 以现有 user URL/inline 图片输入为起点，按需求选定 file_id 来源/生命周期、工具媒体结果、其他模态或独立媒体任务；新 wire 差异改 adapter，真正的新能力演进共享 task/extension owner，同时验收 request/response/event 与资源边界 |
 
 不以重复成功矩阵代替问题定位，也不根据过期结果固定下一轮目标。新发现先区分上游输出、字段投影、I/O 生命周期和客户端差异；稳定结论进入 owning code 注释与独立 synthetic 回归，运行结果只在当次交付和授权 run 中保留。
 

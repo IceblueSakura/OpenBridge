@@ -14,6 +14,10 @@ mod chat_wire;
 mod extensions;
 #[path = "semantic/function_events.rs"]
 mod function_events;
+#[path = "semantic/image_usage.rs"]
+mod image_usage;
+#[path = "semantic/images.rs"]
+mod images;
 #[path = "semantic/instructions.rs"]
 mod instructions;
 #[path = "semantic/parsed_replay.rs"]
@@ -40,6 +44,8 @@ mod text_events;
 mod text_profile;
 #[path = "semantic/tools.rs"]
 mod tools;
+#[path = "semantic/unreported_event_probabilities.rs"]
+mod unreported_event_probabilities;
 #[path = "semantic/usage.rs"]
 mod usage;
 #[path = "semantic/vendor_shapes.rs"]

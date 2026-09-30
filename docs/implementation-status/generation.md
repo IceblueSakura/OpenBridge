@@ -1,10 +1,10 @@
 # Generation 当前能力与边界
 
-本页是当前主线 text Generation 完成度与剩余缺口的唯一汇总，不是旧版本迁移清单。当前实现以产品目标和现行合同独立演进，不要求追平旧版；旧版仅作[历史参考](../archive.md)。[semantic-ir](../architecture-v2/semantic-ir.md)拥有目标设计，[Responses profile](../architecture-v2/responses-text-profile.md) / [Chat profile](../architecture-v2/chat-text-profile.md)拥有逐分支准入，[next-goal](../implementation-plans/next-goal.md)拥有优先级。标准依据为[固定上游版本](../references/upstream-sync.md)，不是全部最新 API 或真实 Provider 的能力声明。
+本页是当前主线 Generation 文本输出及选定图片输入 slice 的完成度与剩余缺口的唯一汇总，不是旧版本迁移清单。当前实现以产品目标和现行合同独立演进，不要求追平旧版；旧版仅作[历史参考](../archive.md)。[semantic-ir](../architecture-v2/semantic-ir.md)拥有目标设计，[Responses profile](../architecture-v2/responses-text-profile.md) / [Chat profile](../architecture-v2/chat-text-profile.md)拥有逐分支准入，[next-goal](../implementation-plans/next-goal.md)拥有优先级。标准依据为[固定上游版本](../references/upstream-sync.md)，不是全部最新 API 或真实 Provider 的能力声明。
 
 ## 完成度判断
 
-**受限的无状态 text Generation 主链已闭合：请求、响应、事件经同一 IR，可变换并重编码，且已接通最小认证 HTTP 网关与固定 SDK synthetic 全链。可以推进选定文本场景验收，但不能称完整文本标准实现、全面 Agent 兼容或生产就绪。** 不用一个百分比混合衡量语义表达、codec、消费者和执行层。
+**受限的无状态 text Generation 主链已闭合，并扩展了选定的 user URL/inline 图片输入→文本输出 slice：请求、响应、事件经同一 IR，可变换并重编码，且已接通最小认证 HTTP 网关。不能称完整多模态标准实现、全面 Agent 兼容或生产就绪。** 不用一个百分比混合衡量语义表达、codec、消费者和执行层。
 
 这里的“纯文本”包括文本/refusal、结构化输出、function/custom 的文本调用与结果、reasoning 历史及相关控制/上下文，不仅是一个 prompt 返回一个字符串。它不自动包含所有“结果恰好是文本”的 hosted tools、状态资源或 program 执行。文本是验证[最终网关目标](../architecture-v2/README.md#产品目标与阶段判据)的阶段性载体：最小整体流程已接线；当前产品门槛转为新入口的受控外部验收、选定 Agent/缓存场景和必要的运行保障，而不是无限扩大字段清单。
 
@@ -23,12 +23,13 @@
 - 同一 wire family 也走 IR；双协议兼容指可表示子集的映射，不是任意 Responses ↔ Chat 转换。Schema strict 默认、reasoning scope、reported facts 与响应投影必须同时成立，仅请求可编码不足以证明一次 exchange 可交付。
 - 扩展类型存在、codec 可往返、实际请求主链接线和外部接受分别判断；未接线的 carrier 不算可用网关能力。实例启用与真实 Provider 可用性仍须现场核查，不由本页或 synthetic fixtures 推断。
 
-## 已实现的纯文本基线
+## 已实现的文本输出与图片输入基线
 
 “已实现”指下列有限语义与独立测试存在，不表示所有标准组合或负例均验收完毕。精确 presence、默认值与拒绝合同仍只在各 profile 维护。
 
 | 域 | 当前闭合范围 | 主要源码 / 独立测试 |
 |---|---|---|
+| User 图片输入 | 共享 typed Resource URL/inline、可选 image detail、有序 text/image parts、source/encoded/decoded/aggregate 预算；双协议请求与 IR 编辑/目标拒绝；typed reported image-token fact 仅在具名目标槽位投影 | [resource.rs](../../src/semantic/task/generation/resource.rs)、[image codec](../../src/protocol/openai/image.rs)、[images tests](../../tests/semantic/images.rs)、[image usage tests](../../tests/semantic/image_usage.rs)、[Router smoke](../../tests/gateway.rs)；具体准入见 [图片 slice](../architecture-v2/responses-text-profile.md#user-image-input)，不包括资源服务/图片输出 |
 | Instructions / messages | 顶层 instructions、有序 system/developer/user/assistant、文本/refusal、instruction 非完成生命周期、assistant `phase` 与 status 分离 | `request.rs`、`responses.rs`、`chat.rs`；[instructions](../../tests/semantic/instructions.rs)、[phase](../../tests/semantic/phase.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
 | 输出控制 / Schema | sampling、输出上限、Responses verbosity/truncation、双协议 logprobs 控制；双协议 text/json_object/json_schema；schema 属性顺序、结构/strict/default、本地递归引用、独立预算、pattern/format 语法准入 | `settings.rs`、`schema.rs`、`pattern.rs`；[schema](../../tests/semantic/schema.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
 | Function / custom | 定义、choice（含 Chat function-only allowed_tools）、调用关联、双协议文本/文本数组结果、原始参数权威、调度字段表示、program/program_output 的 opaque 表示 | `tool.rs`、`function_tools.rs`、`responses.rs`；[tools](../../tests/semantic/tools.rs)、[function_events](../../tests/semantic/function_events.rs)；不执行工具或 program |
@@ -69,7 +70,7 @@
 - **Schema 责任边界**：[当前有限 profile](../architecture-v2/schema-profile.md)已验证结构/strict/default/refs/order/预算及 pattern/format 准入；不执行 regex/format、不做通用 JSON Schema 求值、不验证模型输出 adherence 或所有模型的限制。没有新的具体反例/消费需求，不以这些非目标制造“Schema 未完成”的无限待办。
 - **Configuration / program 表示与执行分开**：固定 SDK 的 configuration update 只声明 reasoning effort，当前有序表示已存在；不虚构“effort 以外配置”作为既定标准缺口。是否计算 effective settings、调度 program、管理 Codex turn 属于独立执行设计。`prewarm` 也仅表示，未建立其 `generate` override 合同。
 - **有状态 API 暂缓**：previous response/conversation/store/background、prompt、compaction/reference、retrieve/cancel 及 WS lane/steering 尚未实现；queued 事件已准入不等于静态 queued/in_progress body 或 state service 可用。当前只准入 inactive state 形式，编码显式 `store:false`。
-- **其他语义域暂缓**：媒体双向映射、hosted/dynamic tools、独立 Embedding/Images/Speech 任务不是当前纯文本闭合的前置条件；基础 Resource 类型和 program item 表示不证明这些任务或执行已实现。
+- **其他语义域暂缓**：user URL/inline 图片请求的双协议映射已准入；file_id 来源/生命周期、developer 图片、工具媒体结果、媒体输出/事件、音视频与其他 source 均未闭合。hosted/dynamic tools、独立 Embedding/Images/Speech 任务不是该 slice 的前置条件；不能由图片输入回归宣称完整多模态 IR。
 - **生产缺口独立存在**：最小认证 ingress、环境变量凭据绑定、实际 HTTP Provider I/O、body handoff/commit、取消与 deadline 已接通并通过 synthetic 验收。尚无多用户凭据池/OAuth、动态 registry、自动 retry/fallback、生产观测与负载/长稳证据；raw client replay token 的源头真实性仍由 issuer 验证，内部 scope 绑定不是来源证明。不能把最小本机服务称为生产就绪。
 
 ## 验收边界

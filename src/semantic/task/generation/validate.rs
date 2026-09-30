@@ -90,7 +90,12 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                             t.validate()?;
                             charge(&mut bytes, t.bytes())?;
                         }
-                        ContentPart::Resource(_) => {}
+                        ContentPart::Resource(resource) => {
+                            if response || m.role != MessageRole::User {
+                                return Err(GenerationError::InvalidResource);
+                            }
+                            charge(&mut bytes, resource.validate()?)?;
+                        }
                     }
                 }
             }

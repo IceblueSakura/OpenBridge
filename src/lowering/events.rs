@@ -9,7 +9,9 @@ pub fn check_event(
     contract: &GenerationRepresentationContract,
 ) -> Result<(), RepresentationError> {
     match event {
-        StreamEvent::Usage(usage) => super::generation::check_usage(*usage, profile)?,
+        StreamEvent::Usage(usage) => {
+            super::generation::check_usage(*usage, profile, &contract.adaptation.rules)?
+        }
         StreamEvent::ItemStarted { kind, replay, .. } => {
             match kind {
                 ItemKind::Message { phase: Some(_) } if profile == Profile::Chat => {

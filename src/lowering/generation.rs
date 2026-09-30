@@ -185,6 +185,24 @@ pub fn lower_request<'a>(
         c.adaptation.rules.structured_chat_reasoning,
         true,
     )?;
+    for (_, item) in r.items() {
+        if let Item::Message(message) = item {
+            for part in &message.parts {
+                if let ContentPart::Resource(resource) = &part.content
+                    && (matches!(&resource.location, ResourceLocation::Inline { media_type, .. }
+                            if media_type.as_str() == "image/bmp")
+                        && !c.adaptation.rules.bmp_image_input
+                        || c.adaptation.rules.undeclared_image_detail
+                            && resource.image_detail.is_some()
+                        || profile == Profile::Chat
+                            && resource.image_detail == Some(ImageDetail::Original)
+                            && !c.adaptation.rules.chat_original_image_detail)
+                {
+                    return Err(RepresentationError::ImageInput);
+                }
+            }
+        }
+    }
     text_items(r.items(), profile, true)?;
     let expected_default = if profile == Profile::Chat {
         StrictDefault::NonStrict
@@ -267,8 +285,20 @@ pub fn require_reported_facts(
 
 /// The fixed Responses usage schema has no text/prediction-detail positions.
 /// Even a reported zero is a fact; never silently omit it or invent an extension.
-pub(super) fn check_usage(usage: Usage, profile: Profile) -> Result<(), RepresentationError> {
+pub(super) fn check_usage(
+    usage: Usage,
+    profile: Profile,
+    rules: &crate::protocol::adaptation::WireRules,
+) -> Result<(), RepresentationError> {
     usage.validate()?;
+    if usage.input_image_tokens.is_some()
+        && !(match profile {
+            Profile::Chat => rules.chat_image_usage,
+            Profile::Responses => rules.responses_image_usage,
+        })
+    {
+        return Err(RepresentationError::UsageDetails);
+    }
     if profile == Profile::Responses
         && [
             usage.input_text_tokens,
@@ -293,7 +323,7 @@ pub fn lower_response<'a>(
 ) -> Result<ResponseRepresentation<'a>, RepresentationError> {
     require_reported_facts(r, metadata, &c)?;
     if let Some(usage) = r.usage() {
-        check_usage(usage, profile)?;
+        check_usage(usage, profile, &c.adaptation.rules)?;
     }
     if profile == Profile::Chat
         && !c.adaptation.rules.readable_reasoning
@@ -548,18 +578,22 @@ fn text_items(
                 }
             }
             if profile==Profile::Responses && m.parts.iter().any(|p|matches!(&p.content,ContentPart::Text(t) if t.logprobs().value().is_some_and(|v|v.iter().any(|p|p.bytes.is_none() || p.top_logprobs.as_ref().is_none_or(|v|v.iter().any(|p|p.token.is_none()||p.logprob.is_none()||p.bytes.is_none())))))){return Err(RepresentationError::TextMetadata);}
-            if m.parts
-                .iter()
-                .any(|p| !matches!(p.content, ContentPart::Text(_) | ContentPart::Refusal(_)))
-            {
+            if m.parts.iter().any(|p| match &p.content {
+                ContentPart::Text(_) | ContentPart::Refusal(_) => false,
+                ContentPart::Resource(resource) => {
+                    !request
+                        || resource.kind != ResourceKind::Image
+                        || matches!(resource.location, ResourceLocation::OpaqueReference(_))
+                }
+            }) {
                 return Err(RepresentationError::UnmigratedSemantic);
             }
             if profile == Profile::Chat
                 && m.parts.len() > 1
                 && (!request
-                    || m.parts
-                        .iter()
-                        .any(|p| !matches!(p.content, ContentPart::Text(_))))
+                    || m.parts.iter().any(|p| {
+                        !matches!(p.content, ContentPart::Text(_) | ContentPart::Resource(_))
+                    }))
             {
                 return Err(RepresentationError::MessageGrouping);
             }

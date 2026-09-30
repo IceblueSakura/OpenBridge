@@ -7,6 +7,26 @@ use serde_json::{Map, Value};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WireRules {
+    /// Chat standard has auto/low/high; this profile additionally represents original.
+    /// Source: <https://api-docs.deepseek.com/guides/vision>.
+    pub chat_original_image_detail: bool,
+    /// Typed image-token fact in Chat input details, not an opaque vendor Usage.
+    /// Source: <https://mimo.mi.com/docs/zh-CN/api/chat/openai-api>.
+    pub chat_image_usage: bool,
+    /// OpenBridge's explicit image-token extension on Responses input details;
+    /// the fixed standard Responses schema has no such position.
+    pub responses_image_usage: bool,
+    /// Omitted text delta/done probabilities mean unreported, not a static empty
+    /// probability fact. Explicit null/malformed values and missing final reports
+    /// after reported probabilities still fail. Standard grammar stays strict.
+    /// Source: <https://mimo.mi.com/docs/zh-CN/api/chat/responses>.
+    pub responses_unreported_text_logprobs: bool,
+    /// Images are admitted, but this profile has no documented detail projection.
+    /// Source: <https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding>.
+    pub undeclared_image_detail: bool,
+    /// Additional inline format beyond the common PNG/JPEG/GIF/WebP image profile.
+    /// Source: <https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding>.
+    pub bmp_image_input: bool,
     /// Assistant reasoning text has its own typed owner before its Chat carrier.
     pub readable_reasoning: bool,
     /// Cache hit/miss aliases must agree with reported totals and cached counts.
