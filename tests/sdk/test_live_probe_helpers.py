@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,6 +12,21 @@ spec.loader.exec_module(probe)
 
 
 class ReplayGuardTest(unittest.TestCase):
+    def test_length_is_not_a_success_unless_the_scenario_requires_it(self):
+        message = {'role':'assistant','content':'partial'}
+        static = SimpleNamespace(choices=[SimpleNamespace(finish_reason='length',
+            message=SimpleNamespace(model_dump=lambda **_: message))])
+        chunk = SimpleNamespace(choices=[True], model_dump=lambda **_: {
+            'choices':[{'index':0,'delta':{'content':'partial'},'finish_reason':'length'}]})
+        for value, streaming in ((static, False), ([chunk], True)):
+            with self.assertRaises(probe.UnexpectedChatFinish) as error:
+                probe.chat_result(value, streaming)
+            self.assertEqual(error.exception.finish, 'length')
+            _, text, calls = probe.chat_result(value, streaming, allowed_finishes=('length',))
+            self.assertEqual((text, calls), ('partial', []))
+            with self.assertRaises(AssertionError):
+                probe.chat_result(value, streaming, allowed_finishes=('stop',))
+
     def test_both_carriers_extract_identity_and_token_without_unrelated_data(self):
         body = {"input": [{"type": "reasoning", "id": "rs1", "encrypted_content": "synthetic-a"}],
                 "messages": [{"reasoning_details": [{"type": "reasoning.encrypted", "id": "rs2", "data": "synthetic-b"}]}],

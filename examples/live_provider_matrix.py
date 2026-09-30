@@ -1,8 +1,9 @@
-"""Explicit paid, bounded eight-Provider gate through the actual loopback binary.
+"""Explicit paid, bounded Provider gate through the actual loopback binary.
 
 OPENBRIDGE_PROVIDER_MATRIX=1 uv run --project tests/sdk --locked --offline python
 examples/live_provider_matrix.py. Optional OPENBRIDGE_MATRIX_PROVIDERS is a comma
-list of fixed provider names. At most 66 requests/run, 2048 output tokens each;
+list of fixed provider names. NVIDIA first, Kimi paused. At most 60 requests/run,
+2048 output tokens each;
 no retries. Only synthetic text and function results are sent. Credentials and
 raw body/headers are never logged or saved. Re-running requires fresh authorization.
 """
@@ -35,6 +36,15 @@ TOOL = {'name': 'lookup', 'description': 'Look up a synthetic value.',
                        'required': ['key'], 'additionalProperties': False}, 'strict': False}
 
 
+def select_bindings(selection):
+    """Reject paused/invalid choices before credentials or network are touched."""
+    available = {row[0]: row for row in BINDINGS if row[0] != 'kimi'}
+    names = selection.split(',') if selection is not None else ['nvidia'] + [name for name in available if name != 'nvidia']
+    if not names or len(set(names)) != len(names) or any(name not in available for name in names):
+        raise RuntimeError('unknown, duplicate or paused provider selection')
+    return [available[name] for name in names]
+
+
 class BudgetClient(DefaultHttpxClient):
     """Enforce the request ceiling at actual SDK send, not a loop counter."""
     def __init__(self):
@@ -43,7 +53,7 @@ class BudgetClient(DefaultHttpxClient):
 
     def send(self, request, **kwargs):
         body = json.loads(request.content)
-        if (request.url.host != '127.0.0.1' or request.method != 'POST' or self.sent >= 66
+        if (request.url.host != '127.0.0.1' or request.method != 'POST' or self.sent >= 60
                 or len(request.content) > 256 * 1024
                 or body.get('max_completion_tokens', body.get('max_output_tokens')) != 2048):
             raise RuntimeError('request budget or target violation')
@@ -54,10 +64,7 @@ class BudgetClient(DefaultHttpxClient):
 def run():
     if os.environ.get('OPENBRIDGE_PROVIDER_MATRIX') != '1':
         raise RuntimeError('explicit paid gate required')
-    selected = os.environ.get('OPENBRIDGE_MATRIX_PROVIDERS', ','.join(x[0] for x in BINDINGS)).split(',')
-    if not selected or any(name not in [x[0] for x in BINDINGS] for name in selected):
-        raise RuntimeError('unknown provider selection')
-    bindings = [row for row in BINDINGS if row[0] in selected]
+    bindings = select_bindings(os.environ.get('OPENBRIDGE_MATRIX_PROVIDERS'))
     data = tomllib.loads((ROOT / 'config/upstream-credentials.toml').read_text())
     pools = {p['id']: p for p in data['credential_pools']}
     client_key = secrets.token_urlsafe(32)

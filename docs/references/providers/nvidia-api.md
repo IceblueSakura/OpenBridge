@@ -24,4 +24,4 @@ OpenBridge 旧运行时映射见[固定归档](https://github.com/IceblueSakura/
 
 ## 证据边界
 
-选定 [Nemotron 3 Super 官方页](https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b)声明 Chat 与工具能力；本轮固定绑定的实际 JSON/SSE、工具选择差异与未解决的失败见 [onboarding evidence](../../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)。该证据不能外推其他 NIM 部署、模型、配额或长期可用性。
+选定 [Nemotron 3 Super 官方页](https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b)声明 Chat 与工具能力；本轮固定绑定的实际 JSON/SSE、工具选择差异与未解决的失败见 [onboarding evidence](../../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)。[后续定向边界](../../implementation-status/evidence/2026-09-30-nvidia-boundaries.md)补充了显式 none 下的 JSON object、四请求 JSON 工具历史、短预算终态与客户端提前关闭；保留默认 JSON 截断和未定位的续轮 502。该证据不能外推其他 NIM 部署、模型、配额或长期可用性。

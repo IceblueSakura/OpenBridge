@@ -30,10 +30,18 @@ TOOL = {
 }
 
 
-def chat_result(result, streaming):
+class UnexpectedChatFinish(AssertionError):
+    """Closed terminal diagnostics without message content or raw error text."""
+    def __init__(self, finish):
+        self.finish = finish if finish in ('stop', 'tool_calls', 'length', 'content_filter', 'function_call') else 'missing_or_unknown'
+        super().__init__('unexpected Chat terminal')
+
+
+def chat_result(result, streaming, *, allowed_finishes=("stop", "tool_calls")):
     """Accumulate only the admitted typed deltas, including scoped replay fields."""
     if not streaming:
-        assert result.choices[0].finish_reason in ("stop", "tool_calls")
+        if result.choices[0].finish_reason not in allowed_finishes:
+            raise UnexpectedChatFinish(result.choices[0].finish_reason)
         message = result.choices[0].message.model_dump(mode="json", exclude_unset=True)
         return [message], message.get("content") or "", message.get("tool_calls") or []
     message = {"role": "assistant", "content": None}
@@ -71,7 +79,8 @@ def chat_result(result, streaming):
             if fn.get("name"):
                 target["function"]["name"] = fn["name"]
             target["function"]["arguments"] += fn.get("arguments") or ""
-    assert finish in ("stop", "tool_calls")
+    if finish not in allowed_finishes:
+        raise UnexpectedChatFinish(finish)
     if details:
         message["reasoning_details"] = [details[i] for i in sorted(details)]
     if calls:

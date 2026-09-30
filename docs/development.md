@@ -69,11 +69,24 @@ uv run --project tests/sdk --locked --offline cargo test --locked --offline --te
 - `OPENBRIDGE_PROBE_REPLAY_DIR=<existing probe directory> cargo run --locked --offline --example live_probe`：离线回放该目录的固定 GPT-6 Luna 首轮 captures，不读取凭据、不联网；缺失/失败样本不会被计为通过。原始 captures 不进入独立 fixtures。
 - `examples/live_gateway_probe.py`：先 `cargo build --locked --offline --bin openbridge`，再经固定环境显式运行 `OPENBRIDGE_GATEWAY_PROBE=1 uv run --project tests/sdk --locked --offline python examples/live_gateway_probe.py`。默认最多 12 次 synthetic GPT-6 Luna 请求；追加 `OPENBRIDGE_GATEWAY_REASONING=1` 改为 8 次加密状态获取/续轮，首轮必须实际有密文，第二轮在 SDK `send` 前以内存比较验证序列化后的 issuer ID/密文未丢失或变化。两种模式均每次最多 2048 输出 tokens，SDK → 临时 loopback binary → Provider；SDK 不继承代理，网关仅使用显式可信 egress。使用固定 SDK 导出的 `DefaultHttpxClient`，不新增未锁定的 Python HTTP 依赖。
 
-- `examples/live_provider_matrix.py`：`OPENBRIDGE_PROVIDER_MATRIX=1 uv run --project tests/sdk --locked --offline python examples/live_provider_matrix.py`。需先构建当前 binary；最多 66 次生成，每次 2048 输出 tokens，覆盖八个固定 API-key 绑定的已声明协议 × JSON/SSE × 文本/工具及续轮。`OPENBRIDGE_MATRIX_PROVIDERS`（逗号分隔）、`OPENBRIDGE_MATRIX_PROTOCOL`、`OPENBRIDGE_MATRIX_DELIVERY`、`OPENBRIDGE_MATRIX_CASE` 只缩小矩阵。任何 Provider 首个失败后停止其余场景；无实际调用或任一失败都退出非零。DeepSeek 两个协议与 NVIDIA Chat 使用 auto 工具选择并独立断言实际调用和结果，不把强制工具选择的不兼容掩盖成语义转换。
+- `examples/live_provider_matrix.py`：`OPENBRIDGE_PROVIDER_MATRIX=1 uv run --project tests/sdk --locked --offline python examples/live_provider_matrix.py`。需先构建当前 binary；当前默认优先 NVIDIA，暂停 Kimi 的真实测试（产品绑定仍保留）；显式选择暂停项、未知项或重复项在读取凭据前失败。最多 60 次生成，每次 2048 输出 tokens，覆盖其余七个固定 API-key 绑定的已声明协议 × JSON/SSE × 文本/工具及续轮。`OPENBRIDGE_MATRIX_PROVIDERS`（逗号分隔）、`OPENBRIDGE_MATRIX_PROTOCOL`、`OPENBRIDGE_MATRIX_DELIVERY`、`OPENBRIDGE_MATRIX_CASE` 只缩小矩阵。任何 Provider 首个失败后停止其余场景；无实际调用或任一失败都退出非零。DeepSeek 两个协议与 NVIDIA Chat 使用 auto 工具选择并独立断言实际调用和结果，不把强制工具选择的不兼容掩盖成语义转换。
+- `examples/live_nvidia_probe.py`：`OPENBRIDGE_NVIDIA_PROBE=1 uv run --project tests/sdk --locked --offline python examples/live_nvidia_probe.py`。固定 NVIDIA/Nemotron Chat，默认计划 14 次，实际 send 硬上限 16，每次最多 2048 输出 tokens（截断场景为 8）。独立覆盖 JSON object、两次 lookup 的四请求历史 × JSON/SSE、length 终态、客户端提前关闭及后续请求。`OPENBRIDGE_NVIDIA_CASE`（`json/history/length/cancel`）、`OPENBRIDGE_NVIDIA_DELIVERY`（`json/sse`）缩小矩阵；`OPENBRIDGE_NVIDIA_EFFORT=none` 是明确请求的标准控制对照，不改变默认配置。序列化历史与目的地在每次 send 前验证，任何失败停止整个批次；不自动重试或并发压测。只记录实际可见的 HTTP 状态与有界 Retry-After 秒数；当前网关不透传上游 Retry-After，非 429 上游错误也可能已映射为 502，不能据下游报告断言完整上游限流原因。客户端 close 和后续请求成功也不能证明 Provider 已取消计算或停止计费。
 - `cargo run --locked --offline --example replay_chat -- longcat <authorized-synthetic-capture.sse>`：对明确给出的 2 MiB 内 capture 做纯离线 intake 和下游 projection，不读取凭据、不联网，不把 captures 当独立 fixture。
 - `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p 'test_*.py'`：既有 replay checker 和新增矩阵请求数/目标/输出预算的离线防线，无真实调用。
 
 这些 live 入口只在进程内读取工作区 API-key 凭据，均无自动重试；不会更改私有文件或加载 Codex/OAuth 引用。库级 probe 将最多 2 MiB 的有界诊断写到唯一、被忽略的 `testdata/runtime/` 子目录；SDK/binary gate 只保存脱敏结果，不保存 body/headers/token。后者通过启动就绪信号获取临时端口，结束/失败均回收 binary。每次重新执行都是新的一批付费调用，不是“免费重跑测试”。已有执行结果见 [GPT-6 Luna evidence](implementation-status/evidence/2026-09-29-openrouter-luna-acceptance.md)与 [reasoning 专项](implementation-status/evidence/2026-09-29-reasoning-continuation-acceptance.md)。probe 序列化守卫本身的离线测试为 `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_live_probe_helpers.py`，不加载凭据或调用网络。
+
+## pi 探测诊断守卫
+
+`examples/provider_probe_observation.mjs` 对同一次网关 SSE 响应做有界正文/终态摘要，与 pi 消费结果比较；正文仅在有界内存中比较，只向报告输出长度、分类和一致性，不写入正文、reasoning、opaque 值或 headers。它不是新的协议 decoder，不把大小写/标点差异规范化成 oracle 成功。`examples/probe_http_headers.mjs` 保留客户端实际的 Authorization/Content-Type，禁止测试中继用已知正确 token 掩盖错误认证，也不转发其他 headers。
+
+纯 synthetic Node 检查不依赖 pi 安装、凭据或网络：
+
+```sh
+node --test tests/sdk/provider_probe_observation.test.mjs tests/sdk/probe_http_headers.test.mjs
+```
+
+实际 pi/Router 的错误认证负例与 reasoning 对照由独立本机测试配置显式运行，不纳入默认 Rust tests；范围与执行结果见 [定向跟进证据](implementation-status/evidence/2026-09-29-provider-followup.md)。错误 key 应在入口得到 401 且上游尝试为零，正常 key 的拒绝出站代理测试则证明准入仍可达；不要把测试代理注入的凭据当作客户端认证成功。
 
 ## 文档与边界
 
