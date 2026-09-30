@@ -68,11 +68,14 @@ pub fn longcat() -> ProviderDefinition {
 /// Hosted origin, not an arbitrary self-hosted NIM deployment.
 /// Source: <https://docs.nvidia.com/nim/large-language-models/latest/api-reference.html>.
 pub fn nvidia() -> ProviderDefinition {
-    chat_provider(
-        "nvidia",
-        "https://integrate.api.nvidia.com",
-        "/v1/chat/completions",
-    )
+    ProviderDefinition {
+        responses: Some(EndpointPath::new("/v1/responses").expect("static path")),
+        ..chat_provider(
+            "nvidia",
+            "https://integrate.api.nvidia.com",
+            "/v1/chat/completions",
+        )
+    }
 }
 /// Region-bound endpoint; credentials must belong to the selected region.
 /// Sources: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>,

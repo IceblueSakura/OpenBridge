@@ -84,6 +84,11 @@ impl Dialect {
                 WireRules {
                     readable_reasoning: true,
                     legacy_max_tokens: true,
+                    response_extras: true,
+                    null_response_billing: true,
+                    responses_reasoning_text_shorthand: true,
+                    responses_terminal_reasoning: true,
+                    responses_done_marker: true,
                     ..Default::default()
                 },
             ),
@@ -96,6 +101,7 @@ impl Dialect {
                     text_usage_total_view: true,
                     response_extras: true,
                     responses_billing_view: true,
+                    null_response_billing: true,
                     responses_queued_creation: true,
                     responses_summary_text_alias: true,
                     ..Default::default()

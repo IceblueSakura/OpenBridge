@@ -83,7 +83,9 @@ impl EventDecoder {
                 if let Some(snapshot) = payload.get("response")
                     && (self.adaptation.rules.routing_extras
                         || self.adaptation.rules.responses_billing_view
-                        || self.adaptation.rules.responses_inactive_state)
+                        || self.adaptation.rules.null_response_billing
+                        || self.adaptation.rules.responses_inactive_state
+                        || self.adaptation.rules.responses_reasoning_text_shorthand)
                 {
                     let (snapshot, extras) = super::super::adapter_shapes::decode(
                         snapshot,
@@ -93,11 +95,19 @@ impl EventDecoder {
                     let mut mapped = payload.clone();
                     mapped["response"] = snapshot.into_owned();
                     (std::borrow::Cow::Owned(mapped), extras)
-                } else if self.adaptation.rules.responses_reasoning_format
+                } else if (self.adaptation.rules.responses_reasoning_format
+                    || self.adaptation.rules.responses_reasoning_text_shorthand)
                     && payload.get("item").is_some()
                 {
                     let mut mapped = payload.clone();
-                    super::super::adapter_shapes::reasoning_marker(&mut mapped["item"])?;
+                    if self.adaptation.rules.responses_reasoning_format {
+                        super::super::adapter_shapes::reasoning_marker(&mut mapped["item"])?;
+                    }
+                    if self.adaptation.rules.responses_reasoning_text_shorthand {
+                        super::super::adapter_shapes::reasoning_text_shorthand(
+                            &mut mapped["item"],
+                        )?;
+                    }
                     (std::borrow::Cow::Owned(mapped), Default::default())
                 } else {
                     (std::borrow::Cow::Borrowed(payload), Default::default())
@@ -1006,6 +1016,73 @@ impl EventDecoder {
         }
         Ok(())
     }
+    fn close_terminal_reasoning(
+        &mut self,
+        response: &Map<String, Value>,
+        out: &mut Vec<StreamEvent>,
+    ) -> Result<(), CodecError> {
+        let output = response
+            .get("output")
+            .and_then(Value::as_array)
+            .ok_or(CodecError::Invalid("terminal output"))?;
+        let pending: Vec<_> = self
+            .state()?
+            .items()
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.kind == ItemKind::Reasoning && item.status.is_none())
+            .map(|(index, item)| (index, item.clone()))
+            .collect();
+        for (index, item) in pending {
+            let snapshot = output
+                .get(index)
+                .and_then(Value::as_object)
+                .ok_or(CodecError::Invalid("terminal reasoning identity"))?;
+            if snapshot.get("type").and_then(Value::as_str) != Some("reasoning")
+                || snapshot.get("id").and_then(Value::as_str)
+                    != self.fidelity.response_item_id(item.id)
+                || snapshot.get("status").and_then(Value::as_str) != Some("completed")
+                || item.replay.is_some()
+                || snapshot
+                    .get("encrypted_content")
+                    .is_some_and(|v| !v.is_null())
+                || item.parts.iter().any(|p| p.kind != PartKind::ReasoningText)
+            {
+                return Err(CodecError::Invalid("terminal reasoning closure"));
+            }
+            // These events are not published unless the whole terminal snapshot
+            // below exactly matches accumulated values. Never add snapshot text.
+            for part in item.parts {
+                if !part.value_finished {
+                    self.emit(
+                        StreamEvent::ValueFinished {
+                            item: item.id,
+                            part: part.id,
+                        },
+                        out,
+                    )?;
+                }
+                if !part.finished {
+                    self.emit(
+                        StreamEvent::PartFinished {
+                            item: item.id,
+                            part: part.id,
+                        },
+                        out,
+                    )?;
+                }
+            }
+            self.emit(
+                StreamEvent::ItemFinished {
+                    item: item.id,
+                    status: ItemLifecycle::Completed,
+                    replay: None,
+                },
+                out,
+            )?;
+        }
+        Ok(())
+    }
     fn terminal(
         &mut self,
         o: &Map<String, Value>,
@@ -1028,6 +1105,11 @@ impl EventDecoder {
         self.observe_metadata(p)?;
         let decoded = super::super::static_response::decode_responses_with(r, &self.adaptation)?;
         self.fidelity.copy_response_records(&decoded.fidelity);
+        if self.adaptation.rules.responses_terminal_reasoning
+            && terminal == StreamTerminal::Completed
+        {
+            self.close_terminal_reasoning(p, out)?;
+        }
         sync_replays(
             self.state.as_ref().ok_or(CodecError::Invalid("state"))?,
             &mut self.fidelity,

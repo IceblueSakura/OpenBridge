@@ -101,7 +101,7 @@ const MODELS: [ModelSpec; 11] = [
         provider: "nvidia",
         models_path: Some("/v1/models"),
         chat_endpoint: "nvidia-chat",
-        responses_endpoint: None,
+        responses_endpoint: Some("nvidia-responses"),
     },
     ModelSpec {
         label: "qwen3.8-max",

@@ -330,11 +330,13 @@ mod tests {
     }
 
     #[test]
-    fn chat_only_bootstrap_admits_chat_but_not_an_invented_responses_entry() {
+    fn bootstrap_only_admits_explicit_protocol_entries() {
         let boot = Bootstrap::from_lookup(|name| {
             Ok(match name {
                 "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
-                "OPENBRIDGE_NVIDIA_API_KEY" => Some("synthetic-upstream".into()),
+                "OPENBRIDGE_NVIDIA_API_KEY" | "OPENBRIDGE_KIMI_API_KEY" => {
+                    Some("synthetic-upstream".into())
+                }
                 _ => None,
             })
         })
@@ -352,6 +354,22 @@ mod tests {
                 &boot.gateway.state,
                 Profile::Responses,
                 br#"{"model":"nemotron-3-super","input":"hi"}"#
+            )
+            .is_ok()
+        );
+        assert!(
+            super::super::admission::prepare(
+                &boot.gateway.state,
+                Profile::Chat,
+                br#"{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}]}"#
+            )
+            .is_ok()
+        );
+        assert!(
+            super::super::admission::prepare(
+                &boot.gateway.state,
+                Profile::Responses,
+                br#"{"model":"kimi-k3","input":"hi"}"#
             )
             .is_err()
         );

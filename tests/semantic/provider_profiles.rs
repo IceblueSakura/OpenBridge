@@ -511,6 +511,263 @@ fn inactive_response_state_placeholders_do_not_enable_remote_state() {
     }
 }
 
+#[test]
+fn null_billing_placeholder_does_not_admit_active_billing_or_usage_views() {
+    use openbridge::protocol::openai::sse::{ResponsesSseDecoder, SseLimits};
+    let provider = Adapter::new(
+        Profile::Responses,
+        Dialect::Nvidia,
+        Some(ReplayOrigin::new("a").unwrap()),
+    );
+    let mut value = crate::wire::response(2);
+    value["billing"] = Value::Null;
+    value["frequency_penalty"] = json!(0.25);
+    let decoded = provider
+        .decode_response(value.to_string().as_bytes())
+        .unwrap();
+    assert_eq!(decoded.semantic.usage().unwrap().total_tokens, 8);
+    let same = provider
+        .encode_response(&decoded, &Contract::full())
+        .unwrap();
+    assert_eq!(same["frequency_penalty"], 0.25);
+    assert!(same.get("billing").is_none());
+    let other = Adapter::new(
+        Profile::Responses,
+        Dialect::Nvidia,
+        Some(ReplayOrigin::new("b").unwrap()),
+    );
+    assert!(
+        other
+            .encode_response(&decoded, &Contract::full())
+            .unwrap()
+            .get("frequency_penalty")
+            .is_none()
+    );
+    for dialect in [Dialect::Standard, Dialect::OpenBridge] {
+        assert!(
+            Adapter::new(Profile::Responses, dialect, None)
+                .decode_response(value.to_string().as_bytes())
+                .is_err()
+        );
+    }
+    for billing in [
+        json!({}),
+        json!({"payer":"synthetic"}),
+        json!(false),
+        json!(0),
+        json!(""),
+    ] {
+        let mut bad = value.clone();
+        bad["billing"] = billing;
+        assert!(
+            provider
+                .decode_response(bad.to_string().as_bytes())
+                .is_err()
+        );
+    }
+    let mut bad = value.clone();
+    bad["usage"]["x_details"] = json!([{"x_billing_type":"response_api","input_tokens":3,"output_tokens":5,"total_tokens":8}]);
+    assert!(
+        provider
+            .decode_response(bad.to_string().as_bytes())
+            .is_err()
+    );
+    let mut bad = value.clone();
+    bad.as_object_mut().unwrap().shift_remove("output");
+    assert!(
+        provider
+            .decode_response(bad.to_string().as_bytes())
+            .is_err()
+    );
+    for conflict in [false, true] {
+        let mut decoder = ResponsesSseDecoder::with_decoder(
+            200,
+            "text/event-stream",
+            SseLimits::default(),
+            provider.event_decoder(),
+        )
+        .unwrap();
+        for mut event in crate::wire::events(2) {
+            let terminal = event["type"] == "response.completed";
+            if let Some(snapshot) = event.get_mut("response") {
+                snapshot["billing"] = if terminal && conflict {
+                    json!({})
+                } else {
+                    Value::Null
+                };
+                snapshot["frequency_penalty"] = json!(0.25);
+            }
+            let bytes = format!("data: {event}\n\n");
+            let result = decoder.consume(bytes.as_bytes());
+            if terminal && conflict {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(result.unwrap().0, bytes.len());
+            }
+        }
+        if conflict {
+            assert!(decoder.finish().is_err());
+            assert!(decoder.materialize().is_err());
+        } else {
+            decoder.finish().unwrap();
+            let actual = decoder.materialize().unwrap();
+            assert_eq!(actual.semantic, decoded.semantic);
+            assert_eq!(
+                provider
+                    .encode_response(&actual, &Contract::full())
+                    .unwrap()["frequency_penalty"],
+                0.25
+            );
+        }
+    }
+}
+
+fn terminal_reasoning_fixture() -> (Value, Vec<Value>) {
+    let (mut snapshot, source) = summary_alias_fixture();
+    snapshot["output"][0] = json!({"id":"r","type":"reasoning","status":"completed","summary":[],"content":[{"text":"brief"}]});
+    let mut events = vec![];
+    for mut event in source {
+        if event["type"] == "response.reasoning_text.done"
+            || (event["type"] == "response.output_item.done" && event["output_index"] == 0)
+        {
+            continue;
+        }
+        if event["type"] == "response.output_item.added" && event["output_index"] == 0 {
+            event["item"] = json!({"id":"r","type":"reasoning","status":"in_progress","summary":[],"content":[]});
+        }
+        if event["type"] == "response.completed" {
+            event["response"] = snapshot.clone();
+        }
+        event["sequence_number"] = json!(events.len());
+        events.push(event);
+    }
+    (snapshot, events)
+}
+
+#[test]
+fn terminal_reasoning_snapshot_closes_only_received_text_and_projects_standard_events() {
+    use openbridge::protocol::openai::{
+        events::EventEncoder,
+        sse::{ResponsesSseDecoder, SseLimits},
+    };
+    use openbridge::semantic::task::generation::{
+        Completion, Item, ItemKind, ReasoningContent, StreamEvent,
+    };
+    let provider = Adapter::new(Profile::Responses, Dialect::Nvidia, None);
+    let (mut snapshot, source) = terminal_reasoning_fixture();
+    let static_value = provider
+        .decode_response(snapshot.to_string().as_bytes())
+        .unwrap();
+    snapshot["output"][0]["content"][0]["type"] = json!("reasoning_text");
+    let standard = Adapter::new(Profile::Responses, Dialect::Standard, None);
+    let expected = standard
+        .decode_response(snapshot.to_string().as_bytes())
+        .unwrap();
+    assert_eq!(static_value.semantic, expected.semantic);
+    let mut decoder = ResponsesSseDecoder::with_decoder(
+        200,
+        "text/event-stream",
+        SseLimits::default(),
+        provider.event_decoder(),
+    )
+    .unwrap();
+    let mut events = vec![];
+    let mut owner = None;
+    for event in &source {
+        let bytes = format!("data: {event}\n\n");
+        let (n, decoded) = decoder.consume(bytes.as_bytes()).unwrap();
+        assert_eq!(n, bytes.len());
+        for e in &decoded {
+            if let StreamEvent::ItemStarted {
+                item,
+                kind: ItemKind::Reasoning,
+                ..
+            } = e
+            {
+                owner = Some(*item);
+            }
+            if event["type"] != "response.completed" {
+                assert!(!matches!(e,StreamEvent::ItemFinished{item,..} if Some(*item)==owner));
+            }
+        }
+        events.extend(decoded);
+    }
+    decoder.finish().unwrap();
+    let decoded = decoder.materialize().unwrap();
+    assert_eq!(decoded.semantic, expected.semantic);
+    let Item::Reasoning(reasoning) = &decoded.semantic.items()[0].1 else {
+        panic!("reasoning owner");
+    };
+    assert!(matches!(&reasoning.parts[0].1,ReasoningContent::Text(t) if t.as_str()=="brief"));
+    let mut encoder = EventEncoder::new(Profile::Responses, decoded.metadata.clone()).unwrap();
+    let mut consumer = standard.event_decoder();
+    let mut done = false;
+    for event in events {
+        for wire in encoder.encode(&event, &decoded.fidelity).unwrap() {
+            done |= wire["type"] == "response.reasoning_text.done";
+            consumer.push(&wire).unwrap();
+        }
+    }
+    encoder.finish().unwrap();
+    consumer.finish().unwrap();
+    assert!(done);
+    assert_eq!(consumer.materialize().unwrap().semantic, expected.semantic);
+    let mut edited = decoded;
+    edited.semantic = edited
+        .semantic
+        .clone()
+        .with_items(edited.semantic.items()[1..].to_vec(), Completion::Stop)
+        .unwrap();
+    let projected = provider
+        .encode_response(&edited, &Contract::full())
+        .unwrap();
+    assert_eq!(projected["output"].as_array().unwrap().len(), 1);
+    assert_eq!(projected["output"][0]["type"], "message");
+    // Even with canonical part tags, a standard source needs its lifecycle.
+    let mut canonical_source = source;
+    canonical_source.last_mut().unwrap()["response"]["output"][0]["content"][0]["type"] =
+        json!("reasoning_text");
+    let mut strict = standard.event_decoder();
+    assert!(canonical_source.iter().any(|e| strict.push(e).is_err()));
+}
+
+#[test]
+fn terminal_reasoning_snapshot_cannot_recover_missing_text_identity_or_other_lifecycles() {
+    let provider = Adapter::new(Profile::Responses, Dialect::Nvidia, None);
+    let (_, source) = terminal_reasoning_fixture();
+    for (path, value) in [
+        ("/response/output/0/id", json!("other")),
+        ("/response/output/0/status", json!("in_progress")),
+        ("/response/output/0/status", Value::Null),
+        ("/response/output/0/content/0/text", json!("changed")),
+        (
+            "/response/output/0/content/0",
+            json!({"text":"brief","unknown":true}),
+        ),
+    ] {
+        let mut invalid = source.clone();
+        *invalid.last_mut().unwrap().pointer_mut(path).unwrap() = value;
+        let mut decoder = provider.event_decoder();
+        assert!(invalid.iter().any(|e| decoder.push(e).is_err()));
+        assert!(decoder.push(source.last().unwrap()).is_err());
+        assert!(decoder.finish().is_err());
+        assert!(decoder.materialize().is_err());
+    }
+    for removed_type in [
+        "response.reasoning_text.delta",
+        "response.output_item.done",
+        "response.completed",
+    ] {
+        let mut decoder = provider.event_decoder();
+        let failed = source
+            .iter()
+            .filter(|e| e["type"] != removed_type)
+            .any(|e| decoder.push(e).is_err());
+        assert!(failed || decoder.finish().is_err());
+        assert!(decoder.materialize().is_err());
+    }
+}
+
 fn billing_view(value: &mut Value) {
     value["billing"] = Value::Null;
     value["frequency_penalty"] = json!(0.25);

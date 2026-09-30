@@ -115,11 +115,6 @@ fn extract(o: &mut Map<String, Value>, profile: Profile) -> Result<Extras, Codec
 /// Only a single text response's duplicate counters are a derived view.
 /// Tool charges or modality breakdowns need their own semantic ownership.
 fn response_billing_view(o: &mut Map<String, Value>) -> Result<(), CodecError> {
-    if let Some(billing) = o.shift_remove("billing")
-        && !billing.is_null()
-    {
-        return Err(CodecError::Unsupported("active response billing".into()));
-    }
     let Some(usage) = o.get_mut("usage").and_then(Value::as_object_mut) else {
         return Ok(());
     };
@@ -197,6 +192,7 @@ pub(crate) fn decode<'a>(
     if !adaptation.rules.routing_extras
         && !adaptation.rules.reasoning_alias
         && !adaptation.rules.responses_reasoning_format
+        && !adaptation.rules.responses_reasoning_text_shorthand
         && !adaptation.rules.chat_stop_diagnostics
         && !adaptation.rules.reported_request_id
         && !adaptation.rules.zero_usage_details
@@ -204,6 +200,7 @@ pub(crate) fn decode<'a>(
         && !adaptation.rules.responses_usage_detail_view
         && !adaptation.rules.text_usage_total_view
         && !adaptation.rules.responses_billing_view
+        && !adaptation.rules.null_response_billing
         && !adaptation.rules.responses_inactive_state
     {
         return Ok((Cow::Borrowed(value), Extras::new()));
@@ -235,6 +232,13 @@ pub(crate) fn decode<'a>(
                 }
             }
         }
+    }
+    if profile == Profile::Responses
+        && adaptation.rules.null_response_billing
+        && let Some(billing) = o.shift_remove("billing")
+        && !billing.is_null()
+    {
+        return Err(CodecError::Unsupported("active response billing".into()));
     }
     if profile == Profile::Responses && adaptation.rules.responses_inactive_state {
         if o.get("previous_response_id").and_then(Value::as_str) == Some("") {
@@ -352,15 +356,41 @@ pub(crate) fn decode<'a>(
         }
     }
     if profile == Profile::Responses
-        && adaptation.rules.responses_reasoning_format
+        && (adaptation.rules.responses_reasoning_format
+            || adaptation.rules.responses_reasoning_text_shorthand)
         && let Some(items) = o.get_mut("output").and_then(Value::as_array_mut)
     {
         for item in items {
-            reasoning_marker(item)?;
+            if adaptation.rules.responses_reasoning_format {
+                reasoning_marker(item)?;
+            }
+            if adaptation.rules.responses_reasoning_text_shorthand {
+                reasoning_text_shorthand(item)?;
+            }
         }
     }
     Ok((Cow::Owned(value), extras))
 }
+/// The containing reasoning item determines the only admitted content kind.
+/// Reject unknown shorthand fields instead of turning arbitrary objects into text.
+pub(crate) fn reasoning_text_shorthand(value: &mut Value) -> Result<(), CodecError> {
+    if value.get("type").and_then(Value::as_str) == Some("reasoning")
+        && let Some(parts) = value.get_mut("content").and_then(Value::as_array_mut)
+    {
+        for part in parts {
+            if let Some(part) = part.as_object_mut()
+                && !part.contains_key("type")
+            {
+                if part.len() != 1 || !part.get("text").is_some_and(Value::is_string) {
+                    return Err(CodecError::Invalid("reasoning text shorthand"));
+                }
+                part.insert("type".into(), Value::String("reasoning_text".into()));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A known syntax marker is redundant with the admitted Responses reasoning
 /// codec. Unknown formats must not borrow that codec's replay semantics.
 pub(crate) fn reasoning_marker(value: &mut Value) -> Result<(), CodecError> {

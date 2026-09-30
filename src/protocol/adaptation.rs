@@ -54,8 +54,11 @@ pub struct WireRules {
     /// modality breakdowns require typed ownership instead of silently dropping.
     /// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>.
     pub text_usage_total_view: bool,
-    /// Null billing placeholder and one exactly redundant response_api usage row.
-    /// Conflicts, independent breakdowns and unknown billing fields remain errors.
+    /// Only an explicit null billing placeholder is inactive. Real billing needs
+    /// its own owner; this does not admit or discard vendor usage detail views.
+    pub null_response_billing: bool,
+    /// One exactly redundant response_api usage row. Conflicts, independent
+    /// breakdowns and unknown billing fields remain errors.
     /// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses>.
     pub responses_billing_view: bool,
     /// A created/queued snapshot emits Queued, not Started. Only a subsequent
@@ -65,6 +68,13 @@ pub struct WireRules {
     /// content_index. Preserve Summary semantics and validate final snapshots.
     /// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses>.
     pub responses_summary_text_alias: bool,
+    /// Only reasoning.content entries containing exactly a text string may omit
+    /// their reasoning_text tag. No other item/part discriminator is inferred.
+    pub responses_reasoning_text_shorthand: bool,
+    /// A real completed snapshot may close open readable reasoning only when
+    /// identity, explicit completed status and all received content match exactly.
+    /// Never supply text, close message/tool parts or finalize opaque replay here.
+    pub responses_terminal_reasoning: bool,
     /// Empty previous_response_id and empty/null conversation_id are inactive
     /// response placeholders, never permission to resolve or replay remote state.
     /// Source: <https://docs.bigmodel.cn/cn/guide/develop/responses/introduction>.

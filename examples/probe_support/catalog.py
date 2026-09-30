@@ -6,7 +6,7 @@ BINDINGS = (
         "nemotron-3-super",
         "nvidia-primary",
         "OPENBRIDGE_NVIDIA_API_KEY",
-        ("chat",),
+        ("chat", "responses"),
     ),
     (
         "deepseek",

@@ -314,7 +314,10 @@ pub const API_KEY_BINDINGS: &[ApiKeyBinding] = &[
         upstream: "nvidia/nemotron-3-super-120b-a12b",
         credential: "nvidia-api-key",
         variable: "OPENBRIDGE_NVIDIA_API_KEY",
-        protocols: &[ProtocolProfile::OpenAiChat],
+        protocols: &[
+            ProtocolProfile::OpenAiResponses,
+            ProtocolProfile::OpenAiChat,
+        ],
     },
     ApiKeyBinding {
         provider: "bailian",

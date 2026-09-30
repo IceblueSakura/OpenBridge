@@ -301,6 +301,13 @@ fn responses_done_trailer_requires_a_real_terminal_and_cannot_repeat() {
     for (dialect, wire, accepted) in [
         (Dialect::OpenRouter, format!("{body}data: [DONE]\n\n"), true),
         (Dialect::Zhipu, format!("{body}data: [DONE]\n\n"), true),
+        (Dialect::Nvidia, format!("{body}data: [DONE]\n\n"), true),
+        (Dialect::Nvidia, "data: [DONE]\n\n".into(), false),
+        (
+            Dialect::Nvidia,
+            format!("{body}data: [DONE]\n\ndata: [DONE]\n\n"),
+            false,
+        ),
         (Dialect::Zhipu, "data: [DONE]\n\n".into(), false),
         (
             Dialect::Zhipu,
