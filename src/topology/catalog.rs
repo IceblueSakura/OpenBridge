@@ -109,7 +109,10 @@ fn endpoint(
         } else if matches!(
             (dialect, upstream_model),
             (crate::adapter::Dialect::DeepSeek, "deepseek-flash")
-                | (crate::adapter::Dialect::Xiaomi, "mimo-v2.6-flash")
+                | (
+                    crate::adapter::Dialect::Xiaomi,
+                    "mimo-v2.6-flash" | "mimo-v2.6-pro"
+                )
         ) {
             image_contract(replay_origin)
         } else {
@@ -239,7 +242,7 @@ pub fn mimo_v2_6_pro() -> PublicModel {
         id: ModelId::new("mimo-v2.6-pro").expect("static identity"),
         task: TaskKind::Generation,
         route: RouteId::new("xiaomi-generation").expect("static identity"),
-        contract: wire_contract(None),
+        contract: image_contract(None),
     }
 }
 

@@ -79,6 +79,47 @@ class ProbeCoreTests(unittest.TestCase):
                     offset += size + 12
                 self.assertEqual(pixels, (b"\x00"+rgb*192)*192)
 
+    def test_visual_reasoning_matrix_budget_and_pixel_counts_have_independent_oracles(self):
+        import base64
+        import struct
+        import zlib
+        from probe_support.scenarios import plan_groups, expect_visual_math
+        from probe_support.images import visual_math_history
+        with tempfile.TemporaryDirectory() as temp:
+            run = Run.create(Path(temp)/"run",providers="xiaomi",
+                models=["mimo-v2.6-pro"],limit=24,tokens=2048)
+            groups = [group for effort in ("none","minimal","medium")
+                for group in plan_groups(run,run.plan["models"],cases=("image","image_math"),effort=effort)]
+            self.assertEqual(sum(group[5] for group in groups),24)
+            self.assertEqual(len(set(group[4] for group in groups)),24)
+            self.assertTrue(all(group[6]==(512 if group[3]=="image" else 2048) for group in groups))
+        for protocol in ("chat","responses"):
+            content = visual_math_history(protocol)[0]["content"]
+            self.assertEqual(len(content),4)
+            counts = []
+            for index in (1,3):
+                url = content[index]["image_url"]
+                if protocol=="chat": url=url["url"]
+                png = base64.b64decode(url.split(",",1)[1],validate=True)
+                offset, data = 8, bytearray()
+                while offset<len(png):
+                    size = struct.unpack(">I",png[offset:offset+4])[0]
+                    if png[offset+4:offset+8]==b"IDAT": data.extend(png[offset+8:offset+8+size])
+                    offset += size+12
+                pixels = zlib.decompress(data)
+                rgb = [pixels[row*(1+192*3)+1:row*(1+192*3)+1+192*3] for row in range(192)]
+                colors = [rgb[y*64+32][(x*64+32)*3:(x*64+32)*3+3] for y in range(3) for x in range(3)]
+                counts.append((colors.count(bytes((255,0,0))),colors.count(bytes((0,0,255)))))
+            self.assertEqual(counts,[(5,4),(3,6)])
+            answer=counts[0][0]*counts[1][1]-counts[0][1]*counts[1][0]
+            self.assertEqual(answer,18)
+            expect_visual_math(json.dumps({"answer":answer}),[],[])
+        for text,code in (('{"answer":17}','visual_math_value'),
+            ('{"answer":"18"}','visual_math_format'),('{"answer":18,"extra":0}','visual_math_format'),
+            ('{"answer":17,"answer":18}','visual_math_format')):
+            with self.assertRaises(ProbeFailure) as raised: expect_visual_math(text,[],[])
+            self.assertEqual(raised.exception.code,code)
+
     def test_plan_cannot_be_mutated_in_memory_and_expiry_preserves_readback(self):
         with tempfile.TemporaryDirectory() as temp:
             run = Run.create(Path(temp) / "run", limit=1)

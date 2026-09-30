@@ -28,8 +28,9 @@ uv run --project tests/sdk --locked --offline python examples/probe.py report te
 - Provider 只取固定 catalog 中的 API-key 绑定；不跟随 OAuth 文件，不轮换/改写 key。实际客户端只获得临时 gateway token。
 - `plan --model` 可重复，将所选 Provider 缩小到精确模型子集。重复、未知或不属于所选 Provider 的模型在读取凭据前拒绝。省略模型筛选则包含所选 Provider 的全部已登记测试绑定，不能将此默认扩大解释为授权。
 - `run --model` 可重复，必须属于计划；`--protocol chat|responses`、`--delivery json|sse` 缩小范围。`--effort none|minimal|medium` 是明确请求控制，不自动改默认。
-- cases：`text`、`json`、`tool`、`history`、`length`、`cancel`、`image`；`reasoning` 的目标限制读取 `examples/probe_support/scenarios.py`，不得套用到任意模型。
+- cases：`text`、`json`、`tool`、`history`、`length`、`cancel`、`image`、`image_math`；`reasoning` 的目标限制读取 `examples/probe_support/scenarios.py`，不得套用到任意模型。
 - `image` 每个协议/交付一请求，使用程序生成的两张无敏感 PNG 与交错文本，oracle 检查按图片顺序返回颜色；最多 512 输出 token，可显式 `--effort none`。不下载图片、不使用账号文件资源、不保存图片或正文；模型准入必须按 catalog 现场查询。独立 PNG 像素/预算守卫在 `tests/sdk/test_probe_core.py`，此场景不证明一般视觉理解质量。
+- `image_math` 每个协议/交付一请求，先从两张程序生成的方块图获得视觉计数，再计算固定算术式，以严格 JSON 数值 oracle 验收；预算取 run 的 token cap（最多 2048）。图片像素、计数和算术预期由独立离线检查保护。可用相同输入分别选取 `--effort none|minimal|medium`；档位的真实语义和支持按官方页面现场核对，不从名称推导强度排序。
 - `history` 每个交付四请求，两个实际 lookup 调用/返回；`length` 是 8-token Chat 截断，只有这一场景接受 length；`cancel` 是 Chat SSE 提前关闭和后续普通请求，不证明 Provider 停算/停止计费。
 - 默认串行、SDK 零重试，精确限制目标 origin/port/path、model、请求大小、输出 cap 与完整序列化历史。不会因省略 filter 而跳出 run 的模型集合。
 - 所有组在 I/O 前登记；未执行的请求显示 `not_run`，中断的 reservation/dispatched 不算通过。HTTP/传输/wire/配置错误停止该目标；工具链失败跳过其依赖轮次。只有计划明确 `--continue-oracle` 时，内容/预期终态失败后才继续独立组。不自动重复失败请求。
@@ -41,7 +42,9 @@ uv run --project tests/sdk --locked --offline python examples/probe.py report te
 
 实际网络 send 强制流式读取，即使请求 JSON，也先检查 raw 字节预算再交给 SDK。SSE 观察有独立 frame/event/text 上限；终态所在 chunk 保留到真实 HTTP EOF 后再交给会在 DONE 停读的 SDK，防止尾随数据被藏起来。错误使观察状态不可恢复。观察器只针对网关输出，不取代 Rust codec 或完整 SSE 标准验证。
 
-结果分列：`sdk_consumed`、`wire_closed`、`terminal`、`content_ok`、`history_ok`。SDK 成功解析不自动证明 wire 闭合；HTTP 200 不代表生成完成；`length` 不转成 stop。严格文本/JSON/工具 oracle 使用显式异常检查，`python -O` 不会绕过。工具结果要求实际调用和关联正确，并满足明确返回值，不用子串出现代替语义正确。stdout 和持久报告不保存正文、参数、reasoning、opaque 或 credential。
+结果分列：`sdk_consumed`、`wire_closed`、`terminal`、`content_ok`、`history_ok`。SDK 成功解析不自动证明 wire 闭合；HTTP 200 不代表生成完成；`length` 不转成 stop。`oracle_failure` 只保存封闭分类，视觉算术的 JSON 格式失败与数值不符分别记录；不会保存异常消息或模型正文，也不会通过解析代码围栏来放宽 oracle。严格文本/JSON/工具 oracle 使用显式异常检查，`python -O` 不会绕过。工具结果要求实际调用和关联正确，并满足明确返回值，不用子串出现代替语义正确。stdout 和持久报告不保存正文、参数、reasoning、opaque 或 credential。
+
+`reported_input_tokens`、`reported_output_tokens`、`reported_reasoning_tokens`、`reported_image_tokens`、`reported_cached_tokens` 仅取 SDK 消费到的实际 reported usage；缺省/null 为未知，不补零，不从可读文本长度估计。非成功 terminal 携带的 actual usage 同样可记录，但不因此标记成功。`reasoning_chars` 按 Chat/Responses 各自 owner 统计可读视图（含 summary/content），排除 opaque 值且避免重复载体计数；它不是推理 token 的替代品。对照时分别报告协议、交付、场景、终态和 oracle。单次耗时包含网络、缓存、生成和消费影响；顺序执行的小样本不能证明档位因果排序、一般模型质量、缓存收益或计费差异。
 
 `ledger.sqlite3` 是权威账本，`summary.json` 是原子替换的派生视图。状态为 `reserved/dispatched/passed/oracle_failed/failed/cancelled/not_run`；取消是预期测试动作，不是成功生成终态。报表字段使用封闭枚举和有界数值，不能借 arbitrary error/message/header 字段保存私有值。
 

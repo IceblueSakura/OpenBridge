@@ -3,8 +3,8 @@
 import json
 import time
 from .checks import ProbeFailure, require
-from .codecs import chat_result, response_result, opaque_records
-from .ledger import MODELS
+from .codecs import chat_result, response_result, opaque_records, reasoning_chars
+from .ledger import MODELS, ENUMS
 from .runtime import session
 
 TOOL = {
@@ -76,6 +76,7 @@ def call(
                 result,
                 streaming,
                 allowed_finishes=("stop", "tool_calls", "length", "content_filter"),
+                metrics=metrics,
             )
             actual = (
                 transport.wire.terminal
@@ -83,16 +84,14 @@ def call(
                 else result.choices[0].finish_reason
             )
         else:
-            output, text, calls = response_result(result, streaming)
+            output, text, calls = response_result(result, streaming, metrics=metrics)
             actual = "response.completed"
         metrics.update(
             sdk_consumed=True,
             terminal=actual,
             text_chars=len(text),
             tool_calls=len(calls),
-            reasoning_chars=sum(
-                len(item.get("reasoning_content") or "") for item in output
-            ),
+            reasoning_chars=reasoning_chars(output, protocol),
         )
         require(transport.wire.closed, "missing_wire_eof", "wire")
         if streaming:
@@ -141,6 +140,11 @@ def call(
             "setup",
         ):
             kind = "unknown"
+        if kind == "oracle":
+            code = getattr(error, "code", "other")
+            metrics["oracle_failure"] = (
+                code if isinstance(code, str) and code in ENUMS["oracle_failure"] else "other"
+            )
         metrics.update(
             failure=kind, elapsed_ms=round((time.monotonic() - started) * 1000)
         )
@@ -186,6 +190,24 @@ def expect_json(text, calls, output):
     )
 
 
+def expect_visual_math(text, calls, output):
+    def unique_object(pairs):
+        value = {}
+        for key, child in pairs:
+            require(key not in value, "visual_math_format")
+            value[key] = child
+        return value
+
+    try:
+        value = json.loads(text, object_pairs_hook=unique_object)
+    except ValueError:
+        raise ProbeFailure("visual_math_format") from None
+    require(not calls, "visual_math_calls")
+    require(isinstance(value, dict) and set(value) == {"answer"}
+        and type(value["answer"]) is int, "visual_math_format")
+    require(value["answer"] == 18, "visual_math_value")
+
+
 def expect_call(key):
     def check(text, calls, output):
         require(len(calls) == 1, "tool_count")
@@ -225,6 +247,7 @@ def plan_groups(
                             "cancel",
                             "reasoning",
                             "image",
+                            "image_math",
                         ),
                         "case",
                         "setup",
@@ -252,6 +275,7 @@ def plan_groups(
                         "history": 4,
                         "reasoning": 2,
                         "image": 1,
+                        "image_math": 1,
                     }[case]
                     cap = 8 if case == "length" else min(512 if case == "image" else 2048, run.plan["tokens"])
                     require(cap <= run.plan["tokens"], "case_budget", "budget")
@@ -305,15 +329,18 @@ def matrix(
                 )
 
             try:
-                if case == "image":
-                    from .images import image_history
+                if case in ("image", "image_math"):
+                    from .images import image_history, visual_math_history
 
                     # The explicit vision preset uses effort only, no unrelated summary control.
                     controls = (
                         {"reasoning_effort": effort} if proto == "chat"
                         else {"reasoning": {"effort": effort}}
                     ) if effort is not None else {}
-                    invoke(1, image_history(proto), extra=controls, oracle=expect_text("red,blue"))
+                    invoke(1,
+                        image_history(proto) if case == "image" else visual_math_history(proto),
+                        extra=controls,
+                        oracle=expect_text("red,blue") if case == "image" else expect_visual_math)
                 elif case in ("text", "json", "length", "cancel"):
                     prompt = {
                         "text": "Reply with exactly pong.",

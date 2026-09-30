@@ -48,6 +48,10 @@ NUMBERS = {
     "reasoning_chars",
     "tool_calls",
     "reported_output_tokens",
+    "reported_input_tokens",
+    "reported_reasoning_tokens",
+    "reported_image_tokens",
+    "reported_cached_tokens",
     "handed_off_bytes",
     "received_bytes",
     "upstream_head_ms",
@@ -62,6 +66,10 @@ BOOLS = {
     "exact_answer",
 }
 ENUMS = {
+    "oracle_failure": {
+        "exact_text", "visual_math_format", "visual_math_value",
+        "visual_math_calls", "unexpected_terminal", "other",
+    },
     "operator_outcome": {"error", "interrupted", "timeout", "shutdown", "complete"},
     "stage": {
         "admission",
