@@ -15,13 +15,13 @@
 
 [OpenRouter Luna 的 binary/SDK 证据](../implementation-status/evidence/2026-09-29-openrouter-luna-acceptance.md)已覆盖选定文本/工具正常路径；[reasoning 专项](../implementation-status/evidence/2026-09-29-reasoning-continuation-acceptance.md)还覆盖了该目标的两轮加密状态回放。后续优先选择尚未覆盖的真实失败路径、带实际加密状态的工具/更长续轮或具体 Agent/缓存场景，不把相同成功矩阵无限重复。
 
-[八家 API-key 接入](../architecture-v2/api-key-text-profiles.md)已建立固定绑定和 pi 配置所需的 Chat 文本数组入口；后续真实探测优先 NVIDIA，Kimi 暂停调用但保留产品绑定；百炼等待有效 key/地域确认，再收敛已观察失败与选定配置下的模型输出遵循问题，具体证据见 [onboarding evidence](../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)。[定向跟进](../implementation-status/evidence/2026-09-29-provider-followup.md)已区分测试中继认证缺陷、MiMo 大小写遵循问题与账号余额相关拒绝；后续先确认有效 key/地域及账户状态，不以 retry 或 codec 宽松化代替账号修复。MiMo 可显式对比 minimal，但不静默改变已请求的 effort。不把未准入 native Responses、Codex/OAuth 或全量模型目录混入已完成绑定；不以重复成功矩阵替代失败诊断。
+[API-key 接入](../architecture-v2/api-key-text-profiles.md)已建立固定绑定和 pi 所需的 Chat 文本数组入口。[Flash / LongCat / 百炼验收](../implementation-status/evidence/2026-09-30-flash-longcat-bailian-acceptance.md)之后，不再把新增 Flash、LongCat 原生 Responses 接线或百炼换 key 作为待办。下一批如获授权，应优先定位 LongCat 响应头前的工具请求超时并补齐其 SSE，再核对 Flash/百炼极低输出预算的失败边界，而非重复已通过的正常矩阵；不以延长 deadline、自动 retry 或 codec 宽松化掩盖问题。Kimi 仍暂停调用但保留产品绑定，NVIDIA 的已观察失败按下段跟进。MiMo 可显式对比 minimal，但不静默改变已请求的 effort。不把尚未准入的其他 native Responses、Codex/OAuth 或全量模型目录混入已完成绑定。
 
 [NVIDIA 定向边界](../implementation-status/evidence/2026-09-30-nvidia-boundaries.md)已区分默认 JSON 预算截断、显式 none 的可用对照，以及仍未定位的续轮 502。[Probe 收敛](../probes.md)已提供共享预算、仓库内 pi 与原调用诊断，不再把这些基础设施写成待重建。后续需要新授权批次时，针对已定位到 intake 的 NVIDIA HTTP-200 SSE 失败获取最小独立反例，再决定是否修改 adapter；历史错误不自动认定同因。不重复已通过矩阵来替代根因定位，不把未观察到 429 当作限流验收。
 
 后续更多仅支持 `reasoning_content` 的模型按可读 reasoning profile 验收：分别检查正文/推理归属、工具历史、JSON/SSE 与变换保真，不要求其生成密文，也不借用加密状态的来源约束。遇到独立签名或 opaque continuation 时再固定其格式和 owner 合同；不为尚未选定的模型预建通用透传。
 
-已有[库级 Flash 证据](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)不证明新 HTTP 接线，也不会自动改变正式模型绑定。真实调用与付费请求仍需独立授权；方向文档不授予账号、部署、提交或推送权限。
+历史[库级 Flash 证据](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)仍只证明当时库级路径；现有正式绑定与 binary 验收分别由 catalog 和上述新证据维护。真实调用与付费请求仍需独立授权；方向文档不授予账号、部署、提交或推送权限。
 
 ## 下一片需选定的边界
 

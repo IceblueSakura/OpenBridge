@@ -23,6 +23,26 @@ def reserve_worker(path, number):
 
 
 class ProbeCoreTests(unittest.TestCase):
+    def test_model_subset_is_enforced_by_persistent_reservations(self):
+        from probe_support.scenarios import plan_groups
+
+        with tempfile.TemporaryDirectory() as temp:
+            run = Run.create(
+                Path(temp) / "run",
+                providers="xiaomi,longcat",
+                models=["mimo-v2.6-flash", "longcat-2.5-preview"],
+                limit=72,
+            )
+            run = Run(run.directory)
+            with self.assertRaises(ProbeFailure):
+                run.reserve("mimo-v2.6-pro", "unselected", 8)
+            groups = plan_groups(
+                run, run.plan["models"],
+                cases=("text", "json", "tool", "history", "length", "cancel"),
+            )
+            self.assertEqual(sum(group[5] for group in groups), 72)
+            run.reserve("mimo-v2.6-flash", "selected", 8)
+
     def test_plan_cannot_be_mutated_in_memory_and_expiry_preserves_readback(self):
         with tempfile.TemporaryDirectory() as temp:
             run = Run.create(Path(temp) / "run", limit=1)

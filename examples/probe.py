@@ -17,6 +17,9 @@ def main():
     plan = sub.add_parser("plan")
     plan.add_argument("directory")
     plan.add_argument("--providers", default="nvidia")
+    plan.add_argument(
+        "--model", action="append", help="Narrow the selected providers to exact models"
+    )
     plan.add_argument("--limit", type=int, default=32)
     plan.add_argument("--tokens", type=int, default=2048)
     plan.add_argument("--continue-oracle", action="store_true")
@@ -39,7 +42,7 @@ def main():
     )
     args = parser.parse_args()
     if args.command == "plan":
-        rows = select_bindings(args.providers)
+        rows = select_bindings(args.providers, models=args.model)
         require(
             1 <= args.limit <= 256 and 1 <= args.tokens <= 2048, "plan_budget", "setup"
         )
@@ -57,6 +60,7 @@ def main():
         created = Run.create(
             args.directory,
             providers=args.providers,
+            models=args.model,
             limit=args.limit,
             tokens=args.tokens,
             continue_oracle=args.continue_oracle,

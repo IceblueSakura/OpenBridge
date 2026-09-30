@@ -40,6 +40,7 @@ const CALL_INTERVAL: Duration = Duration::from_secs(2);
 const CAPTURE_LIMIT: usize = 2 * 1024 * 1024;
 
 const TEXT_PROMPT: &str = "Reply with exactly the word pong.";
+const LENGTH_PROMPT: &str = "Write alpha 200 times separated by spaces. Do not summarize.";
 const JSON_PROMPT: &str = "Return a JSON object with keys pong (boolean) and note (string).";
 const TOOL_PROMPT: &str = "Use the lookup tool to find the value for key \"alpha\", then report it in one short sentence.";
 const TOOL_OUTPUT: &str = "{\"value\": 42}";
@@ -53,7 +54,7 @@ struct ModelSpec {
     responses_endpoint: Option<&'static str>,
 }
 
-const MODELS: [ModelSpec; 8] = [
+const MODELS: [ModelSpec; 9] = [
     ModelSpec {
         label: "deepseek-flash",
         pool: "deepseek-primary",
@@ -71,6 +72,14 @@ const MODELS: [ModelSpec; 8] = [
         responses_endpoint: Some("xiaomi-responses"),
     },
     ModelSpec {
+        label: "mimo-v2.6-flash",
+        pool: "mimo-primary",
+        provider: "xiaomi",
+        models_path: "/v1/models",
+        chat_endpoint: "xiaomi-flash-chat",
+        responses_endpoint: Some("xiaomi-flash-responses"),
+    },
+    ModelSpec {
         label: "gpt-6-luna",
         pool: "openrouter-primary",
         provider: "openrouter",
@@ -84,7 +93,7 @@ const MODELS: [ModelSpec; 8] = [
         provider: "longcat",
         models_path: "/openai/v1/models",
         chat_endpoint: "longcat-chat",
-        responses_endpoint: None,
+        responses_endpoint: Some("longcat-responses"),
     },
     ModelSpec {
         label: "nemotron-3-super",
@@ -125,6 +134,7 @@ enum Case {
     Text,
     JsonObject,
     Tool,
+    Length,
 }
 
 impl Case {
@@ -133,12 +143,14 @@ impl Case {
             Self::Text => "text",
             Self::JsonObject => "json_object",
             Self::Tool => "tool",
+            Self::Length => "length",
         }
     }
 
     fn cap(self) -> u64 {
         match self {
             Self::Text => 64,
+            Self::Length => 8,
             Self::JsonObject | Self::Tool => 192,
         }
     }
@@ -245,6 +257,7 @@ fn scenario_request(
                 Case::Text => TEXT_PROMPT,
                 Case::JsonObject => JSON_PROMPT,
                 Case::Tool => TOOL_PROMPT,
+                Case::Length => LENGTH_PROMPT,
             }})];
             if round == 2 {
                 let call = call.expect("round two carries a tool call");
@@ -275,6 +288,7 @@ fn scenario_request(
                 Case::Text => TEXT_PROMPT,
                 Case::JsonObject => JSON_PROMPT,
                 Case::Tool => TOOL_PROMPT,
+                Case::Length => LENGTH_PROMPT,
             };
             let mut input =
                 vec![json!({"role":"user","content":[{"type":"input_text","text":prompt}]})];
@@ -831,12 +845,15 @@ async fn run_call_inner(
         };
     }
     let scenario_ok = finished.semantic.outcome()
-        == if ctx.case == Case::Tool && round == 1 {
+        == if ctx.case == Case::Length {
+            Outcome::Incomplete
+        } else if ctx.case == Case::Tool && round == 1 {
             Outcome::Completed(Completion::ToolCalls)
         } else {
             Outcome::Completed(Completion::Stop)
         }
         && match ctx.case {
+            Case::Length => tool_call.is_none(),
             Case::Text => text.trim() == "pong",
             Case::JsonObject => serde_json::from_str::<Value>(&text)
                 .ok()
@@ -1213,6 +1230,7 @@ async fn main() {
         &[
             "deepseek-flash",
             "mimo-v2.6-pro",
+            "mimo-v2.6-flash",
             "gpt-6-luna",
             "longcat-2.5-preview",
             "nemotron-3-super",
@@ -1224,7 +1242,10 @@ async fn main() {
     let only = Some(only.unwrap_or_else(|| "nemotron-3-super".into()));
     probe_control::call("check", json!({"model":only.as_deref().unwrap()}));
     let protocol_only = selection("OPENBRIDGE_PROBE_PROTOCOL", &["chat", "responses"]);
-    let case_only = selection("OPENBRIDGE_PROBE_CASE", &["text", "json_object", "tool"]);
+    let case_only = selection(
+        "OPENBRIDGE_PROBE_CASE",
+        &["text", "json_object", "tool", "length"],
+    );
     let delivery_only = selection("OPENBRIDGE_PROBE_DELIVERY", &["json", "sse"]);
     let cap = std::env::var("OPENBRIDGE_PROBE_MAX_TOKENS").ok().map(|s| {
         s.parse::<u64>()
@@ -1386,7 +1407,16 @@ async fn main() {
             let endpoint = topology
                 .endpoint(&EndpointId::new(endpoint_id).expect("endpoint id"))
                 .expect("compiled endpoint");
-            for case in CASES {
+            // The diagnostic truncation case is opt-in, never added to default matrices.
+            let cases = if case_only.as_deref() == Some("length") {
+                &[Case::Length][..]
+            } else {
+                &CASES[..]
+            };
+            for &case in cases {
+                if case == Case::Length && protocol != ProtocolProfile::OpenAiChat {
+                    continue;
+                }
                 if case_only.as_deref().is_some_and(|s| s != case.name()) {
                     continue;
                 }
@@ -1411,7 +1441,7 @@ async fn main() {
                     };
                     let mut request =
                         scenario_request(protocol, spec.label, case, delivery, 1, None);
-                    if let Some(cap) = cap {
+                    if let Some(cap) = cap.filter(|_| case != Case::Length) {
                         request[if protocol == ProtocolProfile::OpenAiChat {
                             "max_completion_tokens"
                         } else {
@@ -1524,6 +1554,21 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn length_diagnostic_matches_sdk_boundary_without_expanding_default_matrix() {
+        assert!(!CASES.contains(&Case::Length));
+        let request = scenario_request(
+            ProtocolProfile::OpenAiChat,
+            "m",
+            Case::Length,
+            Delivery::Json,
+            1,
+            None,
+        );
+        assert_eq!(request["max_completion_tokens"], 8);
+        assert_eq!(request["messages"][0]["content"], LENGTH_PROMPT);
+        assert!(request.get("tools").is_none());
+    }
     #[test]
     fn continuation_uses_actual_reasoning_and_call_history() {
         for protocol in [

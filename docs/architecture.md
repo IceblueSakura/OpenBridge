@@ -45,7 +45,7 @@ OpenRouter 的 routing/billing facts 使用同样的有界来源/响应依赖机
 
 最小 HTTP body worker 等待每个输出 frame 被 body poll 交给 server transport 后才确认 commit；完成所有 handoff 后才 complete，不声称客户端已收到。独立绝对 deadline 在 body 不被消费时仍释放上游，drop/shutdown 同样取消。首帧前失败返回脱敏 JSON 错误；HTTP response 已交出后的错误中止 body，不能换状态或合成成功终态。具体入口、预算与启动合同见 [HTTP 网关指南](http-gateway.md)和 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)。
 
-当前仅执行每个入口预先固定的一个 Route 成员，不做自动 retry/fallback。Provider 的 native Responses 路径可缺省；topology 编译会拒绝为未声明协议创建 Endpoint。额外五家 API-key 绑定当前仅开放 Chat，不用虚构的 Responses 路径填充结构。`tests/transport/chain.rs` 验证 library execution；`tests/gateway.rs` 经过真实 Router 和 synthetic HTTP Provider；固定 SDK 同时保留 codec fixture gates 与经过同一 Gateway 的独立全链 gate。`examples/live_probe.rs` 仍是另需授权的库级诊断入口，旧 live 结果不证明新服务入口的外部兼容。
+当前仅执行每个入口预先固定的一个 Route 成员，不做自动 retry/fallback。Provider 的 native Responses 路径可缺省；topology 编译会拒绝为未声明协议创建 Endpoint。LongCat 已声明原生 Responses，Xiaomi Pro/Flash 使用独立模型与 endpoint 绑定但共享凭据；NVIDIA、百炼、Kimi、智谱仍仅开放 Chat，不用虚构的 Responses 路径填充结构。`tests/transport/chain.rs` 验证 library execution；`tests/gateway.rs` 经过真实 Router 和 synthetic HTTP Provider；固定 SDK 同时保留 codec fixture gates 与经过同一 Gateway 的独立全链 gate。`examples/live_probe.rs` 仍是另需授权的库级诊断入口，旧 live 结果不证明新服务入口的外部兼容。
 
 ## 探测执行边界
 

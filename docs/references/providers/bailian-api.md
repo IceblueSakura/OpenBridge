@@ -1,6 +1,6 @@
 # 阿里云百炼 API 协议入口
 
-- Last reverified：2026-09-29 UTC；重读官方 Chat 与 Qwen3.8 Max 页面。2026-08-31 的 Responses 等来源与实测仍仅按当时边界解释。
+- Last reverified：2026-09-30 UTC；重读官方 Chat usage 定义。Qwen3.8 Max 模型页仍为 2026-09-29 基线，2026-08-31 的 Responses 等来源与实测仍仅按当时边界解释。
 - Recheck trigger：地域域名、兼容协议、认证、原生媒体 API 或 hosted tool 变化。
 
 ## 来源与范围
@@ -33,10 +33,11 @@ Chat 与 Responses 相对入口分别为 `/chat/completions` 和 `/responses`。
 - OpenAI-compatible、Anthropic-compatible 与 DashScope 原生协议拥有不同 request/response wire，不能仅凭模型名称互换。
 - 图片、音频、视频、hosted tool 和 reasoning 的具体支持集合随模型、region 和协议变化，应直接查阅官方模型页。
 - Models 目录或控制台可见性不证明账户 entitlement、参数组合、streaming 或长期可用性。
+- 官方 Chat 文档明确输出 `text_tokens` 包含 `reasoning_tokens`，后者是前者子集；不能把两者相加。纯文本场景中等于对应总计的重复 view 适配边界见 [API-key profiles](../../architecture-v2/api-key-text-profiles.md)，这不是任意媒体计数的映射。
 
 ## 执行证据
 
-本轮选定北京 Chat 绑定的来源规则（含固定 null message 占位字段）见 [API-key profiles](../../architecture-v2/api-key-text-profiles.md)；现有 key 的认证阻塞见 [onboarding evidence](../../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)，不据历史成功宣称当前认证或 v2 全链可用。
+本轮选定北京 Chat 绑定的来源规则（含固定 null message 占位字段）见 [API-key profiles](../../architecture-v2/api-key-text-profiles.md)；2026-09-29 当时 key 的认证阻塞见 [onboarding evidence](../../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)。更新凭据后的当前正常 Chat 全链验收、重复 usage view 和低预算超时见 [2026-09-30 evidence](../../implementation-status/evidence/2026-09-30-flash-longcat-bailian-acceptance.md)，不据任一批结果宣称所有账号/场景可用。
 
 2026-08-27 对 `glm-5.2`、`deepseek-v4-flash-0731` 与 `qwen3.8-max` 的真实北京 Responses 对比见[带日期证据记录](../../implementation-status/evidence/2026-08-27-bailian-responses-model-comparison.md)。2026-08-31 又以管理员工具确认 `deepseek-v4-flash-0731` 的有界 Responses JSON/SSE 均成功；该复核不扩张原记录中的 structured output、parallel 或 state 结论。本文不复制动态模型级结果。
 

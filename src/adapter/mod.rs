@@ -71,6 +71,7 @@ impl Dialect {
                     legacy_max_tokens: true,
                     chat_stop_diagnostics: true,
                     zero_usage_details: true,
+                    responses_usage_detail_view: true,
                     chunk_created_drift: true,
                     ..Default::default()
                 },
@@ -89,6 +90,7 @@ impl Dialect {
                     readable_reasoning: true,
                     legacy_max_tokens: true,
                     inactive_chat_fields: true,
+                    text_usage_total_view: true,
                     ..Default::default()
                 },
             ),

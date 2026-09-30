@@ -23,6 +23,13 @@ BINDINGS = (
         ("chat", "responses"),
     ),
     (
+        "xiaomi",
+        "mimo-v2.6-flash",
+        "mimo-primary",
+        "OPENBRIDGE_XIAOMI_API_KEY",
+        ("chat", "responses"),
+    ),
+    (
         "openrouter",
         "gpt-6-luna",
         "openrouter-primary",
@@ -34,7 +41,7 @@ BINDINGS = (
         "longcat-2.5-preview",
         "longcat-primary",
         "OPENBRIDGE_LONGCAT_API_KEY",
-        ("chat",),
+        ("chat", "responses"),
     ),
     (
         "bailian",
@@ -47,15 +54,23 @@ BINDINGS = (
 )
 
 
-def select_bindings(selection=None):
-    names = (
-        selection.split(",") if selection is not None else [row[0] for row in BINDINGS]
-    )
-    available = {row[0]: row for row in BINDINGS}
+def select_bindings(selection=None, *, models=None):
+    available = dict.fromkeys(row[0] for row in BINDINGS)
+    names = selection.split(",") if selection is not None else list(available)
     if (
         not names
         or len(set(names)) != len(names)
         or any(name not in available for name in names)
     ):
         raise RuntimeError("unknown, duplicate or paused provider selection")
-    return [available[name] for name in names]
+    rows = [row for name in names for row in BINDINGS if row[0] == name]
+    if models is not None:
+        admitted = {row[1] for row in rows}
+        if (
+            not models
+            or len(set(models)) != len(models)
+            or any(model not in admitted for model in models)
+        ):
+            raise RuntimeError("unknown, duplicate or out-of-provider model selection")
+        rows = [row for row in rows if row[1] in models]
+    return rows

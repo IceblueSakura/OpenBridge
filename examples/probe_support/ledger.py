@@ -127,11 +127,12 @@ class Run:
         directory,
         *,
         providers="nvidia",
+        models=None,
         limit=32,
         tokens=2048,
         continue_oracle=False,
     ):
-        rows = select_bindings(providers)
+        rows = select_bindings(providers, models=models)
         require(
             type(limit) is int
             and 1 <= limit <= 256

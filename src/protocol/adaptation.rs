@@ -32,6 +32,10 @@ pub struct WireRules {
     pub reported_request_id: bool,
     /// Normalize only explicit integer-zero unsupported usage details.
     pub zero_usage_details: bool,
+    /// Validate an exact duplicate Chat-named input detail view on Responses.
+    pub responses_usage_detail_view: bool,
+    /// Text-only profile: text counts must equal the corresponding total.
+    pub text_usage_total_view: bool,
     /// Documented null placeholders do not enable active media or legacy calls.
     pub inactive_chat_fields: bool,
 }

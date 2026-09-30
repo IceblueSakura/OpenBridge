@@ -237,6 +237,45 @@ fn chat_usage_events_normalize_only_absent_details_and_poison_invalid_reports() 
 }
 
 #[test]
+fn truncated_reasoning_usage_cannot_exceed_reported_output_or_recover_a_stream() {
+    let source = adapter(Profile::Chat, Dialect::Xiaomi, "a");
+    for reasoning in [8, 12] {
+        let usage = json!({"prompt_tokens":22,"completion_tokens":8,"total_tokens":30,
+            "completion_tokens_details":{"reasoning_tokens":reasoning},
+            "prompt_tokens_details":{"cached_tokens":0}});
+        let body = json!({"id":"c1","object":"chat.completion","created":2,"model":"m",
+            "choices":[{"index":0,"message":{"role":"assistant","content":"","reasoning_content":"synthetic partial thought","tool_calls":null},"finish_reason":"length"}],
+            "usage":usage});
+        let decoded = source.decode_response(body.to_string().as_bytes());
+        assert_eq!(decoded.is_ok(), reasoning == 8);
+        let mut decoder = source.event_decoder();
+        decoder.push(&json!({"id":"c1","object":"chat.completion.chunk","created":2,"model":"m",
+            "choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"synthetic partial thought"},"finish_reason":null}]})).unwrap();
+        let terminal = json!({"id":"c1","object":"chat.completion.chunk","created":2,"model":"m",
+            "choices":[{"index":0,"delta":{},"finish_reason":"length"}],"usage":usage});
+        let result = decoder.push(&terminal);
+        if reasoning == 8 {
+            result.unwrap();
+            decoder.done().unwrap();
+            assert_eq!(
+                decoder
+                    .materialize()
+                    .unwrap()
+                    .semantic
+                    .usage()
+                    .unwrap()
+                    .reasoning_tokens,
+                Some(8)
+            );
+        } else {
+            assert!(result.is_err());
+            assert!(decoder.done().is_err());
+            assert!(decoder.materialize().is_err());
+        }
+    }
+}
+
+#[test]
 fn chat_projection_cannot_attach_reasoning_to_a_user_message() {
     let responses = adapter(Profile::Responses, Dialect::Standard, "a");
     let request = responses.decode_request(json!({"model":"m","input":[

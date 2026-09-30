@@ -10,9 +10,9 @@
 |---|---|
 | `OPENBRIDGE_CLIENT_KEY` | 必填：单一入口 Bearer token，32–4096 个可打印 ASCII 非空白字符；应使用高熵随机值 |
 | `OPENBRIDGE_DEEPSEEK_API_KEY` | 可选：启用固定 catalog 中的 DeepSeek 模型 |
-| `OPENBRIDGE_XIAOMI_API_KEY` | 可选：启用固定 catalog 中的 Xiaomi 模型 |
+| `OPENBRIDGE_XIAOMI_API_KEY` | 可选：同时启用 `mimo-v2.6-pro` 与 `mimo-v2.6-flash` 的 Chat/Responses，共享凭据、分别绑定上游模型 |
 | `OPENBRIDGE_OPENROUTER_API_KEY` | 可选：启用 `gpt-6-luna`，固定上游 ID 为 `openai/gpt-6-luna` |
-| `OPENBRIDGE_LONGCAT_API_KEY` | 可选：启用 `longcat-2.5-preview`（上游 `LongCat-2.5-Preview`），当前仅 Chat |
+| `OPENBRIDGE_LONGCAT_API_KEY` | 可选：启用 `longcat-2.5-preview`（上游 `LongCat-2.5-Preview`）的 Chat/Responses |
 | `OPENBRIDGE_NVIDIA_API_KEY` | 可选：启用 `nemotron-3-super`（上游 `nvidia/nemotron-3-super-120b-a12b`），当前仅 Chat |
 | `OPENBRIDGE_BAILIAN_API_KEY` | 可选：启用北京百炼 `qwen3.8-max`，当前仅 Chat |
 | `OPENBRIDGE_KIMI_API_KEY` | 可选：启用中国开放平台 `kimi-k3`，当前仅 Chat |
@@ -21,7 +21,7 @@
 | `OPENBRIDGE_PROXY` | 可选：受信启动配置中的显式出站代理 URL；不继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` |
 | `OPENBRIDGE_PROBE_DIAGNOSTICS` | 可选：操作者指定的新建私有 JSONL 文件；默认关闭，不覆盖已有文件，不记录 payload |
 
-至少提供一个 Provider key；设置为空不等于禁用，而是配置错误。不输出凭据值，不生成默认入口密钥。模型绑定由 [`src/topology/catalog.rs`](../src/topology/catalog.rs)维护；未提供对应 key 的模型不在入口中开放。此前的 MiMo Flash 测试绑定不会自动进入服务。
+至少提供一个 Provider key；设置为空不等于禁用，而是配置错误。不输出凭据值，不生成默认入口密钥。模型绑定由 [`src/topology/catalog.rs`](../src/topology/catalog.rs)维护；未提供对应 key 的模型不在入口中开放。MiMo Flash 是显式固定绑定，不替换 MiMo Pro；未配置 key 时二者均不开放。
 
 在安全地提供上述环境变量后启动：
 
@@ -41,7 +41,7 @@ cargo run --locked --offline --bin openbridge
 - 所有路由先检查唯一的 `Authorization: Bearer …`，认证通过后才进行应用层 body 收集。其他认证 header 不替代该字段，重复 Authorization 拒绝。
 - Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单 part 编码规范化为字符串，多 part 保序，不准入媒体。工具结果仍为字符串。
 - 请求要求 JSON Content-Type，仅 UTF-8；不接受 Content-Encoding。严格 JSON 解析拒绝重复 key。先解析 envelope 中的 public model，绑定受信 task，再进行语义 decode。
-- 每个 `(public model, client protocol)` 在启动时固定到 Route 中的一个 Endpoint；默认 bootstrap 使用相同 wire family。额外五家 [API-key adapters](architecture-v2/api-key-text-profiles.md) 目前只开放 Chat；对它们调用 `/v1/responses` 返回 `model_not_found`，不隐式转协议。没有运行时候选重排、自动 retry/fallback 或业务 JSON 指定目标。
+- 每个 `(public model, client protocol)` 在启动时固定到 Route 中的一个 Endpoint；默认 bootstrap 使用相同 wire family。[API-key adapters](architecture-v2/api-key-text-profiles.md) 中 LongCat 已声明原生 Responses；NVIDIA、百炼、Kimi、智谱仍仅开放 Chat，对它们调用 `/v1/responses` 返回 `model_not_found`，不隐式转协议。没有运行时候选重排、自动 retry/fallback 或业务 JSON 指定目标。
 - operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。响应 reported facts 不从请求复制补齐。
 - Provider URL、path、model 和 auth 都来自启动绑定。入站 headers 不透传，上游非成功 HTTP 状态的诊断正文、认证状态细节、origin、凭据 locator 不回显；下游 `model` 为 public label。
 - 未实现 `/v1/models`、状态资源、WebSocket、媒体或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。

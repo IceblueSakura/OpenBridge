@@ -54,11 +54,14 @@ fn chat_provider(id: &str, origin: &str, path: &str) -> ProviderDefinition {
 }
 
 pub fn longcat() -> ProviderDefinition {
-    chat_provider(
-        "longcat",
-        "https://api.longcat.chat",
-        "/openai/v1/chat/completions",
-    )
+    ProviderDefinition {
+        responses: Some(EndpointPath::new("/openai/v1/responses").expect("static path")),
+        ..chat_provider(
+            "longcat",
+            "https://api.longcat.chat",
+            "/openai/v1/chat/completions",
+        )
+    }
 }
 pub fn nvidia() -> ProviderDefinition {
     chat_provider(

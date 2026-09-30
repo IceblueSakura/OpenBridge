@@ -25,7 +25,8 @@ uv run --project tests/sdk --locked --offline python examples/probe.py report te
 ```
 
 - Provider 只取固定 catalog 中的 API-key 绑定；不跟随 OAuth 文件，不轮换/改写 key。实际客户端只获得临时 gateway token。
-- `--model` 可重复，必须属于计划；`--protocol chat|responses`、`--delivery json|sse` 缩小范围。`--effort none|minimal|medium` 是明确请求控制，不自动改默认。
+- `plan --model` 可重复，将所选 Provider 缩小到精确模型子集；例如 `--providers xiaomi,longcat --model mimo-v2.6-flash --model longcat-2.5-preview` 不包含 MiMo Pro。重复、未知或不属于所选 Provider 的模型在读取凭据前拒绝。省略模型筛选则包含所选 Provider 的全部已登记测试绑定。
+- `run --model` 可重复，必须属于计划；`--protocol chat|responses`、`--delivery json|sse` 缩小范围。`--effort none|minimal|medium` 是明确请求控制，不自动改默认。
 - cases：`text`、`json`、`tool`、`history`、`length`、`cancel`；`reasoning` 仅用于已选 Luna 的真实 opaque 获取/回放。
 - `history` 每个交付四请求，两个实际 lookup 调用/返回；`length` 是 8-token Chat 截断，只有这一场景接受 length；`cancel` 是 Chat SSE 提前关闭和后续普通请求，不证明 Provider 停算/停止计费。
 - 默认串行、SDK 零重试，精确限制目标 origin/port/path、model、请求大小、输出 cap 与完整序列化历史。不会因省略 filter 而跳出 run 的模型集合。

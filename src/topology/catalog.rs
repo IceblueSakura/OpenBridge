@@ -125,7 +125,7 @@ pub fn deepseek_endpoints() -> Vec<Endpoint> {
     ]
 }
 
-/// Xiaomi MiMo entries; `mimo-v2.6-pro` is the admitted upstream binding.
+/// Xiaomi MiMo entries share credentials, not model or endpoint identities.
 pub fn xiaomi_endpoints() -> Vec<Endpoint> {
     vec![
         endpoint(
@@ -141,6 +141,22 @@ pub fn xiaomi_endpoints() -> Vec<Endpoint> {
             catalog::xiaomi(),
             ProtocolProfile::OpenAiChat,
             "mimo-v2.6-pro",
+            "xiaomi-api-key",
+            None,
+        ),
+        endpoint(
+            "xiaomi-flash-responses",
+            catalog::xiaomi(),
+            ProtocolProfile::OpenAiResponses,
+            "mimo-v2.6-flash",
+            "xiaomi-api-key",
+            None,
+        ),
+        endpoint(
+            "xiaomi-flash-chat",
+            catalog::xiaomi(),
+            ProtocolProfile::OpenAiChat,
+            "mimo-v2.6-flash",
             "xiaomi-api-key",
             None,
         ),
@@ -167,6 +183,26 @@ pub fn xiaomi_route() -> Route {
             EndpointId::new("xiaomi-responses").expect("static identity"),
             EndpointId::new("xiaomi-chat").expect("static identity"),
         ],
+    }
+}
+
+pub fn xiaomi_flash_route() -> Route {
+    Route {
+        id: RouteId::new("xiaomi-flash-generation").expect("static identity"),
+        task: TaskKind::Generation,
+        endpoints: vec![
+            EndpointId::new("xiaomi-flash-responses").expect("static identity"),
+            EndpointId::new("xiaomi-flash-chat").expect("static identity"),
+        ],
+    }
+}
+
+pub fn mimo_v2_6_flash() -> PublicModel {
+    PublicModel {
+        id: ModelId::new("mimo-v2.6-flash").expect("static identity"),
+        task: TaskKind::Generation,
+        route: RouteId::new("xiaomi-flash-generation").expect("static identity"),
+        contract: wire_contract(None),
     }
 }
 
@@ -245,50 +281,59 @@ pub fn gpt_6_luna() -> PublicModel {
     }
 }
 
-/// Fixed Chat-only onboarding bindings. Native Responses is not inferred from
-/// OpenAI compatibility; each public label has one trusted route member.
-pub struct ChatBinding {
+/// Fixed API-key bindings. Native Responses must be explicitly admitted,
+/// independently of OpenAI-compatible Chat support.
+pub struct ApiKeyBinding {
     pub provider: &'static str,
     pub model: &'static str,
     pub upstream: &'static str,
     pub credential: &'static str,
     pub variable: &'static str,
+    pub protocols: &'static [ProtocolProfile],
 }
-pub const CHAT_BINDINGS: &[ChatBinding] = &[
-    ChatBinding {
+pub const API_KEY_BINDINGS: &[ApiKeyBinding] = &[
+    ApiKeyBinding {
         provider: "longcat",
         model: "longcat-2.5-preview",
         upstream: "LongCat-2.5-Preview",
         credential: "longcat-api-key",
         variable: "OPENBRIDGE_LONGCAT_API_KEY",
+        protocols: &[
+            ProtocolProfile::OpenAiResponses,
+            ProtocolProfile::OpenAiChat,
+        ],
     },
-    ChatBinding {
+    ApiKeyBinding {
         provider: "nvidia",
         model: "nemotron-3-super",
         upstream: "nvidia/nemotron-3-super-120b-a12b",
         credential: "nvidia-api-key",
         variable: "OPENBRIDGE_NVIDIA_API_KEY",
+        protocols: &[ProtocolProfile::OpenAiChat],
     },
-    ChatBinding {
+    ApiKeyBinding {
         provider: "bailian",
         model: "qwen3.8-max",
         upstream: "qwen3.8-max",
         credential: "bailian-api-key",
         variable: "OPENBRIDGE_BAILIAN_API_KEY",
+        protocols: &[ProtocolProfile::OpenAiChat],
     },
-    ChatBinding {
+    ApiKeyBinding {
         provider: "kimi",
         model: "kimi-k3",
         upstream: "kimi-k3",
         credential: "kimi-api-key",
         variable: "OPENBRIDGE_KIMI_API_KEY",
+        protocols: &[ProtocolProfile::OpenAiChat],
     },
-    ChatBinding {
+    ApiKeyBinding {
         provider: "zhipu",
         model: "glm-5.3",
         upstream: "glm-5.3",
         credential: "zhipu-api-key",
         variable: "OPENBRIDGE_ZHIPU_API_KEY",
+        protocols: &[ProtocolProfile::OpenAiChat],
     },
 ];
 
@@ -301,29 +346,47 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
         openrouter_endpoints(),
     ]
     .concat();
-    let mut routes = vec![deepseek_route(), xiaomi_route(), openrouter_route()];
-    let mut models = vec![deepseek_flash(), mimo_v2_6_pro(), gpt_6_luna()];
-    for binding in CHAT_BINDINGS {
+    let mut routes = vec![
+        deepseek_route(),
+        xiaomi_route(),
+        xiaomi_flash_route(),
+        openrouter_route(),
+    ];
+    let mut models = vec![
+        deepseek_flash(),
+        mimo_v2_6_pro(),
+        mimo_v2_6_flash(),
+        gpt_6_luna(),
+    ];
+    for binding in API_KEY_BINDINGS {
         let definition = providers
             .iter()
             .find(|p| p.id.as_str() == binding.provider)
             .expect("fixed provider")
             .clone();
-        let endpoint_id = format!("{}-chat", binding.provider);
         let route_id =
             RouteId::new(&format!("{}-generation", binding.provider)).expect("static identity");
-        endpoints.push(endpoint(
-            &endpoint_id,
-            definition,
-            ProtocolProfile::OpenAiChat,
-            binding.upstream,
-            binding.credential,
-            None,
-        ));
+        let mut members = Vec::new();
+        for &protocol in binding.protocols {
+            let suffix = match protocol {
+                ProtocolProfile::OpenAiChat => "chat",
+                ProtocolProfile::OpenAiResponses => "responses",
+            };
+            let endpoint_id = format!("{}-{suffix}", binding.provider);
+            endpoints.push(endpoint(
+                &endpoint_id,
+                definition.clone(),
+                protocol,
+                binding.upstream,
+                binding.credential,
+                None,
+            ));
+            members.push(EndpointId::new(&endpoint_id).expect("static identity"));
+        }
         routes.push(Route {
             id: route_id.clone(),
             task: TaskKind::Generation,
-            endpoints: vec![EndpointId::new(&endpoint_id).expect("static identity")],
+            endpoints: members,
         });
         models.push(PublicModel {
             id: ModelId::new(binding.model).expect("static identity"),

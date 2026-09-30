@@ -1,4 +1,4 @@
-//! Offline diagnostic: `cargo run --example replay_chat -- PROVIDER CAPTURE.json|sse`.
+//! Offline diagnostic: `cargo run --example replay_chat -- PROVIDER CAPTURE.json|sse [chat|responses]`.
 //! Reads only the supplied bounded capture; never loads credentials or opens sockets.
 use openbridge::{
     adapter::{Adapter, Dialect},
@@ -14,11 +14,17 @@ use openbridge::{
 use std::{fs::File, io::Read};
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
-    if args.len() != 3 {
-        return Err("expected provider and capture path".into());
+    if !(3..=4).contains(&args.len()) {
+        return Err("expected provider, capture path and optional protocol".into());
     }
+    let profile = match args.get(3).map(String::as_str) {
+        None | Some("chat") => Profile::Chat,
+        Some("responses") => Profile::Responses,
+        _ => return Err("unknown diagnostic protocol".into()),
+    };
     let dialect = match args[1].as_str() {
         "longcat" => Dialect::LongCat,
+        "xiaomi" => Dialect::Xiaomi,
         "nvidia" => Dialect::Nvidia,
         "bailian" => Dialect::Bailian,
         "kimi" => Dialect::Kimi,
@@ -26,7 +32,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         _ => return Err("unknown diagnostic provider".into()),
     };
     let adapter = Adapter::new(
-        Profile::Chat,
+        profile,
         dialect,
         Some(ReplayOrigin::new("offline-diagnostic")?),
     );
@@ -49,7 +55,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let mut delivery = ResponseDelivery::new(
         Adapter::new(
-            Profile::Chat,
+            profile,
             Dialect::OpenBridge,
             Some(ReplayOrigin::new("offline-diagnostic")?),
         ),

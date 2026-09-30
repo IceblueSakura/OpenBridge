@@ -35,24 +35,24 @@ impl Bootstrap {
                 .map_err(|_| StartupError::Credentials)?;
         let mut credentials = Credentials::new();
         let mut entries = vec![];
-        for (variable, binding, model, prefix) in [
+        for (variable, binding, models) in [
             (
                 "OPENBRIDGE_DEEPSEEK_API_KEY",
                 "deepseek-api-key",
-                "deepseek-flash",
-                "deepseek",
+                &[("deepseek-flash", "deepseek")][..],
             ),
             (
                 "OPENBRIDGE_XIAOMI_API_KEY",
                 "xiaomi-api-key",
-                "mimo-v2.6-pro",
-                "xiaomi",
+                &[
+                    ("mimo-v2.6-pro", "xiaomi"),
+                    ("mimo-v2.6-flash", "xiaomi-flash"),
+                ][..],
             ),
             (
                 "OPENBRIDGE_OPENROUTER_API_KEY",
                 "openrouter-api-key",
-                "gpt-6-luna",
-                "openrouter",
+                &[("gpt-6-luna", "openrouter")][..],
             ),
         ] {
             if let Some(key) = get(variable)? {
@@ -60,31 +60,41 @@ impl Bootstrap {
                     CredentialBindingId::new(binding).map_err(|_| StartupError::Binding)?,
                     Arc::new(SecretMaterial::new(&key).map_err(|_| StartupError::Credentials)?),
                 );
-                for (protocol, suffix) in
-                    [(Profile::Chat, "chat"), (Profile::Responses, "responses")]
-                {
-                    entries.push(Entry {
-                        model: model.into(),
-                        protocol,
-                        endpoint: EndpointId::new(&format!("{prefix}-{suffix}"))
-                            .map_err(|_| StartupError::Binding)?,
-                    });
+                for &(model, prefix) in models {
+                    for (protocol, suffix) in
+                        [(Profile::Chat, "chat"), (Profile::Responses, "responses")]
+                    {
+                        entries.push(Entry {
+                            model: model.into(),
+                            protocol,
+                            endpoint: EndpointId::new(&format!("{prefix}-{suffix}"))
+                                .map_err(|_| StartupError::Binding)?,
+                        });
+                    }
                 }
             }
         }
-        for binding in catalog::CHAT_BINDINGS {
+        for binding in catalog::API_KEY_BINDINGS {
             if let Some(key) = get(binding.variable)? {
                 credentials.insert(
                     CredentialBindingId::new(binding.credential)
                         .map_err(|_| StartupError::Binding)?,
                     Arc::new(SecretMaterial::new(&key).map_err(|_| StartupError::Credentials)?),
                 );
-                entries.push(Entry {
-                    model: binding.model.into(),
-                    protocol: Profile::Chat,
-                    endpoint: EndpointId::new(&format!("{}-chat", binding.provider))
-                        .map_err(|_| StartupError::Binding)?,
-                });
+                for protocol in binding.protocols {
+                    let (protocol, suffix) = match protocol {
+                        crate::topology::ProtocolProfile::OpenAiChat => (Profile::Chat, "chat"),
+                        crate::topology::ProtocolProfile::OpenAiResponses => {
+                            (Profile::Responses, "responses")
+                        }
+                    };
+                    entries.push(Entry {
+                        model: binding.model.into(),
+                        protocol,
+                        endpoint: EndpointId::new(&format!("{}-{suffix}", binding.provider))
+                            .map_err(|_| StartupError::Binding)?,
+                    });
+                }
             }
         }
         let proxy = get("OPENBRIDGE_PROXY")?;
@@ -144,11 +154,71 @@ mod tests {
     }
 
     #[test]
+    fn shared_provider_credentials_keep_model_and_protocol_targets_distinct() {
+        let boot = Bootstrap::from_lookup(|name| {
+            Ok(match name {
+                "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
+                "OPENBRIDGE_XIAOMI_API_KEY" | "OPENBRIDGE_LONGCAT_API_KEY" => {
+                    Some("synthetic-upstream".into())
+                }
+                _ => None,
+            })
+        })
+        .unwrap();
+        for (model, upstream, credential, prefix) in [
+            ("mimo-v2.6-pro", "mimo-v2.6-pro", "xiaomi-api-key", "/v1"),
+            (
+                "mimo-v2.6-flash",
+                "mimo-v2.6-flash",
+                "xiaomi-api-key",
+                "/v1",
+            ),
+            (
+                "longcat-2.5-preview",
+                "LongCat-2.5-Preview",
+                "longcat-api-key",
+                "/openai/v1",
+            ),
+        ] {
+            for protocol in [Profile::Chat, Profile::Responses] {
+                let entry =
+                    &boot.gateway.state.entries[&(super::super::family(protocol), model.into())];
+                assert_eq!(entry.endpoint.upstream_model, upstream);
+                assert_eq!(entry.endpoint.credential.as_str(), credential);
+                assert_eq!(
+                    entry.endpoint.target.path.as_str(),
+                    format!(
+                        "{prefix}/{}",
+                        if protocol == Profile::Chat {
+                            "chat/completions"
+                        } else {
+                            "responses"
+                        }
+                    )
+                );
+                let request = if protocol == Profile::Chat {
+                    serde_json::json!({"model":model,"messages":[{"role":"user","content":"hi"}]})
+                } else {
+                    serde_json::json!({"model":model,"input":"hi"})
+                };
+                assert!(
+                    super::super::admission::prepare(
+                        &boot.gateway.state,
+                        protocol,
+                        &serde_json::to_vec(&request).unwrap()
+                    )
+                    .is_ok()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn chat_only_bootstrap_admits_chat_but_not_an_invented_responses_entry() {
         let boot = Bootstrap::from_lookup(|name| {
             Ok(match name {
                 "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
-                "OPENBRIDGE_LONGCAT_API_KEY" => Some("synthetic-upstream".into()),
+                "OPENBRIDGE_NVIDIA_API_KEY" => Some("synthetic-upstream".into()),
                 _ => None,
             })
         })
@@ -157,7 +227,7 @@ mod tests {
             super::super::admission::prepare(
                 &boot.gateway.state,
                 Profile::Chat,
-                br#"{"model":"longcat-2.5-preview","messages":[{"role":"user","content":"hi"}]}"#
+                br#"{"model":"nemotron-3-super","messages":[{"role":"user","content":"hi"}]}"#
             )
             .is_ok()
         );
@@ -165,7 +235,7 @@ mod tests {
             super::super::admission::prepare(
                 &boot.gateway.state,
                 Profile::Responses,
-                br#"{"model":"longcat-2.5-preview","input":"hi"}"#
+                br#"{"model":"nemotron-3-super","input":"hi"}"#
             )
             .is_err()
         );
