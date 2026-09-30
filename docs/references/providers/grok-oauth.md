@@ -5,7 +5,7 @@
 | 字段 | 值 |
 |---|---|
 | Source snapshot | sub2api 本地 checkout `main` @ `5097b31457e6dc9f49e5f5c9c72b925ce79543b3`（2026-09-03）；sub2api README Grok 小节（同 checkout） |
-| Last reverified | 2026-09-03，对 sub2api 本地 checkout 做了源码与 git 历史实读核对；同日实抓 `auth.x.ai/.well-known/openid-configuration` 并对 `/oauth2/device/code` 执行了一次匿名授权探测 |
+| Last reverified | 2026-09-03，对 sub2api 固定 checkout 做源码与 git 历史核对；这里只保留静态研究，不维护 Provider 探测结果 |
 | Scope | Grok（xAI）订阅账号 OAuth 登录路径的端点、参数、旁路授权、配额探测与信息来源；不含推理/媒体 wire 全量字段，不含 OpenBridge 实现 |
 | Evidence boundary | 未用真实账号执行过任何一条授权流程；协议细节来自代理项目源码而非官方文档，不证明 xAI 认可或保证稳定性 |
 | Recheck trigger | 决定评估或接入该路径；sub2api xAI 常量或端点变化；xAI 计费/订阅政策或设备授权端点变更 |
@@ -14,9 +14,9 @@
 
 ## 1. 定位与证据性质
 
-与 Antigravity 路径不同，Grok 的 OAuth 是 xAI 官方设计的公共流程（有 OIDC discovery、
-环境变量可配置项与 README 级说明），逆向成分主要在订阅代理端点选择、JWT 声明解读与
-两条非交互式旁路。本文不构成接入建议；合规风险见 §6。
+固定 sub2api 源码使用 OIDC discovery、环境变量配置与 README 中的 OAuth 流程；
+订阅代理端点选择、JWT 声明解读和非交互式旁路需与标准授权分开。
+这不证明当前 xAI 服务能力，也不构成接入建议；合规风险见 §6。
 
 ## 2. 协议事实（`backend/internal/pkg/xai/oauth.go` 核对）
 
@@ -30,24 +30,15 @@
 - Session 存储是三家订阅路径中最完善的：一次性消费（`TryConsume`）、Redis 跨实例、本地回落
   （`oauth.go:106-214`）。
 
-## 2.1 Device Authorization Flow（官方能力，2026-09-03 实测）
+## 2.1 Device Authorization Flow 的查询与设计边界
 
-- 实抓 `https://auth.x.ai/.well-known/openid-configuration`：authority 官方声明
-  `device_authorization_endpoint: https://auth.x.ai/oauth2/device/code`，
-  `grant_types_supported` 包含 `urn:ietf:params:oauth:grant-type:device_code`，
-  `token_endpoint_auth_methods_supported` 包含 `none`（公共客户端）。device flow 是 xAI
-  官方标准能力，不是代理项目的逆向。
-- 匿名实测：对 `/oauth2/device/code` POST `client_id=b1a00492-...` 与 sub2api 默认
-  scope，返回 200 与标准 RFC 8628 响应：`device_code`、`user_code`（形如 `XXXX-XXXX`）、
-  `verification_uri: https://accounts.x.ai/oauth2/device`、
-  `verification_uri_complete`（携带 user_code）、`expires_in: 1800`、`interval: 5`。
-- 标准轮询路径为对 `token_endpoint` 的 device_code grant 轮询；sub2api 的
-  `sso_device.go` 只把该流程当作 SSO cookie 自动批准的载体（GET `verification_uri_complete`
-  + POST `/oauth2/device/verify` + `/oauth2/device/approve`），其轮询段
-  （`authorization_pending`/`slow_down` 语义）与 RFC 8628 一致。人工批准的
-  标准用法不需要 verify/approve 两个私有端点。
-- 探测仅证明端点接受匿名 device-session 创建，未证明完整授权、token 发行与刷新；
-  一次探测不覆盖账号、地域与长期行为。
+当前 grant、endpoint 和公共客户端能力需按需读取
+`https://auth.x.ai/.well-known/openid-configuration` 与官方文档；不在本页保留响应快照或匿名授权测试结果。
+
+固定源码的 `sso_device.go` 把 device grant 用作 SSO cookie 自动批准的载体；
+`authorization_pending` / `slow_down` 的标准轮询语义与其私有 verify/approve 动作必须分开。
+人工批准的 RFC 8628 流程不以这些私有端点为前提，源码存在也不证明当前账号可用。
+创建 device session、登录或 token 操作均需独立授权。
 
 ## 3. 旁路路径（非交互式，均非标准 OAuth 语义）
 

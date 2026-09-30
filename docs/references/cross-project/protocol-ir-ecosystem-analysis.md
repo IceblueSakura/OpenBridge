@@ -20,7 +20,7 @@
 - [Vercel AI SDK](../protocol-gateways/vercel-ai-sdk.md)
 - [Portkey Gateway](../protocol-gateways/portkey.md)
 - [Helicone AI Gateway](../protocol-gateways/helicone.md)
-- [OpenRouter公开行为](../providers/openrouter-api.md)
+- [OpenRouter 官方来源](../providers/README.md#openrouter)（需要时重核，不维护当前 API 快照）
 
 ## 2. 架构比较
 

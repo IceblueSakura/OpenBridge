@@ -20,11 +20,33 @@ Before non-trivial work, read the root [README](README.md) and [documentation in
 | Cross-module ownership or data flow | [Current architecture](docs/architecture.md), [v2 design](docs/architecture-v2/README.md), affected module docs and callers |
 | Task IR, media semantics, or encode/decode | [Semantic IR](docs/architecture-v2/semantic-ir.md), [thematic research](docs/references/semantic-baseline.md), [fixed upstream baseline](docs/references/upstream-sync.md), relevant standard/extension/media leaves, [protocol/lowering](docs/architecture-v2/protocol-and-lowering.md), and actual `src/semantic/`, `src/protocol/`, `src/lowering/` types/callers |
 | Implementation, dependency, or test changes | [Development guide](docs/development.md), affected tests and manifests |
-| Provider onboarding or protocol changes | Relevant `docs/references/` snapshots, v2 contracts and affected source/tests; the minimal HTTP ingress/Provider transport exists, but its new wiring and production behavior require their own evidence |
+| Provider onboarding or protocol changes | Use the current-information lookup below, affected adapters/code comments/tests, and the relevant official API pages fetched when needed; fixed standard/SDK references remain separate from live Provider behavior |
 | Corpus or semantic testing | [Development guide](docs/development.md), independent `tests/semantic/` and `tests/support/` fixtures and affected Rust contracts; archived corpus is evidence only, not an active test dependency |
 | Documentation or instruction maintenance | Documentation responsibilities, canonical sources, incoming links, and affected guidance |
 
 Read only relevant leaves, not every document. Product contracts state intended behavior, source/tests describe implementation, and executed evidence describes observations. Investigate conflicts rather than silently changing a contract to match code.
+
+## Current Provider, Model and Compatibility Information
+
+Do not maintain Provider/model inventories, per-model support tables, live-test results, account status or temporary failures in Markdown (including this file), source comments or memory as a substitute for a fresh lookup. Prefer code, nearby rationale comments and independent executable regressions. Documentation explains how to investigate, not what a changing catalog currently contains.
+
+1. **Registered definitions:** read [`src/provider/catalog.rs`](src/provider/catalog.rs) for trusted origins, protocol paths and auth schemes; follow [`src/topology/catalog.rs`](src/topology/catalog.rs) through `default_topology`, Public Model → Route → Endpoint, upstream model IDs, representation contracts and execution limits. A declared Provider or `Dialect` alone is not a usable model binding.
+2. **Startup admission:** read [`src/gateway/bootstrap.rs`](src/gateway/bootstrap.rs) and [`src/gateway/config.rs`](src/gateway/config.rs). Cross-check explicit entries, protocol family and credential activation with the compiled topology. Do not infer that every catalog model/protocol is exposed by a running instance, or that Chat compatibility implies Responses.
+3. **Wire behavior:** read [`src/adapter/mod.rs`](src/adapter/mod.rs), [`src/protocol/adaptation.rs`](src/protocol/adaptation.rs), the owning request/response/event codecs and `src/lowering/`. Follow their comments and independent tests in `tests/semantic/` and `tests/transport/`; do not turn test names or prior pass counts into capability claims.
+4. **Probe choices:** inspect [`examples/probe_support/catalog.py`](examples/probe_support/catalog.py), scenario code and each entry point before creating a plan. The probe's selectable subset/defaults are not the product catalog. See [probe operations](docs/probes.md) for dry-run, shared budgets and result interpretation.
+5. **Running instance / upstream availability:** verify the actual binary revision and operator-approved non-secret activation metadata. Inspect the current router before assuming a discovery API exists: this checkout has no `GET /v1/models`. If safe instance metadata is unavailable, report activation as unknown; do not inspect private files or dump environment values to fill the gap. Official Models APIs list upstream offerings, not OpenBridge admission or successful inference. Re-read relevant official pages on demand; the [source index](docs/references/providers/README.md) is navigation, not a support list. Credential-bearing discovery, live/paid requests and service operations still need scoped authorization and bounded execution.
+
+Safe, offline starting points (run from the repository root, then read the enclosing definitions and callers):
+
+```sh
+git status --short
+rg -n 'pub fn|ProviderDefinition|EndpointPath|TrustedOrigin' src/provider/catalog.rs
+rg -n 'pub fn|PublicModel|Route|Endpoint|API_KEY_BINDINGS|upstream|protocols' src/topology/catalog.rs
+rg -n 'OPENBRIDGE_|catalog::|Entry|binding.protocols' src/gateway/bootstrap.rs src/gateway/config.rs
+rg -n '\.route\(' src/gateway/http.rs
+```
+
+Report findings in the current conversation with source revision, exact scope and unverified layers. Keep authorized probe artifacts only in ignored local run directories; do not copy result matrices, payloads or transient incident status into docs/comments. When a finding justifies a code change, preserve the invariant, rationale and essential source URL near the owning code and write a minimal independent synthetic regression—not a narrative of the Provider session. Historical Git content is available for explicit historical questions, never as current support evidence.
 
 ## IR and Codec Work
 
@@ -70,8 +92,8 @@ Read only relevant leaves, not every document. Product contracts state intended 
 
 ## Documentation and Completion
 
-- Follow [docs/README.md](docs/README.md) for fact ownership: current structure in architecture, decisions in ADRs, concrete gaps in implementation status, and direction in next-goal. Keep local details in source docs/tests and this file focused on agent workflow, not a duplicate architecture or schema.
-- Maintain research by semantic topic under [references](docs/references/README.md), not by source/project chapters. Existing source-specific pages are historical evidence only; do not require new source pages before synthesis. Record source URLs, fixed versions, licenses and evidence limits inline or in the upstream baseline. Keep essential attribution in references and independently valuable external acceptance in evidence. Do not repeat model metadata, Provider inventories, validation disclaimers, or completion diaries. Only executed contradictions support observed-discrepancy claims; routine local tests do not require historical reports.
+- Prefer code and comments as implementation documentation. Follow [docs/README.md](docs/README.md) for the remaining stable material: architecture explains cross-module ownership, ADRs explain accepted decisions, implementation status tracks semantic/design gaps, and next-goal gives direction. Keep exact mappings, defaults and failure invariants beside their owning code/tests; do not mirror registrations or maintain a second schema in Markdown.
+- Maintain stable research by semantic topic under [references](docs/references/README.md), preserving necessary source URLs, fixed standard/SDK versions and licenses. Do not add or retain Provider acceptance reports, model inventories, per-Provider API snapshots or live-test completion diaries, even when dated. Query volatile upstream facts when needed; dated standard/design research is not a current compatibility claim. Keep test outcomes in the task response and authorized ignored artifacts, not a new evidence page. Do not refresh external verification dates during local cleanup.
 - Update affected architecture, decisions, goals and concrete limitations, not completion diaries. Restore the current focus to empty after completing the approved behavior slice; update the next goal separately rather than erasing an unfinished direction.
 - Inspect the final diff and verify relative links/anchors and `git diff --check` for documentation changes. The old OpenAPI and Swagger runtime assets are archived with their service; introducing new HTTP schema assets requires an authorized interface contract, not copying predecessor claims.
 - Report what changed, the files involved, exact checks and outcomes, skipped external layers, and remaining acceptance gaps. Do not claim runtime success from documentation edits or improved agent behavior from static instruction review alone.

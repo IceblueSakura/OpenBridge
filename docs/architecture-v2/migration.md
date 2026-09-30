@@ -15,7 +15,7 @@
 | 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证，不是待从零建立的 codec | `tests/transport/chat.rs`；部分标准文本 metadata、usage 与终态仍被拒绝，不等于 Chat 协议无法表达 |
 | 固定消费者 / Agent 场景 | codec fixture gates 与实际 Gateway/HTTP Provider 全链 gate 并存 | `tests/sdk/gateway.rs` 让固定 SDK 经同一 Router 完成双协议 JSON/SSE 工具与 reasoning 续轮；上游为 synthetic，显式 ignored，默认 Rust tests 不执行。范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
 | 缓存亲和性 | 有表示与保序基础，尚无执行亲和策略或命中效果验收 | CacheHints、schema order、origin-bound replay 已存在；缓存 scope 的执行绑定、跨轮/跨目标策略及真实 hit/成本/延迟效果不能由字段往返推出 |
-| 执行库 / HTTP 接线 | 最小 loopback 服务已接通认证、固定入口、Provider transport 与增量 body；未生产验收 | `src/gateway/`、`src/transport/http.rs`、`tests/gateway.rs`；启动与错误边界见 [HTTP 指南](../http-gateway.md)。[Flash 外部验收](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)仍仅证明先前库级版本/场景，不证明新 binary；没有凭据池、自动 retry/fallback 或动态 registry |
+| 执行库 / HTTP 接线 | 最小 loopback 服务已接通认证、固定入口、Provider transport 与增量 body；未生产验收 | `src/gateway/`、`src/transport/http.rs`、`tests/gateway.rs`；启动与错误边界见 [HTTP 指南](../http-gateway.md)。没有凭据池、自动 retry/fallback 或动态 registry |
 
 ## 已实现的纯文本基线
 
@@ -35,13 +35,11 @@
 
 ## 当前正确性缺口
 
-当前[显式适配合同](decisions/0008-stable-core-and-vendor-adapters.md)把标准语义、厂商形状和兼容默认值分开。DeepSeek 有效 usage 缺失/null cache-write 时归一为 0，并保留 intake 归一化记录；标准/client/Xiaomi 不继承该默认，缺失整个 usage 不补造。extras 绑定来源/协议/方言/语义依赖，仅终态为权威；JSON/SSE 使用同一投影。现有验收见 `tests/semantic/adapters.rs`、`tests/transport/chain.rs`。[历史 MiMo Pro 矩阵](../implementation-status/evidence/2026-09-28-deepseek-xiaomi-provider-live-matrix.md)仅证明其当时实现；[重构后的 Flash 验收](../implementation-status/evidence/2026-09-29-flash-provider-adapter-acceptance.md)覆盖固定双协议文本与工具续轮，并保留 MiMo 单次 JSON 输出格式异常，未据后续复测成功将其宣称为已修复。codec 成功不等于模型输出 adherence，真实样本也不替代完整标准分支或 SDK 验收。固定 SDK 标准事件的 required/presence 与完整 Response snapshot 必填性已闭合：标准事件缺失 `sequence_number`、完整 snapshot 缺失 `output` 数组（含 queued/created/in_progress 初始 snapshot）在完整字节入口与低层 snapshot 分支都被拒绝，显式空数组仍然合法，拒绝后不能恢复为成功。规则与回归测试入口由 [Responses text profile](responses-text-profile.md#complete-stream-required-fields) 维护。
+当前[显式适配合同](decisions/0008-stable-core-and-vendor-adapters.md)把标准语义、厂商形状和兼容默认值分开。具体规则、拒绝理由及独立反例由 `src/adapter/`、`src/protocol/`、`tests/semantic/adapters.rs` 和 `tests/transport/chain.rs` 维护，不在此同步厂商 wire 清单或实测结果。固定 SDK 标准事件的 required/presence 与完整 Response snapshot 必填性已闭合：标准事件缺失 `sequence_number`、完整 snapshot 缺失 `output` 数组（含 queued/created/in_progress 初始 snapshot）在完整字节入口与低层 snapshot 分支都被拒绝，显式空数组仍然合法，拒绝后不能恢复为成功。规则与回归测试入口由 [Responses text profile](responses-text-profile.md#complete-stream-required-fields) 维护。
 
 仍未声称所有事件的 required/null/跨 kind 检查均已审计：更广标准分支的 required/presence 按[尚未映射的文本能力](#尚未映射的文本能力)收敛，新反例按 owner 立项，不以“全部标准分支已审计”为前提。
 
-OpenRouter 的固定 `gpt-6-luna` → `openai/gpt-6-luna` 已接入环境变量 bootstrap、双协议目标和 JSON/SSE adapter。根据 live 差异补齐了限定格式的 Chat summary/encrypted reasoning、标准 service-tier 回显、零值媒体计数归一化、Responses 格式/费用字段和尾随 DONE；准入与拒绝边界由 [OpenRouter text adapter](openrouter-text-profile.md)维护，执行范围见[带日期验收](../implementation-status/evidence/2026-09-29-openrouter-luna-acceptance.md)。[加密 reasoning 专项验收](../implementation-status/evidence/2026-09-29-reasoning-continuation-acceptance.md)另行覆盖了实际密文获取与同目标续轮，并保护了 partial/final、owner 与 response 各自生命周期；readable-only reasoning 不要求密文或 opaque origin。这不恢复历史 GLM 绑定，也不表示任意 OpenRouter backend/媒体/工具均兼容。
-
-额外五家 API-key Provider 已有固定绑定与具名 adapter 合同；LongCat 另开放原生 Responses，Xiaomi 新增独立 `mimo-v2.6-flash` 双协议绑定而保留 Pro。见 [API-key text profiles](api-key-text-profiles.md)。这些接线不扩大当前纯文本语义边界；[新增 binary 验收](../implementation-status/evidence/2026-09-30-flash-longcat-bailian-acceptance.md)确认 Flash 双协议 JSON/SSE 正常矩阵、百炼 Chat JSON/SSE 正常矩阵，以及 LongCat Responses JSON 文本/JSON object。LongCat 的 Responses 工具请求及先前 Chat 工具续轮在响应头前超时，SSE 尚未完成验收；百炼 8-token 截断同样超时。Flash 的独立 JSON 截断诊断观察到非法 reasoning usage，SSE 截断也失败但尚未证实同因。重复 usage view 已通过具名 adapter 等价校验收敛，不放宽非法计数或终态。Provider 的 native Responses entry 现可缺省，未准入的协议不能编译成候选或由 bootstrap 自动开放。接入实测见 [onboarding evidence](../implementation-status/evidence/2026-09-29-api-key-provider-onboarding.md)；[定向跟进](../implementation-status/evidence/2026-09-29-provider-followup.md)记录了当时百炼 `invalid_api_key`（本次更新凭据后正常场景已通过）、Kimi 余额相关 429，以及 MiMo none 下已存在于交付 wire 的大小写偏差。NVIDIA 的[后续边界探测](../implementation-status/evidence/2026-09-30-nvidia-boundaries.md)保留了新观察到的工具续轮 502，其历史原调用尚未确定失败层；新的 [probe 关联诊断](../implementation-status/evidence/2026-09-30-probe-consolidation.md)已将另一次 NVIDIA SSE 续轮失败定位到上游 HTTP 200 后的 intake 拒绝，尚不能认定历史错误同因。默认 JSON object 在预算内截断，显式 none 对照通过，不据此静默改变请求或收缩能力。Kimi 真实测试现暂停；测试中继认证已增加真实错误 token 负例。接线完成不等于八家全部 live 验收通过。
+Provider/模型支持、启动协议准入和运行实例启用状态按 [AGENTS.md](../../AGENTS.md#current-provider-model-and-compatibility-information)查询。源码注册不等于真实账号/网络可用；不在本页保留模型清单、账号阻塞、通过率或失败跟进日记。结构性语义缺口仍按以下 owner 分类。
 
 ## 尚未映射的文本能力
 
@@ -67,6 +65,6 @@ OpenRouter 的固定 `gpt-6-luna` → `openai/gpt-6-luna` 已接入环境变量 
 
 ## 验收边界
 
-当前判断基于源码、独立 fixtures、默认离线 Rust tests、定向变异反例及显式 synthetic SDK/HTTP 全链；外部 live 证据按其固定版本分别解释。SDK gates 的存在不等于每次审阅都执行；具体一次检查结果在交付时报告，不在此维护测试数量或完成日记。完整 SDK/Agent、真实 Provider/TLS/网络、模型输出质量、负载与长期生产稳定性均需各自证据。
+当前判断应基于源码、独立 fixtures 及实际执行的相应检查。SDK gates 的存在不等于每次审阅都执行；具体一次检查结果在交付时报告，授权 probe 产物留在 ignored run，不在文档维护 Provider 结果或完成日记。完整 SDK/Agent、真实 Provider/TLS/网络、模型输出质量、负载与长期生产稳定性均需各自证据。
 
 每个获准行为切片先记录[当前焦点](../implementation-plans/current-focus.md)，以独立 decode/encode、IR 修改/删除、Static/Event 与失败/资源反例验收。保持最终 typed 语义权威、候选不可变投影、extension 不覆盖标准/认证/目标、失败不变成功。推进顺序只由[下一步目标](../implementation-plans/next-goal.md)维护。

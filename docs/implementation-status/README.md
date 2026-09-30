@@ -6,4 +6,4 @@
 
 离线 codec 与 SDK synthetic loopback 仅证明被执行场景，不证明完整协议、真实 Provider、SDK/Agent 全面兼容、负载或长期服务。受版本管理的旧配置/语料/测试不再参与当前验证。
 
-[evidence/](evidence/README.md) 保留独立执行证据，包括[显式 adapter 重构后的 Flash 真实验收](evidence/2026-09-29-flash-provider-adapter-acceptance.md)。按各记录的代码版本、日期、环境与 payload 范围解释，不刷新历史验证日期；codec 消费成功、模型输出符合请求与生产接线分别判断。
+[evidence/](evidence/README.md)仅保留固定非 Provider 研究记录。当前 Provider/模型、协议准入和实例启用状态按 [AGENTS.md](../../AGENTS.md#current-provider-model-and-compatibility-information)现场查询；不在本目录保留结果矩阵、账号状态或当前适配清单。测试结论在当次交付中说明，授权产生的原始脱敏产物留在 ignored run 目录；codec 消费、模型输出遵循与生产接线分别判断。

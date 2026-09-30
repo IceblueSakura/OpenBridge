@@ -1,49 +1,10 @@
-# 验证证据目录
+# 固定非 Provider 研究记录
 
-本目录保存带日期、边界明确的执行记录，供具体接入决策与差异分析引用，不承担当前架构或能力说明。当前 v2 边界见[实施说明](../README.md)；旧源码、配置与文档见[固定 Git 归档](../../archive.md)。本文及各历史记录中的旧路径按归档版本解释，不是当前工作区入口。历史证据不能替代对当前 checkout 的验证，也不能把局部结果提升为完整 IR 管线或生产兼容的证明。
+本目录仅保留仍有独立参考价值的非 Provider 历史材料：
 
-证据层必须分开表述：确定性 Rust/Python 测试、loopback 客户端、外部 SDK、目标 Agent、真实 Provider、负载和长期运行互不替代。真实 Provider 记录只证明当时 checkout、账号、网络、固定 endpoint、模型和 payload。
+- [Generation IR 静态审计](2026-09-02-generation-ir-semantic-coverage-audit.md)：固定旧 checkout 的源码分析，不是当前实现清单。
+- [OpenAI SDK synthetic loopback](2026-09-09-openai-responses-sdk-loopback.md)：无真实 Provider 的客户端测试边界，不能替代当前测试执行。
 
-## 记录准入
+不新增或保留 Provider 实测报告、当前适配模型表、账号状态或临时故障记录。需要当前信息时按 [AGENTS.md](../../../AGENTS.md#current-provider-model-and-compatibility-information)查询代码；需真实验证时先取得具体授权，结果只在当次交付和受控 ignored run 目录中保存。普通离线测试也不需要另写完成报告。
 
-独立 evidence 仅在以下情形之一成立时新增：
-
-- **接入验收**：新 Provider、Target 或客户端/SDK 接线本身具有独立的外部验收价值；
-- **差异记录**：已执行测试与所引用的官方或 OpenRouter 声明不一致。
-
-普通 probe 不要求每次写报告。没有独立价值的探测结果可由 Provider 页或当前状态保留简短入口；不得把一次 `accepted` 写成长期 capability 保证。差异记录必须保留来源声明、观察差异、endpoint、model ID、payload、账户/地域/网络边界和“不证明什么”。
-
-## 真实 Provider 与客户端记录
-
-| 日期 | 记录 | 覆盖范围 |
-|---|---|---|
-| 2026-09-29 | [Reasoning ownership 与加密续轮专项](2026-09-29-reasoning-continuation-acceptance.md) | 实际密文获取、SDK 序列化保真与同目标双协议 JSON/SSE 续轮；独立保护可读-only、partial/final 和 owner/response 生命周期 |
-| 2026-09-29 | [OpenRouter GPT-6 Luna adapter 与 binary/SDK 验收](2026-09-29-openrouter-luna-acceptance.md) | 固定 Luna 双协议 JSON/SSE、真实 wire 差异修复、工具续轮及 SDK → 临时 binary → OpenRouter；区分普通续轮与未覆盖的真实加密 token 续轮 |
-| 2026-09-29 | [Flash Provider adapter 重构后真实验收](2026-09-29-flash-provider-adapter-acceptance.md) | `2e18ba4` 上 DeepSeek Flash / MiMo Flash 的双协议 JSON/SSE、单/双工具续轮与 JSON 参数对照；区分 codec 消费、输出格式异常和中断证据边界 |
-| 2026-09-28 | [DeepSeek / Xiaomi MiMo Provider 接入与双协议真实矩阵](2026-09-28-deepseek-xiaomi-provider-live-matrix.md) | 前一执行链在 DeepSeek Flash / MiMo Pro 上的分阶段拒绝与适配后验收；不替代新 adapter 或 MiMo Flash 证据 |
-| 2026-09-16 | [Bailian GLM-5.3 接入前能力探测](2026-09-16-bailian-glm-5-3-capability-probe.md) | 固定 case 的 Chat/Responses 支撑面与工具/structured 行为；Chat-only 接入与能力收窄依据 |
-| 2026-09-09 | [OpenAI SDK Responses loopback](2026-09-09-openai-responses-sdk-loopback.md) | 固定官方 SDK 的 JSON/SSE 工具续轮、独立 wire oracle 与负向控制；无真实 Provider |
-| 2026-09-09 | [DeepSeek Vision tool choice](2026-09-09-deepseek-vision-tool-choice.md) | auto/none 对照与 required/named 拒绝的双协议 JSON/SSE 复测；Target 收窄依据 |
-| 2026-09-02 | [双协议能力探测记录](2026-09-02-dual-protocol-capability-matrix.md) | DeepSeek V4 Flash Vision、MiMo-V2.5、GLM-5.3-Flash、Qwen3.8-Max 的双协议 × 双交付固定 case；包含与注册声明的差异 |
-| 2026-08-29 | [Bailian DeepSeek V4 Pro Responses 接入验证](2026-08-29-bailian-deepseek-v4-pro-responses.md) | 官方北京 Responses 声明、Target 注册修复、管理员 JSON/SSE probe 与本地下游 OpenAI SDK 请求 |
-| 2026-08-29 | [OpenBridge Qwen3.7 Embeddings 与 Hindsight 兼容性验证](2026-08-29-openbridge-qwen37-embeddings-hindsight-compatibility.md) | 模型发现、float/维度、20/21 batch、归一化/稳定性、中英语义小样本，以及 Hindsight SDK Base64/user 阻断与本地修复边界 |
-| 2026-08-27 | [Bailian Responses 三模型兼容性对比](2026-08-27-bailian-responses-model-comparison.md) | 北京 Models API 可见性及 GLM-5.2、DeepSeek V4 Flash 0731、Qwen3.8 Max 的 JSON/SSE、reasoning、structured output、工具续轮、state 与协议归因 |
-| 2026-08-27 | [OpenRouter GLM-5.3-Flash 接入验证](2026-08-27-openrouter-glm-5-3-flash-integration.md) | Chat/Responses、图片、工具、structured output、Hermes `obc`/`obr` 与能力收窄 |
-| 2026-08-10 | [OpenRouter Gemma strict schema 差异](2026-08-10-openrouter-gemma-strict-schema-mismatch.md) | OpenRouter structured-output 可见性与 strict JSON Schema 实测结果不一致 |
-
-## 静态代码与配置审计
-
-此类记录只证明指定 checkout 的源码注册、脱敏 configuration availability 和确定性合同测试，不替代真实 Provider 网络请求。
-
-| 日期 | 记录 | 覆盖范围 |
-|---|---|---|
-| 2026-09-02 | [Generation IR 协议转换语义覆盖静态审计](2026-09-02-generation-ir-semantic-coverage-audit.md) | Generation Static/Event IR 转换路径、语义映射挂钩点、stateless Responses 语义覆盖与缺口 |
-| 2026-08-25 | [全模型接入静态审计](2026-08-25-model-integration-static-audit.md) | Canonical、Target、Public Model、配置可用性、协议 surface 与证据缺口 |
-
-## 维护规则
-
-- 文件名以实际验证日期开头；已经发布的记录保留历史事实，不改写成当前状态，也不使用“最新”一词。
-- 不保存 credential、账户标识、完整请求/响应、reasoning 正文、Provider request ID 或敏感业务内容。
-- 模型信息可由 official website 或 OpenRouter 直接取得时，不在 evidence 复制完整 metadata。目录差异或未经请求验证的推论不构成测试差异；分别标注来源即可。
-- 后续实现变化只更新当前实现、状态边界或对应 Provider 页；需要复测时新增一份带日期记录并由对应 owner 链接。
-- 没有明确执行记录的 SDK、Agent、fallback、负载、长期运行或生产层必须写为未验证。
+历史源码/合同按各自固定 Git 版本解释；旧记录不是当前依赖，不因本地文档整理刷新外部验证日期。

@@ -33,11 +33,11 @@ Authenticated, bounded HTTP request
 
 ## 适配与保真
 
-厂商差异不形成另一套 Generation/Usage。DeepSeek 有效 usage 缺失/null cache-write 时按 [ADR 0008](architecture-v2/decisions/0008-stable-core-and-vendor-adapters.md)归一为 0，并记录其兼容来源；其他 profiles 不继承此默认。reported 值和非法值不能被默认覆盖。
+厂商差异不形成另一套 Generation/Usage。兼容默认值按 [ADR 0008](architecture-v2/decisions/0008-stable-core-and-vendor-adapters.md)由具名规则显式选择并记录来源，不能覆盖 reported 值或掩盖非法值；当前选择与理由由 `src/adapter/`、`src/protocol/adaptation.rs` 及其 owning codec 注释维护。
 
 标准 response context 在 semantic 中，instruction echo 的 wire fidelity 独立保存。classified extras 绑定协议、适配合同、可信来源和响应依赖；仅终态捕获/输出，目标不兼容或语义修改后不恢复旧值。encrypted replay 继续使用其更严格的 owner/origin/finality 合同。
 
-OpenRouter 的 routing/billing facts 使用同样的有界来源/响应依赖机制；Chat `reasoning` 映射到现有 typed reasoning，content-free 重复 finish 的 usage tail 只在该 adapter 准入。固定 GPT-6 Luna 启动与 wire 子集见 [OpenRouter text adapter](architecture-v2/openrouter-text-profile.md)；选定场景的真实验收见该 profile 关联证据，不代表完整兼容。
+厂商 routing/billing facts 同样受有界来源/响应依赖约束；重复 view 和特殊流式形式只在显式规则下验证。当前映射查询实现与独立回归，不另维护厂商适配表或测试结果页。
 
 ## 流式与执行边界
 
@@ -45,7 +45,7 @@ OpenRouter 的 routing/billing facts 使用同样的有界来源/响应依赖机
 
 最小 HTTP body worker 等待每个输出 frame 被 body poll 交给 server transport 后才确认 commit；完成所有 handoff 后才 complete，不声称客户端已收到。独立绝对 deadline 在 body 不被消费时仍释放上游，drop/shutdown 同样取消。首帧前失败返回脱敏 JSON 错误；HTTP response 已交出后的错误中止 body，不能换状态或合成成功终态。具体入口、预算与启动合同见 [HTTP 网关指南](http-gateway.md)和 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)。
 
-当前仅执行每个入口预先固定的一个 Route 成员，不做自动 retry/fallback。Provider 的 native Responses 路径可缺省；topology 编译会拒绝为未声明协议创建 Endpoint。LongCat 已声明原生 Responses，Xiaomi Pro/Flash 使用独立模型与 endpoint 绑定但共享凭据；NVIDIA、百炼、Kimi、智谱仍仅开放 Chat，不用虚构的 Responses 路径填充结构。`tests/transport/chain.rs` 验证 library execution；`tests/gateway.rs` 经过真实 Router 和 synthetic HTTP Provider；固定 SDK 同时保留 codec fixture gates 与经过同一 Gateway 的独立全链 gate。`examples/live_probe.rs` 仍是另需授权的库级诊断入口，旧 live 结果不证明新服务入口的外部兼容。
+当前仅执行每个入口预先固定的一个 Route 成员，不做自动 retry/fallback。Provider 的 native Responses 路径可缺省；topology 编译会拒绝为未声明协议创建 Endpoint。各 Provider/模型的当前绑定及实例启用情况按 [AGENTS 查询方法](../AGENTS.md#current-provider-model-and-compatibility-information)核对，不从名称、目录或历史成功推断。`tests/transport/chain.rs` 验证 library execution；`tests/gateway.rs` 经过真实 Router 和 synthetic HTTP Provider；固定 SDK 同时保留 codec fixture gates 与经过同一 Gateway 的独立全链 gate。`examples/live_probe.rs` 仍是另需授权的库级诊断入口，旧 live 结果不证明新服务入口的外部兼容。
 
 ## 探测执行边界
 

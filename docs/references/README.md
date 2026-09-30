@@ -17,7 +17,7 @@
 
 ## 历史材料的角色
 
-现有 `openai/`、`codex/`、`protocol-gateways/`、`providers/` 等来源目录保留为**固定研究原文与出处**，不再作为当前设计的分块入口，不要求继续逐来源维护。旧页面中的“当前”、建议和维护流程只适用于其原快照；当前结论以主题综合和上游同步为准。精确原文可查[整合前 Git 快照](https://github.com/IceblueSakura/OpenBridge/tree/5924f80d9af5a68dbf13185c56942ff9102b3361/docs/references)。
+现有 `openai/`、`codex/`、`protocol-gateways/` 等来源目录保留为**固定研究原文与出处**，不再作为当前设计的分块入口，不要求继续逐来源维护。Provider 的动态 API/模型资料只保留[官方来源导航](providers/README.md)，需要时重新查询，不维护适配清单、API 快照或实测报告。旧页面中的“当前”、建议和维护流程只适用于其原快照；当前结论以主题综合和上游同步为准。精确原文可查[整合前 Git 快照](https://github.com/IceblueSakura/OpenBridge/tree/5924f80d9af5a68dbf13185c56942ff9102b3361/docs/references)。
 
 主题综合覆盖 IR/codec 设计；OAuth grant、MCP server 框架、计费和运营实现仍以各自固定资料为依据。既有原文及[历史测试资产登记](topics/test-assets-registry.md)、[语义评测方法](semantic-testing-methods.md)按原版本解释，不因文档整理刷新外部验证日期。
 
@@ -28,6 +28,6 @@
 3. 一个事实只保留一个当前 owner。类型表达、codec 映射、生产接线、实际执行分别举证；不建立按项目重复维护的设计 schema。
 4. 上游同步必须固定版本并处理冲突，不把网页整理日期写成外部执行日期；新增领域先核对相关一手 schema，不根据名字猜形状。
 5. 保留必要 attribution 与 license。默认提炼场景并自主写 synthetic fixture，不复制企业代码、限制商业使用的数据、敏感 payload 或大段第三方源码。
-6. 模型目录、价格和 capability metadata 直接引用官方来源，不维护冗余全量镜像；本地类型不证明真实 Provider 支持。
+6. Provider/model 当前支持按 [AGENTS 查询流程](../../AGENTS.md#current-provider-model-and-compatibility-information)现场核对代码、启动和实例；上游字段、目录、价格和 capability metadata 按需查官方来源。不维护本地支持矩阵或 Provider API/测试结果快照，本地类型不证明真实可用。
 7. 扩展不能承载 auth/target/script override 或绕过资源与信任边界。真实凭据、私人配置与会话不得进入文档、工具参数或输出。
-8. 维护相对链接和锚点；已执行的独立外部证据仍由 [evidence](../implementation-status/evidence/README.md)保存，不把静态规范差异称为实测 discrepancy。
+8. 维护相对链接和锚点；Provider 测试结果只在当次交付与授权 ignored run 中报告，不新建 evidence 页，也不把旧报告迁成代码注释。有效不变量、拒绝理由与必要出处归 owning code 和独立 synthetic 回归；静态规范差异不能称为实测 discrepancy。

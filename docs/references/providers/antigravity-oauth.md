@@ -5,7 +5,7 @@
 | 字段 | 值 |
 |---|---|
 | Source snapshot | sub2api 本地 checkout `main` @ `5097b31457e6dc9f49e5f5c9c72b925ce79543b3`（2026-09-03）；Antigravity-Manager `docs/proxy/auth.md`（raw.githubusercontent，2026-09-03 抓取）；Google Gemini Code Assist 消费级弃用公告（web search 摘要，2026-09-03） |
-| Last reverified | 2026-09-03，对 sub2api 本地 checkout 做了源码与 git 历史实读核对；同日对 Google device flow 端点以该 client 做了一次匿名授权探测 |
+| Last reverified | 2026-09-03，对 sub2api 固定 checkout 做源码与 git 历史核对；这里只保留静态研究，不维护 Provider 探测结果 |
 | Scope | Antigravity（Google）订阅账号 OAuth 登录路径的端点、参数、授权后动作、对抗时间线与信息来源链；不含推理 wire 全量字段，不含 OpenBridge 实现 |
 | Evidence boundary | 未用真实账号执行过任何一条授权流程；协议细节来自代理项目源码而非官方文档，不证明 Google 认可或保证稳定性；社区项目星数与时间线为检索自报数据 |
 | Recheck trigger | 决定评估或接入该路径；sub2api/Antigravity-Manager 上游协议常量变化；Google 端点、客户端指纹校验或消费级订阅政策再变更 |
@@ -29,12 +29,9 @@
   `cclog` 与 `experimentsandconfigs`（`oauth.go:43-47`）。
 - Redirect：固定 `http://localhost:8085/callback`；网关无法接收用户浏览器跳转，用户需手动复制
   授权码回粘贴（OOB 交互）。
-- Google device flow 不可用（2026-09-03 实测）：以该 client_id 匿名 POST
-  `https://oauth2.googleapis.com/device/code`（scope=cloud-platform+userinfo 子集），
-  authority 返回 401 `invalid_client: Invalid client type`。该 client 为 Desktop/Web 类型，
-  Google 的 TV/limited-input device grant 需要单独类型的客户端，因此 Antigravity 路径
-  无法获得 device flow，只能沿用 OOB 授权码。这也与全部已知社区实现（sub2api、
-  opencode-antigravity-auth、Antigravity-Manager）一致。
+- 固定源码采用授权码路径；这不能证明该客户端当前是否获准使用 device grant。
+  若需要该能力，应查询当前官方 OAuth 文档和客户端类型要求，真实授权探测另需许可；
+  不根据历史探测结果维护可用/不可用结论。
 - User-Agent：`antigravity/<版本号> <平台>` 伪装官方客户端，版本号可配置且需跟随官方升级
   （默认曾从 1.11.9 一路 bump 到 1.23.2，见 §4）。
 

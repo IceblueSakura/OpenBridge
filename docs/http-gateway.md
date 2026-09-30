@@ -4,24 +4,16 @@
 
 ## 启动
 
-启动只读取下列环境变量，**不自动读取 `.env`、旧 TOML 配置或其他应用认证缓存**。
+启动只读取代码显式声明的环境变量，**不自动读取 `.env`、旧 TOML 配置或其他应用认证缓存**。下表列通用启动控制；Provider 专用变量与模型/协议绑定从 [`src/gateway/bootstrap.rs`](../src/gateway/bootstrap.rs)及其引用的 catalog 查询，完整方法见 [AGENTS.md](../AGENTS.md#current-provider-model-and-compatibility-information)。
 
 | 变量 | 含义 |
 |---|---|
 | `OPENBRIDGE_CLIENT_KEY` | 必填：单一入口 Bearer token，32–4096 个可打印 ASCII 非空白字符；应使用高熵随机值 |
-| `OPENBRIDGE_DEEPSEEK_API_KEY` | 可选：启用固定 catalog 中的 DeepSeek 模型 |
-| `OPENBRIDGE_XIAOMI_API_KEY` | 可选：同时启用 `mimo-v2.6-pro` 与 `mimo-v2.6-flash` 的 Chat/Responses，共享凭据、分别绑定上游模型 |
-| `OPENBRIDGE_OPENROUTER_API_KEY` | 可选：启用 `gpt-6-luna`，固定上游 ID 为 `openai/gpt-6-luna` |
-| `OPENBRIDGE_LONGCAT_API_KEY` | 可选：启用 `longcat-2.5-preview`（上游 `LongCat-2.5-Preview`）的 Chat/Responses |
-| `OPENBRIDGE_NVIDIA_API_KEY` | 可选：启用 `nemotron-3-super`（上游 `nvidia/nemotron-3-super-120b-a12b`），当前仅 Chat |
-| `OPENBRIDGE_BAILIAN_API_KEY` | 可选：启用北京百炼 `qwen3.8-max`，当前仅 Chat |
-| `OPENBRIDGE_KIMI_API_KEY` | 可选：启用中国开放平台 `kimi-k3`，当前仅 Chat |
-| `OPENBRIDGE_ZHIPU_API_KEY` | 可选：启用中国开放平台 `glm-5.3`，当前仅 Chat |
 | `OPENBRIDGE_BIND` | 可选：默认 `127.0.0.1:8080`；仅接受 literal loopback SocketAddr（也可 `[::1]:8080`） |
 | `OPENBRIDGE_PROXY` | 可选：受信启动配置中的显式出站代理 URL；不继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` |
 | `OPENBRIDGE_PROBE_DIAGNOSTICS` | 可选：操作者指定的新建私有 JSONL 文件；默认关闭，不覆盖已有文件，不记录 payload |
 
-至少提供一个 Provider key；设置为空不等于禁用，而是配置错误。不输出凭据值，不生成默认入口密钥。模型绑定由 [`src/topology/catalog.rs`](../src/topology/catalog.rs)维护；未提供对应 key 的模型不在入口中开放。MiMo Flash 是显式固定绑定，不替换 MiMo Pro；未配置 key 时二者均不开放。
+至少提供一个已注册 Provider 的 key；设置为空不等于禁用，而是配置错误。不输出凭据值，不生成默认入口密钥。模型绑定由 [`src/topology/catalog.rs`](../src/topology/catalog.rs)维护，未提供对应 key 的模型不在入口中开放。不要从变量命名规则猜测支持项，也不要通过打印环境或私有配置来确认启用情况。
 
 在安全地提供上述环境变量后启动：
 
@@ -41,26 +33,26 @@ cargo run --locked --offline --bin openbridge
 - 所有路由先检查唯一的 `Authorization: Bearer …`，认证通过后才进行应用层 body 收集。其他认证 header 不替代该字段，重复 Authorization 拒绝。
 - Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单 part 编码规范化为字符串，多 part 保序，不准入媒体。工具结果仍为字符串。
 - 请求要求 JSON Content-Type，仅 UTF-8；不接受 Content-Encoding。严格 JSON 解析拒绝重复 key。先解析 envelope 中的 public model，绑定受信 task，再进行语义 decode。
-- 每个 `(public model, client protocol)` 在启动时固定到 Route 中的一个 Endpoint；默认 bootstrap 使用相同 wire family。[API-key adapters](architecture-v2/api-key-text-profiles.md) 中 LongCat 已声明原生 Responses；NVIDIA、百炼、Kimi、智谱仍仅开放 Chat，对它们调用 `/v1/responses` 返回 `model_not_found`，不隐式转协议。没有运行时候选重排、自动 retry/fallback 或业务 JSON 指定目标。
+- 每个 `(public model, client protocol)` 在启动时固定到 Route 中的一个 Endpoint；默认 bootstrap 使用相同 wire family。没有对应协议 entry 的模型返回 `model_not_found`；不从 Chat 绑定推导 Responses，也不隐式转协议。没有运行时候选重排、自动 retry/fallback 或业务 JSON 指定目标。
 - operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。响应 reported facts 不从请求复制补齐。
 - Provider URL、path、model 和 auth 都来自启动绑定。入站 headers 不透传，上游非成功 HTTP 状态的诊断正文、认证状态细节、origin、凭据 locator 不回显；下游 `model` 为 public label。
 - 未实现 `/v1/models`、状态资源、WebSocket、媒体或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。
 
 ### 最小请求示例
 
-使用入口 Bearer token（不是上游 API key）。下面是 synthetic 请求 body；若向已启用的真实模型发送，仍会产生真实 Provider 调用，示例本身不授予调用权限：
+使用入口 Bearer token（不是上游 API key）。下面的 `configured-public-model` 是占位符，不是已注册模型；按查询指南替换为目标实例已启用且准入对应协议的 public label。向真实模型发送仍会产生 Provider 调用，示例本身不授予调用权限：
 
 ```json
-{"model":"deepseek-flash","input":"Reply with exactly pong.","max_output_tokens":64}
+{"model":"configured-public-model","input":"Reply with exactly pong.","max_output_tokens":64}
 ```
 
 将它发送到 `/v1/responses`；增加 `"stream":true` 即请求 SSE。对应 Chat 请求发送到 `/v1/chat/completions`：
 
 ```json
-{"model":"deepseek-flash","messages":[{"role":"user","content":"Reply with exactly pong."}],"max_completion_tokens":64}
+{"model":"configured-public-model","messages":[{"role":"user","content":"Reply with exactly pong."}],"max_completion_tokens":64}
 ```
 
-OpenRouter 启用后，上述两个示例可将 `model` 改为 `gpt-6-luna`；只接入普通版本，不是 Pro/batch。adapter 固定发送 `provider.require_parameters=true`，客户端不得传入 `provider` 覆盖 routing。其文本准入、reasoning/费用字段映射和未支持的 wire 分支见 [OpenRouter text adapter](architecture-v2/openrouter-text-profile.md)。`openai-responses-v1` 的 Chat summary/encrypted details 已按 owner/origin 约束接入；其他格式仍拒绝，实际验收范围见该页关联的证据。
+厂商 routing policy 和 wire 扩展由[所选 adapter](../src/adapter/mod.rs)及 owning codec 维护；客户端不得覆盖上游路由、认证或可信 scope。示例不表示任一模型支持全部请求选项。
 
 模型必须已通过启动凭据启用；其他字段按关联 text profile 准入。固定 SDK 使用 `base_url` 指向本机 `/v1`，`api_key` 使用入口 token，不把上游 key 交给客户端。
 
@@ -114,4 +106,4 @@ SSE 不收完整流再回放。每次最多消费一个上游 frame；下游 fra
 - `tests/gateway.rs` 使用真实 Router 与 synthetic HTTP Provider；另外通过隔离环境启动 binary，拒绝代理捕获器阻止任何意外外部请求。
 - `tests/sdk/gateway.rs` 与 `gateway_text_loop.py` 让固定 SDK 经同一 Router/Provider 完成双协议 JSON/SSE 工具与 reasoning 续轮；与旧的纯 fixture SDK gates 分开。
 
-运行方式见[开发指南](development.md)。[GPT-6 Luna 受控验收](implementation-status/evidence/2026-09-29-openrouter-luna-acceptance.md)包含固定 SDK 经实际 binary 的双协议 JSON/SSE 文本与工具续轮；只证明其指定场景。部署、长稳压测、缓存收益、多租户和更广 Agent 行为仍未验收。旧 live 库级证据不能替代新 HTTP 服务的外部验收。
+运行方式见[开发指南](development.md)。需要外部兼容性结论时，按 [probe 指南](probes.md)取得授权并验证选定实例/目标，不在本文保存结果。库级测试不能替代 HTTP 服务验收，局部通过也不证明部署、长稳、缓存收益或更广 Agent 行为。

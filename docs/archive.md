@@ -16,7 +16,7 @@
 
 归档仅覆盖受版本管理的旧路线，**不表示 v2 功能对等或生产迁移成功**。私有配置、未跟踪内容与生成缓存不属于归档恢复合同。
 
-参考资料和独立历史证据仍保留在 `references/`、`implementation-status/evidence/`；其中旧源码/合同链接指向固定 Git 版本，证据日期与适用范围不刷新。
+稳定参考与非 Provider 研究记录仍保留在 `references/`、`implementation-status/evidence/`，按各自固定来源解释。Provider 测试报告、模型清单和动态 API 快照不在当前文档维护；历史问题可显式查询 Git 历史，但不能用历史记录代替当前绑定/可用性查询。
 
 ## 只读查看
 

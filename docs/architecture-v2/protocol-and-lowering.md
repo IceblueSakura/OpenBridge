@@ -13,7 +13,7 @@ decode(profile, task, wire) -> Decoded<TaskIR>
 encode(profile, task, representation) -> wire
 ```
 
-A codec knows wire shapes, field names, event grammar and profile-level presence rules. `adapter::Adapter` composes a protocol family with trusted `Adaptation` rules and scope; Standard, OpenBridge-client and the fixed Provider profiles (including the [additional API-key adapters](api-key-text-profiles.md)) are distinct contracts, not one global vendor superset. Standard fields have typed owners; extensions require a declared schema, attachment and scope. Known unsupported standard branches must not be relabeled arbitrary extensions. A codec does not access credentials, routes or provider selection.
+A codec knows wire shapes, field names, event grammar and profile-level presence rules. `adapter::Adapter` composes a protocol family with trusted `Adaptation` rules and scope; Standard, OpenBridge-client and the fixed Provider profiles (selected in [`src/adapter/mod.rs`](../../src/adapter/mod.rs)) are distinct contracts, not one global vendor superset. Standard fields have typed owners; extensions require a declared schema, attachment and scope. Known unsupported standard branches must not be relabeled arbitrary extensions. A codec does not access credentials, routes or provider selection.
 
 Raw Responses JSON enters through `envelope::decode_request_bytes` / `decode_response_bytes`; SSE data uses the same bounded, duplicate-rejecting parser before event decoding. Existing Value APIs validate envelope/task semantics, not the lost raw JSON representation. Caller-side body collection remains independently bounded. Exact admission and limits are in the [text profile](responses-text-profile.md#raw-json-admission).
 
@@ -74,7 +74,7 @@ During lowering, fidelity may be reused only if:
 3. it does not override a modeled field;
 4. any content dependency still validates.
 
-Otherwise it is dropped or causes a deterministic representability error according to policy. The [OpenRouter text adapter](openrouter-text-profile.md) adds classified nested billing/router facts using this same lifecycle and dependency boundary, without changing typed Usage.
+Otherwise it is dropped or causes a deterministic representability error according to policy. Classified nested billing/router facts use this same lifecycle and dependency boundary without changing typed Usage; their current allow-list and mapping live in [`adapter_shapes.rs`](../../src/protocol/openai/adapter_shapes.rs).
 
 For admitted Responses encrypted reasoning, static decode returns unbound replay records. A trusted caller binds their source scope with `FidelityRecords::bind_replay_origin`; event decoding receives the same scope through `EventDecoder::with_replay_origin`. `GenerationRepresentationContract::replay_origin` identifies the fixed target's compatible scope. Missing or mismatched scope, partial replay, or changed reasoning-owner dependencies fail lowering. These labels must not be supplied by business JSON or contain credential/endpoint locators. Scope construction is an execution-boundary responsibility, not provider discovery inside a codec.
 

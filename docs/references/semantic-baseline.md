@@ -68,7 +68,7 @@ runtime 的 routing、health、latency、retry、cache 与 observability 不反�
 | hub conversion、history、call identity | [转换图](new-api/new-api-request-conversion-analysis.md)、[续轮转换](cc-switch/cc-switch-chat-responses-tool-conversion-analysis.md)、[stateful 反例](cliproxyapi/cliproxyapi-stateful-bridge-analysis.md)；AGPL-3.0 / MIT；旧 new-api focused tests 不作为当前验收 |
 | 消费者字段、sidecar、容错反例 | [Agent consumer](hermes/hermes-chat-responses-analysis.md)、[SSE/tool lifecycle](codex/codex-sse-and-tool-lifecycle-analysis.md)；MIT / Apache-2.0 |
 | session/cache/thread/turn | [旧 Codex 逐字段研究](codex/codex-responses-http-header-behavior.md)；最新相关源码已在同步基线重新固定 |
-| 媒体任务边界 | [图片](openai/images-responses-input.md)、[文件](openai/files-responses-input.md)、[Chat audio](openai/audio-chat-input-output.md)、[特殊语音 wire](providers/xiaomi-audio.md) |
+| 媒体任务边界 | [图片](openai/images-responses-input.md)、[文件](openai/files-responses-input.md)、[Chat audio](openai/audio-chat-input-output.md)、[特殊语音官方来源](providers/README.md#xiaomi-mimo) |
 | 确定性/SDK/语义质量证据分层 | [测试资产比较](cross-project/chat-responses-sse-tool-test-suite-survey.md)、[评测方法](semantic-testing-methods.md)、[资产许可登记](topics/test-assets-registry.md) |
 
 ## 9. 到设计的映射

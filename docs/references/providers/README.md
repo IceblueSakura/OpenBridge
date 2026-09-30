@@ -1,29 +1,62 @@
-# Provider 调研索引
+# Provider 官方来源入口
 
-本目录以扁平文件保存外部 Provider 的协议、认证、endpoint、wire 和专项媒体调研。叶文档拥有来源、日期和证据边界；本索引只负责导航，不表示重新请求过任何 Provider。
+这里只保存检索入口和必要出处，**不是 OpenBridge 支持列表、API 快照或测试记录**。当前绑定、协议准入和实例启用情况按 [AGENTS.md 的查询方法](../../../AGENTS.md#current-provider-model-and-compatibility-information)从代码现场确认；上游字段、模型、地域、价格和可用性按任务需要重新查阅官方来源。
 
-## Provider 文档
+链接存在不证明 API 合同未变。网页和 Models 目录也不证明账号权限或生成请求成功；凭据查询、真实调用和付费验证仍需独立授权。本次整理不声明重新核验过外部页面。下列资料属于各自发布方；这里只提供链接，不复制其实现或测试数据。
 
-| Provider | 协议与专项资料 |
-|---|---|
-| Alibaba Cloud Model Studio | [API](bailian-api.md) |
-| Antigravity（Google 订阅） | [订阅 OAuth 登录路径与信息来源](antigravity-oauth.md) |
-| DeepSeek | [API](deepseek-api.md) |
-| Kimi | [API](kimi-api.md) |
-| LongCat | [API 与 reasoning wire](longcat-api.md) |
-| NVIDIA API Catalog / NIM | [API](nvidia-api.md) |
-| OpenRouter | [API 与路由语义](openrouter-api.md) |
-| Xiaomi MiMo | [API](xiaomi-api.md)、[图片 wire](xiaomi-image.md)、[音频 wire](xiaomi-audio.md) |
-| Grok（xAI 订阅） | [订阅 OAuth 登录路径与信息来源](grok-oauth.md) |
-| OpenAI ChatGPT（订阅/Codex） | [订阅 OAuth 登录路径与信息来源](openai-chatgpt-oauth.md) |
-| Zhipu AI China / Z.AI | [API](zhipu-api.md) |
+## Alibaba Cloud Model Studio
 
-OpenBridge v2 当前有固定 Provider/topology 与环境变量启动绑定，见[当前架构](../../architecture.md)和 [HTTP 指南](../../http-gateway.md)。旧运行时的 Model、Provider Target 与 Public Model 关系见[固定归档映射](https://github.com/IceblueSakura/OpenBridge/blob/4f13ecefa21265a6ec5aa967278e81f03039f585/docs/implementation-status/model-provider-mapping.md)，不表示当前 v2 能力。
+- [OpenAI-compatible Chat](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)
+- [OpenAI-compatible Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)
+- [Structured output](https://help.aliyun.com/zh/model-studio/qwen-structured-output)
+- [DashScope API](https://help.aliyun.com/zh/model-studio/developer-reference/use-qwen-by-calling-api)
 
-## 内容边界
+## DeepSeek
 
-- 本目录不保存 Provider 全量 Models 响应、模型能力表、context、modalities、tokenizer、reasoning levels、supported parameters、价格或原始模型元数据快照。
-- official website 或 OpenRouter 已公开的模型信息优先用来源 URL、来源身份、复核日期和触发条件标注，不在本地重新展开。
-- 当前可信绑定由 `src/topology/catalog.rs`、`src/provider/catalog.rs` 维护；模型事实还需对应官方来源与验收证据。v2 未提供 Models discovery API，旧目录和 API 不代表当前实现。
-- Provider reference 只保留协议、认证、endpoint、request/response wire、错误和独立专项观察；模型名称只在解释映射或具体 wire evidence 时出现。
-- 外部动态事实形成实现结论前必须重新核验；一次请求不证明其他账号、区域、模型、参数组合、负载或长期可用性。只有已执行测试与引用来源不一致时，才转入 implementation evidence 记录差异；official 与 OpenRouter 之间的静态目录差异不单独保存为测试结论。
+- [Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion)
+- [Responses](https://api-docs.deepseek.com/guides/responses_api/)
+- [JSON output](https://api-docs.deepseek.com/guides/json_mode/)、[function calling](https://api-docs.deepseek.com/guides/function_calling/)、[strict tools](https://api-docs.deepseek.com/guides/tool_calls/)
+- [Thinking](https://api-docs.deepseek.com/guides/thinking_mode)、[vision](https://api-docs.deepseek.com/guides/vision)
+
+## Kimi
+
+- [API overview](https://platform.kimi.com/docs/api/overview)、[Chat](https://platform.kimi.com/docs/api/chat)
+- [Models and parameters](https://platform.kimi.com/docs/api/models-overview)
+
+## LongCat
+
+- [Quick start](https://longcat.chat/platform/docs/)
+- [Chat reference](https://longcat.chat/platform/docs/api/chat.html)
+- [Codex configuration](https://longcat.chat/platform/docs/Codex.html)
+
+## NVIDIA
+
+- [NIM LLM API reference](https://docs.nvidia.com/nim/large-language-models/latest/api-reference.html)
+- [API Catalog](https://build.nvidia.com/)
+- [Authentication](https://docs.nvidia.com/nemo/retriever/26.5.0/extraction/api-keys)
+
+## OpenRouter
+
+- [Chat](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request)、[Responses](https://openrouter.ai/docs/api/reference/responses/overview)
+- [Models](https://openrouter.ai/docs/api/api-reference/models/get-models)、[model endpoints](https://openrouter.ai/docs/api/api-reference/models/get-endpoints-for-a-model)
+- [API overview](https://openrouter.ai/docs/api_reference/overview)、[streaming](https://openrouter.ai/docs/api_reference/streaming)、[Responses reasoning](https://openrouter.ai/docs/api_reference/responses/reasoning)
+- [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)、[server tools](https://openrouter.ai/docs/guides/features/server-tools)、[web search](https://openrouter.ai/docs/guides/features/server-tools/web-search)
+- [Plugins](https://openrouter.ai/docs/guides/features/plugins)、[router metadata](https://openrouter.ai/docs/guides/features/router-metadata)
+
+## Xiaomi MiMo
+
+- [Chat](https://mimo.mi.com/docs/zh-CN/api/chat/openai-api)、[Responses](https://mimo.mi.com/docs/zh-CN/api/chat/responses)、[Models](https://mimo.mi.com/docs/zh-CN/api/model/list-models)
+- [Structured output](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/structured-output)
+- [Images](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/image-understanding)
+- [Audio understanding](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/multimodal-understanding/audio-understanding)
+- [Speech recognition](https://mimo.mi.com/docs/en-US/api/audio/Speech-Recognition)、[text-to-speech](https://mimo.mi.com/docs/en-US/api/audio/Text-to-Speech)
+- [Voice design](https://mimo.mi.com/docs/en-US/api/audio/Voice-Design)、[voice clone](https://mimo.mi.com/docs/en-US/api/audio/Voice-Clone)
+
+## Zhipu / Z.AI
+
+- [OpenAI SDK compatibility](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction)
+- [Structured output](https://docs.bigmodel.cn/cn/guide/capabilities/struct-output)
+
+## 独立认证设计资料
+
+[Antigravity](antigravity-oauth.md)、[Grok](grok-oauth.md)、[ChatGPT/Codex](openai-chatgpt-oauth.md)保留各自固定来源和认证设计边界，不表示当前实现已接入，也不授权读取其他应用的认证缓存。

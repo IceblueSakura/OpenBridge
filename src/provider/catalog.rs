@@ -1,15 +1,15 @@
-//! Fixed researched provider entries (`docs/references/providers/`).
+//! Trusted origin, protocol path and authentication definitions, not a live inventory.
 //!
-//! These definitions pin origin, relative entries and auth scheme only. Model
-//! capability is not claimed here; per-model facts live in topology bindings and
-//! observed evidence.
+//! Follow topology bindings and gateway bootstrap for public-model admission.
+//! Official source links are lookup starting points; recheck them when changing a
+//! binding. A registered entry does not prove account access or live compatibility.
 
 use crate::provider::{
     auth::AuthScheme,
     definition::{EndpointPath, ProviderDefinition, ProviderId, TrustedOrigin},
 };
 
-/// DeepSeek OpenAI-compatible entries (`docs/references/providers/deepseek-api.md`).
+/// OpenAI-compatible entries; source: <https://api-docs.deepseek.com/guides/responses_api/>.
 pub fn deepseek() -> ProviderDefinition {
     ProviderDefinition {
         id: ProviderId::new("deepseek").expect("static identity"),
@@ -20,8 +20,8 @@ pub fn deepseek() -> ProviderDefinition {
     }
 }
 
-/// Xiaomi MiMo entries (`docs/references/providers/xiaomi-api.md`). The official
-/// docs accept `api-key:` or `Authorization: Bearer`; OpenBridge binds Bearer.
+/// MiMo binds Bearer rather than exposing authentication choice to requests.
+/// Source: <https://mimo.mi.com/docs/zh-CN/api/chat/responses>.
 pub fn xiaomi() -> ProviderDefinition {
     ProviderDefinition {
         id: ProviderId::new("xiaomi").expect("static identity"),
@@ -32,7 +32,7 @@ pub fn xiaomi() -> ProviderDefinition {
     }
 }
 
-/// OpenRouter aggregator entries (`docs/references/providers/openrouter-api.md`).
+/// Aggregator entries; source: <https://openrouter.ai/docs/api/reference/responses/overview>.
 pub fn openrouter() -> ProviderDefinition {
     ProviderDefinition {
         id: ProviderId::new("openrouter").expect("static identity"),
@@ -53,6 +53,8 @@ fn chat_provider(id: &str, origin: &str, path: &str) -> ProviderDefinition {
     }
 }
 
+/// Native Responses entry is explicit, not inferred from Chat compatibility.
+/// Source: <https://longcat.chat/platform/docs/Codex.html>.
 pub fn longcat() -> ProviderDefinition {
     ProviderDefinition {
         responses: Some(EndpointPath::new("/openai/v1/responses").expect("static path")),
@@ -63,6 +65,8 @@ pub fn longcat() -> ProviderDefinition {
         )
     }
 }
+/// Hosted origin, not an arbitrary self-hosted NIM deployment.
+/// Source: <https://docs.nvidia.com/nim/large-language-models/latest/api-reference.html>.
 pub fn nvidia() -> ProviderDefinition {
     chat_provider(
         "nvidia",
@@ -70,6 +74,8 @@ pub fn nvidia() -> ProviderDefinition {
         "/v1/chat/completions",
     )
 }
+/// Region-bound endpoint; credentials must belong to the selected region.
+/// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>.
 pub fn bailian() -> ProviderDefinition {
     chat_provider(
         "bailian",
@@ -77,9 +83,11 @@ pub fn bailian() -> ProviderDefinition {
         "/compatible-mode/v1/chat/completions",
     )
 }
+/// Source: <https://platform.kimi.com/docs/api/chat>.
 pub fn kimi() -> ProviderDefinition {
     chat_provider("kimi", "https://api.moonshot.cn", "/v1/chat/completions")
 }
+/// Source: <https://docs.bigmodel.cn/cn/guide/develop/openai/introduction>.
 pub fn zhipu() -> ProviderDefinition {
     chat_provider(
         "zhipu",

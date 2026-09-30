@@ -20,7 +20,7 @@
 | P1 | Vercel AI SDK | Apache-2.0 | [Provider-neutral language model types](vercel-ai-sdk.md) |
 | P1 | Portkey Gateway | MIT | [Provider adapter 与 middleware](portkey.md) |
 | P1 | Helicone AI Gateway | GPL-3.0 | [Rust runtime gateway、routing 与 observability](helicone.md) |
-| P2 | OpenRouter | 闭源服务；只引用官方公开资料 | [OpenRouter API 调研](../providers/openrouter-api.md) |
+| P2 | OpenRouter | 闭源服务；只引用官方公开资料 | [OpenRouter 官方来源](../providers/README.md#openrouter)（按需重核） |
 
 许可证以各固定 checkout 根目录的 `LICENSE` 为准；本表不是法律意见。外部测试默认只借鉴独立场景并自主编写 synthetic fixture。复制代码、payload 或 fixture 前必须重新核对具体文件的 license、来源和 attribution。
 

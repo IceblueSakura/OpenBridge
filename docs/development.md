@@ -65,16 +65,16 @@ uv run --project tests/sdk --locked --offline cargo test --locked --offline --te
 
 真实调用需当次明确授权目标、矩阵、token/请求数和报告边界；以下入口不属于默认 tests，也不因环境中存在密钥就获准运行。所有自动 live 入口现在要求共享 run，先通过 `examples/probe.py plan` 离线建计划；预算、调度、原调用诊断、当前命令及结果解释统一归 [probe 指南](probes.md)。以下具名入口只负责选择场景，不再拥有独立的进程内调用额度。
 
-- `examples/live_probe.rs`：显式 `OPENBRIDGE_PROBE=1` 与 `OPENBRIDGE_PROBE_RUN`，默认 NVIDIA；模型必须属于计划，Kimi 暂停。目录预检现在另需显式启用并占共享 slot。只遍历已声明的 native protocol。`OPENBRIDGE_PROBE_PROTOCOL`、`OPENBRIDGE_PROBE_CASE`、`OPENBRIDGE_PROBE_DELIVERY` 选择固定场景；额外的显式 `CASE=length` 仅 Chat、固定 8-token 截断，不进入默认矩阵，也不受 token override 扩大。普通场景的 `OPENBRIDGE_PROBE_MAX_TOKENS` 限于 1–2048。真实工具输出按完整已交付历史续轮，报告同时检查终态和场景 oracle，失败退出非零。
-- `OPENBRIDGE_PROBE_REPLAY_DIR=<existing probe directory> cargo run --locked --offline --example live_probe`：离线回放该目录的固定 GPT-6 Luna 首轮 captures，不读取凭据、不联网；缺失/失败样本不会被计为通过。原始 captures 不进入独立 fixtures。
-- `examples/live_gateway_probe.py`：先 `cargo build --locked --offline --bin openbridge`，再经固定环境显式运行 `OPENBRIDGE_GATEWAY_PROBE=1 uv run --project tests/sdk --locked --offline python examples/live_gateway_probe.py`。设置 `OPENBRIDGE_PROBE_RUN` 后，选择计划内的 synthetic GPT-6 Luna 场景；追加 `OPENBRIDGE_GATEWAY_REASONING=1` 选择加密状态获取/续轮，首轮必须实际有密文，第二轮在 SDK `send` 前以内存比较验证序列化后的 issuer ID/密文未丢失或变化。两种模式均每次最多 2048 输出 tokens，SDK → 临时 loopback binary → Provider；SDK 不继承代理，网关仅使用显式可信 egress。使用固定 SDK 导出的 `DefaultHttpxClient`，不新增未锁定的 Python HTTP 依赖。
+- `examples/live_probe.rs`：显式 `OPENBRIDGE_PROBE=1` 与 `OPENBRIDGE_PROBE_RUN`，模型必须属于计划。选择项、native protocol 与预算以该入口代码为准，不依赖默认目标；目录预检另需显式启用并占共享 slot。真实工具输出按完整已交付历史续轮，报告分别检查终态和场景 oracle。
+- `OPENBRIDGE_PROBE_REPLAY_DIR=<existing probe directory> cargo run --locked --offline --example live_probe`：仅回放该入口代码选定的旧格式 captures，不是通用 discovery/replay。先读其 replay 分支确认目标/格式；不读取凭据、不联网，不将 captures 作为独立 fixtures。
+- `examples/live_gateway_probe.py`：固定场景的 SDK → 临时 binary → Provider 入口；加密状态场景要求首轮真实 token，以及 SDK send 前的 issuer ID/密文保真检查。具体目标和开关读取入口代码，必须属于已授权 run；不能把可读 reasoning 当作加密续轮成功。
 
-- `examples/live_provider_matrix.py`：`OPENBRIDGE_PROVIDER_MATRIX=1 uv run --project tests/sdk --locked --offline python examples/live_provider_matrix.py`。需先构建当前 binary；当前默认优先 NVIDIA，暂停 Kimi 的真实测试（产品绑定仍保留）；显式选择暂停项、未知项或重复项在读取凭据前失败。由 `OPENBRIDGE_PROBE_RUN` 的模型和统一预算约束，最多每次 2048 输出 tokens，覆盖选定固定绑定的已声明协议 × JSON/SSE × 文本/工具及续轮。`OPENBRIDGE_MATRIX_PROVIDERS`（逗号分隔）、`OPENBRIDGE_MATRIX_PROTOCOL`、`OPENBRIDGE_MATRIX_DELIVERY`、`OPENBRIDGE_MATRIX_CASE` 只缩小矩阵。HTTP/传输/wire 失败停止该目标，oracle 失败仅在计划显式允许时继续独立组；未执行不计为成功，任一失败退出非零。DeepSeek 两个协议与 NVIDIA Chat 使用 auto 工具选择并独立断言实际调用和结果，不把强制工具选择的不兼容掩盖成语义转换。
-- `examples/live_nvidia_probe.py`：`OPENBRIDGE_NVIDIA_PROBE=1 uv run --project tests/sdk --locked --offline python examples/live_nvidia_probe.py`。固定 NVIDIA/Nemotron Chat，使用 `OPENBRIDGE_PROBE_RUN` 的共享 send 上限，每次最多 2048 输出 tokens（截断场景为 8）。独立覆盖 JSON object、两次 lookup 的四请求历史 × JSON/SSE、length 终态、客户端提前关闭及后续请求。`OPENBRIDGE_NVIDIA_CASE`（`json/history/length/cancel`）、`OPENBRIDGE_NVIDIA_DELIVERY`（`json/sse`）缩小矩阵；`OPENBRIDGE_NVIDIA_EFFORT=none` 是明确请求的标准控制对照，不改变默认配置。序列化历史、完整目的地和 raw wire 上限由公共执行层验证，失败按共享计划停止策略处理；不自动重试或并发压测。操作者诊断按同一次 attempt 关联实际上游状态与安全 Retry-After；缺失诊断不能猜测原调用。客户端 close 和后续请求成功也不能证明 Provider 已取消计算或停止计费。
-- `cargo run --locked --offline --example replay_chat -- longcat <authorized-synthetic-capture.sse>`：对明确给出的 2 MiB 内 capture 做纯离线 intake 和下游 projection；末尾可加 `responses` 选择 Responses（默认 Chat），Provider 也可选 `xiaomi`。不读取凭据、不联网，不把 captures 当独立 fixture。
+- `examples/live_provider_matrix.py`：统一矩阵的具名入口。目标选择、暂停项与工具策略读取源码，先构建当前 binary，再用已授权 run 缩小矩阵；不在文档同步模型列表或临时账号状态。
+- `examples/live_nvidia_probe.py`：目标专用的边界场景入口，仍使用共享账本和相同停止规则；读取代码确认其当前目标，不把脚本名或历史运行当产品支持声明。客户端 close 和后续请求成功不能证明 Provider 停算或停止计费。
+- `cargo run --locked --offline --example replay_chat -- <provider-id> <authorized-synthetic-capture.sse> [chat|responses]`：对明确给出的有界 capture 做纯离线 intake 和下游 projection；占位符取值与格式限制以入口代码为准。不读取凭据、不联网，不把 captures 当独立 fixture。
 - `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p 'test_*.py'`：既有 replay checker 和新增矩阵请求数/目标/输出预算的离线防线，无真实调用。
 
-这些 live 入口只在进程内读取工作区 API-key 凭据，均无自动重试；不会更改私有文件或加载 Codex/OAuth 引用。库级 probe 的 raw capture 默认关闭，显式 synthetic capture 会移除已知 opaque/credential 字段，不能充当原始 wire oracle；报告与共享账本位于 run 子目录。SDK/binary gate 只保存白名单结果，不保存 body/headers/token。后者通过启动就绪信号获取临时端口，结束/失败均回收 binary。每次重新执行都是新的一批付费调用，不是“免费重跑测试”。已有执行结果见 [GPT-6 Luna evidence](implementation-status/evidence/2026-09-29-openrouter-luna-acceptance.md)与 [reasoning 专项](implementation-status/evidence/2026-09-29-reasoning-continuation-acceptance.md)。probe 序列化守卫本身的离线测试为 `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_live_probe_helpers.py`，不加载凭据或调用网络。
+这些 live 入口只在进程内读取工作区 API-key 凭据，均无自动重试；不会更改私有文件或加载 Codex/OAuth 引用。库级 probe 的 raw capture 默认关闭，显式 synthetic capture 会移除已知 opaque/credential 字段，不能充当原始 wire oracle；报告与共享账本位于 run 子目录。SDK/binary gate 只保存白名单结果，不保存 body/headers/token。后者通过启动就绪信号获取临时端口，结束/失败均回收 binary。每次重新执行都是新的一批付费调用，不是“免费重跑测试”。执行结果只在当次交付和授权 run 中报告，不写入 Markdown、注释或适配模型表。probe 序列化守卫本身的离线测试为 `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_live_probe_helpers.py`，不加载凭据或调用网络。
 
 ## pi 探测诊断守卫
 
@@ -86,11 +86,11 @@ uv run --project tests/sdk --locked --offline cargo test --locked --offline --te
 node --test tests/sdk/provider_probe_observation.test.mjs tests/sdk/probe_http_headers.test.mjs
 ```
 
-实际 pi/Router 的执行逻辑现由仓库 `examples/pi_probe.py` / `pi_probe.mjs` 维护，本机配置和凭据不入仓。认证负例使用临时 synthetic run，真实调用与其他入口共享账本；命令见 [probe 指南](probes.md#pi)。历史边界见 [定向跟进证据](implementation-status/evidence/2026-09-29-provider-followup.md)。错误 key 应在入口得到 401 且上游尝试为零，正常 key 的拒绝出站代理测试则证明准入仍可达；不要把测试代理注入的凭据当作客户端认证成功。
+实际 pi/Router 的执行逻辑现由仓库 `examples/pi_probe.py` / `pi_probe.mjs` 维护，本机配置和凭据不入仓。认证负例使用临时 synthetic run，真实调用与其他入口共享账本；命令见 [probe 指南](probes.md#pi)。错误 key 应在入口得到 401 且上游尝试为零，正常 key 的拒绝出站代理测试则证明准入仍可达；不要把测试代理注入的凭据当作客户端认证成功。
 
 ## 文档与边界
 
-Rust comments/docs 与 Python docstrings 使用简洁 English；重点解释协议、安全、资源和失败边界。Markdown 需检查相对链接、锚点、示例与当前 target 一致；结构性检查不证明行为改善。
+Rust comments/docs 与 Python docstrings 使用简洁 English；将协议、安全、资源和失败不变量、非显然兼容理由及必要来源 URL 放在 owning code 旁，不抄测试结果或模型清单。Markdown 保留稳定设计和操作方法；按 [AGENTS 查询流程](../AGENTS.md#current-provider-model-and-compatibility-information)获取动态信息。检查相对链接、锚点、占位符示例和规则一致性；结构性检查不证明行为改善。
 
 不修改 `.env`、私人 `config/`、OAuth 文件，也不读取外部应用认证缓存。保留外部资料的版本、许可与 attribution；历史证据只能按当时边界解释。日志和诊断不能回显真实秘密或私有 payload。
 

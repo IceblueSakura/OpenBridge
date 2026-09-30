@@ -43,6 +43,8 @@ git diff --check
 
 ## 文档
 
+优先以代码、邻近注释和独立测试维护实现事实。当前 Provider/模型与协议准入不在 Markdown 列表中维护；按 [AGENTS.md 的查询方法](AGENTS.md#current-provider-model-and-compatibility-information)现场核对代码与启动绑定，实际实例启用和上游可用性另行验证。
+
 - [文档索引](docs/README.md)
 - [HTTP 网关启动与接口](docs/http-gateway.md)
 - [受控 Probe 计划、预算与诊断](docs/probes.md)
