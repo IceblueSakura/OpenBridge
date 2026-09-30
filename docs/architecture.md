@@ -58,4 +58,4 @@ Authenticated, bounded HTTP request
 - `tests/gateway.rs`：真实 Router 全链 smoke 与隔离环境 binary 启动边界。
 - `tests/sdk_loopback.rs`：显式 ignored 的固定 SDK codec / gateway gates。
 
-具体命令与外部验收边界见[开发指南](development.md)，当前缺口只由[实施基线](architecture-v2/migration.md)维护。
+具体命令与外部验收边界见[开发指南](development.md)，当前缺口只由[当前能力与边界](implementation-status/generation.md)维护。

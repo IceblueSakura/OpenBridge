@@ -1,6 +1,8 @@
-# OpenBridge v2
+# OpenBridge
 
 OpenBridge 的最终目标是**支持多模态、兼容 Chat Completions / Responses、Agent 友好且缓存亲和性强的 IR 化网关**。现阶段以仅文本 Generation 验证整体流程，之后再扩展 Provider 与多模态实现；不是长期只做文本 codec。产品判据见 [v2 目标](docs/architecture-v2/README.md#产品目标与阶段判据)。
+
+当前 `main` 以原 `semantic-v2` 实现为基线，独立推进产品目标；不以迁移、追平或恢复旧版本为目标。旧版只作为 Git refs 与[历史参考](docs/archive.md)保留，主线定位不等于完整标准或生产就绪。
 
 Generation IR **以 OpenAI Responses 标准语义为主干，结合有明确归属和生命周期的扩展字段**，而非多协议最小公分母。设计依据见[主题化调研与上游同步](docs/references/README.md)。**当前工作区包含 Rust 语义库与最小 loopback 文本网关，不是完整标准实现或生产就绪服务。**
 
@@ -26,7 +28,7 @@ Chat / Responses wire
 - `src/gateway/`、`src/transport/http.rs`、`src/bin/openbridge.rs`：认证入口、可信预算变换、HTTP I/O 与实际 body handoff；不自动重试或 fallback。
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/gateway.rs`、`tests/sdk_loopback.rs`：语义、transport、真实 Router/binary 与固定 SDK 验收；HTTP 测试只使用 synthetic loopback。
 
-纯文本 Generation 已具备请求、响应、事件、IR 变换与双协议编码的离线主链；Responses 为语义主干，[Chat 单候选 JSON/SSE profile](docs/architecture-v2/chat-text-profile.md)验证同一 IR 的第二协议投影。**当前仍为受限文本子集，不能称完整标准实现。** [完成度与缺口](docs/architecture-v2/migration.md)区分现有能力、错误接受、尚未映射的文本字段和明确非目标；[下一步建议](docs/implementation-plans/next-goal.md)在已有最小 HTTP 全链上推进新入口的受控外部验收与 Agent/缓存场景，按需补必要 Chat 投影。媒体、其他任务和生产级运行保障未完成；已选定行为切片的范围由[当前焦点](docs/implementation-plans/current-focus.md)维护。
+**受限的无状态 text Generation 主链已闭合，可推进选定文本场景验收；不是完整文本标准实现或生产就绪服务。** Responses 为语义主干，单候选 Chat 是同一 IR 的第二协议投影，跨协议不可表示时拒绝。语义、codec、扩展接线、SDK/Agent、缓存与执行的分层判断统一见[当前能力与边界](docs/implementation-status/generation.md)；推进方向见[下一步目标](docs/implementation-plans/next-goal.md)，获准行为切片由[当前焦点](docs/implementation-plans/current-focus.md)维护。
 
 ## 验证
 
@@ -50,7 +52,7 @@ git diff --check
 - [受控 Probe 计划、预算与诊断](docs/probes.md)
 - [当前结构](docs/architecture.md)
 - [v2 设计](docs/architecture-v2/README.md)
-- [迁移与未完成边界](docs/architecture-v2/migration.md)
+- [Generation 当前能力与边界](docs/implementation-status/generation.md)
 - [下一步目标](docs/implementation-plans/next-goal.md)
 - [外部协议参考](docs/references/README.md)
 

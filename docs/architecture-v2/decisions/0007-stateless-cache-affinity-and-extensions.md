@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for the `semantic-v2` rewrite epoch. This defines the offline core. The predecessor production runtime is [archived](../../archive.md); no v2 production interface is implied.
+Accepted for the current OpenBridge semantic core. This defines cache and extension ownership, not a predecessor migration target. The predecessor remains a [historical reference](../../archive.md); current implementation and execution boundaries belong to [Generation status](../../implementation-status/generation.md).
 
 ## Context
 
@@ -18,13 +18,13 @@ Request hints (`prompt_cache_key`, `prompt_cache_options`, `prompt_cache_retenti
 
 ## Standard target and current subset
 
-The fixed SDK `3.19.0` declares `prompt_cache_options` with `mode`, `ttl`, `prewarm` and `comparison_response_id`, and echoes `prompt_cache_key`, `prompt_cache_options`, `prompt_cache_retention`, `user`, `prompt_cache_diagnostics` and effective `service_tier` on responses. Current admission covers the cache family on both Responses and Chat bodies plus `service_tier`/`metadata` on Responses; Chat reported `service_tier` maps to the same typed response context; Chat request service-tier, metadata echoes and response-side `client_metadata` remain gaps. `prewarm` is representation only: its `generate` override relationship is not modeled yet.
+The fixed SDK `3.19.0` declares `prompt_cache_options` with `mode`, `ttl`, `prewarm` and `comparison_response_id`, and echoes `prompt_cache_key`, `prompt_cache_options`, `prompt_cache_retention`, `user`, `prompt_cache_diagnostics` and effective `service_tier` on responses. Current field admission belongs to the [Responses](../responses-text-profile.md) and [Chat](../chat-text-profile.md) profiles; remaining carrier wiring and execution gaps belong to [Generation status](../../implementation-status/generation.md). Carrier types and offline read/write checks alone do not establish Gateway admission or runtime lifecycle management.
 
 The Codex header schema is a provider-private compatibility profile, not public OpenAI API. Current admission covers the documented request-side lifecycle headers and bounded opaque fallback; response-side typed observation headers (`x-request-id`, `openai-model`, rate-limit families) stay in the opaque fallback, and cross-position consistency between `client_metadata` values and header projections is not enforced because the canonical turn-metadata schema is not owned here.
 
 ## Consequences and acceptance
 
-- `CacheHints` is shared by `envelope::ExecutionHints` and `chat_envelope::RequestContext`; the two profiles may widen independently.
+- `semantic::context` owns `CacheHints`; Responses and Chat context shells project that shared owner, and the two profiles may widen independently.
 - Extension carriers are validated at decode and encode; hand-built contexts cannot emit forbidden or malformed headers.
 - Privacy: session/thread/window/turn values are high-cardinality sensitive metadata and stay out of logs, metrics labels and fixtures.
 - Stateful request fields (`previous_response_id`, `conversation`, `store`, `background`, prompt templates, compaction) remain explicitly rejected until their own slice; deferring them is scope, not a permanent exclusion.

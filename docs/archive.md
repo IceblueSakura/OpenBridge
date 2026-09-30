@@ -1,8 +1,10 @@
-# 旧运行时归档
+# 旧版本历史参考
 
-旧路线的固定恢复点：`4f13ecefa21265a6ec5aa967278e81f03039f585`。`semantic-v1` 也保留前代实现，但其内容不与本恢复点完全相同。
+当前 `main` 以原 `semantic-v2` 实现为基线，旧版本不再定义主线目标、兼容义务或验收门槛；仅保留 Git refs 与必要参考。既有 `semantic-v1`、`v0.1` 分支保留其各自版本，不表示需要合并或恢复它们。
 
-[浏览固定源码树](https://github.com/IceblueSakura/OpenBridge/tree/4f13ecefa21265a6ec5aa967278e81f03039f585)。本地恢复依赖该 Git 对象，不依赖分支名指向或远端服务可用性。
+旧路线的固定参考点：`4f13ecefa21265a6ec5aa967278e81f03039f585`。`semantic-v1` 也保留前代实现，但其内容不与本参考点完全相同。
+
+[浏览固定源码树](https://github.com/IceblueSakura/OpenBridge/tree/4f13ecefa21265a6ec5aa967278e81f03039f585)。本地查阅依赖该 Git 对象，不依赖分支名指向或远端服务可用性。
 
 ## 范围与含义
 
@@ -14,7 +16,7 @@
 | `config/` 的受版本管理模板、`docs/openapi.yaml` / `swagger-ui.html` | 旧配置形状、HTTP schema 和运行时 UI 资产 |
 | 旧 `docs/decisions/`、`functional-requirements/`、运行指南和实现清单 | 旧路线设计/需求/能力陈述，不自动成为 v2 当前承诺 |
 
-归档仅覆盖受版本管理的旧路线，**不表示 v2 功能对等或生产迁移成功**。私有配置、未跟踪内容与生成缓存不属于归档恢复合同。
+历史参考仅覆盖受版本管理的旧路线；**不要求主线功能对等，也不证明当前实现生产就绪**。私有配置、未跟踪内容与生成缓存不属于此参考范围。
 
 稳定参考与非 Provider 研究记录仍保留在 `references/`、`implementation-status/evidence/`，按各自固定来源解释。Provider 测试报告、模型清单和动态 API 快照不在当前文档维护；历史问题可显式查询 Git 历史，但不能用历史记录代替当前绑定/可用性查询。
 

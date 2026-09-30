@@ -8,13 +8,13 @@
 2. 阅读 [v2 设计](architecture-v2/README.md)、受影响的源码/测试与固定协议资料。明确 owner、支持与拒绝边界。
 3. 行为变更在 [current-focus](implementation-plans/current-focus.md)维护获准范围、可观察结果、失败用例和验证门槛，随后按失败证据实现。文档维护不制造运行时切片。
 4. 测试在最低职责层保护独立语义；codec 的 decode 与 encode 分别使用独立预期，追加 IR 插入、替换、删除及对应失败边界。round trip 不能自证。
-5. 检查最终 diff、文档与引用，报告实际检查和未验收范围。不得以删除旧代码或测试通过宣称生产功能已经迁移。
+5. 检查最终 diff、文档与引用，报告实际检查和未验收范围。按当前合同验收，不以旧版功能对等为门槛；不得以主线定位、删除旧代码或测试通过宣称生产就绪。
 
 ## Rust 检查
 
 Rust/Cargo 由根 `rust-toolchain.toml` 固定；rustfmt/clippy 随该工具链安装。不要保留覆盖这个文件的旧目录级 rustup override，也不要为项目更新全局默认工具链。
 
-集成测试按以下入口分工，按职责筛选，不再按迁移批次增加 binary：
+集成测试按以下入口分工，按职责筛选，不按实现批次增加 binary：
 
 | Target | 模块与边界 |
 |---|---|

@@ -1,6 +1,6 @@
 # 实施边界与证据
 
-当前工作区是 v2 Rust 库与最小 loopback 文本网关，具有 synthetic HTTP/SDK 全链验收，不是生产就绪服务。实际结构见[架构](../architecture.md)，分层完成度与具体反例见[Generation 实施基线](../architecture-v2/migration.md)，推进顺序见[下一步目标](../implementation-plans/next-goal.md)，已选定切片的验收范围见[当前焦点](../implementation-plans/current-focus.md)。此目录不再维护另一份当前功能清单。
+当前工作区是 v2 Rust 库与最小 loopback 文本网关，具有 synthetic HTTP/SDK 全链验收，不是生产就绪服务。实际结构见[架构](../architecture.md)，分层完成度与具体反例见[Generation 当前能力与边界](generation.md)，推进顺序见[下一步目标](../implementation-plans/next-goal.md)，已选定切片的验收范围见[当前焦点](../implementation-plans/current-focus.md)。`generation.md` 是当前 Generation 状态的唯一汇总；本索引不重复功能清单，状态相对当前产品合同判断，不相对旧版本。
 
 最小 Router、环境变量凭据绑定、HTTP transport 与 binary 见 [HTTP 网关指南](../http-gateway.md)；没有动态 registry、凭据池/OAuth、MCP 或生产观测体系。旧路线已整体移入 [Git 归档](../archive.md)，而非由 v2 功能对等接替。
 

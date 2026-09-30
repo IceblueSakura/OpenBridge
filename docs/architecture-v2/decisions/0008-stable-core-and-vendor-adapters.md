@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for the unpublished `semantic-v2` rewrite. Internal APIs may be replaced without compatibility aliases. This decision supersedes the unconditional prohibition on compatibility defaults and the treatment of all vendor shapes as one global Chat/Responses profile. It does not authorize production deployment or Provider calls.
+Accepted for the current unpublished OpenBridge semantic core. Internal APIs may be replaced without compatibility aliases. This decision supersedes the unconditional prohibition on compatibility defaults and the treatment of all vendor shapes as one global Chat/Responses profile. It does not authorize production deployment or Provider calls.
 
 ## Decision
 

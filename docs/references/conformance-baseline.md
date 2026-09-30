@@ -38,7 +38,7 @@
 - 每种 SDK derived view 都需要独立的回放准入与一致性规则；一种派生 view 通过不证明另一种也支持。
 - 标准 phase、configuration update、媒体、工具与 state 必须分支验收，不靠一个两轮 fixture 声明完整。
 
-OpenBridge 当前具体违反项、复现与源码证据统一在[正确性缺口](../architecture-v2/migration.md#当前正确性缺口)维护；尚未映射能力和刻意的 profile 边界另列，不能混同为已观察到的错误。本页只定义方法与来源边界。
+OpenBridge 已准入分支的独立反例入口与剩余审计边界统一在[当前能力与边界](../implementation-status/generation.md#已闭合的正确性边界)维护；新发现的具体违反项须带复现与源码证据单独记录，不能把已闭合回归、尚未映射能力或刻意的 profile 边界当作已观察到的错误。本页只定义方法与来源边界。
 
 ## 4. 属性顺序、JSON 与 Schema
 

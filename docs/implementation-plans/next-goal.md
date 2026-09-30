@@ -1,6 +1,6 @@
 # 下一步目标
 
-**用仅文本 Generation 验证 IR 化网关整体流程，再扩展 Provider 和多模态。** 产品方向见 [v2 目标](../architecture-v2/README.md)，语义实现与目标的差距由[实施基线](../architecture-v2/migration.md)维护。
+**用仅文本 Generation 验证 IR 化网关整体流程，再扩展 Provider 和多模态。** 产品方向见 [v2 目标](../architecture-v2/README.md)，当前 `main` 基于原 `semantic-v2` 独立演进，不以迁移、追平或恢复旧版为目标；语义实现与产品目标的差距由[当前能力与边界](../implementation-status/generation.md)维护。
 
 最小 HTTP 入口的职责和运行边界见 [HTTP 指南](../http-gateway.md)。当前 Provider/模型与协议准入按 [AGENTS.md](../../AGENTS.md#current-provider-model-and-compatibility-information)现场查询；本页不维护支持清单、实测结果或临时账号阻塞。
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted design direction. Current implementation remains a partial offline Generation library, not a complete Responses gateway.
+Accepted for the current OpenBridge mainline. Implementation scope and remaining gaps belong to [Generation capabilities and boundaries](../../implementation-status/generation.md); this decision does not establish full protocol compatibility or production readiness.
 
 ## Decision
 
@@ -23,4 +23,4 @@ The authoritative structural contract is [semantic-ir.md](../semantic-ir.md); fi
 
 ## Consequences
 
-The predecessor runtime is [archived](../../archive.md). No compatibility wrapper or duplicate legacy path is required. Current implementation gaps are tracked in [migration.md](../migration.md), not converted into permanent model limitations. Internal Rust compatibility is not an objective.
+The predecessor runtime is [archived](../../archive.md). No compatibility wrapper or duplicate legacy path is required. Current implementation gaps are tracked in [capabilities and boundaries](../../implementation-status/generation.md), not converted into permanent model limitations or a predecessor feature-parity checklist. Internal Rust compatibility with the predecessor is not an objective.

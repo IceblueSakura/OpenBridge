@@ -1,6 +1,6 @@
 # Architecture v2 Invariants
 
-These invariants are design gates, not migration suggestions.
+These invariants are current design gates, not a predecessor feature-parity checklist.
 
 1. **Semantic authority** — once a supported field is decoded into Task IR, later wire output cannot recover an older semantic value from source JSON or SSE payload.
 2. **Task before provider** — resolve the trusted Public Model task before semantic decode; provider selection happens only after final semantic requirements exist.

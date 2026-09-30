@@ -1,6 +1,6 @@
 # OpenBridge Semantic Architecture v2
 
-**设计基线：Responses-first 标准语义 + scoped extensions。** 当前实现为 Rust 语义库与最小 loopback 文本网关，具有 synthetic HTTP/SDK 全链验收；不是完整标准实现或生产就绪服务。
+**设计基线：Responses-first 标准语义 + scoped extensions。** 当前 `main` 以原 `semantic-v2` 的 Rust 语义库与最小 loopback 文本网关为基线，独立推进产品目标，不以旧版迁移或功能对等为目标；具有 synthetic HTTP/SDK 全链验收，但不是完整标准实现或生产就绪服务。
 
 ## 产品目标与阶段判据
 
@@ -12,7 +12,7 @@
 - **缓存亲和性强**：尽量保持合法续轮的稳定前缀、工具/Schema 顺序、cache affinity 与来源约束；session/cache/thread/turn 各有 owner，不为缓存复活被删除语义，不跨认证所有权重放 opaque state。稳定投影、实际缓存命中和成本/延迟效果是不同验收层。
 - **可扩展多模态**：保留标准媒体、资源和独立任务的正确所有权；文本先行不授权把未来媒体语义压成字符串，也不要求先实现未来所有任务才验证网关主链。
 
-阶段退出看选定文本场景的入口、IR、lowering、upstream adapter、响应交付和多轮回放是否连成可验收路径，不看字段数或测试数。推进顺序与具体门槛见[下一步目标](../implementation-plans/next-goal.md)，现有完成度见[实施基线](migration.md)。
+阶段退出看选定文本场景的入口、IR、lowering、upstream adapter、响应交付和多轮回放是否连成可验收路径，不看字段数或测试数。推进顺序与具体门槛见[下一步目标](../implementation-plans/next-goal.md)，现有完成度见[当前能力与边界](../implementation-status/generation.md)。
 
 ## 当前方向
 
@@ -41,7 +41,7 @@ Wire + trusted admission context
 - 当前源码实现 Generation 的部分 Responses/Chat 语义、标准 context、显式 adapters、lowering、纯 SSE、固定 topology、caller-driven execution 与最小认证 HTTP 入口。
 - Responses 标准全景是目标；stateless text 是现有实施子集，不是长期 IR 表达力上限。
 - 固定 SDK 既有 codec fixture gates，也有经实际 Router 和 synthetic HTTP Provider 的双协议 JSON/SSE 续轮 gate；hosted tools、state/WS 与生产级保障仍未实现。库级 live 证据不能代替新服务入口的外部验收。
-- 当前分层完成度与具体缺口由[实施基线](migration.md)维护，推进顺序只由[下一步目标](../implementation-plans/next-goal.md)维护。现有纯文本基线不等于完整标准；未来任务或工具执行也不是无限延迟最小执行设计的前置条件。
+- 当前分层完成度与具体缺口由[能力与边界](../implementation-status/generation.md)维护，推进顺序只由[下一步目标](../implementation-plans/next-goal.md)维护。现有纯文本基线不等于完整标准；未来任务或工具执行也不是无限延迟最小执行设计的前置条件。
 
 ## 文档所有权
 
@@ -52,7 +52,7 @@ Wire + trusted admission context
 - [invariants.md](invariants.md)：语义、扩展、安全与资源不变量。
 - [execution-model.md](execution-model.md)：执行职责和交付合同；现有 library、最小 HTTP 接线与生产边界见当前架构。
 - [rust-layout.md](rust-layout.md)：职责布局方向，不复制 SDK 文件树。
-- [migration.md](migration.md)：分层完成度、目标相对当前代码的差距、可复现反例与边界；不重复实施顺序。
+- [Generation 当前能力与边界](../implementation-status/generation.md)：分层完成度、产品目标相对当前代码的差距、可复现反例与边界；不维护旧版迁移清单或重复实施顺序。
 - [responses-text-profile.md](responses-text-profile.md)：当前 Responses stateless text 的实现准入，不代表完整标准。
 - [chat-text-profile.md](chat-text-profile.md)：同一 IR 的单候选 Chat 静态/流式映射与拒绝边界。
 - [schema-profile.md](schema-profile.md)：请求/报告设置共享的 Schema 结构、strict/default、本地引用与预算准入。
@@ -61,4 +61,4 @@ Wire + trusted admission context
 
 ## 验收原则
 
-独立 decode/encode 预期、IR 修改/删除、扩展来源隔离和 Static/Event 一致性是主要门槛。round trip、SDK 宽松解析或类型存在不证明完成。当前具体反例见[迁移缺口](migration.md#当前正确性缺口)，方法见[验收基线](../references/conformance-baseline.md)，当前切片见[current focus](../implementation-plans/current-focus.md)。
+独立 decode/encode 预期、IR 修改/删除、扩展来源隔离和 Static/Event 一致性是主要门槛。round trip、SDK 宽松解析或类型存在不证明完成。已准入分支的独立反例入口见[正确性边界](../implementation-status/generation.md#已闭合的正确性边界)，方法见[验收基线](../references/conformance-baseline.md)，当前切片见[current focus](../implementation-plans/current-focus.md)。

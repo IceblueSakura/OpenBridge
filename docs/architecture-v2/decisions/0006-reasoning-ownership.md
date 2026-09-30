@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for the `semantic-v2` rewrite epoch. This defines the offline core. The predecessor production runtime is [archived](../../archive.md); no v2 production interface is implied.
+Accepted for the current OpenBridge semantic core. This defines reasoning and replay ownership, not a predecessor migration target. The predecessor remains a [historical reference](../../archive.md); current implementation and execution boundaries belong to [Generation status](../../implementation-status/generation.md).
 
 ## Context
 

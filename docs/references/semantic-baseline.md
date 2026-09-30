@@ -73,4 +73,4 @@ runtime 的 routing、health、latency、retry、cache 与 observability 不反�
 
 ## 9. 到设计的映射
 
-本页只整合研究，不定义第二套 Rust schema。接受的结构和扩展准入由 [IR 设计](../architecture-v2/semantic-ir.md)拥有；标准事实见 [Responses 标准语义](responses-standard.md)，当前代码与目标的差距见 [迁移基线](../architecture-v2/migration.md)。
+本页只整合研究，不定义第二套 Rust schema。接受的结构和扩展准入由 [IR 设计](../architecture-v2/semantic-ir.md)拥有；标准事实见 [Responses 标准语义](responses-standard.md)，当前代码与目标的差距见 [当前能力与边界](../implementation-status/generation.md)。

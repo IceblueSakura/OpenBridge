@@ -13,7 +13,7 @@
 | [Codec 验收](conformance-baseline.md) | 准入矩阵、独立 oracle、SDK 和失败/资源边界方法；当前缺口链接到实现 owner |
 | [上游同步](upstream-sync.md) | 官方页面日期、SDK/Codex commit、同步差异、证据冲突和重核入口 |
 
-采用决定由 [IR 设计](../architecture-v2/semantic-ir.md)拥有；[迁移基线](../architecture-v2/migration.md)记录当前缺口，[current focus](../implementation-plans/current-focus.md)记录当前切片与验收条件，不自动授权执行。
+采用决定由 [IR 设计](../architecture-v2/semantic-ir.md)拥有；[当前能力与边界](../implementation-status/generation.md)记录当前缺口，[current focus](../implementation-plans/current-focus.md)记录当前切片与验收条件，不自动授权执行。
 
 ## 历史材料的角色
 

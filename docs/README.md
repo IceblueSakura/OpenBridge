@@ -1,13 +1,13 @@
 # OpenBridge 文档
 
-当前工作区维护 v2 语义核心、双向 adapters、codec/lowering、固定 topology、caller-driven execution 和最小 loopback HTTP 网关；已有 synthetic 全链验收，不等于生产验收。旧路线在 [Git 归档](archive.md)中，不保留工作区兼容副本。
+当前 `main` 以原 `semantic-v2` 实现为基线，维护语义核心、双向 adapters、codec/lowering、固定 topology、caller-driven execution 和最小 loopback HTTP 网关；已有 synthetic 全链验收，不等于生产验收。主线按产品目标独立演进，不以旧版迁移或功能对等为目标；旧版只作[历史参考](archive.md)，不保留工作区兼容副本。
 
 | 文档 | 事实所有权 |
 |---|---|
 | [根 README](../README.md) | 当前可用入口、构建与最小使用范围 |
 | [当前架构](architecture.md) | 实际模块结构与依赖 |
 | [v2 架构](architecture-v2/README.md)及其 decisions | Responses-first 标准语义 + scoped extensions 的设计、owner 与目标边界；不表示已实现 |
-| [实施基线与差距](architecture-v2/migration.md) | Generation 分层完成度、已复现正确性缺口、未映射能力与暂缓边界；当前状态的唯一汇总 |
+| [Generation 当前能力与边界](implementation-status/generation.md) | text Generation 分层完成度、已闭合正确性边界、未准入/不可表示/未接线与验收缺口；当前状态的唯一汇总 |
 | [Responses text profile](architecture-v2/responses-text-profile.md) | 当前 Responses 纯文本准入与字段归属 |
 | [Chat text profile](architecture-v2/chat-text-profile.md) | 单候选 Chat envelope/SSE 准入与双协议验证边界 |
 | [AGENTS 查询指南](../AGENTS.md#current-provider-model-and-compatibility-information) | 如何查询当前 Provider/模型、启动准入、adapter 与运行实例；不保留清单 |

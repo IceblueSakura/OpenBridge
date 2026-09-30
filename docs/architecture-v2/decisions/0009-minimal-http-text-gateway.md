@@ -3,7 +3,7 @@
 ## Status
 
 Accepted for the first runnable text slice. Implementation and executed acceptance
-remain separately tracked in the architecture, migration status and tests.
+remain separately tracked in the architecture, [Generation status](../../implementation-status/generation.md) and tests.
 
 ## Decision
 
