@@ -300,6 +300,13 @@ fn responses_done_trailer_requires_a_real_terminal_and_cannot_repeat() {
         .collect::<String>();
     for (dialect, wire, accepted) in [
         (Dialect::OpenRouter, format!("{body}data: [DONE]\n\n"), true),
+        (Dialect::Zhipu, format!("{body}data: [DONE]\n\n"), true),
+        (Dialect::Zhipu, "data: [DONE]\n\n".into(), false),
+        (
+            Dialect::Zhipu,
+            format!("{body}data: [DONE]\n\ndata: [DONE]\n\n"),
+            false,
+        ),
         (Dialect::Standard, format!("{body}data: [DONE]\n\n"), false),
         (Dialect::OpenRouter, "data: [DONE]\n\n".into(), false),
         (

@@ -48,15 +48,36 @@ BINDINGS = (
         "qwen3.8-max",
         "bailian-primary",
         "OPENBRIDGE_BAILIAN_API_KEY",
-        ("chat",),
+        ("chat", "responses"),
     ),
-    ("zhipu", "glm-5.3", "zhipu-primary", "OPENBRIDGE_ZHIPU_API_KEY", ("chat",)),
+    (
+        "aliyun-tokenplan-cn",
+        "qwen3.8-flash",
+        "aliyun-tokenplan-primary",
+        "OPENBRIDGE_ALIYUN_TOKENPLAN_CN_API_KEY",
+        ("chat", "responses"),
+    ),
+    ("zhipu", "glm-5.3", "zhipu-primary", "OPENBRIDGE_ZHIPU_API_KEY", ("chat", "responses")),
+    (
+        "zhipu",
+        "glm-5.3-flash",
+        "zhipu-primary",
+        "OPENBRIDGE_ZHIPU_API_KEY",
+        ("chat", "responses"),
+    ),
 )
 
 
 def select_bindings(selection=None, *, models=None):
     available = dict.fromkeys(row[0] for row in BINDINGS)
-    names = selection.split(",") if selection is not None else list(available)
+    # Subscription-plan usage needs a deliberate selection; a general matrix
+    # must not start consuming it just because a new binding was registered.
+    # https://help.aliyun.com/en/model-studio/more-tools
+    names = (
+        selection.split(",")
+        if selection is not None
+        else [name for name in available if name != "aliyun-tokenplan-cn"]
+    )
     if (
         not names
         or len(set(names)) != len(names)

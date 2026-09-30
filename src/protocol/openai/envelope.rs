@@ -336,7 +336,16 @@ pub(crate) fn write_response_extras(
 /// Structural snapshot validation (ADR 0008): reported facts are presence-preserving
 /// and typed by the task codec; this layer keeps the structural requirements.
 pub(crate) fn validate_response_snapshot(v: &Value) -> Result<(), CodecError> {
-    let o = object(v)?;
+    validate_response_snapshot_with(v, &Default::default())
+}
+pub(crate) fn validate_response_snapshot_with(
+    v: &Value,
+    adaptation: &crate::protocol::adaptation::Adaptation,
+) -> Result<(), CodecError> {
+    // Complete-envelope validation sees the same explicit wire mapping as the
+    // task codec. Required identity, items and state rejection remain intact.
+    let (v, _) = super::adapter_shapes::decode(v, Profile::Responses, adaptation)?;
+    let o = object(&v)?;
     ResponseContext::read(o)?.0.validate()?;
     // A complete Response snapshot requires the output array; an absent value is
     // never the explicit empty array and no lower layer may backfill it.
@@ -350,6 +359,12 @@ pub(crate) fn validate_response_snapshot(v: &Value) -> Result<(), CodecError> {
     Ok(())
 }
 pub(super) fn validate_stream_payload(v: &Value) -> Result<(), CodecError> {
+    validate_stream_payload_with(v, &Default::default())
+}
+pub(super) fn validate_stream_payload_with(
+    v: &Value,
+    adaptation: &crate::protocol::adaptation::Adaptation,
+) -> Result<(), CodecError> {
     // Every complete Responses SSE event carries the required integer sequence
     // number; event ordering never substitutes for its presence.
     if object(v)?
@@ -360,7 +375,7 @@ pub(super) fn validate_stream_payload(v: &Value) -> Result<(), CodecError> {
         return Err(CodecError::Invalid("sequence"));
     }
     if let Some(response) = v.get("response") {
-        validate_response_snapshot(response)?;
+        validate_response_snapshot_with(response, adaptation)?;
     }
     if let Some(item) = v.get("item") {
         validate_item_snapshot(item)?;

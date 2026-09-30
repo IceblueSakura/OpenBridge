@@ -112,6 +112,61 @@ fn extract(o: &mut Map<String, Value>, profile: Profile) -> Result<Extras, Codec
     check_budget(&extras)?;
     Ok(extras)
 }
+/// Only a single text response's duplicate counters are a derived view.
+/// Tool charges or modality breakdowns need their own semantic ownership.
+fn response_billing_view(o: &mut Map<String, Value>) -> Result<(), CodecError> {
+    if let Some(billing) = o.shift_remove("billing")
+        && !billing.is_null()
+    {
+        return Err(CodecError::Unsupported("active response billing".into()));
+    }
+    let Some(usage) = o.get_mut("usage").and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+    let Some(details) = usage.shift_remove("x_details") else {
+        return Ok(());
+    };
+    let row = details
+        .as_array()
+        .filter(|rows| rows.len() == 1)
+        .and_then(|rows| rows[0].as_object())
+        .ok_or(CodecError::Invalid("billing usage view"))?;
+    super::common::fields(
+        row,
+        &[
+            "x_billing_type",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "input_tokens_details",
+            "prompt_tokens_details",
+            "output_tokens_details",
+        ],
+    )?;
+    if row.get("x_billing_type").and_then(Value::as_str) != Some("response_api") {
+        return Err(CodecError::Unsupported("billing usage kind".into()));
+    }
+    for name in ["input_tokens", "output_tokens", "total_tokens"] {
+        let count = row.get(name).and_then(Value::as_u64);
+        if count.is_none() || count != usage.get(name).and_then(Value::as_u64) {
+            return Err(CodecError::Invalid("billing usage count"));
+        }
+    }
+    for (name, canonical) in [
+        ("input_tokens_details", "input_tokens_details"),
+        ("prompt_tokens_details", "input_tokens_details"),
+        ("output_tokens_details", "output_tokens_details"),
+    ] {
+        if let Some(detail) = row.get(name)
+            && (!detail.is_object() || usage.get(canonical) != Some(detail))
+        {
+            return Err(CodecError::Invalid("billing usage details"));
+        }
+    }
+    // No copy is retained: encoders must use final typed Usage after any edits.
+    Ok(())
+}
+
 pub(crate) fn decode_message(o: &mut Map<String, Value>) -> Result<(), CodecError> {
     // Nonempty structured reasoning needs a typed owner/replay mapping, not a drop.
     if o.get("reasoning_details")
@@ -148,6 +203,8 @@ pub(crate) fn decode<'a>(
         && !adaptation.rules.inactive_chat_fields
         && !adaptation.rules.responses_usage_detail_view
         && !adaptation.rules.text_usage_total_view
+        && !adaptation.rules.responses_billing_view
+        && !adaptation.rules.responses_inactive_state
     {
         return Ok((Cow::Borrowed(value), Extras::new()));
     }
@@ -178,6 +235,22 @@ pub(crate) fn decode<'a>(
                 }
             }
         }
+    }
+    if profile == Profile::Responses && adaptation.rules.responses_inactive_state {
+        if o.get("previous_response_id").and_then(Value::as_str) == Some("") {
+            o.insert("previous_response_id".into(), Value::Null);
+        }
+        if let Some(locator) = o.shift_remove("conversation_id")
+            && !locator.is_null()
+            && locator.as_str() != Some("")
+        {
+            return Err(CodecError::Unsupported(
+                "active response conversation".into(),
+            ));
+        }
+    }
+    if profile == Profile::Responses && adaptation.rules.responses_billing_view {
+        response_billing_view(o)?;
     }
     let mut extras = if adaptation.rules.routing_extras {
         extract(o, profile)?

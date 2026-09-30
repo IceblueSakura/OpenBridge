@@ -14,6 +14,7 @@ pub struct EventDecoder {
     pub(super) poisoned: bool,
     sequence: Option<u64>,
     events: usize,
+    queued_creation_pending: bool,
     pub(super) chat_pending: Option<(StreamTerminal, TerminalDetails)>,
     pub(super) chat_finish_reason: Option<String>,
     chat_extras: super::super::adapter_shapes::Extras,
@@ -37,6 +38,7 @@ impl EventDecoder {
             poisoned: false,
             sequence: None,
             events: 0,
+            queued_creation_pending: false,
             chat_pending: None,
             chat_finish_reason: None,
             chat_extras: Default::default(),
@@ -49,6 +51,9 @@ impl EventDecoder {
     }
     pub(crate) fn permits_responses_done(&self) -> bool {
         self.profile == Profile::Responses && self.adaptation.rules.responses_done_marker
+    }
+    pub(crate) fn validate_stream_payload(&self, value: &Value) -> Result<(), CodecError> {
+        super::super::envelope::validate_stream_payload_with(value, &self.adaptation)
     }
     pub(crate) fn profile(&self) -> Profile {
         self.profile
@@ -76,7 +81,9 @@ impl EventDecoder {
             bounded(payload)?;
             let (normalized, extras) = if self.profile == Profile::Responses {
                 if let Some(snapshot) = payload.get("response")
-                    && self.adaptation.rules.routing_extras
+                    && (self.adaptation.rules.routing_extras
+                        || self.adaptation.rules.responses_billing_view
+                        || self.adaptation.rules.responses_inactive_state)
                 {
                     let (snapshot, extras) = super::super::adapter_shapes::decode(
                         snapshot,
@@ -335,7 +342,10 @@ impl EventDecoder {
                 event_fields(o, &["type", "response"])?;
                 let r = object(o.get("response").ok_or(CodecError::Invalid("response"))?)?;
                 super::super::envelope::response_fields(r)?;
-                let initial_status = if typ == "response.queued" {
+                let queued_creation = self.adaptation.rules.responses_queued_creation
+                    && typ == "response.created"
+                    && r.get("status").and_then(Value::as_str) == Some("queued");
+                let initial_status = if typ == "response.queued" || queued_creation {
                     "queued"
                 } else {
                     "in_progress"
@@ -356,8 +366,24 @@ impl EventDecoder {
                 }
                 match typ {
                     "response.queued" => self.emit(StreamEvent::Queued, &mut out)?,
-                    "response.created" => self.emit(StreamEvent::Started, &mut out)?,
+                    "response.created" => {
+                        if self.queued_creation_pending {
+                            return Err(CodecError::Invalid("duplicate queued creation"));
+                        }
+                        if queued_creation {
+                            self.emit(StreamEvent::Queued, &mut out)?;
+                            self.queued_creation_pending = true;
+                        } else {
+                            self.emit(StreamEvent::Started, &mut out)?;
+                        }
+                    }
                     _ => {
+                        // The queued snapshot cannot prove generation has started;
+                        // this actual progress event supplies the transition.
+                        if self.queued_creation_pending {
+                            self.emit(StreamEvent::Started, &mut out)?;
+                            self.queued_creation_pending = false;
+                        }
                         if !self.state()?.started() {
                             return Err(CodecError::Invalid("response not started"));
                         }
@@ -702,6 +728,8 @@ impl EventDecoder {
     ) -> Result<(ItemId, PartId, PartKind), CodecError> {
         let item = self.owner(o)?;
         let t = string(o, "type")?;
+        let summary_alias = self.adaptation.rules.responses_summary_text_alias
+            && t.starts_with("response.reasoning_text.");
         let (kind, key) = if t.starts_with("response.custom_tool_call_input.") {
             (PartKind::CustomInput, None)
         } else if t.starts_with("response.function_call_arguments.") {
@@ -709,7 +737,14 @@ impl EventDecoder {
         } else if t.starts_with("response.reasoning_summary_text.") {
             (PartKind::Summary, Some("summary_index"))
         } else if t.starts_with("response.reasoning_text.") {
-            (PartKind::ReasoningText, Some("content_index"))
+            (
+                if summary_alias {
+                    PartKind::Summary
+                } else {
+                    PartKind::ReasoningText
+                },
+                Some("content_index"),
+            )
         } else if t.starts_with("response.refusal.") {
             (PartKind::Refusal, Some("content_index"))
         } else {
@@ -726,13 +761,13 @@ impl EventDecoder {
             Ok(p) => p,
             Err(_)
                 if allow_implicit
-                    && kind == PartKind::ReasoningText
+                    && (kind == PartKind::ReasoningText || summary_alias)
                     && n == self
                         .state()?
                         .item(item)?
                         .parts
                         .iter()
-                        .filter(|p| p.kind != PartKind::Summary)
+                        .filter(|p| (p.kind == PartKind::Summary) == (kind == PartKind::Summary))
                         .count() =>
             {
                 let p = self.allocate_part()?;
@@ -842,7 +877,13 @@ impl EventDecoder {
             )?;
         }
         self.emit(StreamEvent::ValueFinished { item, part }, out)?;
-        if matches!(kind, PartKind::Arguments | PartKind::CustomInput) {
+        if matches!(kind, PartKind::Arguments | PartKind::CustomInput)
+            || (kind == PartKind::Summary
+                && self.adaptation.rules.responses_summary_text_alias
+                && string(o, "type")? == "response.reasoning_text.done")
+        {
+            // The alias has an explicit value.done but no separate part.done.
+            // Never close a part from the final item snapshot alone.
             self.emit(StreamEvent::PartFinished { item, part }, out)?;
         }
         Ok(())

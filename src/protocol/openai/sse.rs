@@ -194,7 +194,7 @@ impl ResponsesSseDecoder {
                 self.limits.max_obfuscation_bytes,
             )?;
         }
-        super::envelope::validate_stream_payload(&payload)?;
+        self.codec.validate_stream_payload(&payload)?;
         Ok(self.codec.push(&payload)?)
     }
     pub fn metadata(&self) -> Option<&ResponseMetadata> {

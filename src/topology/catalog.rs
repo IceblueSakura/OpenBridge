@@ -6,8 +6,8 @@
 //! claims wire-level representability plus documented protocol limits
 //! (function strict is only guaranteed on DeepSeek `/beta`; custom tools and
 //! media inputs are undeclared; cache-affinity hints are undeclared on these
-//! entries and are omitted by approved inactive-hint omission). Observed model
-//! behavior is recorded in implementation evidence, not in this catalog.
+//! entries and are omitted by approved inactive-hint omission). Live behavior
+//! must be checked for the current target; it is not a catalog guarantee.
 
 use crate::{
     lowering::generation::GenerationRepresentationContract,
@@ -70,7 +70,8 @@ fn endpoint(
         "openrouter" => crate::adapter::Dialect::OpenRouter,
         "longcat" => crate::adapter::Dialect::LongCat,
         "nvidia" => crate::adapter::Dialect::Nvidia,
-        "bailian" => crate::adapter::Dialect::Bailian,
+        // Sharing wire rules never shares the origin, credential or replay scope.
+        "bailian" | "aliyun-tokenplan-cn" => crate::adapter::Dialect::Bailian,
         "kimi" => crate::adapter::Dialect::Kimi,
         "zhipu" => crate::adapter::Dialect::Zhipu,
         _ => unreachable!("fixed provider catalog"),
@@ -285,6 +286,8 @@ pub fn gpt_6_luna() -> PublicModel {
 /// independently of OpenAI-compatible Chat support.
 pub struct ApiKeyBinding {
     pub provider: &'static str,
+    /// Per-model Route/Endpoint namespace, independent of shared auth ownership.
+    pub endpoint_prefix: &'static str,
     pub model: &'static str,
     pub upstream: &'static str,
     pub credential: &'static str,
@@ -294,6 +297,7 @@ pub struct ApiKeyBinding {
 pub const API_KEY_BINDINGS: &[ApiKeyBinding] = &[
     ApiKeyBinding {
         provider: "longcat",
+        endpoint_prefix: "longcat",
         model: "longcat-2.5-preview",
         upstream: "LongCat-2.5-Preview",
         credential: "longcat-api-key",
@@ -305,6 +309,7 @@ pub const API_KEY_BINDINGS: &[ApiKeyBinding] = &[
     },
     ApiKeyBinding {
         provider: "nvidia",
+        endpoint_prefix: "nvidia",
         model: "nemotron-3-super",
         upstream: "nvidia/nemotron-3-super-120b-a12b",
         credential: "nvidia-api-key",
@@ -313,14 +318,31 @@ pub const API_KEY_BINDINGS: &[ApiKeyBinding] = &[
     },
     ApiKeyBinding {
         provider: "bailian",
+        endpoint_prefix: "bailian",
         model: "qwen3.8-max",
         upstream: "qwen3.8-max",
         credential: "bailian-api-key",
         variable: "OPENBRIDGE_BAILIAN_API_KEY",
-        protocols: &[ProtocolProfile::OpenAiChat],
+        protocols: &[
+            ProtocolProfile::OpenAiResponses,
+            ProtocolProfile::OpenAiChat,
+        ],
+    },
+    ApiKeyBinding {
+        provider: "aliyun-tokenplan-cn",
+        endpoint_prefix: "aliyun-tokenplan-cn",
+        model: "qwen3.8-flash",
+        upstream: "qwen3.8-flash",
+        credential: "aliyun-tokenplan-cn-api-key",
+        variable: "OPENBRIDGE_ALIYUN_TOKENPLAN_CN_API_KEY",
+        protocols: &[
+            ProtocolProfile::OpenAiResponses,
+            ProtocolProfile::OpenAiChat,
+        ],
     },
     ApiKeyBinding {
         provider: "kimi",
+        endpoint_prefix: "kimi",
         model: "kimi-k3",
         upstream: "kimi-k3",
         credential: "kimi-api-key",
@@ -329,11 +351,27 @@ pub const API_KEY_BINDINGS: &[ApiKeyBinding] = &[
     },
     ApiKeyBinding {
         provider: "zhipu",
+        endpoint_prefix: "zhipu",
         model: "glm-5.3",
         upstream: "glm-5.3",
         credential: "zhipu-api-key",
         variable: "OPENBRIDGE_ZHIPU_API_KEY",
-        protocols: &[ProtocolProfile::OpenAiChat],
+        protocols: &[
+            ProtocolProfile::OpenAiResponses,
+            ProtocolProfile::OpenAiChat,
+        ],
+    },
+    ApiKeyBinding {
+        provider: "zhipu",
+        endpoint_prefix: "zhipu-flash",
+        model: "glm-5.3-flash",
+        upstream: "glm-5.3-flash",
+        credential: "zhipu-api-key",
+        variable: "OPENBRIDGE_ZHIPU_API_KEY",
+        protocols: &[
+            ProtocolProfile::OpenAiResponses,
+            ProtocolProfile::OpenAiChat,
+        ],
     },
 ];
 
@@ -364,15 +402,15 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
             .find(|p| p.id.as_str() == binding.provider)
             .expect("fixed provider")
             .clone();
-        let route_id =
-            RouteId::new(&format!("{}-generation", binding.provider)).expect("static identity");
+        let route_id = RouteId::new(&format!("{}-generation", binding.endpoint_prefix))
+            .expect("static identity");
         let mut members = Vec::new();
         for &protocol in binding.protocols {
             let suffix = match protocol {
                 ProtocolProfile::OpenAiChat => "chat",
                 ProtocolProfile::OpenAiResponses => "responses",
             };
-            let endpoint_id = format!("{}-{suffix}", binding.provider);
+            let endpoint_id = format!("{}-{suffix}", binding.endpoint_prefix);
             endpoints.push(endpoint(
                 &endpoint_id,
                 definition.clone(),

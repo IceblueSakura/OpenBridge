@@ -94,6 +94,10 @@ impl Dialect {
                     legacy_max_tokens: true,
                     inactive_chat_fields: true,
                     text_usage_total_view: true,
+                    response_extras: true,
+                    responses_billing_view: true,
+                    responses_queued_creation: true,
+                    responses_summary_text_alias: true,
                     ..Default::default()
                 },
             ),
@@ -111,6 +115,9 @@ impl Dialect {
                     readable_reasoning: true,
                     legacy_max_tokens: true,
                     reported_request_id: true,
+                    responses_inactive_state: true,
+                    // Optional transport trailer, never a replacement for a real terminal.
+                    responses_done_marker: true,
                     ..Default::default()
                 },
             ),
@@ -167,7 +174,7 @@ impl Adapter {
                 openai::static_response::decode_chat_with(&value, &self.adaptation)?
             }
             Profile::Responses => {
-                openai::envelope::validate_response_snapshot(&value)?;
+                openai::envelope::validate_response_snapshot_with(&value, &self.adaptation)?;
                 openai::static_response::decode_responses_with(&value, &self.adaptation)?
             }
         };

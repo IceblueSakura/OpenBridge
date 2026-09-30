@@ -49,17 +49,17 @@ struct ModelSpec {
     label: &'static str,
     pool: &'static str,
     provider: &'static str,
-    models_path: &'static str,
+    models_path: Option<&'static str>,
     chat_endpoint: &'static str,
     responses_endpoint: Option<&'static str>,
 }
 
-const MODELS: [ModelSpec; 9] = [
+const MODELS: [ModelSpec; 11] = [
     ModelSpec {
         label: "deepseek-flash",
         pool: "deepseek-primary",
         provider: "deepseek",
-        models_path: "/models",
+        models_path: Some("/models"),
         chat_endpoint: "deepseek-chat",
         responses_endpoint: Some("deepseek-responses"),
     },
@@ -67,7 +67,7 @@ const MODELS: [ModelSpec; 9] = [
         label: "mimo-v2.6-pro",
         pool: "mimo-primary",
         provider: "xiaomi",
-        models_path: "/v1/models",
+        models_path: Some("/v1/models"),
         chat_endpoint: "xiaomi-chat",
         responses_endpoint: Some("xiaomi-responses"),
     },
@@ -75,7 +75,7 @@ const MODELS: [ModelSpec; 9] = [
         label: "mimo-v2.6-flash",
         pool: "mimo-primary",
         provider: "xiaomi",
-        models_path: "/v1/models",
+        models_path: Some("/v1/models"),
         chat_endpoint: "xiaomi-flash-chat",
         responses_endpoint: Some("xiaomi-flash-responses"),
     },
@@ -83,7 +83,7 @@ const MODELS: [ModelSpec; 9] = [
         label: "gpt-6-luna",
         pool: "openrouter-primary",
         provider: "openrouter",
-        models_path: "/api/v1/models",
+        models_path: Some("/api/v1/models"),
         chat_endpoint: "openrouter-chat",
         responses_endpoint: Some("openrouter-responses"),
     },
@@ -91,7 +91,7 @@ const MODELS: [ModelSpec; 9] = [
         label: "longcat-2.5-preview",
         pool: "longcat-primary",
         provider: "longcat",
-        models_path: "/openai/v1/models",
+        models_path: Some("/openai/v1/models"),
         chat_endpoint: "longcat-chat",
         responses_endpoint: Some("longcat-responses"),
     },
@@ -99,7 +99,7 @@ const MODELS: [ModelSpec; 9] = [
         label: "nemotron-3-super",
         pool: "nvidia-primary",
         provider: "nvidia",
-        models_path: "/v1/models",
+        models_path: Some("/v1/models"),
         chat_endpoint: "nvidia-chat",
         responses_endpoint: None,
     },
@@ -107,15 +107,24 @@ const MODELS: [ModelSpec; 9] = [
         label: "qwen3.8-max",
         pool: "bailian-primary",
         provider: "bailian",
-        models_path: "/compatible-mode/v1/models",
+        models_path: Some("/compatible-mode/v1/models"),
         chat_endpoint: "bailian-chat",
-        responses_endpoint: None,
+        responses_endpoint: Some("bailian-responses"),
+    },
+    ModelSpec {
+        label: "qwen3.8-flash",
+        pool: "aliyun-tokenplan-primary",
+        provider: "aliyun-tokenplan-cn",
+        // No Models entry is declared for this plan; never guess a discovery URL.
+        models_path: None,
+        chat_endpoint: "aliyun-tokenplan-cn-chat",
+        responses_endpoint: Some("aliyun-tokenplan-cn-responses"),
     },
     ModelSpec {
         label: "kimi-k3",
         pool: "kimi-primary",
         provider: "kimi",
-        models_path: "/v1/models",
+        models_path: Some("/v1/models"),
         chat_endpoint: "kimi-chat",
         responses_endpoint: None,
     },
@@ -123,9 +132,17 @@ const MODELS: [ModelSpec; 9] = [
         label: "glm-5.3",
         pool: "zhipu-primary",
         provider: "zhipu",
-        models_path: "/api/paas/v4/models",
+        models_path: Some("/api/paas/v4/models"),
         chat_endpoint: "zhipu-chat",
-        responses_endpoint: None,
+        responses_endpoint: Some("zhipu-responses"),
+    },
+    ModelSpec {
+        label: "glm-5.3-flash",
+        pool: "zhipu-primary",
+        provider: "zhipu",
+        models_path: Some("/api/paas/v4/models"),
+        chat_endpoint: "zhipu-flash-chat",
+        responses_endpoint: Some("zhipu-flash-responses"),
     },
 ];
 
@@ -1235,8 +1252,10 @@ async fn main() {
             "longcat-2.5-preview",
             "nemotron-3-super",
             "qwen3.8-max",
+            "qwen3.8-flash",
             "kimi-k3",
             "glm-5.3",
+            "glm-5.3-flash",
         ],
     );
     let only = Some(only.unwrap_or_else(|| "nemotron-3-super".into()));
@@ -1256,6 +1275,14 @@ async fn main() {
                 std::process::exit(2)
             })
     });
+    if std::env::var("OPENBRIDGE_PROBE_LIST_MODELS").as_deref() == Ok("1")
+        && MODELS
+            .iter()
+            .any(|spec| only.as_deref() == Some(spec.label) && spec.models_path.is_none())
+    {
+        eprintln!("model directory is not declared for this target; no request sent");
+        std::process::exit(2);
+    }
     let credentials_path = std::env::var("OPENBRIDGE_CREDENTIALS")
         .unwrap_or_else(|_| "config/upstream-credentials.toml".into());
     let credentials = match load_credentials(&credentials_path) {
@@ -1328,6 +1355,9 @@ async fn main() {
             eligible.push(spec);
             continue;
         }
+        let models_path = spec
+            .models_path
+            .expect("directory selection checked before credentials");
         let directory_id = probe_control::call(
             "reserve",
             json!({"model":spec.label,"scenario":format!("native:{}:models",spec.label),"tokens":1}),
@@ -1335,14 +1365,7 @@ async fn main() {
         probe_control::call("dispatched", json!({"attempt":directory_id}));
         let definition = topology.provider(spec.provider).expect("fixed provider");
         let secret = secret_for(spec.pool);
-        match model_listing(
-            &client,
-            definition.origin.as_str(),
-            spec.models_path,
-            &secret,
-        )
-        .await
-        {
+        match model_listing(&client, definition.origin.as_str(), models_path, &secret).await {
             Ok(ids) => {
                 probe_control::call(
                     "finish",
@@ -1371,7 +1394,7 @@ async fn main() {
                 let _ = writeln!(
                     precheck,
                     "- {} (`{}`): listing failed: {} — paid calls skipped",
-                    spec.label, spec.models_path, error
+                    spec.label, models_path, error
                 );
             }
         }

@@ -91,7 +91,7 @@ impl Bootstrap {
                     entries.push(Entry {
                         model: binding.model.into(),
                         protocol,
-                        endpoint: EndpointId::new(&format!("{}-{suffix}", binding.provider))
+                        endpoint: EndpointId::new(&format!("{}-{suffix}", binding.endpoint_prefix))
                             .map_err(|_| StartupError::Binding)?,
                     });
                 }
@@ -158,19 +158,26 @@ mod tests {
         let boot = Bootstrap::from_lookup(|name| {
             Ok(match name {
                 "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
-                "OPENBRIDGE_XIAOMI_API_KEY" | "OPENBRIDGE_LONGCAT_API_KEY" => {
-                    Some("synthetic-upstream".into())
-                }
+                "OPENBRIDGE_XIAOMI_API_KEY"
+                | "OPENBRIDGE_LONGCAT_API_KEY"
+                | "OPENBRIDGE_ZHIPU_API_KEY" => Some("synthetic-upstream".into()),
                 _ => None,
             })
         })
         .unwrap();
-        for (model, upstream, credential, prefix) in [
-            ("mimo-v2.6-pro", "mimo-v2.6-pro", "xiaomi-api-key", "/v1"),
+        for (model, upstream, credential, chat_prefix, responses_prefix) in [
+            (
+                "mimo-v2.6-pro",
+                "mimo-v2.6-pro",
+                "xiaomi-api-key",
+                "/v1",
+                "/v1",
+            ),
             (
                 "mimo-v2.6-flash",
                 "mimo-v2.6-flash",
                 "xiaomi-api-key",
+                "/v1",
                 "/v1",
             ),
             (
@@ -178,6 +185,21 @@ mod tests {
                 "LongCat-2.5-Preview",
                 "longcat-api-key",
                 "/openai/v1",
+                "/openai/v1",
+            ),
+            (
+                "glm-5.3",
+                "glm-5.3",
+                "zhipu-api-key",
+                "/api/paas/v4",
+                "/api/v1",
+            ),
+            (
+                "glm-5.3-flash",
+                "glm-5.3-flash",
+                "zhipu-api-key",
+                "/api/paas/v4",
+                "/api/v1",
             ),
         ] {
             for protocol in [Profile::Chat, Profile::Responses] {
@@ -188,7 +210,12 @@ mod tests {
                 assert_eq!(
                     entry.endpoint.target.path.as_str(),
                     format!(
-                        "{prefix}/{}",
+                        "{}/{}",
+                        if protocol == Profile::Chat {
+                            chat_prefix
+                        } else {
+                            responses_prefix
+                        },
                         if protocol == Profile::Chat {
                             "chat/completions"
                         } else {
@@ -208,6 +235,95 @@ mod tests {
                         &serde_json::to_vec(&request).unwrap()
                     )
                     .is_ok()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn subscription_and_metered_entries_never_exchange_credentials_or_origins() {
+        for (subscription, metered) in [(true, false), (false, true), (true, true)] {
+            let boot = Bootstrap::from_lookup(|name| {
+                Ok(match name {
+                    "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
+                    "OPENBRIDGE_ALIYUN_TOKENPLAN_CN_API_KEY" if subscription => {
+                        Some("synthetic-subscription-key".into())
+                    }
+                    "OPENBRIDGE_BAILIAN_API_KEY" if metered => Some("synthetic-metered-key".into()),
+                    _ => None,
+                })
+            })
+            .unwrap();
+            for profile in [Profile::Chat, Profile::Responses] {
+                for (model, enabled, origin, secret) in [
+                    (
+                        "qwen3.8-flash",
+                        subscription,
+                        "https://token-plan.cn-beijing.maas.aliyuncs.com",
+                        "synthetic-subscription-key",
+                    ),
+                    (
+                        "qwen3.8-max",
+                        metered,
+                        "https://dashscope.aliyuncs.com",
+                        "synthetic-metered-key",
+                    ),
+                ] {
+                    let value = if profile == Profile::Chat {
+                        serde_json::json!({"model":model,"messages":[{"role":"user","content":"hi"}],"max_completion_tokens":32})
+                    } else {
+                        serde_json::json!({"model":model,"input":"hi","max_output_tokens":32})
+                    };
+                    let admitted = super::super::admission::prepare(
+                        &boot.gateway.state,
+                        profile,
+                        &serde_json::to_vec(&value).unwrap(),
+                    );
+                    if !enabled {
+                        assert!(admitted.is_err());
+                        continue;
+                    }
+                    let (entry, request) = admitted.unwrap();
+                    let prepared = crate::execution::prepare(
+                        &entry.endpoint,
+                        &entry.provider,
+                        &entry.secret,
+                        &request,
+                    )
+                    .unwrap();
+                    assert_eq!(prepared.origin, origin);
+                    assert_eq!(
+                        prepared.auth_header,
+                        ("authorization".into(), format!("Bearer {secret}"))
+                    );
+                    assert_eq!(
+                        prepared.path,
+                        if profile == Profile::Chat {
+                            "/compatible-mode/v1/chat/completions"
+                        } else {
+                            "/compatible-mode/v1/responses"
+                        }
+                    );
+                    let wire: serde_json::Value = serde_json::from_slice(&prepared.body).unwrap();
+                    assert_eq!(wire["model"], model);
+                    assert_eq!(
+                        wire[if profile == Profile::Chat {
+                            "max_tokens"
+                        } else {
+                            "max_output_tokens"
+                        }],
+                        32
+                    );
+                }
+            }
+            if subscription && metered {
+                let subscription_entry = &boot.gateway.state.entries
+                    [&(super::super::family(Profile::Chat), "qwen3.8-flash".into())];
+                let metered_entry = &boot.gateway.state.entries
+                    [&(super::super::family(Profile::Chat), "qwen3.8-max".into())];
+                assert_ne!(
+                    subscription_entry.endpoint.representation.adaptation.scope,
+                    metered_entry.endpoint.representation.adaptation.scope
                 );
             }
         }

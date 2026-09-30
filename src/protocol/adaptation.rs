@@ -54,6 +54,21 @@ pub struct WireRules {
     /// modality breakdowns require typed ownership instead of silently dropping.
     /// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>.
     pub text_usage_total_view: bool,
+    /// Null billing placeholder and one exactly redundant response_api usage row.
+    /// Conflicts, independent breakdowns and unknown billing fields remain errors.
+    /// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses>.
+    pub responses_billing_view: bool,
+    /// A created/queued snapshot emits Queued, not Started. Only a subsequent
+    /// in_progress event starts it; absent progress cannot be synthesized.
+    pub responses_queued_creation: bool,
+    /// This wire names summary deltas/done reasoning_text and indexes them by
+    /// content_index. Preserve Summary semantics and validate final snapshots.
+    /// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses>.
+    pub responses_summary_text_alias: bool,
+    /// Empty previous_response_id and empty/null conversation_id are inactive
+    /// response placeholders, never permission to resolve or replay remote state.
+    /// Source: <https://docs.bigmodel.cn/cn/guide/develop/responses/introduction>.
+    pub responses_inactive_state: bool,
     /// Documented null placeholders do not enable active media or legacy calls.
     pub inactive_chat_fields: bool,
 }

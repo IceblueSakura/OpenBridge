@@ -22,6 +22,21 @@ class SelectionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 select_bindings("xiaomi", models=models)
 
+    def test_subscription_selection_is_explicit_and_does_not_borrow_metered_keys(self):
+        self.assertNotIn("aliyun-tokenplan-cn", [row[0] for row in select_bindings()])
+        rows = select_bindings("aliyun-tokenplan-cn", models=["qwen3.8-flash"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(
+            rows[0][2:4],
+            ("aliyun-tokenplan-primary", "OPENBRIDGE_ALIYUN_TOKENPLAN_CN_API_KEY"),
+        )
+        for provider, model in [
+            ("bailian", "qwen3.8-flash"),
+            ("aliyun-tokenplan-cn", "qwen3.8-max"),
+        ]:
+            with self.assertRaises(RuntimeError):
+                select_bindings(provider, models=[model])
+
     def test_paused_unknown_and_duplicate_selections_fail_closed(self):
         rows = select_bindings()
         self.assertEqual(rows[0][0], "nvidia")
@@ -30,7 +45,8 @@ class SelectionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 select_bindings(selection)
         self.assertEqual(
-            [row[0] for row in select_bindings("zhipu,nvidia")], ["zhipu", "nvidia"]
+            list(dict.fromkeys(row[0] for row in select_bindings("zhipu,nvidia"))),
+            ["zhipu", "nvidia"],
         )
 
 

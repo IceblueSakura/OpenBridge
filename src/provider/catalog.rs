@@ -75,25 +75,49 @@ pub fn nvidia() -> ProviderDefinition {
     )
 }
 /// Region-bound endpoint; credentials must belong to the selected region.
-/// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>.
+/// Sources: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>,
+/// <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses>.
 pub fn bailian() -> ProviderDefinition {
-    chat_provider(
-        "bailian",
-        "https://dashscope.aliyuncs.com",
-        "/compatible-mode/v1/chat/completions",
-    )
+    ProviderDefinition {
+        responses: Some(EndpointPath::new("/compatible-mode/v1/responses").expect("static path")),
+        ..chat_provider(
+            "bailian",
+            "https://dashscope.aliyuncs.com",
+            "/compatible-mode/v1/chat/completions",
+        )
+    }
+}
+/// Subscription credentials belong to this origin, never the metered endpoint.
+/// Native Responses is declared by the official Codex configuration, not inferred
+/// from the shared Chat wire. These entries do not bypass plan usage restrictions.
+/// Sources: <https://help.aliyun.com/zh/model-studio/base-url>,
+/// <https://help.aliyun.com/zh/model-studio/codex>.
+pub fn aliyun_tokenplan_cn() -> ProviderDefinition {
+    ProviderDefinition {
+        responses: Some(EndpointPath::new("/compatible-mode/v1/responses").expect("static path")),
+        ..chat_provider(
+            "aliyun-tokenplan-cn",
+            "https://token-plan.cn-beijing.maas.aliyuncs.com",
+            "/compatible-mode/v1/chat/completions",
+        )
+    }
 }
 /// Source: <https://platform.kimi.com/docs/api/chat>.
 pub fn kimi() -> ProviderDefinition {
     chat_provider("kimi", "https://api.moonshot.cn", "/v1/chat/completions")
 }
-/// Source: <https://docs.bigmodel.cn/cn/guide/develop/openai/introduction>.
+/// The native Responses base path differs from Chat; never append to the Chat base.
+/// Sources: <https://docs.bigmodel.cn/cn/guide/develop/openai/introduction>,
+/// <https://docs.bigmodel.cn/cn/guide/develop/responses/introduction>.
 pub fn zhipu() -> ProviderDefinition {
-    chat_provider(
-        "zhipu",
-        "https://open.bigmodel.cn",
-        "/api/paas/v4/chat/completions",
-    )
+    ProviderDefinition {
+        responses: Some(EndpointPath::new("/api/v1/responses").expect("static path")),
+        ..chat_provider(
+            "zhipu",
+            "https://open.bigmodel.cn",
+            "/api/paas/v4/chat/completions",
+        )
+    }
 }
 
 pub fn all() -> Vec<ProviderDefinition> {
@@ -104,6 +128,7 @@ pub fn all() -> Vec<ProviderDefinition> {
         longcat(),
         nvidia(),
         bailian(),
+        aliyun_tokenplan_cn(),
         kimi(),
         zhipu(),
     ]
