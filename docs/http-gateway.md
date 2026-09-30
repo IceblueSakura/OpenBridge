@@ -19,6 +19,7 @@
 | `OPENBRIDGE_ZHIPU_API_KEY` | 可选：启用中国开放平台 `glm-5.3`，当前仅 Chat |
 | `OPENBRIDGE_BIND` | 可选：默认 `127.0.0.1:8080`；仅接受 literal loopback SocketAddr（也可 `[::1]:8080`） |
 | `OPENBRIDGE_PROXY` | 可选：受信启动配置中的显式出站代理 URL；不继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` |
+| `OPENBRIDGE_PROBE_DIAGNOSTICS` | 可选：操作者指定的新建私有 JSONL 文件；默认关闭，不覆盖已有文件，不记录 payload |
 
 至少提供一个 Provider key；设置为空不等于禁用，而是配置错误。不输出凭据值，不生成默认入口密钥。模型绑定由 [`src/topology/catalog.rs`](../src/topology/catalog.rs)维护；未提供对应 key 的模型不在入口中开放。此前的 MiMo Flash 测试绑定不会自动进入服务。
 
@@ -93,6 +94,16 @@ OpenRouter 启用后，上述两个示例可将 `model` 改为 `gpt-6-luna`；�
 首个可交付 frame 产生前失败可返回 JSON 错误。HTTP response 已交出后不能更改状态：late error、取消、超时或缺失/错误终态会中止 body，不合成成功 `response.completed` / `[DONE]`，也不重试。已准入的模型非成功语义终态（如 incomplete）与 transport 错误不同，仍按语义合同交付。
 
 SSE 不收完整流再回放。每次最多消费一个上游 frame；下游 frame 在 HTTP body handoff 时确认，未确认不推进后续语义处理。仅编码或排队不算 commit。严格上游 EOF 后才释放终态；完成全部 handoff 后才完成 producer。这是服务 transport 边界，不声称已收到客户端/TCP acknowledgement。消费者不 poll body 时，deadline 仍能释放上游；drop/shutdown 同样取消资源。
+
+## 操作者诊断
+
+显式 `OPENBRIDGE_PROBE_DIAGNOSTICS` 启用受控 probe 元数据，不是内容日志或生产观测系统。文件必须新建，父目录由操作者准备；Unix 权限 0600。启动时路径无效/已存在会拒绝启动。运行时采用容量 64 的 try-send 队列、每文件 1 MiB 上限；写失败/队列满会丢诊断，不改变业务响应或等待写入。Ctrl-C 后 best-effort 有界 drain；强杀或未完成 I/O 可使记录缺失，不能据缺失推断成功。
+
+仅认证后的 POST 请求且唯一 `x-openbridge-probe-id` 符合 `<32位小写hex run-id>:<1–999999 attempt>` 时记录；无效/重复 ID 只禁用该请求诊断，不改变业务准入。它不进入 IR，不选择上游、不透传，不在响应中回显。
+
+白名单仅含关联 ID、最后阶段/结果、上游 HTTP、0–86400 秒内的规范化 Retry-After、接收/已 handoff 字节与时间偏移。合法 HTTP-date 也规范化；未知或超范围值不保存。绝不记录正文、header 原文、URL、原始错误、credential locator、reasoning 或 opaque。静态 JSON 在 EOF finalize 时解析，其失败可出现在 `terminal` 阶段；`complete` 仍只表示 server transport handoff，不证明客户端收到。该通道不改变原有 429/502 映射，不把 Retry-After 透传下游，不触发 retry/fallback。
+
+嵌入方可在共享 Gateway 前调用 `with_probe_diagnostics(path)`，结束时 `flush_probe_diagnostics().await` 做有界 drain。run/attempt 及 SDK/pi 账本的归属见 [probe 指南](probes.md)。
 
 ## 嵌入与验证
 

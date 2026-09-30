@@ -45,6 +45,7 @@ git diff --check
 
 - [文档索引](docs/README.md)
 - [HTTP 网关启动与接口](docs/http-gateway.md)
+- [受控 Probe 计划、预算与诊断](docs/probes.md)
 - [当前结构](docs/architecture.md)
 - [v2 设计](docs/architecture-v2/README.md)
 - [迁移与未完成边界](docs/architecture-v2/migration.md)

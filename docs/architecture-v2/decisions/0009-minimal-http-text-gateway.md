@@ -38,7 +38,11 @@ remain separately tracked in the architecture, migration status and tests.
   body does not suspend the upstream deadline.
 - Gate resource-intensive work by bounded concurrency, request collection timeout,
   request/response byte budgets and an absolute exchange deadline. No payload
-  logging is enabled by this slice.
+  logging is enabled by this slice. An explicit startup-only probe sink may record
+  bounded, authenticated, content-free attempt metadata in a private operator
+  file. Its queue is nonblocking, failure does not alter business responses, and
+  neither upstream diagnostics nor caller correlation IDs are reflected downstream.
+  This is not a general observability or retry subsystem.
 
 ## Bootstrap
 

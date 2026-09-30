@@ -28,7 +28,7 @@ Authenticated, bounded HTTP request
 | `src/execution/` | 固定 plan、请求准备、单帧增量 intake、响应投影和单调交付生命周期；I/O 调用方确认 commit/complete |
 | `src/transport/sse.rs` | 有界 SSE framing，无语义判断或 socket 所有权 |
 | `src/transport/http.rs` | 对已准备请求执行 HTTP；不继承入站 headers、不跟随重定向或隐式重试，不解释 IR |
-| `src/gateway/` | `config` 在启动时绑定 entry/credential/scope；`admission` 拥有 body 与可信输出预算；`http` 拥有认证入口和 shutdown；`body` 拥有上游及实际交付 acknowledgement/deadline |
+| `src/gateway/` | `config` 在启动时绑定 entry/credential/scope；`admission` 拥有 body 与可信输出预算；`http` 拥有认证入口和 shutdown；`body` 拥有上游及实际交付 acknowledgement/deadline；`diagnostics` 为 opt-in、认证后的有界元数据 writer，不进入 IR 或业务响应 |
 | `src/bin/openbridge.rs` | 显式环境变量 bootstrap 与 loopback listener；不读取旧私有配置 |
 
 ## 适配与保真
@@ -46,6 +46,10 @@ OpenRouter 的 routing/billing facts 使用同样的有界来源/响应依赖机
 最小 HTTP body worker 等待每个输出 frame 被 body poll 交给 server transport 后才确认 commit；完成所有 handoff 后才 complete，不声称客户端已收到。独立绝对 deadline 在 body 不被消费时仍释放上游，drop/shutdown 同样取消。首帧前失败返回脱敏 JSON 错误；HTTP response 已交出后的错误中止 body，不能换状态或合成成功终态。具体入口、预算与启动合同见 [HTTP 网关指南](http-gateway.md)和 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)。
 
 当前仅执行每个入口预先固定的一个 Route 成员，不做自动 retry/fallback。Provider 的 native Responses 路径可缺省；topology 编译会拒绝为未声明协议创建 Endpoint。额外五家 API-key 绑定当前仅开放 Chat，不用虚构的 Responses 路径填充结构。`tests/transport/chain.rs` 验证 library execution；`tests/gateway.rs` 经过真实 Router 和 synthetic HTTP Provider；固定 SDK 同时保留 codec fixture gates 与经过同一 Gateway 的独立全链 gate。`examples/live_probe.rs` 仍是另需授权的库级诊断入口，旧 live 结果不证明新服务入口的外部兼容。
+
+## 探测执行边界
+
+`examples/probe_support/` 收敛 live SDK 入口的计划、跨进程 SQLite 预算、owned listener、raw wire 观察、场景 oracle 和白名单结果。Rust 库级与仓库内 pi 执行器共享同一 run/attempt，不各自重置额度；本机 pi 配置/凭据仍不入仓。Gateway 的可选诊断 writer 通过关联 ID 提供原调用的状态/最后阶段；队列/文件有界，失败不影响业务响应，无 payload 日志或重试策略。操作合同由 [probe 指南](probes.md)维护。
 
 ## 验证入口
 

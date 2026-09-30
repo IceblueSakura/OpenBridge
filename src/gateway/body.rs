@@ -3,7 +3,10 @@
 #[cfg(test)]
 #[path = "body_tests.rs"]
 mod tests;
-use super::{ApiError, BoundEntry, Limits};
+use super::{
+    ApiError, BoundEntry, Limits,
+    diagnostics::{Outcome, Stage, Trace},
+};
 use crate::{
     adapter::Request,
     execution::{Attempt, ResponseDelivery},
@@ -96,8 +99,11 @@ async fn send_frames(
     tx: &mpsc::Sender<Message>,
     delivery: &mut ResponseDelivery,
     frames: Vec<Bytes>,
+    trace: &mut Trace,
 ) -> Result<(), ApiError> {
+    trace.stage(Stage::Delivery);
     for bytes in frames {
+        let size = bytes.len();
         let (ack, seen) = oneshot::channel();
         tx.send(Message::Chunk(Chunk { bytes, ack }))
             .await
@@ -106,6 +112,7 @@ async fn send_frames(
         // The HTTP body has handed this frame to server transport. Queueing alone
         // cannot reach this point. Peer receipt is not observable at this layer.
         delivery.commit().map_err(|_| ApiError::upstream())?;
+        trace.handed_off(size);
     }
     Ok(())
 }
@@ -116,6 +123,7 @@ async fn produce(
     tx: &mpsc::Sender<Message>,
     stream: bool,
     limit: usize,
+    trace: &mut Trace,
 ) -> Result<(), ApiError> {
     let mut used_bytes = 0usize;
     while let Some(chunk) = upstream.chunk().await.map_err(|e| {
@@ -125,6 +133,8 @@ async fn produce(
             ApiError::upstream()
         }
     })? {
+        trace.stage(Stage::Intake);
+        trace.received(chunk.len());
         used_bytes = used_bytes.saturating_add(chunk.len());
         if used_bytes > limit {
             return Err(ApiError::upstream());
@@ -137,14 +147,18 @@ async fn produce(
             }
             rest = &rest[used..];
             if stream {
+                trace.stage(Stage::Projection);
                 let frames = delivery
                     .encode_events(attempt, &events)
                     .map_err(|_| ApiError::upstream())?;
-                send_frames(tx, delivery, frames).await?;
+                send_frames(tx, delivery, frames, trace).await?;
+                trace.stage(Stage::Intake);
             }
         }
     }
+    trace.stage(Stage::Terminal);
     attempt.finish().map_err(|_| ApiError::upstream())?;
+    trace.stage(Stage::Projection);
     let frames = if stream {
         delivery
             .finish_stream(attempt)
@@ -158,7 +172,7 @@ async fn produce(
         }
         vec![Bytes::from(bytes)]
     };
-    send_frames(tx, delivery, frames).await?;
+    send_frames(tx, delivery, frames, trace).await?;
     delivery
         .complete(attempt)
         .map_err(|_| ApiError::upstream())?;
@@ -173,8 +187,11 @@ pub(super) async fn respond(
     deadline: Instant,
     mut shutdown: watch::Receiver<bool>,
     permit: OwnedSemaphorePermit,
+    mut trace: Trace,
 ) -> Result<Response, ApiError> {
+    trace.stage(Stage::ResponseHead);
     let status = upstream.status().as_u16();
+    trace.head(status, upstream.headers());
     if !(200..300).contains(&status) {
         return Err(ApiError::status(status));
     }
@@ -234,6 +251,7 @@ pub(super) async fn respond(
     let state = Arc::new(Status::default());
     let worker_state = state.clone();
     let worker = tokio::spawn(async move {
+        trace.outcome(Outcome::Interrupted);
         let _permit = permit;
         let stopped = *shutdown.borrow();
         let result = if stopped {
@@ -244,12 +262,21 @@ pub(super) async fn respond(
                 _=shutdown.changed()=>Err(ApiError::shutdown()),
                 _=tokio::time::sleep_until(deadline)=>Err(ApiError::timeout()),
                 _=tx.closed()=>Err(ApiError::upstream()),
-                result=produce(upstream,&mut attempt,&mut delivery,&tx,stream,limit)=>result,
+                result=produce(upstream,&mut attempt,&mut delivery,&tx,stream,limit,&mut trace)=>result,
             }
         };
         match result {
-            Ok(()) => worker_state.complete.store(true, Ordering::Release),
+            Ok(()) => {
+                trace.stage(Stage::Complete);
+                trace.outcome(Outcome::Complete);
+                worker_state.complete.store(true, Ordering::Release);
+            }
             Err(error) => {
+                trace.outcome(match error.code {
+                    "upstream_timeout" => Outcome::Timeout,
+                    "shutting_down" => Outcome::Shutdown,
+                    _ => Outcome::Error,
+                });
                 attempt.cancel();
                 delivery.cancel();
                 worker_state.failed.store(true, Ordering::Release);

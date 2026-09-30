@@ -1,5 +1,8 @@
 //! HTTP ingress owns authentication ordering, request deadlines and listener lifecycle.
-use super::{ApiError, Gateway, Runtime, admission, body};
+use super::{
+    ApiError, Gateway, Runtime, admission, body,
+    diagnostics::{Stage, Trace},
+};
 use crate::protocol::openai::Profile;
 use axum::{
     Router,
@@ -88,6 +91,7 @@ pub(super) async fn handle(
     profile: Profile,
     request: Request,
 ) -> Result<Response, ApiError> {
+    let mut trace = Trace::new(state.diagnostics.as_ref(), request.headers());
     if *state.shutdown.borrow() {
         return Err(ApiError::shutdown());
     }
@@ -112,9 +116,11 @@ pub(super) async fn handle(
         .exchange_timeout
         .min(Duration::from_millis(entry.endpoint.execution.timeout_ms));
     let deadline = tokio::time::Instant::now() + timeout;
+    trace.stage(Stage::Prepare);
     let prepared =
         crate::execution::prepare(&entry.endpoint, &entry.provider, &entry.secret, &semantic)
             .map_err(|_| ApiError::invalid())?;
+    trace.stage(Stage::Connect);
     let upstream = tokio::select! {
         biased;
         _=shutdown.changed()=>return Err(ApiError::shutdown()),
@@ -128,6 +134,7 @@ pub(super) async fn handle(
         deadline,
         shutdown,
         permit,
+        trace,
     )
     .await
 }

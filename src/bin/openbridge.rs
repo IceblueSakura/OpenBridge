@@ -22,7 +22,10 @@ async fn main() -> std::process::ExitCode {
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
     };
-    match bootstrap.gateway.serve(listener, shutdown).await {
+    let owner = bootstrap.gateway.clone();
+    let result = bootstrap.gateway.serve(listener, shutdown).await;
+    owner.flush_probe_diagnostics().await;
+    match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(_) => {
             eprintln!("OpenBridge server stopped with an I/O error");

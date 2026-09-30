@@ -4,6 +4,7 @@ mod auth;
 mod body;
 pub mod bootstrap;
 mod config;
+mod diagnostics;
 mod error;
 mod http;
 #[cfg(test)]
@@ -29,6 +30,7 @@ struct BoundEntry {
     downstream: GenerationRepresentationContract,
 }
 struct Runtime {
+    diagnostics: Option<diagnostics::Sink>,
     auth: auth::Auth,
     entries: BTreeMap<(u8, String), Arc<BoundEntry>>,
     limits: Limits,

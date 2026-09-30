@@ -11,6 +11,7 @@
     "/v1/chat/completions": {
       "post": {
         "operationId": "chatCompletion",
+        "parameters": [{"$ref": "#/components/parameters/ProbeId"}],
         "summary": "Generate through the single-candidate Chat text profile",
         "requestBody": {
           "required": true,
@@ -36,6 +37,7 @@
     "/v1/responses": {
       "post": {
         "operationId": "response",
+        "parameters": [{"$ref": "#/components/parameters/ProbeId"}],
         "summary": "Generate through the stateless Responses text profile",
         "requestBody": {
           "required": true,
@@ -60,6 +62,13 @@
     }
   },
   "components": {
+    "parameters": {
+      "ProbeId": {
+        "in": "header", "name": "x-openbridge-probe-id", "required": false,
+        "schema": {"type": "string"},
+        "description": "Operator correlation only when private probe diagnostics are enabled and authentication succeeds. Valid form: 32 lowercase hex run ID, colon, then decimal 1..999999. Invalid/duplicate values disable observation only, not business admission. Never forwarded upstream or echoed downstream. Not semantic request data."
+      }
+    },
     "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "description": "Exactly one Authorization header. Configured startup secret, not an upstream API key."}},
     "schemas": {
       "ChatRequest": {

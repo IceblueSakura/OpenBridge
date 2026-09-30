@@ -96,6 +96,11 @@ impl Bootstrap {
             Limits::default(),
             proxy.as_deref(),
         )?;
+        let gateway = if let Some(path) = get("OPENBRIDGE_PROBE_DIAGNOSTICS")? {
+            gateway.with_probe_diagnostics(std::path::Path::new(&path))?
+        } else {
+            gateway
+        };
         Ok(Self { gateway, listen })
     }
 }

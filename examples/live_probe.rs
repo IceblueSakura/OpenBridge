@@ -37,7 +37,6 @@ use tokio::time::{Duration, sleep};
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 const CALL_INTERVAL: Duration = Duration::from_secs(2);
-const EXCERPT_CHARS: usize = 120;
 const CAPTURE_LIMIT: usize = 2 * 1024 * 1024;
 
 const TEXT_PROMPT: &str = "Reply with exactly the word pong.";
@@ -363,10 +362,6 @@ fn error_class(error: &AttemptError) -> Option<ErrorClass> {
     }
 }
 
-fn excerpt(text: &str) -> String {
-    text.chars().take(EXCERPT_CHARS).collect()
-}
-
 struct CallOutcome {
     report: CallReport,
     tool_call: Option<ToolCallInfo>,
@@ -386,20 +381,164 @@ struct CallContext<'a> {
 }
 
 fn write_capture(path: &str, body: &[u8], secret: &SecretMaterial) {
-    if body.len() <= CAPTURE_LIMIT
-        && !body
+    if std::env::var("OPENBRIDGE_PROBE_CAPTURE").as_deref() == Ok("1")
+        && let Some(clean) = capture_bytes(body, secret)
+    {
+        let _ = std::fs::write(path, clean);
+    }
+}
+fn capture_bytes(body: &[u8], secret: &SecretMaterial) -> Option<Vec<u8>> {
+    if body.len() > CAPTURE_LIMIT
+        || body
             .windows(secret.expose().len())
             .any(|w| w == secret.expose().as_bytes())
     {
-        let _ = std::fs::write(path, body);
+        return None;
+    }
+    // Explicit synthetic forensic captures, not reusable wire or replay oracles.
+    fn scrub(value: &mut Value) {
+        match value {
+            Value::Object(map) => {
+                if map.get("error").is_some_and(|value| !value.is_null()) {
+                    map.clear();
+                    return;
+                }
+                let encrypted =
+                    map.get("type").and_then(Value::as_str) == Some("reasoning.encrypted");
+                map.retain(|key, _| {
+                    let key = key.to_ascii_lowercase();
+                    !matches!(
+                        key.as_str(),
+                        "encrypted_content"
+                            | "authorization"
+                            | "api_key"
+                            | "access_token"
+                            | "refresh_token"
+                    ) && !key.contains("signature")
+                        && !(encrypted && key == "data")
+                });
+                for value in map.values_mut() {
+                    scrub(value);
+                }
+            }
+            Value::Array(items) => {
+                for value in items {
+                    scrub(value);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut clean = Vec::new();
+    if let Ok(mut value) = serde_json::from_slice::<Value>(body) {
+        scrub(&mut value);
+        if let Ok(bytes) = serde_json::to_vec(&value) {
+            clean = bytes;
+        }
+    } else if let Ok(text) = std::str::from_utf8(body) {
+        for line in text.lines().filter_map(|line| line.strip_prefix("data:")) {
+            if line.trim() == "[DONE]" {
+                clean.extend_from_slice(b"data: [DONE]\n\n");
+                continue;
+            }
+            let Ok(mut value) = serde_json::from_str::<Value>(line.trim()) else {
+                return None;
+            };
+            scrub(&mut value);
+            let Ok(bytes) = serde_json::to_vec(&value) else {
+                return None;
+            };
+            clean.extend_from_slice(b"data: ");
+            clean.extend(bytes);
+            clean.extend_from_slice(b"\n\n");
+        }
+    }
+    (!clean.is_empty() && clean.len() <= CAPTURE_LIMIT).then_some(clean)
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    #[test]
+    fn explicit_capture_omits_opaque_and_refuses_credential_echo() {
+        let secret = SecretMaterial::new("synthetic-private-secret-value").unwrap();
+        assert!(capture_bytes(br#"{"error":"synthetic-private-secret-value"}"#, &secret).is_none());
+        let body = br#"{"error":null,"output":[{"type":"reasoning","encrypted_content":"opaque-one"}],"reasoning_details":[{"type":"reasoning.encrypted","data":"opaque-two"}],"thinkingSignature":"opaque-three","text":"synthetic"}"#;
+        let clean = String::from_utf8(capture_bytes(body, &secret).unwrap()).unwrap();
+        assert!(!clean.contains("opaque-"));
+        assert!(clean.contains("synthetic"));
+        assert!(capture_bytes(b"not JSON or SSE", &secret).is_none());
     }
 }
+
+#[path = "support/probe_control.rs"]
+mod probe_control;
 
 async fn run_call(
     client: &reqwest::Client,
     ctx: &CallContext<'_>,
     request_json: Value,
     round: u8,
+) -> CallOutcome {
+    let protocol = if ctx.downstream == ProtocolProfile::OpenAiChat {
+        "chat"
+    } else {
+        "responses"
+    };
+    let scenario = format!(
+        "native:{}:{}:{}:{}:{}",
+        ctx.label,
+        protocol,
+        ctx.case.name(),
+        ctx.delivery.name(),
+        round
+    );
+    let cap = request_json
+        .get("max_completion_tokens")
+        .or_else(|| request_json.get("max_output_tokens"))
+        .and_then(Value::as_u64)
+        .expect("fixed request has a cap");
+    probe_control::call("register", json!({"cases":[[ctx.label, scenario, cap]]}));
+    let id = probe_control::call(
+        "reserve",
+        json!({"model":ctx.label,"scenario":scenario,"tokens":cap}),
+    );
+    let outcome = run_call_inner(client, ctx, request_json, round, &id).await;
+    let report = &outcome.report;
+    let stage = match report.stage.as_str() {
+        "request-decode" | "admission" => "admission",
+        "prepare" => "prepare",
+        "response-head" => "response_head",
+        "transport" => "connect",
+        "intake" => "intake",
+        "terminal" => "terminal",
+        "render" => "projection",
+        "consumed" => "complete",
+        _ => "oracle",
+    };
+    let state = if report.ok {
+        "passed"
+    } else if stage == "oracle" {
+        "oracle_failed"
+    } else {
+        "failed"
+    };
+    probe_control::call(
+        "finish",
+        json!({"attempt":id,"state":state,"metrics":{
+            "upstream_status":report.http_status,"stage":stage,"content_ok":report.ok,
+            "elapsed_ms":report.latency_ms,"handed_off_bytes":report.delivered_bytes
+        }}),
+    );
+    outcome
+}
+
+async fn run_call_inner(
+    client: &reqwest::Client,
+    ctx: &CallContext<'_>,
+    request_json: Value,
+    round: u8,
+    attempt_id: &str,
 ) -> CallOutcome {
     let started = Instant::now();
     let base = CallReport {
@@ -433,7 +572,7 @@ async fn run_call(
                 report: &mut CallReport| {
         report.stage = stage.into();
         report.error_class = error_class;
-        report.error = error.map(|e| e.replace(ctx.secret.expose(), "[redacted]"));
+        report.error = error.map(|_| "private details suppressed".into());
         report.latency_ms = started.elapsed().as_millis() as u64;
     };
 
@@ -514,6 +653,7 @@ async fn run_call(
         call = call.header(name, value);
     }
     call = call.header(&upstream.auth_header.0, &upstream.auth_header.1);
+    probe_control::call("dispatched", json!({"attempt":attempt_id}));
     let mut response = match call.body(upstream.body).send().await {
         Ok(response) => response,
         Err(error) => {
@@ -727,10 +867,7 @@ async fn run_call(
         .map(|rule| format!("{rule:?}"))
         .collect();
     report.text_chars = Some(text.chars().count());
-    report.excerpt = Some(excerpt(&text));
-    report.tool_call = tool_call
-        .as_ref()
-        .map(|c| format!("{} {}", c.name, c.call_id));
+    // Payload text and issuer identifiers remain in memory, never in reports.
 
     let delivered = match ctx.delivery {
         Delivery::Json => delivery.encode_json(&attempt),
@@ -1084,6 +1221,8 @@ async fn main() {
             "glm-5.3",
         ],
     );
+    let only = Some(only.unwrap_or_else(|| "nemotron-3-super".into()));
+    probe_control::call("check", json!({"model":only.as_deref().unwrap()}));
     let protocol_only = selection("OPENBRIDGE_PROBE_PROTOCOL", &["chat", "responses"]);
     let case_only = selection("OPENBRIDGE_PROBE_CASE", &["text", "json_object", "tool"]);
     let delivery_only = selection("OPENBRIDGE_PROBE_DELIVERY", &["json", "sse"]);
@@ -1142,7 +1281,15 @@ async fn main() {
         }
     }
     let client = client_builder.build().expect("http client");
-    let out_dir = report_dir();
+    let stamp = report_dir();
+    let out_dir = format!(
+        "{}/{}",
+        std::env::var("OPENBRIDGE_PROBE_RUN").expect("validated run"),
+        std::path::Path::new(&stamp)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+    );
     std::fs::create_dir_all(&out_dir).expect("report directory");
 
     let mut reports: Vec<CallReport> = vec![];
@@ -1156,6 +1303,15 @@ async fn main() {
         {
             continue;
         }
+        if std::env::var("OPENBRIDGE_PROBE_LIST_MODELS").as_deref() != Ok("1") {
+            eligible.push(spec);
+            continue;
+        }
+        let directory_id = probe_control::call(
+            "reserve",
+            json!({"model":spec.label,"scenario":format!("native:{}:models",spec.label),"tokens":1}),
+        );
+        probe_control::call("dispatched", json!({"attempt":directory_id}));
         let definition = topology.provider(spec.provider).expect("fixed provider");
         let secret = secret_for(spec.pool);
         match model_listing(
@@ -1167,6 +1323,10 @@ async fn main() {
         .await
         {
             Ok(ids) => {
+                probe_control::call(
+                    "finish",
+                    json!({"attempt":directory_id,"state":"passed","metrics":{}}),
+                );
                 let endpoint = topology
                     .endpoint(&EndpointId::new(spec.chat_endpoint).expect("id"))
                     .expect("endpoint");
@@ -1181,7 +1341,12 @@ async fn main() {
                     eligible.push(spec);
                 }
             }
-            Err(error) => {
+            Err(_) => {
+                probe_control::call(
+                    "finish",
+                    json!({"attempt":directory_id,"state":"failed","metrics":{"failure":"http"}}),
+                );
+                let error = "private details suppressed";
                 let _ = writeln!(
                     precheck,
                     "- {} (`{}`): listing failed: {} — paid calls skipped",

@@ -29,6 +29,50 @@ pub(super) fn gateway(limits: Limits) -> Gateway {
     .unwrap()
 }
 #[tokio::test]
+async fn diagnostics_only_record_authenticated_requests_and_never_expose_headers() {
+    let path = std::env::temp_dir().join(format!(
+        "openbridge-auth-diag-{}-{}.jsonl",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let gate = gateway(Limits::default())
+        .with_probe_diagnostics(&path)
+        .unwrap();
+    for authenticated in [false, true] {
+        let mut request = HttpRequest::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header(
+                "x-openbridge-probe-id",
+                "00000000000000000000000000000001:1",
+            )
+            .header("content-type", "application/json");
+        if authenticated {
+            request = request.header("authorization", format!("Bearer {KEY}"));
+        }
+        let response = gate
+            .router()
+            .oneshot(
+                request
+                    .body(axum::body::Body::from("invalid json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), if authenticated { 400 } else { 401 });
+    }
+    gate.flush_probe_diagnostics().await;
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(text.lines().count(), 1);
+    assert!(!text.contains(KEY));
+    assert!(!text.contains("invalid json"));
+    assert!(text.contains("admission"));
+    std::fs::remove_file(path).unwrap();
+}
+#[tokio::test]
 async fn authentication_runs_before_any_body_poll() {
     let gate = gateway(Limits::default());
     let app = Router::new()

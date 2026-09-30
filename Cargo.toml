@@ -9,6 +9,7 @@ license = "MIT"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 getrandom = "0.4"
+httpdate = "1.0"
 reqwest = { version = "0.13", default-features = false, features = ["stream", "rustls"] }
 subtle = "2.6"
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"], default-features = false }

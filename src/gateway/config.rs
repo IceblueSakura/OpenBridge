@@ -77,6 +77,19 @@ pub enum StartupError {
     Environment,
 }
 impl Gateway {
+    /// Enable bounded metadata in a new private operator file, before sharing the gateway.
+    pub fn with_probe_diagnostics(mut self, path: &std::path::Path) -> Result<Self, StartupError> {
+        let state = Arc::get_mut(&mut self.state).ok_or(StartupError::Environment)?;
+        state.diagnostics =
+            Some(super::diagnostics::Sink::open(path).map_err(|_| StartupError::Environment)?);
+        Ok(self)
+    }
+    /// Best-effort bounded drain, for an owner shutting down its test listener.
+    pub async fn flush_probe_diagnostics(&self) {
+        if let Some(sink) = &self.state.diagnostics {
+            sink.flush().await;
+        }
+    }
     pub fn new(
         topology: CompiledTopology,
         entries: Vec<Entry>,
@@ -163,6 +176,7 @@ impl Gateway {
         let permits = Arc::new(Semaphore::new(limits.concurrency));
         Ok(Self {
             state: Arc::new(Runtime {
+                diagnostics: None,
                 auth,
                 entries: bound,
                 limits,

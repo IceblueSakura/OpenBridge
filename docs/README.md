@@ -16,6 +16,7 @@
 | [当前焦点](implementation-plans/current-focus.md) | 已选定行为切片的范围与验收条件；无进行中切片时保持空，不把建议变成授权 |
 | [下一步目标](implementation-plans/next-goal.md) | 推进顺序、推荐切片与进入下一阶段的门槛，不重复能力清单或完成日志 |
 | [开发指南](development.md) | 本地与固定 SDK 验证入口 |
+| [Probe 指南](probes.md) | 显式 live 计划、共享预算、SDK/pi/library 执行与原调用诊断边界 |
 | [HTTP 网关指南](http-gateway.md) / [OpenAPI](openapi.json) | 最小环境变量启动、HTTP 外层接口与实际 I/O 边界；字段准入仍归各 profile |
 | [实施边界](implementation-status/README.md) | 验证层级与历史证据解释 |
 | [主题化参考](references/README.md) | 已整合的历史结论、Responses 标准、扩展、多模态和验收；不再按来源撰写 |

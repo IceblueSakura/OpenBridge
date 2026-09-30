@@ -138,6 +138,7 @@ name = "openbridge-sdk-tests"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "httpx2" },
     { name = "openai" },
 ]
 
@@ -147,7 +148,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "openai", specifier = "==3.19.0" }]
+requires-dist = [
+    { name = "httpx2", specifier = "==2.13.1" },
+    { name = "openai", specifier = "==3.19.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pip", specifier = "==26.2.1" }]

@@ -746,6 +746,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "getrandom 0.4.3",
+ "httpdate",
  "mime",
  "reqwest",
  "serde",

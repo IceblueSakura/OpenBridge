@@ -69,6 +69,11 @@ async fn response(
 ) -> Result<Response, ApiError> {
     let entry = gate.state.entries[&(family(Profile::Chat), "deepseek-flash".into())].clone();
     let request=entry.client.decode_request(serde_json::json!({"model":"deepseek-flash","messages":[{"role":"user","content":"hello"}],"stream":stream,"stream_options":if stream {serde_json::json!({"include_usage":true,"include_obfuscation":false})}else{serde_json::Value::Null}}).to_string().as_bytes()).unwrap();
+    let mut diagnostic_headers = axum::http::HeaderMap::new();
+    diagnostic_headers.insert(
+        "x-openbridge-probe-id",
+        "00000000000000000000000000000001:1".parse().unwrap(),
+    );
     respond(
         entry,
         request,
@@ -77,8 +82,64 @@ async fn response(
         deadline,
         gate.state.shutdown.subscribe(),
         gate.state.permits.clone().acquire_owned().await.unwrap(),
+        super::Trace::new(gate.state.diagnostics.as_ref(), &diagnostic_headers),
     )
     .await
+}
+#[tokio::test]
+async fn diagnostic_status_and_final_intake_are_from_the_original_attempt() {
+    let path = std::env::temp_dir().join(format!(
+        "openbridge-body-diag-{}-{}.jsonl",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let gate = gateway(Limits::default())
+        .with_probe_diagnostics(&path)
+        .unwrap();
+    for status in [429, 503, 200] {
+        let (tx, mut source, _, _) = upstream(status, "application/json");
+        source
+            .headers_mut()
+            .insert("retry-after", "7".parse().unwrap());
+        tx.send(Ok(Bytes::from_static(b"synthetic-private-invalid-json")))
+            .await
+            .unwrap();
+        drop(tx);
+        let error = response(
+            &gate,
+            source,
+            false,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(error.status.as_u16(), if status == 429 { 429 } else { 502 });
+    }
+    gate.flush_probe_diagnostics().await;
+    let raw = std::fs::read_to_string(&path).unwrap();
+    assert!(!raw.contains("synthetic-private"));
+    let records: Vec<serde_json::Value> = raw
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(records.len(), 3);
+    for (record, status) in records.iter().zip([429, 503, 200]) {
+        assert_eq!(record["upstream_status"], status);
+        assert_eq!(record["retry_after_seconds"], 7);
+        assert_eq!(
+            record["stage"],
+            if status == 200 {
+                "terminal"
+            } else {
+                "response_head"
+            }
+        );
+    }
+    std::fs::remove_file(path).unwrap();
 }
 async fn bounded<T>(future: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(2), future)
