@@ -72,6 +72,7 @@ fn transport_markers_and_stop_diagnostics_do_not_replace_semantic_terminals() {
         .unwrap();
     assert!(client["choices"][0].get("matched_stop").is_none());
     assert!(client.get("lastOne").is_none());
+    assert_eq!(client["usage"]["prompt_tokens_details"]["text_tokens"], 0);
     let mut stream = provider.event_decoder();
     let chunk = |delta: Value, finish: Value| json!({"id":"c1","object":"chat.completion.chunk","model":"m","created":1,"lastOne":false,"choices":[{"index":0,"delta":delta,"finish_reason":finish}]});
     stream
@@ -142,7 +143,7 @@ fn documented_inactive_message_fields_do_not_admit_media_or_legacy_calls() {
     );
 }
 #[test]
-fn redundant_text_usage_views_require_exact_totals_and_are_not_replayed() {
+fn reported_text_usage_is_typed_even_when_a_view_equals_the_total() {
     let provider = adapter(Dialect::Bailian);
     let mut value = body();
     value["usage"]["prompt_tokens_details"] = json!({"cached_tokens":0,"text_tokens":4});
@@ -154,17 +155,20 @@ fn redundant_text_usage_views_require_exact_totals_and_are_not_replayed() {
     let encoded = provider
         .encode_response(&decoded, &Contract::full())
         .unwrap();
-    assert!(
-        encoded["usage"]["completion_tokens_details"]
-            .get("text_tokens")
-            .is_none()
+    assert_eq!(
+        encoded["usage"]["completion_tokens_details"]["text_tokens"],
+        2
     );
-    assert!(
+    assert_eq!(decoded.semantic.usage().unwrap().input_text_tokens, Some(4));
+    assert_eq!(
         adapter(Dialect::OpenBridge)
             .decode_response(value.to_string().as_bytes())
-            .is_err()
+            .unwrap()
+            .semantic
+            .usage(),
+        decoded.semantic.usage()
     );
-    for invalid in [json!(1), Value::Null, json!("2"), json!(-1)] {
+    for invalid in [json!(3), json!("2"), json!(-1)] {
         let mut bad = value.clone();
         bad["usage"]["completion_tokens_details"]["text_tokens"] = invalid;
         assert!(
@@ -174,7 +178,7 @@ fn redundant_text_usage_views_require_exact_totals_and_are_not_replayed() {
         );
     }
     let chunk = |delta: Value, finish: Value| json!({"id":"c1","object":"chat.completion.chunk","model":"m","created":1,"choices":[{"index":0,"delta":delta,"finish_reason":finish}]});
-    for input_count in [4, 3] {
+    for input_count in [4, 3, 0, 5] {
         let mut decoder = provider.event_decoder();
         decoder
             .push(&chunk(
@@ -186,10 +190,15 @@ fn redundant_text_usage_views_require_exact_totals_and_are_not_replayed() {
         let mut tail = json!({"id":"c1","object":"chat.completion.chunk","model":"m","created":1,"choices":[],"usage":value["usage"]});
         tail["usage"]["prompt_tokens_details"]["text_tokens"] = json!(input_count);
         let result = decoder.push(&tail);
-        if input_count == 4 {
+        if input_count <= 4 {
             result.unwrap();
             decoder.done().unwrap();
-            assert_eq!(decoder.materialize().unwrap().semantic, decoded.semantic);
+            let mut usage = decoded.semantic.usage().unwrap();
+            usage.input_text_tokens = Some(input_count);
+            assert_eq!(
+                decoder.materialize().unwrap().semantic,
+                decoded.semantic.clone().with_usage(usage).unwrap()
+            );
         } else {
             assert!(result.is_err());
             assert!(decoder.done().is_err());

@@ -198,7 +198,6 @@ pub(crate) fn decode<'a>(
         && !adaptation.rules.zero_usage_details
         && !adaptation.rules.inactive_chat_fields
         && !adaptation.rules.responses_usage_detail_view
-        && !adaptation.rules.text_usage_total_view
         && !adaptation.rules.responses_billing_view
         && !adaptation.rules.null_response_billing
         && !adaptation.rules.responses_inactive_state
@@ -209,29 +208,13 @@ pub(crate) fn decode<'a>(
     let o = value
         .as_object_mut()
         .ok_or(CodecError::Invalid("response object"))?;
-    if let Some(usage) = o.get_mut("usage").and_then(Value::as_object_mut) {
-        if profile == Profile::Responses
-            && adaptation.rules.responses_usage_detail_view
-            && let Some(view) = usage.shift_remove("prompt_tokens_details")
-            && (!view.is_object() || usage.get("input_tokens_details") != Some(&view))
-        {
-            return Err(CodecError::Invalid("duplicate usage details"));
-        }
-        if profile == Profile::Chat && adaptation.rules.text_usage_total_view {
-            for (details, total) in [
-                ("prompt_tokens_details", "prompt_tokens"),
-                ("completion_tokens_details", "completion_tokens"),
-            ] {
-                let total = usage.get(total).and_then(Value::as_u64);
-                if let Some(details) = usage.get_mut(details).and_then(Value::as_object_mut)
-                    && let Some(view) = details.shift_remove("text_tokens")
-                    && (view.as_u64().is_none() || view.as_u64() != total)
-                {
-                    // A real modality breakdown needs typed ownership; never drop it.
-                    return Err(CodecError::Unsupported("nonredundant text usage".into()));
-                }
-            }
-        }
+    if let Some(usage) = o.get_mut("usage").and_then(Value::as_object_mut)
+        && profile == Profile::Responses
+        && adaptation.rules.responses_usage_detail_view
+        && let Some(view) = usage.shift_remove("prompt_tokens_details")
+        && (!view.is_object() || usage.get("input_tokens_details") != Some(&view))
+    {
+        return Err(CodecError::Invalid("duplicate usage details"));
     }
     if profile == Profile::Responses
         && adaptation.rules.null_response_billing
@@ -326,12 +309,7 @@ pub(crate) fn decode<'a>(
         {
             for name in ["prompt_tokens_details", "completion_tokens_details"] {
                 if let Some(details) = usage.get_mut(name).and_then(Value::as_object_mut) {
-                    for name in [
-                        "audio_tokens",
-                        "image_tokens",
-                        "video_tokens",
-                        "text_tokens",
-                    ] {
+                    for name in ["audio_tokens", "image_tokens", "video_tokens"] {
                         if let Some(value) = details.shift_remove(name)
                             && value.as_u64() != Some(0)
                         {

@@ -194,8 +194,23 @@ pub(super) fn read_tool(
         dispatch,
     }))
 }
-fn reference(v: &Value) -> Result<ToolReference, CodecError> {
+fn reference(v: &Value, profile: Profile) -> Result<ToolReference, CodecError> {
     let o = object(v)?;
+    if profile == Profile::Chat {
+        fields(o, &["type", "function"])?;
+        if string(o, "type")? != "function" {
+            return Err(CodecError::Unsupported("tool reference".into()));
+        }
+        let f = object(
+            o.get("function")
+                .ok_or(CodecError::Invalid("function reference"))?,
+        )?;
+        fields(f, &["name"])?;
+        return Ok(ToolReference {
+            kind: ToolKind::Function,
+            name: text(string(f, "name")?, "tool reference", 128)?,
+        });
+    }
     fields(o, &["type", "name"])?;
     Ok(ToolReference {
         kind: match string(o, "type")? {
@@ -214,25 +229,25 @@ fn read_choice(v: &Value, profile: Profile) -> Result<ToolChoice, CodecError> {
         Some(_) => return Err(CodecError::Invalid("tool choice")),
         None => {
             let o = object(v)?;
-            if profile == Profile::Chat {
-                fields(o, &["type", "function"])?;
-                if string(o, "type")? != "function" {
-                    return Err(CodecError::Unsupported("tool choice".into()));
-                }
-                let f = object(
-                    o.get("function")
-                        .ok_or(CodecError::Invalid("function choice"))?,
-                )?;
-                fields(f, &["name"])?;
-                ToolChoice::Specific(text(string(f, "name")?, "chosen tool", 128)?)
-            } else if string(o, "type")? == "allowed_tools" {
-                fields(o, &["type", "mode", "tools"])?;
-                let required = match string(o, "mode")? {
+            if string(o, "type")? == "allowed_tools" {
+                let allowed = if profile == Profile::Chat {
+                    fields(o, &["type", "allowed_tools"])?;
+                    let allowed = object(
+                        o.get("allowed_tools")
+                            .ok_or(CodecError::Invalid("allowed tools"))?,
+                    )?;
+                    fields(allowed, &["mode", "tools"])?;
+                    allowed
+                } else {
+                    fields(o, &["type", "mode", "tools"])?;
+                    o
+                };
+                let required = match string(allowed, "mode")? {
                     "auto" => false,
                     "required" => true,
                     _ => return Err(CodecError::Invalid("allowed tools mode")),
                 };
-                let a = o
+                let a = allowed
                     .get("tools")
                     .and_then(Value::as_array)
                     .ok_or(CodecError::Invalid("allowed tools"))?;
@@ -241,10 +256,13 @@ fn read_choice(v: &Value, profile: Profile) -> Result<ToolChoice, CodecError> {
                 }
                 ToolChoice::Allowed {
                     required,
-                    tools: a.iter().map(reference).collect::<Result<_, _>>()?,
+                    tools: a
+                        .iter()
+                        .map(|v| reference(v, profile))
+                        .collect::<Result<_, _>>()?,
                 }
             } else {
-                let r = reference(v)?;
+                let r = reference(v, profile)?;
                 match r.kind {
                     ToolKind::Function => ToolChoice::Specific(r.name),
                     ToolKind::Custom => ToolChoice::Custom(r.name),
@@ -339,7 +357,20 @@ pub(super) fn write_choice(c: &ToolChoice, profile: Profile) -> Value {
         ToolChoice::Specific(n) => json!({"type":"function","name":n.as_str()}),
         ToolChoice::Custom(n) => json!({"type":"custom","name":n.as_str()}),
         ToolChoice::Allowed { required, tools } => {
-            json!({"type":"allowed_tools","mode":if *required{"required"}else{"auto"},"tools":tools.iter().map(|r|json!({"type":match r.kind{ToolKind::Function=>"function",ToolKind::Custom=>"custom"},"name":r.name.as_str()})).collect::<Vec<_>>()})
+            let refs: Vec<_> = tools.iter().map(|r| {
+                if profile == Profile::Chat {
+                    json!({"type":"function","function":{"name":r.name.as_str()}})
+                } else {
+                    json!({"type":match r.kind{ToolKind::Function=>"function",ToolKind::Custom=>"custom"},"name":r.name.as_str()})
+                }
+            }).collect();
+            let mut allowed = json!({"mode":if *required{"required"}else{"auto"},"tools":refs});
+            if profile == Profile::Chat {
+                json!({"type":"allowed_tools","allowed_tools":allowed})
+            } else {
+                allowed["type"] = json!("allowed_tools");
+                allowed
+            }
         }
     }
 }

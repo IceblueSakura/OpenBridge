@@ -380,7 +380,7 @@ impl EventDecoder {
             let terminal = match reason.as_str() {
                 Some("stop") if self.chat_calls.is_empty() => StreamTerminal::Completed,
                 Some("tool_calls") if !self.chat_calls.is_empty() => StreamTerminal::Completed,
-                Some("length") => StreamTerminal::Incomplete,
+                Some("length" | "content_filter") => StreamTerminal::Incomplete,
                 _ => return Err(CodecError::Unsupported("finish reason".into())),
             };
             let items = self.state()?.items().to_vec();
@@ -427,7 +427,11 @@ impl EventDecoder {
                 if terminal == StreamTerminal::Incomplete {
                     TerminalDetails {
                         error: None,
-                        incomplete: Some(IncompleteReason::MaxOutputTokens),
+                        incomplete: Some(if reason.as_str() == Some("content_filter") {
+                            IncompleteReason::ContentFilter
+                        } else {
+                            IncompleteReason::MaxOutputTokens
+                        }),
                     }
                 } else {
                     TerminalDetails::default()
@@ -510,10 +514,10 @@ impl EventEncoder {
             StreamEvent::Delta{item,part,fragment,..}=>{
                 let delta=match self.state()?.part(*item,*part)?.kind{PartKind::Text=>json!({"content":fragment}),PartKind::Refusal=>json!({"refusal":fragment}),PartKind::Arguments=>json!({"tool_calls":[{"index":self.call_index(*item)?,"function":{"arguments":fragment}}]}),PartKind::ReasoningText=>json!({"reasoning_content":fragment}),PartKind::Summary if self.contract.adaptation.rules.structured_chat_reasoning => json!({"reasoning_details":[{"type":"reasoning.summary","summary":fragment,"format":"openai-responses-v1","index":0}]}),_=>return Err(CodecError::Unsupported("Chat reasoning".into()))};vec![self.chunk(delta,Value::Null)]
             }
-            StreamEvent::Terminal{terminal,..}=>{
+            StreamEvent::Terminal{..}=>{
                 let response=materialize(self.state()?)?;
                 crate::lowering::generation::lower_response(&response,&self.fidelity,&self.metadata,Profile::Chat,self.contract.clone()).map_err(|_|CodecError::Unsupported("Chat terminal".into()))?;
-                let finish=match terminal{StreamTerminal::Incomplete=>"length",StreamTerminal::Completed=>if response.completion()==Some(Completion::ToolCalls){"tool_calls"}else{"stop"},_=>return Err(CodecError::Unsupported("Chat terminal".into()))};
+                let finish=super::super::terminal::chat_finish(&response)?;
                 let mut chunks=vec![self.chunk(json!({}),json!(finish))];
                 if let Some(usage)=response.usage(){
                     let mut v=if self.contract.adaptation.rules.repeated_finish_usage {

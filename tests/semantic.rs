@@ -36,5 +36,7 @@ mod text_events;
 mod text_profile;
 #[path = "semantic/tools.rs"]
 mod tools;
+#[path = "semantic/usage.rs"]
+mod usage;
 #[path = "semantic/vendor_shapes.rs"]
 mod vendor_shapes;

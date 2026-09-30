@@ -18,10 +18,17 @@ use openbridge::{
         sse::{Obfuscation, SseLimits},
     },
     semantic::{
-        task::generation::{ContentPart, Item, MAX_TEXT_BYTES, OutputConstraint, StreamEvent},
+        task::generation::{
+            ContentPart, Item, MAX_TEXT_BYTES, OutputConstraint, StreamEvent, ToolChoice, ToolKind,
+            ToolOutput,
+        },
         value::Text,
     },
 };
+
+fn usage() -> serde_json::Value {
+    serde_json::json!({"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"prompt_tokens_details":{"text_tokens":3},"completion_tokens_details":{"text_tokens":2,"reasoning_tokens":1,"accepted_prediction_tokens":1,"rejected_prediction_tokens":0}})
+}
 
 pub(super) async fn handle(
     State(state): State<Suite>,
@@ -70,9 +77,14 @@ pub(super) async fn handle(
                 .semantic
                 .items()
                 .iter()
-                .any(|(_, i)| matches!(i, Item::ToolResult(_)))
+                .any(|(_, i)| matches!(i, Item::ToolResult(r) if r.call_id.as_str()=="call-local" && matches!(&r.output,ToolOutput::Parts(parts) if parts.len()==2 && parts[0].1.as_str()=="synthetic result" && parts[1].1.as_str().is_empty())))
     {
         return failure(StatusCode::BAD_REQUEST, "Chat continuation", &state);
+    }
+    if turn == 1
+        && !matches!(request.task.semantic.tool_choice(),Some(ToolChoice::Allowed{required:true,tools}) if tools.len()==1 && tools[0].kind==ToolKind::Function && tools[0].name.as_str()=="lookup")
+    {
+        return failure(StatusCode::BAD_REQUEST, "Chat allowed functions", &state);
     }
     // The full envelope must have admitted the structured-output request as typed IR.
     if turn == 2
@@ -110,10 +122,9 @@ pub(super) async fn handle(
         );
     }
     if !request.context.streaming() {
-        let mut d = envelope::decode_response_bytes(
-            &serde_json::to_vec(&wire::response(turn as u8)).unwrap(),
-        )
-        .unwrap();
+        let mut body = wire::response(turn as u8);
+        body["usage"] = usage();
+        let mut d = envelope::decode_response_bytes(&serde_json::to_vec(&body).unwrap()).unwrap();
         if turn == 2 {
             let mut items = d.semantic.items().to_vec();
             let Item::Message(m) = &mut items[0].1 else {
@@ -149,7 +160,10 @@ pub(super) async fn handle(
     }
     let mut decoder = ChatSseDecoder::new(200, "text/event-stream", SseLimits::default()).unwrap();
     let mut bytes = vec![];
-    for value in wire::events(turn as u8) {
+    for mut value in wire::events(turn as u8) {
+        if value["usage"].is_object() {
+            value["usage"] = usage();
+        }
         bytes.extend(format!("data: {value}\n\n").bytes());
     }
     bytes.extend(b"data: [DONE]\n\n");

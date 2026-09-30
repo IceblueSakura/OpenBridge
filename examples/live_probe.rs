@@ -383,6 +383,10 @@ fn usage_value(usage: &Usage) -> Value {
         "reasoning_tokens": usage.reasoning_tokens,
         "cached_input_tokens": usage.cached_input_tokens,
         "input_cache_write_tokens": usage.input_cache_write_tokens,
+        "input_text_tokens": usage.input_text_tokens,
+        "output_text_tokens": usage.output_text_tokens,
+        "accepted_prediction_tokens": usage.accepted_prediction_tokens,
+        "rejected_prediction_tokens": usage.rejected_prediction_tokens,
     })
 }
 

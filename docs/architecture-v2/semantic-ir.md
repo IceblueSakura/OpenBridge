@@ -55,6 +55,8 @@ Message 保留 role、phase、item status、ordered content；Instruction author
 
 Schema 不是通用无序 JSON：保留定义的属性顺序、strictness、固定方言、局部引用和有界图结构；当前共享验证与默认模式见 [schema profile](schema-profile.md)。不在 pure codec 下载 `$ref` 或执行 schema 程序。声明结构验证、目标 strict 子集准入与最终输出 adherence 各有独立责任。
 
+Reported Usage 由共享 typed owner 持有实际报告的总量与细分，不建立 Provider 专属 Usage。文本、reasoning、cache、prediction 可以是重叠视图，不能相加猜测总量或可见正文长度；缺省/null 的未报告值与显式零分开。某个目标 wire 缺少细分位置时应拒绝投影，不能因此削减共享语义或用 fidelity 恢复/隐藏计数。具体字段与验证边界见 [Chat usage 合同](chat-text-profile.md#reported-token-details)。
+
 ### State 与资源意图
 
 无状态完整历史、previous response、conversation、store/background、prompt、compaction 等标准意图应有可表达的位置，不永久用 unit/null stub 代表。纯 codec 不解析远程 state，也不隐式开启存储；实际操作需要对应执行/权限 owner。

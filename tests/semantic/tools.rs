@@ -47,6 +47,140 @@ fn expected_responses_history() -> Value {
     "tool_choice":{"type":"function","name":"weather"},"parallel_tool_calls":false})
 }
 #[test]
+fn chat_tool_text_arrays_preserve_parts_and_project_only_final_ir() {
+    for parts in [
+        json!([]),
+        json!([{"type":"text","text":""}]),
+        json!([{"type":"text","text":"sunny"},{"type":"text","text":""}]),
+    ] {
+        let mut c = chat_history();
+        c["messages"][3]["content"] = parts.clone();
+        let mut r = expected_responses_history();
+        r["input"][5]["output"] = json!(
+            parts
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| json!({"type":"input_text","text":p["text"]}))
+                .collect::<Vec<_>>()
+        );
+        let mut decoded = chat::decode_generation(&c).unwrap();
+        let Item::ToolResult(result) = &decoded.semantic.items()[5].1 else {
+            panic!("result");
+        };
+        let ToolOutput::Parts(values) = &result.output else {
+            panic!("parts");
+        };
+        assert_eq!(result.call_id.as_str(), "call_a");
+        assert_eq!(values.len(), parts.as_array().unwrap().len());
+        // Tool results are request history, not assistant response output.
+        assert!(
+            GenerationResponse::new(vec![decoded.semantic.items()[5].clone()], Completion::Stop)
+                .is_err()
+        );
+        if !values.is_empty() {
+            let mut cached = r.clone();
+            cached["input"][5]["output"][0]["prompt_cache_breakpoint"] = json!({"mode":"explicit"});
+            let cached = responses::decode_generation(&cached).unwrap();
+            assert!(
+                lower_request(
+                    &cached.semantic,
+                    &cached.fidelity,
+                    Profile::Chat,
+                    Contract::full()
+                )
+                .is_err()
+            );
+        }
+        assert_eq!(request_wire(&decoded, Profile::Chat), c);
+        assert_eq!(request_wire(&decoded, Profile::Responses), r);
+        // Responses call items have no Chat carrier-message association.
+        let projected = request_wire(&responses::decode_generation(&r).unwrap(), Profile::Chat);
+        let result = projected["messages"].as_array().unwrap().last().unwrap();
+        assert_eq!(result["tool_call_id"], "call_a");
+        assert_eq!(result["content"], parts);
+        let mut items = decoded.semantic.items().to_vec();
+        let Item::ToolResult(result) = &mut items[5].1 else {
+            unreachable!()
+        };
+        result.output = ToolOutput::Parts(vec![
+            (PartId::new(900), text("replacement")),
+            (PartId::new(901), text("inserted")),
+        ]);
+        decoded.semantic = decoded.semantic.with_items(items).unwrap();
+        assert_eq!(
+            request_wire(&decoded, Profile::Chat)["messages"][3]["content"],
+            json!([{"type":"text","text":"replacement"},{"type":"text","text":"inserted"}])
+        );
+        let mut items = decoded.semantic.items().to_vec();
+        let Item::ToolResult(result) = &mut items[5].1 else {
+            unreachable!()
+        };
+        result.output = ToolOutput::Parts(vec![]);
+        decoded.semantic = decoded.semantic.with_items(items).unwrap();
+        assert_eq!(
+            request_wire(&decoded, Profile::Responses)["input"][5]["output"],
+            json!([])
+        );
+    }
+    for bad in [
+        Value::Null,
+        json!([{"type":"image_url","image_url":{"url":"https://example.test/a"}}]),
+        json!([{"type":"text","text":1}]),
+        json!([{"type":"text","text":"x","extra":true}]),
+    ] {
+        let mut c = chat_history();
+        c["messages"][3]["content"] = bad;
+        assert!(chat::decode_generation(&c).is_err());
+    }
+}
+
+#[test]
+fn chat_allowed_functions_use_their_own_shell_and_keep_selection_authoritative() {
+    for mode in ["auto", "required"] {
+        let mut c = chat_history();
+        c["tool_choice"] = json!({"type":"allowed_tools","allowed_tools":{"mode":mode,"tools":[{"type":"function","function":{"name":"weather"}}]}});
+        let mut r = expected_responses_history();
+        r["tool_choice"] = json!({"type":"allowed_tools","mode":mode,"tools":[{"type":"function","name":"weather"}]});
+        let mut d = chat::decode_generation(&c).unwrap();
+        assert_eq!(
+            d.semantic.tool_choice(),
+            Some(&ToolChoice::Allowed {
+                required: mode == "required",
+                tools: vec![ToolReference {
+                    kind: ToolKind::Function,
+                    name: text("weather")
+                }]
+            })
+        );
+        assert_eq!(request_wire(&d, Profile::Chat), c);
+        assert_eq!(request_wire(&d, Profile::Responses), r);
+        assert_eq!(
+            request_wire(&responses::decode_generation(&r).unwrap(), Profile::Chat)["tool_choice"],
+            c["tool_choice"]
+        );
+        let mut s = d.semantic.settings().clone();
+        s.tool_choice = Some(ToolChoice::None);
+        d.semantic = d.semantic.with_settings(s).unwrap();
+        assert_eq!(request_wire(&d, Profile::Chat)["tool_choice"], "none");
+        let mut s = d.semantic.settings().clone();
+        s.tool_choice = None;
+        d.semantic = d.semantic.with_settings(s).unwrap();
+        assert!(request_wire(&d, Profile::Chat).get("tool_choice").is_none());
+        for refs in [
+            json!([]),
+            json!([{"type":"function","function":{"name":"absent"}}]),
+            json!([{"type":"function","function":{"name":"weather"}},{"type":"function","function":{"name":"weather"}}]),
+            json!([{"type":"custom","name":"weather"}]),
+        ] {
+            let mut bad = c.clone();
+            bad["tool_choice"]["allowed_tools"]["tools"] = refs;
+            assert!(chat::decode_generation(&bad).is_err());
+        }
+    }
+}
+
+#[test]
 fn independent_decode_preserves_function_meaning_and_message_ownership() {
     let d = chat::decode_generation(&chat_history()).unwrap();
     assert_eq!(d.semantic.items().len(), 6);
@@ -604,6 +738,10 @@ fn usage_projects_known_totals_across_profiles_without_estimating() {
             reasoning_tokens: Some(2),
             cached_input_tokens: None,
             input_cache_write_tokens: None,
+            input_text_tokens: None,
+            output_text_tokens: None,
+            accepted_prediction_tokens: None,
+            rejected_prediction_tokens: None,
         })
     );
     let chat = lower_response(

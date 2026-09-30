@@ -75,12 +75,12 @@
         "type": "object", "required": ["model", "messages"],
         "properties": {
           "model": {"type": "string", "minLength": 1},
-          "messages": {"type": "array", "items": {"type": "object"}, "description": "User/assistant and system/developer content accepts a string or nonempty ordered plain-text part array. Tool result content remains a string. Media is not admitted."},
+          "messages": {"type": "array", "items": {"type": "object"}, "description": "User/assistant and system/developer content accepts a string or nonempty ordered plain-text part array. Tool result content accepts a string or ordered plain-text part array, including an empty array; single tool-result parts remain arrays. Media is not admitted."},
           "stream": {"type": ["boolean", "null"], "default": false},
           "max_completion_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
         },
         "additionalProperties": true,
-        "description": "Additional fields require admission by the Chat text profile and selected public contract; additionalProperties does not authorize arbitrary upstream parameters. OpenBridge's Chat extension admits scoped openai-responses-v1 reasoning_details on assistant history; preserve those actual output details for replay rather than treating them as ordinary assistant text."
+        "description": "Additional fields require admission by the Chat text profile and selected public contract; additionalProperties does not authorize arbitrary upstream parameters. Function-only tool_choice.allowed_tools uses the nested Chat shell. OpenBridge's Chat extension admits scoped openai-responses-v1 reasoning_details on assistant history; preserve those actual output details for replay rather than treating them as ordinary assistant text."
       },
       "ResponsesRequest": {
         "type": "object", "required": ["model"],
@@ -103,7 +103,7 @@
     },
     "responses": {
       "Generation": {
-        "description": "A profile-specific JSON response or incremental SSE. The public model label is retained. HTTP 200 alone does not prove successful stream closure or model output adherence; late errors abort the body without a fabricated terminal.",
+        "description": "A profile-specific JSON response or incremental SSE. The public model label is retained. Chat content_filter is an incomplete terminal distinct from length and refusal. Reported Chat text/prediction token details are retained; standard Responses projection rejects such details rather than dropping them. HTTP 200 alone does not prove successful stream closure or model output adherence; late errors abort the body without a fabricated terminal.",
         "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}},
         "content": {"application/json": {"schema": {"type": "object"}}, "text/event-stream": {"schema": {"type": "string"}}}
       },

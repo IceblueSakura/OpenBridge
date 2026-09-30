@@ -156,6 +156,65 @@ fn chat_length_has_the_same_partial_semantics_in_json_and_events() {
 }
 
 #[test]
+fn content_filter_is_incomplete_not_length_or_refusal_success() {
+    for message in [
+        json!({"role":"assistant","content":null}),
+        json!({"role":"assistant","content":"Partial"}),
+        json!({"role":"assistant","content":null,"refusal":"Cannot do that."}),
+        json!({"role":"assistant","content":null,"tool_calls":[{"id":"c","type":"function","function":{"name":"lookup","arguments":"{"}}]}),
+    ] {
+        let mut wire = chat_refusal();
+        wire["choices"][0]["message"] = message.clone();
+        wire["choices"][0]["finish_reason"] = json!("content_filter");
+        let decoded = chat::decode_response(&wire).unwrap();
+        assert_eq!(decoded.semantic.outcome(), Outcome::Incomplete);
+        assert_eq!(
+            decoded.semantic.details().incomplete,
+            Some(IncompleteReason::ContentFilter)
+        );
+        assert!(
+            decoded
+                .semantic
+                .items()
+                .iter()
+                .all(|(_, i)| i.lifecycle() == Some(ItemLifecycle::Incomplete))
+        );
+        for profile in [Profile::Chat, Profile::Responses] {
+            let target = lower_response(
+                &decoded.semantic,
+                &decoded.fidelity,
+                &decoded.metadata,
+                profile,
+                Contract::full(),
+            )
+            .unwrap();
+            if profile == Profile::Chat {
+                let encoded = chat::encode_response(&target).unwrap();
+                assert_eq!(encoded["choices"][0]["finish_reason"], "content_filter");
+                assert_eq!(encoded["choices"][0]["message"], message);
+            } else {
+                let encoded = responses::encode_response(&target).unwrap();
+                assert_eq!(encoded["status"], "incomplete");
+                assert_eq!(encoded["incomplete_details"]["reason"], "content_filter");
+                let other = responses::decode_response(&encoded).unwrap();
+                let back = lower_response(
+                    &other.semantic,
+                    &other.fidelity,
+                    &other.metadata,
+                    Profile::Chat,
+                    Contract::full(),
+                )
+                .unwrap();
+                assert_eq!(
+                    chat::encode_response(&back).unwrap()["choices"][0]["finish_reason"],
+                    "content_filter"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn partial_history_cannot_lose_item_status_on_chat() {
     let d = responses::decode_generation(
         &json!({"input":[crate::events_support::call_item("fc","c","{","incomplete")]}),

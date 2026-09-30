@@ -31,7 +31,7 @@ cargo run --locked --offline --bin openbridge
 | `POST /v1/responses` | [无状态 Responses text profile](architecture-v2/responses-text-profile.md)；JSON 或 SSE |
 
 - 所有路由先检查唯一的 `Authorization: Bearer …`，认证通过后才进行应用层 body 收集。其他认证 header 不替代该字段，重复 Authorization 拒绝。
-- Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单 part 编码规范化为字符串，多 part 保序，不准入媒体。工具结果仍为字符串。
+- Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单 part 编码规范化为字符串，多 part 保序，不准入媒体。工具结果支持字符串或有序纯文本数组，保留空数组和单/多 part，不拼接。function-only `allowed_tools` 使用 Chat 的嵌套 shell；实际目标支持仍须独立核对。
 - 请求要求 JSON Content-Type，仅 UTF-8；不接受 Content-Encoding。严格 JSON 解析拒绝重复 key。先解析 envelope 中的 public model，绑定受信 task，再进行语义 decode。
 - 每个 `(public model, client protocol)` 在启动时固定到 Route 中的一个 Endpoint；默认 bootstrap 使用相同 wire family。没有对应协议 entry 的模型返回 `model_not_found`；不从 Chat 绑定推导 Responses，也不隐式转协议。没有运行时候选重排、自动 retry/fallback 或业务 JSON 指定目标。
 - operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。响应 reported facts 不从请求复制补齐。

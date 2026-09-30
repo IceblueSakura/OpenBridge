@@ -101,6 +101,26 @@ pub(super) fn usage(
         cached_input_tokens: detail(usage, input_details, "cached_tokens")?,
         input_cache_write_tokens: detail(usage, input_details, "cache_write_tokens")?,
         reasoning_tokens: detail(usage, output_details, "reasoning_tokens")?,
+        input_text_tokens: if profile == Profile::Chat {
+            detail(usage, input_details, "text_tokens")?
+        } else {
+            None
+        },
+        output_text_tokens: if profile == Profile::Chat {
+            detail(usage, output_details, "text_tokens")?
+        } else {
+            None
+        },
+        accepted_prediction_tokens: if profile == Profile::Chat {
+            detail(usage, output_details, "accepted_prediction_tokens")?
+        } else {
+            None
+        },
+        rejected_prediction_tokens: if profile == Profile::Chat {
+            detail(usage, output_details, "rejected_prediction_tokens")?
+        } else {
+            None
+        },
     };
     // DeepSeek Chat reports `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`
     // as aliases of the standard details. Normalize the hit count into
@@ -146,11 +166,21 @@ fn detail(
         None | Some(Value::Null) => Ok(None),
         Some(value) => {
             let details = object(value)?;
-            if matches!(key, "input_tokens_details" | "prompt_tokens_details") {
-                fields(details, &["cached_tokens", "cache_write_tokens"])?;
-            } else {
-                fields(details, &[field])?;
-            }
+            // Closed, protocol-specific schemas: new Chat facts must never be
+            // smuggled into the standard Responses detail objects.
+            let allowed: &[&str] = match key {
+                "prompt_tokens_details" => &["cached_tokens", "cache_write_tokens", "text_tokens"],
+                "completion_tokens_details" => &[
+                    "reasoning_tokens",
+                    "text_tokens",
+                    "accepted_prediction_tokens",
+                    "rejected_prediction_tokens",
+                ],
+                "input_tokens_details" => &["cached_tokens", "cache_write_tokens"],
+                "output_tokens_details" => &["reasoning_tokens"],
+                _ => unreachable!("fixed usage detail schema"),
+            };
+            fields(details, allowed)?;
             match details.get(field) {
                 None | Some(Value::Null) => Ok(None),
                 Some(value) => Ok(Some(
@@ -200,6 +230,34 @@ pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
         };
         object.insert(key.into(), json!({"reasoning_tokens": reasoning}));
     }
+    if profile == Profile::Chat {
+        for (details, name, count) in [
+            (
+                "prompt_tokens_details",
+                "text_tokens",
+                usage.input_text_tokens,
+            ),
+            (
+                "completion_tokens_details",
+                "text_tokens",
+                usage.output_text_tokens,
+            ),
+            (
+                "completion_tokens_details",
+                "accepted_prediction_tokens",
+                usage.accepted_prediction_tokens,
+            ),
+            (
+                "completion_tokens_details",
+                "rejected_prediction_tokens",
+                usage.rejected_prediction_tokens,
+            ),
+        ] {
+            if let Some(count) = count {
+                object.entry(details).or_insert_with(|| json!({}))[name] = json!(count);
+            }
+        }
+    }
     value
 }
 pub fn decode_chat(v: &Value) -> Result<DecodedResponse, CodecError> {
@@ -244,7 +302,7 @@ pub(crate) fn decode_chat_with(
     let outcome = match string(c, "finish_reason")? {
         "stop" => Outcome::Completed(Completion::Stop),
         "tool_calls" => Outcome::Completed(Completion::ToolCalls),
-        "length" => Outcome::Incomplete,
+        "length" | "content_filter" => Outcome::Incomplete,
         _ => {
             return Err(CodecError::Unsupported("finish reason".into()));
         }
@@ -272,7 +330,11 @@ pub(crate) fn decode_chat_with(
         if outcome == Outcome::Incomplete {
             TerminalDetails {
                 error: None,
-                incomplete: Some(IncompleteReason::MaxOutputTokens),
+                incomplete: Some(if c["finish_reason"] == "content_filter" {
+                    IncompleteReason::ContentFilter
+                } else {
+                    IncompleteReason::MaxOutputTokens
+                }),
             }
         } else {
             TerminalDetails::default()
@@ -376,14 +438,7 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
     if target.profile != Profile::Chat {
         return Err(CodecError::ProfileMismatch);
     }
-    let finish = match target.semantic.outcome() {
-        Outcome::Completed(Completion::Stop) => "stop",
-        Outcome::Completed(Completion::ToolCalls) => "tool_calls",
-        Outcome::Incomplete => "length",
-        Outcome::Failed | Outcome::Cancelled => {
-            return Err(CodecError::Unsupported("failed terminal".into()));
-        }
-    };
+    let finish = chat_finish(target.semantic)?;
     let mut messages = chat::encode_items_with(
         target.semantic.items(),
         target.fidelity,

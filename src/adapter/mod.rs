@@ -98,7 +98,6 @@ impl Dialect {
                     readable_reasoning: true,
                     legacy_max_tokens: true,
                     inactive_chat_fields: true,
-                    text_usage_total_view: true,
                     response_extras: true,
                     responses_billing_view: true,
                     null_response_billing: true,

@@ -186,11 +186,37 @@ pub(super) fn decode_message(
             if m.contains_key("tool_calls") {
                 return Err(CodecError::Invalid("tool result"));
             }
+            // Tool results own a string or an ordered text array, including an
+            // explicit empty array. Never concatenate parts or parse them as arguments.
+            let output = match m.get("content") {
+                Some(Value::String(_)) => raw_string(m, "content")?.into(),
+                Some(v @ Value::Array(parts)) => {
+                    let texts = if parts.is_empty() {
+                        vec![]
+                    } else {
+                        request_text_parts(v)?
+                    };
+                    let mut parts = Vec::new();
+                    for value in texts {
+                        parts.push((
+                            b.part_id()?,
+                            crate::semantic::value::Text::allowing_empty(
+                                value,
+                                "tool output",
+                                MAX_TEXT_BYTES,
+                            )
+                            .map_err(|_| CodecError::Limit)?,
+                        ));
+                    }
+                    ToolOutput::Parts(parts)
+                }
+                _ => return Err(CodecError::Invalid("tool content")),
+            };
             b.items.push((
                 id,
                 Item::ToolResult(ToolResult {
                     call_id: text(string(m, "tool_call_id")?, "call_id", 256)?,
-                    output: raw_string(m, "content")?.into(),
+                    output,
                     status: None,
                     context: CallContext::default(),
                 }),
@@ -448,7 +474,7 @@ pub(super) fn encode_items_with(
             Item::ToolResult(r) => {
                 standalone_calls = false;
                 messages.push(
-                    json!({"role":"tool","tool_call_id":r.call_id.as_str(),"content":match &r.output { ToolOutput::Text(s)=>json!(s), ToolOutput::Parts(_)=>unreachable!("lowering rejects Chat tool result parts") }}),
+                    json!({"role":"tool","tool_call_id":r.call_id.as_str(),"content":match &r.output { ToolOutput::Text(s)=>json!(s), ToolOutput::Parts(parts)=>json!(parts.iter().map(|(_,t)|json!({"type":"text","text":t.as_str()})).collect::<Vec<_>>()) }}),
                 );
             }
         }

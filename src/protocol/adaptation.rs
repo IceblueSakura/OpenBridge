@@ -49,11 +49,6 @@ pub struct WireRules {
     pub zero_usage_details: bool,
     /// Validate an exact duplicate Chat-named input detail view on Responses.
     pub responses_usage_detail_view: bool,
-    /// Text-only profile: text counts must equal the corresponding total.
-    /// Output text includes reasoning; do not add reasoning again. Non-equivalent
-    /// modality breakdowns require typed ownership instead of silently dropping.
-    /// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>.
-    pub text_usage_total_view: bool,
     /// Only an explicit null billing placeholder is inactive. Real billing needs
     /// its own owner; this does not admit or discard vendor usage detail views.
     pub null_response_billing: bool,

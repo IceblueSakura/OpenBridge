@@ -59,6 +59,16 @@ pub(super) fn decode_details(o: &Map<String, Value>) -> Result<TerminalDetails, 
         .transpose()?;
     Ok(TerminalDetails { error, incomplete })
 }
+/// Chat has two distinct non-success finish reasons; neither is a successful stop.
+pub(super) fn chat_finish(response: &GenerationResponse) -> Result<&'static str, CodecError> {
+    match (response.outcome(), response.details().incomplete.as_ref()) {
+        (Outcome::Completed(Completion::Stop), _) => Ok("stop"),
+        (Outcome::Completed(Completion::ToolCalls), _) => Ok("tool_calls"),
+        (Outcome::Incomplete, Some(IncompleteReason::MaxOutputTokens)) => Ok("length"),
+        (Outcome::Incomplete, Some(IncompleteReason::ContentFilter)) => Ok("content_filter"),
+        _ => Err(CodecError::Unsupported("Chat terminal".into())),
+    }
+}
 pub(super) fn encode_error(error: Option<&ResponseError>) -> Value {
     error
         .map(|e| {

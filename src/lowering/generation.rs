@@ -203,10 +203,8 @@ pub fn lower_request<'a>(
         }
     }
     if profile == Profile::Chat
-        && matches!(
-            r.tool_choice(),
-            Some(ToolChoice::Custom(_) | ToolChoice::Allowed { .. })
-        )
+        && (matches!(r.tool_choice(), Some(ToolChoice::Custom(_)))
+            || matches!(r.tool_choice(), Some(ToolChoice::Allowed { tools, .. }) if tools.iter().any(|r| r.kind != ToolKind::Function)))
     {
         return Err(RepresentationError::Tools);
     }
@@ -263,6 +261,25 @@ pub fn require_reported_facts(
     }
 }
 
+/// The fixed Responses usage schema has no text/prediction-detail positions.
+/// Even a reported zero is a fact; never silently omit it or invent an extension.
+pub(super) fn check_usage(usage: Usage, profile: Profile) -> Result<(), RepresentationError> {
+    usage.validate()?;
+    if profile == Profile::Responses
+        && [
+            usage.input_text_tokens,
+            usage.output_text_tokens,
+            usage.accepted_prediction_tokens,
+            usage.rejected_prediction_tokens,
+        ]
+        .iter()
+        .any(Option::is_some)
+    {
+        return Err(RepresentationError::UsageDetails);
+    }
+    Ok(())
+}
+
 pub fn lower_response<'a>(
     r: &'a GenerationResponse,
     fidelity: &'a FidelityRecords,
@@ -271,6 +288,9 @@ pub fn lower_response<'a>(
     c: GenerationRepresentationContract,
 ) -> Result<ResponseRepresentation<'a>, RepresentationError> {
     require_reported_facts(r, metadata, &c)?;
+    if let Some(usage) = r.usage() {
+        check_usage(usage, profile)?;
+    }
     if profile == Profile::Chat
         && !c.adaptation.rules.readable_reasoning
         && r.items()
@@ -335,12 +355,17 @@ pub fn lower_response<'a>(
     if profile == Profile::Chat
         && (matches!(r.outcome(), Outcome::Failed | Outcome::Cancelled)
             || r.outcome() == Outcome::Incomplete
-                && r.details().incomplete != Some(IncompleteReason::MaxOutputTokens)
+                && !matches!(
+                    r.details().incomplete,
+                    Some(IncompleteReason::MaxOutputTokens | IncompleteReason::ContentFilter)
+                )
             || r.details().error.is_some()
-            || r.details()
-                .incomplete
-                .as_ref()
-                .is_some_and(|reason| !matches!(reason, IncompleteReason::MaxOutputTokens)))
+            || r.details().incomplete.as_ref().is_some_and(|reason| {
+                !matches!(
+                    reason,
+                    IncompleteReason::MaxOutputTokens | IncompleteReason::ContentFilter
+                )
+            }))
     {
         return Err(RepresentationError::Terminal);
     }
@@ -470,7 +495,7 @@ fn text_items(
                     return Err(RepresentationError::MessageGrouping);
                 }
                 Item::ToolResult(r)
-                    if !matches!(r.output, ToolOutput::Text(_))
+                    if (!request && matches!(r.output, ToolOutput::Parts(_)))
                         || r.status.is_some_and(|s| s != ItemLifecycle::Completed) =>
                 {
                     return Err(RepresentationError::Tools);
@@ -561,6 +586,8 @@ pub enum RepresentationError {
     Semantic(#[from] GenerationError),
     #[error(transparent)]
     Event(#[from] EventError),
+    #[error("target cannot represent reported usage details")]
+    UsageDetails,
     #[error("target requires complete reported facts")]
     ReportedFacts,
     #[error("target cannot represent text metadata")]

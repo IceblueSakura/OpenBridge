@@ -9,6 +9,7 @@ pub fn check_event(
     contract: &GenerationRepresentationContract,
 ) -> Result<(), RepresentationError> {
     match event {
+        StreamEvent::Usage(usage) => super::generation::check_usage(*usage, profile)?,
         StreamEvent::ItemStarted { kind, replay, .. } => {
             match kind {
                 ItemKind::ConfigurationUpdate { .. }
@@ -115,15 +116,20 @@ pub fn check_event(
         StreamEvent::Terminal { terminal, details }
             if profile == Profile::Chat
                 && (*terminal == StreamTerminal::Incomplete
-                    && details.incomplete != Some(IncompleteReason::MaxOutputTokens)
+                    && !matches!(
+                        details.incomplete,
+                        Some(IncompleteReason::MaxOutputTokens | IncompleteReason::ContentFilter)
+                    )
                     || matches!(
                         terminal,
                         StreamTerminal::Failed | StreamTerminal::Cancelled | StreamTerminal::Error
                     )
-                    || details
-                        .incomplete
-                        .as_ref()
-                        .is_some_and(|r| !matches!(r, IncompleteReason::MaxOutputTokens))) =>
+                    || details.incomplete.as_ref().is_some_and(|r| {
+                        !matches!(
+                            r,
+                            IncompleteReason::MaxOutputTokens | IncompleteReason::ContentFilter
+                        )
+                    })) =>
         {
             return Err(RepresentationError::Terminal);
         }

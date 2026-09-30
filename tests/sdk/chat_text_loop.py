@@ -15,6 +15,7 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
     client = client_for(base_url)
     history = [{"role": "user", "content": "hello 🧪"}]
     tools = [{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"], "additionalProperties": False}, "strict": True}}]
+    allowed = {"type": "allowed_tools", "allowed_tools": {"mode": "required", "tools": [{"type": "function", "function": {"name": "lookup"}}]}}
     counts = []
     try:
         for turn in (1, 2, 3):
@@ -28,7 +29,7 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                     count = 0
                     with client.chat.completions.stream(
                             model="fixture-model", messages=history, tools=tools,
-                            tool_choice="auto" if turn == 1 else "none", n=1, **extra,
+                            tool_choice=allowed if turn == 1 else "none", n=1, **extra,
                             stream_options={"include_usage": True, "include_obfuscation": False}) as events:
                         for event in events:
                             if event.type != "chunk":
@@ -59,7 +60,7 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                 else:
                     result = client.chat.completions.parse(
                         model="fixture-model", messages=history, tools=tools,
-                        tool_choice="auto" if turn == 1 else "none", n=1, **extra)
+                        tool_choice=allowed if turn == 1 else "none", n=1, **extra)
                     assert len(result.choices) == 1
                     choice = result.choices[0]
                     finish, usage = choice.finish_reason, result.usage
@@ -97,6 +98,10 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                     finish, usage = choice.finish_reason, result.usage
                     message = choice.message.model_dump(exclude_none=True)
             assert usage is not None and usage.total_tokens == 5
+            assert usage.prompt_tokens_details.text_tokens == 3
+            assert usage.completion_tokens_details.text_tokens == 2
+            assert usage.completion_tokens_details.accepted_prediction_tokens == 1
+            assert usage.completion_tokens_details.rejected_prediction_tokens == 0
             if turn == 1:
                 assert finish == "tool_calls"
                 call = message["tool_calls"][0]
@@ -104,7 +109,7 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                 assert call["function"]["name"] == "lookup"
                 assert call["function"]["arguments"] == '{"n":1}'
                 assert call["function"]["parsed_arguments"] == {"n": 1}, "dump must carry the derived view"
-                history.extend([message, {"role": "tool", "tool_call_id": "call-local", "content": "synthetic result"}])
+                history.extend([message, {"role": "tool", "tool_call_id": "call-local", "content": [{"type": "text", "text": "synthetic result"}, {"type": "text", "text": ""}]}])
             elif turn == 2:
                 assert finish == "stop" and message["content"] == '{"answer":"new 🧪"}'
                 assert json.loads(message["content"]) == {"answer": "new 🧪"}

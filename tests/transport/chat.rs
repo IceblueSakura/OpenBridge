@@ -175,6 +175,58 @@ fn chat_refusal_empty_and_length_have_independent_static_event_meaning() {
 }
 
 #[test]
+fn content_filter_stream_keeps_partial_output_usage_and_requires_done() {
+    let mut values = wire::events(2);
+    values[3]["choices"][0]["finish_reason"] = json!("content_filter");
+    let mut d = decoder();
+    let mut events = vec![];
+    for v in &values {
+        events.extend(consume(&mut d, &frame(v), 1));
+    }
+    assert!(d.materialize().is_err());
+    events.extend(consume(&mut d, b"data: [DONE]\n\n", 1));
+    d.finish().unwrap();
+    let r = d.materialize().unwrap();
+    assert_eq!(r.semantic.outcome(), Outcome::Incomplete);
+    assert_eq!(
+        r.semantic.details().incomplete,
+        Some(IncompleteReason::ContentFilter)
+    );
+    assert_eq!(r.semantic.usage().unwrap().total_tokens, 5);
+    let mut static_wire = wire::response(2);
+    static_wire["choices"][0]["finish_reason"] = json!("content_filter");
+    assert_eq!(
+        r.semantic,
+        envelope::decode_response(&static_wire).unwrap().semantic
+    );
+    let mut encoder = ChatSseEncoder::new(
+        r.metadata.clone(),
+        Contract::full(),
+        SseLimits::default(),
+        options(true),
+        Obfuscation::Disabled,
+    )
+    .unwrap();
+    let mut encoded = vec![];
+    for event in events {
+        for frame in encoder.encode(&event, &r.fidelity).unwrap() {
+            encoded.extend(frame);
+        }
+    }
+    encoder.finish().unwrap();
+    let text = std::str::from_utf8(&encoded).unwrap();
+    assert!(text.contains("\"finish_reason\":\"content_filter\""));
+    assert!(!text.contains("\"finish_reason\":\"length\""));
+    assert_eq!(text.matches("data: [DONE]").count(), 1);
+    let mut missing = decoder();
+    for v in &values {
+        consume(&mut missing, &frame(v), 4096);
+    }
+    assert!(missing.finish().is_err());
+    assert!(missing.consume(b"data: [DONE]\n\n").is_err());
+}
+
+#[test]
 fn malformed_late_or_unfinished_chat_streams_cannot_recover() {
     for bad in [
         b"data: [DONE]\n\n".to_vec(),

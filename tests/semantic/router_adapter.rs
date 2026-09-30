@@ -118,6 +118,10 @@ fn router_facts_are_scoped_and_reasoning_and_usage_are_typed() {
             cached_input_tokens: None,
             input_cache_write_tokens: None,
             reasoning_tokens: None,
+            input_text_tokens: None,
+            output_text_tokens: None,
+            accepted_prediction_tokens: None,
+            rejected_prediction_tokens: None,
         })
         .unwrap();
     let out = source.encode_response(&decoded, &Contract::full()).unwrap();

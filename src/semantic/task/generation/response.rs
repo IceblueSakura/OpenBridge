@@ -78,6 +78,14 @@ pub struct Usage {
     pub reasoning_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
     pub input_cache_write_tokens: Option<u64>,
+    /// Reported text counts may overlap reasoning/cache/prediction accounting.
+    /// Absence is unknown, not zero; no modality breakdown is inferred.
+    pub input_text_tokens: Option<u64>,
+    pub output_text_tokens: Option<u64>,
+    /// Accepted and rejected draft tokens are disjoint subsets of output usage.
+    /// Rejected tokens still count toward output billing and limits.
+    pub accepted_prediction_tokens: Option<u64>,
+    pub rejected_prediction_tokens: Option<u64>,
 }
 impl Usage {
     pub fn validate(self) -> Result<(), GenerationError> {
@@ -91,6 +99,19 @@ impl Usage {
             || self
                 .input_cache_write_tokens
                 .is_some_and(|n| n > self.input_tokens)
+            || self
+                .input_text_tokens
+                .is_some_and(|n| n > self.input_tokens)
+            || self
+                .output_text_tokens
+                .is_some_and(|n| n > self.output_tokens)
+            || self
+                .accepted_prediction_tokens
+                .is_some_and(|n| n > self.output_tokens)
+            || self
+                .rejected_prediction_tokens
+                .is_some_and(|n| n > self.output_tokens)
+            || matches!((self.accepted_prediction_tokens, self.rejected_prediction_tokens), (Some(a),Some(b)) if a.checked_add(b).is_none_or(|n|n>self.output_tokens))
         {
             return Err(GenerationError::InvalidResponse);
         }
