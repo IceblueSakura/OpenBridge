@@ -3,7 +3,7 @@ use super::*;
 use serde_json::json;
 impl EventDecoder {
     pub(super) fn chat(&mut self, o: &Map<String, Value>) -> Result<Vec<StreamEvent>, CodecError> {
-        event_fields(
+        fields(
             o,
             &[
                 "id",
@@ -80,11 +80,10 @@ impl EventDecoder {
         {
             return Err(CodecError::Invalid("early usage"));
         }
-        if choice.get("index").and_then(Value::as_u64) != Some(0)
-            || choice.get("logprobs").is_some_and(|v| !v.is_null())
-        {
+        if choice.get("index").and_then(Value::as_u64) != Some(0) {
             return Err(CodecError::Unsupported("candidate".into()));
         }
+        let probabilities = super::super::chat_logprobs::read(choice.get("logprobs"))?;
         let delta = object(choice.get("delta").ok_or(CodecError::Invalid("delta"))?)?;
         fields(
             delta,
@@ -270,6 +269,75 @@ impl EventDecoder {
                 )?;
             }
         }
+        for (kind, probs) in probabilities {
+            let key = if kind == PartKind::Text {
+                "content"
+            } else {
+                "refusal"
+            };
+            let existing = self.chat_owner.and_then(|item| {
+                self.state()
+                    .ok()?
+                    .item(item)
+                    .ok()?
+                    .parts
+                    .first()
+                    .map(|p| (item, p.id, p.kind))
+            });
+            let (item, part) = if let Some((item, part, old_kind)) = existing {
+                if kind != old_kind {
+                    return Err(CodecError::Invalid("probability owner"));
+                }
+                (item, part)
+            } else {
+                if delta.get(key).and_then(Value::as_str).is_none()
+                    && self.chat_pending_part != Some(kind)
+                {
+                    return Err(CodecError::Invalid("probability owner"));
+                }
+                let item = if let Some(item) = self.chat_owner {
+                    item
+                } else {
+                    let item = self.allocate_item()?;
+                    self.emit(
+                        StreamEvent::ItemStarted {
+                            item,
+                            kind: ItemKind::Message { phase: None },
+                            replay: None,
+                        },
+                        &mut out,
+                    )?;
+                    self.chat_owner = Some(item);
+                    item
+                };
+                let part = self.allocate_part()?;
+                self.emit(StreamEvent::PartStarted { item, part, kind }, &mut out)?;
+                self.chat_pending_part = None;
+                (item, part)
+            };
+            if probs.is_empty() {
+                if self.state()?.part(item, part)?.logprobs.is_absent() {
+                    self.emit(
+                        StreamEvent::LogprobsSnapshot {
+                            item,
+                            part,
+                            logprobs: probs,
+                        },
+                        &mut out,
+                    )?;
+                }
+            } else {
+                self.emit(
+                    StreamEvent::Delta {
+                        item,
+                        part,
+                        fragment: String::new(),
+                        logprobs: probs,
+                    },
+                    &mut out,
+                )?;
+            }
+        }
         if let Some(calls) = delta.get("tool_calls").filter(|v| !v.is_null()) {
             for call in calls.as_array().ok_or(CodecError::Invalid("tool calls"))? {
                 let call = object(call)?;
@@ -280,10 +348,11 @@ impl EventDecoder {
                     Some(Value::String(kind)) if kind == "function" => {}
                     _ => return Err(CodecError::Unsupported("tool kind".into())),
                 }
-                let f = object(
-                    call.get("function")
-                        .ok_or(CodecError::Invalid("function"))?,
-                )?;
+                let empty = Map::new();
+                let f = match call.get("function") {
+                    None | Some(Value::Null) => &empty,
+                    Some(value) => object(value)?,
+                };
                 fields(f, &["name", "arguments"])?;
                 let item = if n == self.chat_calls.len() {
                     let item = self.allocate_item()?;
@@ -331,7 +400,7 @@ impl EventDecoder {
                 };
                 same_identity(call.get("id"), call_id.as_str())?;
                 same_identity(f.get("name"), name.as_str())?;
-                if let Some(v) = f.get("arguments") {
+                if let Some(v) = f.get("arguments").filter(|v| !v.is_null()) {
                     let fragment = v.as_str().ok_or(CodecError::Invalid("arguments"))?;
                     let part = self.state()?.item(item)?.parts[0].id;
                     self.emit(
@@ -498,8 +567,52 @@ impl EventEncoder {
             .position(|i| i.id == item)
             .ok_or(CodecError::Invalid("call index"))
     }
-    pub(super) fn chat(&self, event: &StreamEvent) -> Result<Vec<Value>, CodecError> {
-        Ok(match event {
+    /// Compute before reduction: aggregate snapshots must not replay emitted probabilities.
+    pub(super) fn chat_probabilities(
+        &self,
+        event: &StreamEvent,
+    ) -> Result<Option<Value>, CodecError> {
+        let (item, part, probs) = match event {
+            StreamEvent::Delta {
+                item,
+                part,
+                logprobs,
+                ..
+            } if !logprobs.is_empty() => (
+                *item,
+                *part,
+                crate::semantic::value::Presence::Value(logprobs.clone()),
+            ),
+            StreamEvent::LogprobsSnapshot {
+                item,
+                part,
+                logprobs,
+            } => (
+                *item,
+                *part,
+                crate::semantic::value::Presence::Value(logprobs.clone()),
+            ),
+            StreamEvent::TextMetadata {
+                item,
+                part,
+                logprobs,
+                ..
+            } => (*item, *part, logprobs.clone()),
+            _ => return Ok(None),
+        };
+        let p = self.state()?.part(item, part)?;
+        if !matches!(event, StreamEvent::Delta { .. }) && (probs.is_absent() || p.logprobs == probs)
+        {
+            return Ok(None);
+        }
+        super::super::chat_logprobs::carrier(p.kind, &probs)
+    }
+    pub(super) fn chat(
+        &self,
+        event: &StreamEvent,
+        probabilities: Option<Value>,
+    ) -> Result<Vec<Value>, CodecError> {
+        let mut chunks = match event {
             StreamEvent::Started=>vec![self.chunk(json!({"role":"assistant"}),Value::Null)],
             StreamEvent::ItemStarted{item,kind:ItemKind::ToolCall{call_id,name,..},..}=>vec![self.chunk(json!({"tool_calls":[{"index":self.call_index(*item)?,"id":call_id.as_str(),"type":"function","function":{"name":name.as_str(),"arguments":""}}]}),Value::Null)],
             StreamEvent::PartStarted{kind:PartKind::Text,..}=>vec![self.chunk(json!({"content":""}),Value::Null)],
@@ -531,6 +644,13 @@ impl EventEncoder {
                 chunks
             }
             _=>vec![],
-        })
+        };
+        if let Some(probabilities) = probabilities {
+            if chunks.is_empty() {
+                chunks.push(self.chunk(json!({}), Value::Null));
+            }
+            chunks[0]["choices"][0]["logprobs"] = probabilities;
+        }
+        Ok(chunks)
     }
 }

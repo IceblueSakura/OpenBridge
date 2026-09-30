@@ -101,6 +101,9 @@ pub(super) fn decode_static(
     m: &Map<String, Value>,
     a: &Adaptation,
 ) -> Result<Map<String, Value>, CodecError> {
+    if m.contains_key("reasoning_details") && string(m, "role")? != "assistant" {
+        return Err(CodecError::Invalid("reasoning owner"));
+    }
     let mut clean = m.clone();
     if let Some(details) = parse(m, a, None)? {
         if string(m, "role")? != "assistant" {

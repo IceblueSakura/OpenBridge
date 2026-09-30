@@ -12,6 +12,14 @@ pub fn check_event(
         StreamEvent::Usage(usage) => super::generation::check_usage(*usage, profile)?,
         StreamEvent::ItemStarted { kind, replay, .. } => {
             match kind {
+                ItemKind::Message { phase: Some(_) } if profile == Profile::Chat => {
+                    return Err(RepresentationError::UnmigratedSemantic);
+                }
+                ItemKind::ToolCall { context, .. }
+                    if profile == Profile::Chat && !context.is_direct() =>
+                {
+                    return Err(RepresentationError::Tools);
+                }
                 ItemKind::ConfigurationUpdate { .. }
                     if profile != Profile::Responses || !contract.reasoning =>
                 {
@@ -92,19 +100,55 @@ pub fn check_event(
         StreamEvent::Queued if profile != Profile::Responses => {
             return Err(RepresentationError::Lifecycle);
         }
-        StreamEvent::Delta { logprobs, .. } | StreamEvent::LogprobsSnapshot { logprobs, .. }
-            if !logprobs.is_empty() && (profile == Profile::Chat || !contract.logprobs) =>
-        {
-            return Err(RepresentationError::TextMetadata);
-        }
-        StreamEvent::TextMetadata {
-            annotations,
+        StreamEvent::Delta {
+            item,
+            part,
             logprobs,
             ..
-        } if (!annotations.is_empty() || !logprobs.is_absent())
-            && (profile == Profile::Chat || !contract.text_metadata) =>
-        {
-            return Err(RepresentationError::TextMetadata);
+        } if !logprobs.is_empty() => {
+            probability_target(state, *item, *part, logprobs, profile, contract)?;
+        }
+        StreamEvent::LogprobsSnapshot {
+            item,
+            part,
+            logprobs,
+        } => {
+            probability_target(state, *item, *part, logprobs, profile, contract)?;
+            if profile == Profile::Chat {
+                let old = &state.part(*item, *part)?.logprobs;
+                if let Some(old) = old.value()
+                    && old != logprobs
+                {
+                    return Err(RepresentationError::TextMetadata);
+                }
+            }
+        }
+        StreamEvent::TextMetadata {
+            item,
+            part,
+            annotations,
+            logprobs,
+        } => {
+            if !annotations.is_empty() && (profile == Profile::Chat || !contract.text_metadata) {
+                return Err(RepresentationError::TextMetadata);
+            }
+            if !logprobs.is_absent() {
+                probability_target(
+                    state,
+                    *item,
+                    *part,
+                    logprobs.value().map(Vec::as_slice).unwrap_or_default(),
+                    profile,
+                    contract,
+                )?;
+            }
+            if profile == Profile::Chat
+                && let Some(old) = state.part(*item, *part)?.logprobs.value()
+                && logprobs.value() != Some(old)
+            {
+                // A final snapshot cannot retract or rewrite facts already emitted to Chat.
+                return Err(RepresentationError::TextMetadata);
+            }
         }
         StreamEvent::PartStarted { item, .. }
             if profile == Profile::Chat
@@ -134,6 +178,26 @@ pub fn check_event(
             return Err(RepresentationError::Terminal);
         }
         _ => {}
+    }
+    Ok(())
+}
+fn probability_target(
+    state: &StreamState,
+    item: ItemId,
+    part: PartId,
+    logprobs: &[Logprob],
+    profile: Profile,
+    contract: &GenerationRepresentationContract,
+) -> Result<(), RepresentationError> {
+    if !contract.logprobs
+        || !contract.text_metadata
+        || profile == Profile::Responses && state.part(item, part)?.kind == PartKind::Refusal
+    {
+        return Err(RepresentationError::TextMetadata);
+    }
+    if profile == Profile::Chat {
+        crate::protocol::openai::chat_logprobs::validate(logprobs)
+            .map_err(|_| RepresentationError::TextMetadata)?;
     }
     Ok(())
 }

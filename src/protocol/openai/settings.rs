@@ -51,10 +51,12 @@ pub(super) fn read(
                 .ok_or(CodecError::Invalid("top_logprobs"))
         })
         .transpose()?;
-    s.controls.logprobs = o
-        .get("include")
+    if o.get("include")
         .and_then(Value::as_array)
-        .is_some_and(|a| a.iter().any(|v| v == "message.output_text.logprobs"));
+        .is_some_and(|a| a.iter().any(|v| v == "message.output_text.logprobs"))
+    {
+        s.controls.logprobs = crate::semantic::value::Presence::Value(true);
+    }
     s.controls.truncation = o
         .get("truncation")
         .filter(|v| !v.is_null())
@@ -183,7 +185,7 @@ pub(super) fn write(s: &GenerationSettings, o: &mut Map<String, Value>) {
     }
     function_tools::write_settings(s, Profile::Responses, o);
     reasoning::write_request(&s.reasoning, o, Profile::Responses);
-    if s.controls.logprobs {
+    if s.controls.logprobs == crate::semantic::value::Presence::Value(true) {
         let a = o.entry("include").or_insert_with(|| json!([]));
         a.as_array_mut()
             .expect("typed include")

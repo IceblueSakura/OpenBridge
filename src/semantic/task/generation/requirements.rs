@@ -32,7 +32,7 @@ impl GenerationRequirements {
             instruction_count: usize::from(r.instructions().value().is_some()),
             custom_tools: r.tools().iter().any(|t|matches!(t,super::ToolDefinition::Custom(_))),
             top_p: r.controls().top_p().is_some(),
-            logprobs: r.controls().logprobs || r.controls().top_logprobs.is_some(),
+            logprobs: r.controls().logprobs == crate::semantic::value::Presence::Value(true) || r.controls().top_logprobs.is_some(),
             truncation: r.controls().truncation.is_some(),
             strict_function_tools: r.tools().iter().any(|t| matches!(t,super::ToolDefinition::Function(t) if matches!(t.strict,super::FunctionStrictness::Explicit(true)|super::FunctionStrictness::Omitted(super::StrictDefault::NormalizeSchema)))),
             max_output_tokens: r.controls().max_output_tokens,
@@ -54,8 +54,12 @@ impl GenerationRequirements {
                             ContentPart::Text(t) => {
                                 x.text_part_count += 1;
                                 x.text_metadata |= !t.is_plain();
+                                x.logprobs |= !t.logprobs().is_absent();
                             }
-                            ContentPart::Refusal(_) => {}
+                            ContentPart::Refusal(t) => {
+                                x.text_metadata |= !t.logprobs().is_absent();
+                                x.logprobs |= !t.logprobs().is_absent();
+                            }
                             ContentPart::Resource(resource) => {
                                 x.resource_count += 1;
                                 match resource.kind {

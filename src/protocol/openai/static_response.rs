@@ -42,6 +42,9 @@ pub(super) fn metadata(
         )
     };
     context.validate()?;
+    if profile == Profile::Chat {
+        super::chat_envelope::validate_context(&context.execution)?;
+    }
     Ok(ResponseMetadata {
         id,
         model,
@@ -281,6 +284,7 @@ pub(crate) fn decode_chat_with(
             "usage",
             "system_fingerprint",
             "service_tier",
+            "metadata",
         ],
     )?;
     if string(o, "object")? != "chat.completion" {
@@ -296,9 +300,6 @@ pub(crate) fn decode_chat_with(
     if c.get("index").and_then(Value::as_u64) != Some(0) {
         return Err(CodecError::Unsupported("candidate index".into()));
     }
-    if c.get("logprobs").is_some_and(|v| !v.is_null()) {
-        return Err(CodecError::Unsupported("logprobs".into()));
-    }
     let outcome = match string(c, "finish_reason")? {
         "stop" => Outcome::Completed(Completion::Stop),
         "tool_calls" => Outcome::Completed(Completion::ToolCalls),
@@ -311,6 +312,7 @@ pub(crate) fn decode_chat_with(
     let mut b = Items::default();
     let message = super::chat_reasoning::decode_static(&mut b, message, adaptation)?;
     chat::decode_message(&mut b, &message, false)?;
+    super::chat_logprobs::attach(&mut b.items, c.get("logprobs"))?;
     if matches!(outcome, Outcome::Incomplete) {
         for (id, item) in &mut b.items {
             match item {
@@ -456,6 +458,15 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
     let mut value = json!({"id":m.id,"object":"chat.completion","created":m.created,"model":m.model,
         "choices":[{"index":0,"message":message,"finish_reason":finish}],
         "usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Chat))});
+    if let Some(probabilities) = super::chat_logprobs::choice(target.semantic.items())? {
+        value["choices"][0]["logprobs"] = probabilities;
+    }
+    put_presence(
+        value.as_object_mut().expect("object"),
+        "metadata",
+        &m.context.execution.metadata,
+        |v| json!(v),
+    );
     put_presence(
         value.as_object_mut().expect("object"),
         "system_fingerprint",

@@ -18,17 +18,6 @@ pub(super) const CACHE_FIELDS: &[&str] = &[
     "user",
 ];
 impl CacheHints {
-    pub(super) fn read(o: &Map<String, Value>) -> Result<Self, CodecError> {
-        let fields: Map<_, _> = o
-            .iter()
-            .filter(|(k, _)| CACHE_FIELDS.contains(&k.as_str()))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        let hints: Self = serde_json::from_value(Value::Object(fields))
-            .map_err(|_| CodecError::Invalid("cache hints"))?;
-        hints.validate()?;
-        Ok(hints)
-    }
     pub(super) fn write(&self, o: &mut Map<String, Value>) -> Result<(), CodecError> {
         self.validate()?;
         let Value::Object(v) =

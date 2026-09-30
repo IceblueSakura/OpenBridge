@@ -159,9 +159,7 @@ pub fn lower_request<'a>(
     {
         return Err(RepresentationError::Terminal);
     }
-    if profile == Profile::Chat
-        && (q.logprobs || q.truncation || !r.text_options().verbosity.is_absent())
-    {
+    if profile == Profile::Chat && (q.truncation || !r.text_options().verbosity.is_absent()) {
         return Err(RepresentationError::UnmigratedSemantic);
     }
     if profile == Profile::Chat
@@ -171,6 +169,12 @@ pub fn lower_request<'a>(
     {
         // Phase labels are Responses-only; reject instead of dropping the label.
         return Err(RepresentationError::UnmigratedSemantic);
+    }
+    if profile == Profile::Chat
+        && r.controls().top_logprobs.is_some()
+        && r.controls().logprobs != crate::semantic::value::Presence::Value(true)
+    {
+        return Err(RepresentationError::Controls);
     }
     represent_reasoning(
         r.reasoning(),
@@ -369,6 +373,12 @@ pub fn lower_response<'a>(
     {
         return Err(RepresentationError::Terminal);
     }
+    if profile == Profile::Chat
+        && crate::protocol::openai::chat_envelope::validate_context(&metadata.context.execution)
+            .is_err()
+    {
+        return Err(RepresentationError::Metadata);
+    }
     if metadata.context.validate().is_err()
         || metadata
             .created
@@ -440,7 +450,7 @@ fn represent_reasoning(
         return Err(RepresentationError::Reasoning);
     }
     let chat_control = controls.presence() == ReasoningPresence::Present
-        && (controls.effort().is_none() || controls.summary().is_some());
+        && (controls.effort.is_absent() || !controls.summary.is_absent());
     if has_reasoning_items
         && profile != Profile::Responses
         && !(profile == Profile::Chat && (chat_reasoning_shape(items)
@@ -501,9 +511,17 @@ fn text_items(
                     return Err(RepresentationError::Tools);
                 }
                 Item::Message(m)
-                    if m.parts
-                        .iter()
-                        .any(|p| matches!(&p.content,ContentPart::Text(t) if !t.is_plain())) =>
+                    if m.parts.iter().any(|p| match &p.content {
+                        ContentPart::Text(t) => {
+                            if request {
+                                !t.is_plain()
+                            } else {
+                                !t.annotations().is_empty()
+                            }
+                        }
+                        ContentPart::Refusal(t) => request && !t.logprobs().is_absent(),
+                        _ => false,
+                    }) =>
                 {
                     return Err(RepresentationError::TextMetadata);
                 }
@@ -511,6 +529,24 @@ fn text_items(
             }
         }
         if let Item::Message(m) = i {
+            for part in &m.parts {
+                let probs = match &part.content {
+                    ContentPart::Text(t) => t.logprobs(),
+                    ContentPart::Refusal(t) => {
+                        if profile == Profile::Responses && !t.logprobs().is_absent() {
+                            return Err(RepresentationError::TextMetadata);
+                        }
+                        t.logprobs()
+                    }
+                    _ => continue,
+                };
+                if profile == Profile::Chat
+                    && let Some(probs) = probs.value()
+                {
+                    crate::protocol::openai::chat_logprobs::validate(probs)
+                        .map_err(|_| RepresentationError::TextMetadata)?;
+                }
+            }
             if profile==Profile::Responses && m.parts.iter().any(|p|matches!(&p.content,ContentPart::Text(t) if t.logprobs().value().is_some_and(|v|v.iter().any(|p|p.bytes.is_none() || p.top_logprobs.as_ref().is_none_or(|v|v.iter().any(|p|p.token.is_none()||p.logprob.is_none()||p.bytes.is_none())))))){return Err(RepresentationError::TextMetadata);}
             if m.parts
                 .iter()

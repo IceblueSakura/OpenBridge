@@ -2,6 +2,7 @@
 pub(crate) mod adapter_shapes;
 pub mod chat;
 pub mod chat_envelope;
+pub(crate) mod chat_logprobs;
 mod chat_reasoning;
 pub mod chat_sse;
 mod common;

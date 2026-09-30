@@ -17,6 +17,8 @@ pub(super) const FIELDS: &[&str] = &[
     "parallel_tool_calls",
     "reasoning_effort",
     "response_format",
+    "logprobs",
+    "top_logprobs",
 ];
 pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
     decode_generation_with(v, &Default::default())
@@ -41,6 +43,22 @@ pub(crate) fn decode_generation_with(
     let mut controls = controls(o, "max_completion_tokens")?;
     if let Some(v) = o.get("top_p").filter(|v| !v.is_null()) {
         controls = controls.with_top_p(v.as_f64().ok_or(CodecError::Invalid("top_p"))?)?;
+    }
+    controls.logprobs = read_presence(o, "logprobs", |v| {
+        v.as_bool().ok_or(CodecError::Invalid("logprobs"))
+    })?;
+    controls.top_logprobs = o
+        .get("top_logprobs")
+        .filter(|v| !v.is_null())
+        .map(|v| {
+            v.as_u64()
+                .filter(|n| *n <= 20)
+                .map(|n| n as u8)
+                .ok_or(CodecError::Invalid("top_logprobs"))
+        })
+        .transpose()?;
+    if controls.top_logprobs.is_some() && controls.logprobs != Presence::Value(true) {
+        return Err(CodecError::Invalid("top_logprobs without logprobs"));
     }
     let format = read_presence(o, "response_format", read_response_format)?;
     let settings = GenerationSettings {
@@ -129,30 +147,30 @@ pub(super) fn decode_message(
     m: &Map<String, Value>,
     replay: bool,
 ) -> Result<(), CodecError> {
-    fields(
-        m,
-        if replay {
-            &[
-                "role",
-                "content",
-                "tool_calls",
-                "tool_call_id",
-                "refusal",
-                "reasoning_content",
-                "parsed",
-            ]
-        } else {
-            &[
-                "role",
-                "content",
-                "tool_calls",
-                "tool_call_id",
-                "refusal",
-                "reasoning_content",
-            ]
-        },
-    )?;
     let role = string(m, "role")?;
+    // A shared field superset would silently erase assistant-only values on
+    // instruction/tool messages. Validate the role's shell before normalization.
+    let allowed: &[&str] = match role {
+        "assistant" if replay => &[
+            "role",
+            "content",
+            "tool_calls",
+            "refusal",
+            "reasoning_content",
+            "parsed",
+        ],
+        "assistant" => &[
+            "role",
+            "content",
+            "tool_calls",
+            "refusal",
+            "reasoning_content",
+        ],
+        "tool" => &["role", "content", "tool_call_id"],
+        "system" | "developer" | "user" => &["role", "content"],
+        _ => return Err(CodecError::Unsupported("message role".into())),
+    };
+    fields(m, allowed)?;
     if replay && role != "assistant" && m.contains_key("parsed") {
         // The pinned SDK attaches its parsed view to assistant messages only.
         return Err(CodecError::Invalid("parsed"));
@@ -357,6 +375,12 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     );
     if let Some(p) = target.semantic.controls().top_p() {
         o.insert("top_p".into(), json!(p));
+    }
+    put_presence(o, "logprobs", &target.semantic.controls().logprobs, |v| {
+        json!(v)
+    });
+    if let Some(n) = target.semantic.controls().top_logprobs {
+        o.insert("top_logprobs".into(), json!(n));
     }
     put_presence(
         o,

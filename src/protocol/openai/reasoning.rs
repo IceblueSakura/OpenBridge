@@ -85,10 +85,17 @@ pub(super) fn chat_request(o: &Map<String, Value>) -> Result<ReasoningRequest, C
     let Some(value) = o.get("reasoning_effort") else {
         return Ok(ReasoningRequest::absent());
     };
-    let label = value
-        .as_str()
-        .ok_or(CodecError::Invalid("reasoning_effort"))?;
-    Ok(ReasoningRequest::present(Some(effort(label)?), None))
+    let mut reasoning = ReasoningRequest::present(None, None);
+    reasoning.effort = if value.is_null() {
+        crate::semantic::value::Presence::Null
+    } else {
+        crate::semantic::value::Presence::Value(effort(
+            value
+                .as_str()
+                .ok_or(CodecError::Invalid("reasoning_effort"))?,
+        )?)
+    };
+    Ok(reasoning)
 }
 pub(super) fn write_request(
     value: &ReasoningRequest,
@@ -102,12 +109,9 @@ pub(super) fn write_request(
         return;
     }
     if profile == Profile::Chat {
-        if let Some(effort) = value.effort() {
-            o.insert(
-                "reasoning_effort".into(),
-                Value::String(effort_label(effort).into()),
-            );
-        }
+        put_presence(o, "reasoning_effort", &value.effort, |v| {
+            json!(effort_label(*v))
+        });
         return;
     }
     if value.presence() == ReasoningPresence::Null {

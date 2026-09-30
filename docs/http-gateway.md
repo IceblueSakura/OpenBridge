@@ -34,9 +34,9 @@ cargo run --locked --offline --bin openbridge
 - Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单 part 编码规范化为字符串，多 part 保序，不准入媒体。工具结果支持字符串或有序纯文本数组，保留空数组和单/多 part，不拼接。function-only `allowed_tools` 使用 Chat 的嵌套 shell；实际目标支持仍须独立核对。
 - 请求要求 JSON Content-Type，仅 UTF-8；不接受 Content-Encoding。严格 JSON 解析拒绝重复 key。先解析 envelope 中的 public model，绑定受信 task，再进行语义 decode。
 - 每个 `(public model, client protocol)` 在启动时固定到 Route 中的一个 Endpoint；默认 bootstrap 使用相同 wire family。没有对应协议 entry 的模型返回 `model_not_found`；不从 Chat 绑定推导 Responses，也不隐式转协议。没有运行时候选重排、自动 retry/fallback 或业务 JSON 指定目标。
-- operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。响应 reported facts 不从请求复制补齐。
+- operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。Chat metadata/service-tier 和 logprobs/top_logprobs 经同一 typed IR/context 与 Endpoint gate，不因 codec 准入就自动扩大 catalog 模型能力。响应 reported facts 不从请求复制补齐。
 - Provider URL、path、model 和 auth 都来自启动绑定。入站 headers 不透传，上游非成功 HTTP 状态的诊断正文、认证状态细节、origin、凭据 locator 不回显；下游 `model` 为 public label。
-- 未实现 `/v1/models`、状态资源、WebSocket、媒体或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。
+- 未实现 `/v1/models`、状态资源、WebSocket、媒体或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。Chat 正文/refusal 概率按 owner 保真；静态 reported metadata 没有 Chat chunk 槽位，不能通过丢字段合成 SSE。
 
 ### 最小请求示例
 

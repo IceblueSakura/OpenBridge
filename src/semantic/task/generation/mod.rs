@@ -24,7 +24,8 @@ pub use request::{
 pub use requirements::GenerationRequirements;
 pub use resource::{Resource, ResourceKind, ResourceLocation};
 pub use text::{
-    Annotation, Logprob, TextContent, TopLogprob, compatible_logprobs, validate_logprobs,
+    Annotation, Logprob, RefusalContent, TextContent, TopLogprob, compatible_logprobs,
+    validate_logprobs,
 };
 pub use tool::{
     CallContext, CallOrigin, CallerMode, CustomCall, CustomFormat, CustomTool, FunctionStrictness,

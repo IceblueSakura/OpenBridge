@@ -546,3 +546,89 @@ fn response_format_byte_entry_projects_both_ways_and_stays_a_request_fact() {
         assert!(!value.to_string().contains("response_format"));
     }
 }
+
+#[test]
+fn probability_bytes_and_empty_reports_survive_fragmentation_without_a_fake_done() {
+    for (key, empty) in [
+        ("content", false),
+        ("refusal", false),
+        ("content", true),
+        ("refusal", true),
+    ] {
+        let probabilities = if empty {
+            json!([])
+        } else {
+            json!([{"token":"🧪","logprob":-0.125,"bytes":[240,159,167,170],"top_logprobs":[{"token":"x","logprob":-2.25,"bytes":null}]}])
+        };
+        let mut source = wire::response(2);
+        source.as_object_mut().unwrap().shift_remove("usage");
+        source["choices"][0]["message"] = if key == "content" {
+            json!({"role":"assistant","content":"🧪"})
+        } else {
+            json!({"role":"assistant","content":null,"refusal":"🧪"})
+        };
+        source["choices"][0]["logprobs"] = json!({key:probabilities.clone()});
+        let expected = envelope::decode_response_bytes(source.to_string().as_bytes()).unwrap();
+        let payload = |delta: Value, probs: Value, finish: Value| json!({"id":"chat-local","object":"chat.completion.chunk","created":1,"model":"fixture-model","choices":[{"index":0,"delta":delta,"logprobs":probs,"finish_reason":finish}]});
+        for size in [1, 7, 4096] {
+            let mut decoder = decoder();
+            let mut events = consume(
+                &mut decoder,
+                &frame(&payload(
+                    json!({key:"🧪"}),
+                    json!({key:probabilities.clone()}),
+                    Value::Null,
+                )),
+                size,
+            );
+            events.extend(consume(
+                &mut decoder,
+                &frame(&payload(json!({}), Value::Null, json!("stop"))),
+                size,
+            ));
+            assert!(decoder.materialize().is_err());
+            events.extend(consume(&mut decoder, b"data: [DONE]\n\n", size));
+            decoder.finish().unwrap();
+            assert_eq!(decoder.materialize().unwrap().semantic, expected.semantic);
+            let mut encoder = ChatSseEncoder::new(
+                expected.metadata.clone(),
+                Contract::full(),
+                SseLimits::default(),
+                options(false),
+                Obfuscation::Disabled,
+            )
+            .unwrap();
+            let mut bytes = Vec::new();
+            for event in &events {
+                for frame in encoder.encode(event, &expected.fidelity).unwrap() {
+                    bytes.extend_from_slice(&frame)
+                }
+            }
+            encoder.finish().unwrap();
+            let text = String::from_utf8(bytes.clone()).unwrap();
+            assert_eq!(text.matches("data: [DONE]").count(), 1);
+            let reported: Vec<_> = text
+                .split("\n\n")
+                .filter_map(|frame| frame.strip_prefix("data: "))
+                .filter(|s| *s != "[DONE]")
+                .filter_map(|s| serde_json::from_str::<Value>(s).ok())
+                .filter_map(|v| v["choices"][0]["logprobs"][key].as_array().cloned())
+                .collect();
+            assert_eq!(reported, vec![probabilities.as_array().unwrap().clone()]);
+            let mut replay = self::decoder();
+            consume(&mut replay, &bytes, size);
+            replay.finish().unwrap();
+            assert_eq!(replay.materialize().unwrap().semantic, expected.semantic);
+        }
+        let mut bad = decoder();
+        let mut invalid = frame(&payload(
+            json!({key:"🧪"}),
+            json!({key:[{"token":"🧪","logprob":-1}]}),
+            Value::Null,
+        ));
+        invalid.extend_from_slice(b"data: [DONE]\n\n");
+        assert!(bad.consume(&invalid).is_err());
+        assert!(bad.finish().is_err());
+        assert!(bad.materialize().is_err());
+    }
+}

@@ -62,6 +62,8 @@ impl Adapter {
                     model: decoded.context.model,
                     context: ExecutionHints {
                         cache: decoded.context.cache,
+                        metadata: decoded.context.metadata,
+                        service_tier: decoded.context.service_tier,
                         ..Default::default()
                     },
                     delivery: DeliveryIntent {
@@ -114,11 +116,7 @@ impl Adapter {
         if !contract.cache_hints {
             context.cache = CacheHints::default();
         }
-        if self.protocol == Profile::Chat
-            && (!context.metadata.is_absent()
-                || !context.service_tier.is_absent()
-                || !context.max_tool_calls.is_absent())
-        {
+        if self.protocol == Profile::Chat && !context.max_tool_calls.is_absent() {
             return Err(RepresentationError::UnmigratedSemantic.into());
         }
         let target = lower_request(
@@ -149,6 +147,8 @@ impl Adapter {
                         stream: request.delivery.stream.clone(),
                         stream_options: options,
                         cache: context.cache,
+                        metadata: context.metadata,
+                        service_tier: context.service_tier,
                     },
                 )?
             }

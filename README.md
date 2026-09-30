@@ -26,7 +26,7 @@ Chat / Responses wire
 - `src/gateway/`、`src/transport/http.rs`、`src/bin/openbridge.rs`：认证入口、可信预算变换、HTTP I/O 与实际 body handoff；不自动重试或 fallback。
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/gateway.rs`、`tests/sdk_loopback.rs`：语义、transport、真实 Router/binary 与固定 SDK 验收；HTTP 测试只使用 synthetic loopback。
 
-纯文本 Generation 已具备请求、响应、事件、IR 变换与双协议编码的离线主链；Responses 为语义主干，[Chat 单候选 JSON/SSE profile](docs/architecture-v2/chat-text-profile.md)验证同一 IR 的第二协议投影。**仍有已准入边界的正确性缺口，不能称完整标准实现。** [完成度与缺口](docs/architecture-v2/migration.md)区分现有能力、错误接受、尚未映射的文本字段和明确非目标；[下一步建议](docs/implementation-plans/next-goal.md)在已有最小 HTTP 全链上推进新入口的受控外部验收与 Agent/缓存场景，按需补必要 Chat 投影。媒体、其他任务和生产级运行保障未完成；已选定行为切片的范围由[当前焦点](docs/implementation-plans/current-focus.md)维护。
+纯文本 Generation 已具备请求、响应、事件、IR 变换与双协议编码的离线主链；Responses 为语义主干，[Chat 单候选 JSON/SSE profile](docs/architecture-v2/chat-text-profile.md)验证同一 IR 的第二协议投影。**当前仍为受限文本子集，不能称完整标准实现。** [完成度与缺口](docs/architecture-v2/migration.md)区分现有能力、错误接受、尚未映射的文本字段和明确非目标；[下一步建议](docs/implementation-plans/next-goal.md)在已有最小 HTTP 全链上推进新入口的受控外部验收与 Agent/缓存场景，按需补必要 Chat 投影。媒体、其他任务和生产级运行保障未完成；已选定行为切片的范围由[当前焦点](docs/implementation-plans/current-focus.md)维护。
 
 ## 验证
 

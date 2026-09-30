@@ -104,6 +104,7 @@ pub enum StreamEvent {
         part: PartId,
         annotation: Annotation,
     },
+    /// Final readable-part metadata; refusal permits probabilities but never annotations.
     TextMetadata {
         item: ItemId,
         part: PartId,
@@ -389,7 +390,10 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             state.charge(fragment.len())?;
             state.open_part(item, part)?.text.push_str(&fragment);
             if !logprobs.is_empty() {
-                if state.part(item, part)?.kind != PartKind::Text {
+                if !matches!(
+                    state.part(item, part)?.kind,
+                    PartKind::Text | PartKind::Refusal
+                ) {
                     return Err(EventError::Lifecycle);
                 }
                 let mut probs = state
@@ -419,7 +423,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             logprobs,
         } => {
             let p = state.open_part(item, part)?;
-            if p.kind != PartKind::Text
+            if !matches!(p.kind, PartKind::Text | PartKind::Refusal)
                 || p.value_finished
                 || !compatible_logprobs(
                     p.logprobs.value().map(Vec::as_slice).unwrap_or_default(),
@@ -472,7 +476,8 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             logprobs,
         } => {
             let p = state.open_part(item, part)?;
-            if p.kind != PartKind::Text
+            if !matches!(p.kind, PartKind::Text | PartKind::Refusal)
+                || p.kind == PartKind::Refusal && !annotations.is_empty()
                 || !p.value_finished
                 || p.metadata_finished
                 || !annotations.starts_with(&p.annotations)
@@ -512,7 +517,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             if !p.value_finished {
                 return Err(EventError::Lifecycle);
             }
-            if p.kind == PartKind::Text {
+            if matches!(p.kind, PartKind::Text | PartKind::Refusal) {
                 TextContent::new(
                     Text::allowing_empty(&p.text, "text", MAX_TEXT_BYTES)
                         .map_err(|_| EventError::Limit)?,
@@ -658,7 +663,10 @@ impl StreamItem {
                                     p.annotations.clone(),
                                     p.logprobs.clone(),
                                 )?),
-                                PartKind::Refusal => ContentPart::Refusal(bounded(p)?),
+                                PartKind::Refusal => ContentPart::Refusal(RefusalContent::new(
+                                    bounded(p)?,
+                                    p.logprobs.clone(),
+                                )?),
                                 _ => return Err(EventError::Lifecycle),
                             },
                         })

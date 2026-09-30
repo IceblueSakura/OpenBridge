@@ -439,7 +439,8 @@ pub(super) fn decode_items(
                                         "refusal",
                                         MAX_TEXT_BYTES,
                                     )
-                                    .map_err(|_| CodecError::Limit)?,
+                                    .map_err(|_| CodecError::Limit)?
+                                    .into(),
                                 )
                             }
                             "input_text" if !response => {
@@ -483,7 +484,13 @@ pub(super) fn decode_items(
             }
             _ => return Err(CodecError::Unsupported("Responses item kind".into())),
         };
-        b.record_id(id, o)?;
+        // Function/custom IDs are optional/nullable; other required IDs have
+        // already been validated by their owning branch or complete boundary.
+        if !(matches!(typ, Some("function_call" | "custom_tool_call"))
+            && o.get("id").is_some_and(Value::is_null))
+        {
+            b.record_id(id, o)?;
+        }
         b.items.push((id, item));
     }
     Ok(())

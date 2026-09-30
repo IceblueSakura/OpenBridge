@@ -816,11 +816,15 @@ impl EventDecoder {
         if o.contains_key("logprobs") && kind != PartKind::Text {
             return Err(CodecError::Invalid("logprob owner"));
         }
-        let logprobs = o
-            .get("logprobs")
-            .map(super::super::text::read_logprobs)
-            .transpose()?
-            .unwrap_or_default();
+        // The pinned text delta/done schemas require the array, including when empty.
+        // https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_text_delta_event.py
+        let logprobs = if kind == PartKind::Text {
+            super::super::text::read_logprobs(
+                o.get("logprobs").ok_or(CodecError::Invalid("logprobs"))?,
+            )?
+        } else {
+            vec![]
+        };
         self.emit(
             StreamEvent::Delta {
                 item,
@@ -873,18 +877,28 @@ impl EventDecoder {
         if string(o, key)? != self.state()?.part(item, part)?.text {
             return Err(CodecError::Invalid("value snapshot"));
         }
+        if kind == PartKind::Text && !o.contains_key("logprobs") {
+            return Err(CodecError::Invalid("logprobs"));
+        }
         if let Some(v) = o.get("logprobs") {
             if kind != PartKind::Text {
                 return Err(CodecError::Invalid("logprob owner"));
             }
-            self.emit(
-                StreamEvent::LogprobsSnapshot {
-                    item,
-                    part,
-                    logprobs: super::super::text::read_logprobs(v)?,
-                },
-                out,
-            )?;
+            let probabilities = super::super::text::read_logprobs(v)?;
+            // The required empty event array is not an optional static report.
+            // A later content-part snapshot owns explicit empty probability presence.
+            if !probabilities.is_empty()
+                || self.state()?.part(item, part)?.logprobs.value().is_some()
+            {
+                self.emit(
+                    StreamEvent::LogprobsSnapshot {
+                        item,
+                        part,
+                        logprobs: probabilities,
+                    },
+                    out,
+                )?;
+            }
         }
         self.emit(StreamEvent::ValueFinished { item, part }, out)?;
         if matches!(kind, PartKind::Arguments | PartKind::CustomInput)

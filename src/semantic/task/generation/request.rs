@@ -56,7 +56,7 @@ impl Phase {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContentPart {
     Text(TextContent),
-    Refusal(Text),
+    Refusal(RefusalContent),
     Resource(Resource),
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -118,7 +118,7 @@ pub struct GenerationControls {
     temperature_bits: Option<u64>,
     top_p_bits: Option<u64>,
     pub top_logprobs: Option<u8>,
-    pub logprobs: bool,
+    pub logprobs: Presence<bool>,
     pub truncation: Option<Truncation>,
 }
 impl GenerationControls {

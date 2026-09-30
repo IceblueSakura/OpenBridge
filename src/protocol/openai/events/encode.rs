@@ -21,6 +21,7 @@ impl EventEncoder {
             return Err(CodecError::Invalid("metadata"));
         }
         metadata.context.validate()?;
+        validate_metadata(profile, &metadata)?;
         super::super::envelope::timestamp(&Value::Number(metadata.created.clone()))?;
         Ok(Self {
             profile,
@@ -46,6 +47,18 @@ impl EventEncoder {
                 return Err(CodecError::Invalid("metadata changed"));
             }
             metadata.context.validate()?;
+            validate_metadata(self.profile, &metadata)?;
+            if self.profile == Profile::Chat && self.state()?.started() {
+                let old = &self.metadata.context;
+                if (!old.system_fingerprint.is_absent()
+                    && old.system_fingerprint != metadata.context.system_fingerprint)
+                    || (!old.execution.service_tier.is_absent()
+                        && old.execution.service_tier != metadata.context.execution.service_tier)
+                {
+                    // Intake normalization is not permission to rewrite already emitted facts.
+                    return Err(CodecError::Invalid("bound Chat metadata changed"));
+                }
+            }
             Ok(())
         })();
         if result.is_err() {
@@ -95,6 +108,11 @@ impl EventEncoder {
             {
                 self.fidelity.record_response_item_id(*item, id)?;
             }
+            let probabilities = if self.profile == Profile::Chat {
+                self.chat_probabilities(event)?
+            } else {
+                None
+            };
             self.state = Some(reduce(
                 self.state.take().ok_or(CodecError::Invalid("state"))?,
                 event.clone(),
@@ -121,7 +139,7 @@ impl EventEncoder {
             let mut values = if self.profile == Profile::Responses {
                 self.responses(event)?
             } else {
-                self.chat(event)?
+                self.chat(event, probabilities)?
             };
             for v in &mut values {
                 if self.profile == Profile::Responses {
@@ -396,6 +414,16 @@ impl EventEncoder {
         };
         Ok(result)
     }
+}
+fn validate_metadata(profile: Profile, metadata: &ResponseMetadata) -> Result<(), CodecError> {
+    if profile == Profile::Chat {
+        super::super::chat_envelope::validate_context(&metadata.context.execution)?;
+        if metadata.created.as_u64().is_none() || !metadata.context.execution.metadata.is_absent() {
+            // Chat chunks have no metadata slot; never silently discard a static fact.
+            return Err(CodecError::Unsupported("Chat stream metadata".into()));
+        }
+    }
+    Ok(())
 }
 fn event_stem(kind: PartKind) -> &'static str {
     match kind {

@@ -194,9 +194,9 @@ fn static_responses_stream_records_and_chat_terminals_reject_parsed_views() {
     d.push(&created()).unwrap();
     d.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"m","type":"message","role":"assistant","status":"in_progress","content":[]}})).unwrap();
     d.push(&json!({"type":"response.content_part.added","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":"","annotations":[]}})).unwrap();
-    d.push(&json!({"type":"response.output_text.delta","output_index":0,"item_id":"m","content_index":0,"delta":RAW})).unwrap();
+    d.push(&json!({"type":"response.output_text.delta","output_index":0,"item_id":"m","content_index":0,"delta":RAW,"logprobs":[]})).unwrap();
     assert!(
-        d.push(&json!({"type":"response.output_text.done","output_index":0,"item_id":"m","content_index":0,"text":RAW,"parsed":{"ok":true}}))
+        d.push(&json!({"type":"response.output_text.done","output_index":0,"item_id":"m","content_index":0,"text":RAW,"logprobs":[],"parsed":{"ok":true}}))
             .is_err()
     );
     // Part snapshots are wire facts; a dumped parsed view poisons them too.
@@ -204,8 +204,8 @@ fn static_responses_stream_records_and_chat_terminals_reject_parsed_views() {
     d.push(&created()).unwrap();
     d.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"m","type":"message","role":"assistant","status":"in_progress","content":[]}})).unwrap();
     d.push(&json!({"type":"response.content_part.added","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":"","annotations":[]}})).unwrap();
-    d.push(&json!({"type":"response.output_text.delta","output_index":0,"item_id":"m","content_index":0,"delta":RAW})).unwrap();
-    d.push(&json!({"type":"response.output_text.done","output_index":0,"item_id":"m","content_index":0,"text":RAW})).unwrap();
+    d.push(&json!({"type":"response.output_text.delta","output_index":0,"item_id":"m","content_index":0,"delta":RAW,"logprobs":[]})).unwrap();
+    d.push(&json!({"type":"response.output_text.done","output_index":0,"item_id":"m","content_index":0,"text":RAW,"logprobs":[]})).unwrap();
     assert!(
         d.push(&json!({"type":"response.content_part.done","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":RAW,"annotations":[],"parsed":{"ok":true}}}))
             .is_err()

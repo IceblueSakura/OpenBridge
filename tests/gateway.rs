@@ -53,7 +53,16 @@ async fn answer(
         request[cap], 32,
         "trusted default must pass through IR into upstream wire"
     );
-    let turn = if request.to_string().contains("tool_call_id")
+    let probability_case = request["metadata"]["case"] == "probabilities";
+    if probability_case {
+        assert!(chat);
+        assert_eq!(request["service_tier"], "fast");
+        assert_eq!(request["logprobs"], true);
+        assert_eq!(request["top_logprobs"], 1);
+    }
+    let probability = |token: &str| json!({"token":token,"logprob":-0.5,"bytes":token.as_bytes(),"top_logprobs":[]});
+    let turn = if probability_case
+        || request.to_string().contains("tool_call_id")
         || request.to_string().contains("function_call_output")
     {
         2
@@ -68,6 +77,12 @@ async fn answer(
         responses_wire::response(turn)
     };
     output["model"] = json!("private-model");
+    if probability_case {
+        output["choices"][0]["logprobs"] =
+            json!({"content":[probability("old "),probability("🧪")]});
+        output["service_tier"] = json!("default");
+        output["metadata"] = json!({"provider":"reported"});
+    }
     if !chat {
         output["created_at"] = json!(1);
         output["completed_at"] = json!(2);
@@ -82,6 +97,17 @@ async fn answer(
         for frame in &mut frames {
             if chat {
                 frame["model"] = json!("private-model");
+                if probability_case {
+                    frame["service_tier"] = json!("default");
+                    if let Some(fragment) = frame
+                        .pointer("/choices/0/delta/content")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                    {
+                        frame["choices"][0]["logprobs"] =
+                            json!({"content":[probability(fragment)]});
+                    }
+                }
             } else if let Some(snapshot) = frame.get_mut("response") {
                 snapshot["model"] = json!("private-model");
                 snapshot["created_at"] = json!(1);
@@ -196,6 +222,63 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
                     })
                 );
             }
+        }
+    }
+    // New controls and reported probabilities traverse the actual HTTP chain;
+    // metadata is a static reported fact, never a request echo or a chunk field.
+    for stream in [false, true] {
+        let response = client.post(format!("{url}/v1/chat/completions"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&json!({"model":"public-model","messages":[{"role":"user","content":"hi"}],"stream":stream,"metadata":{"case":"probabilities"},"service_tier":"fast","logprobs":true,"top_logprobs":1}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        let bytes = response.bytes().await.unwrap();
+        let decoded = if stream {
+            let mut decoder = openbridge::protocol::openai::chat_sse::ChatSseDecoder::new(
+                200,
+                "text/event-stream",
+                Default::default(),
+            )
+            .unwrap();
+            let mut rest = bytes.as_ref();
+            while !rest.is_empty() {
+                let (used, _) = decoder.consume(rest).unwrap();
+                assert!(used > 0);
+                rest = &rest[used..];
+            }
+            decoder.finish().unwrap();
+            decoder.materialize().unwrap()
+        } else {
+            let wire: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(wire["metadata"], json!({"provider":"reported"}));
+            openbridge::adapter::Adapter::new(
+                Profile::Chat,
+                openbridge::adapter::Dialect::Standard,
+                None,
+            )
+            .decode_response(&bytes)
+            .unwrap()
+        };
+        let openbridge::semantic::task::generation::Item::Message(message) =
+            &decoded.semantic.items()[0].1
+        else {
+            panic!("message")
+        };
+        let openbridge::semantic::task::generation::ContentPart::Text(text) =
+            &message.parts[0].content
+        else {
+            panic!("text")
+        };
+        assert_eq!(text.as_str(), "old 🧪");
+        assert_eq!(text.logprobs().value().unwrap().len(), 2);
+        assert_eq!(
+            decoded.metadata.context.execution.service_tier,
+            openbridge::semantic::value::Presence::Value(
+                openbridge::semantic::context::ServiceTier::Default
+            )
+        );
+        if stream {
+            assert!(decoded.metadata.context.execution.metadata.is_absent());
         }
     }
     // A fixed Responses entry can project a Chat provider without native bypass.

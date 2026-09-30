@@ -4,7 +4,7 @@ use super::{
     chat, common::*,
 };
 use crate::semantic::{
-    context::{CacheHints, StreamOptions},
+    context::{CacheHints, ExecutionHints, ServiceTier, StreamOptions},
     value::Presence,
 };
 use serde_json::{Map, Value, json};
@@ -39,8 +39,9 @@ pub struct RequestContext {
     pub n: Presence<u64>,
     pub stream: Presence<bool>,
     pub stream_options: Presence<StreamOptions>,
-    /// Cache-affinity hints only; service tier and metadata stay Responses gaps.
     pub cache: CacheHints,
+    pub metadata: Presence<std::collections::BTreeMap<String, String>>,
+    pub service_tier: Presence<ServiceTier>,
 }
 impl RequestContext {
     pub fn streaming(&self) -> bool {
@@ -57,8 +58,22 @@ impl RequestContext {
             }
             options.validate()?;
         }
-        Ok(self.cache.validate()?)
+        validate_context(&ExecutionHints {
+            cache: self.cache.clone(),
+            metadata: self.metadata.clone(),
+            service_tier: self.service_tier.clone(),
+            ..Default::default()
+        })
     }
+}
+/// The pinned Chat schema is narrower than the shared Responses tier vocabulary.
+/// https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/chat/completion_create_params.py
+pub(crate) fn validate_context(context: &ExecutionHints) -> Result<(), CodecError> {
+    context.validate()?;
+    if context.service_tier == Presence::Value(ServiceTier::Ultrafast) {
+        return Err(CodecError::Unsupported("Chat service tier".into()));
+    }
+    Ok(())
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecodedChatRequest {
@@ -98,9 +113,17 @@ pub(crate) fn decode_request_with(
         .iter()
         .copied()
         .chain(super::envelope::CACHE_FIELDS.iter().copied())
-        .chain(["model", "n", "stream", "stream_options"])
+        .chain([
+            "model",
+            "n",
+            "stream",
+            "stream_options",
+            "metadata",
+            "service_tier",
+        ])
         .collect();
     fields(o, &allowed)?;
+    let hints = ExecutionHints::read(o)?;
     let context = RequestContext {
         model: string(o, "model")?.into(),
         n: read_presence(o, "n", |v| v.as_u64().ok_or(CodecError::Invalid("n")))?,
@@ -108,7 +131,9 @@ pub(crate) fn decode_request_with(
             v.as_bool().ok_or(CodecError::Invalid("stream"))
         })?,
         stream_options: read_presence(o, "stream_options", StreamOptions::read)?,
-        cache: CacheHints::read(o)?,
+        cache: hints.cache,
+        metadata: hints.metadata,
+        service_tier: hints.service_tier,
     };
     context.validate()?;
     let task: Map<_, _> = o
@@ -138,6 +163,8 @@ pub fn encode_request(
         StreamOptions::write,
     );
     context.cache.write(o)?;
+    put_presence(o, "metadata", &context.metadata, |v| json!(v));
+    put_presence(o, "service_tier", &context.service_tier, |v| json!(v));
     bounded(&v)?;
     Ok(v)
 }

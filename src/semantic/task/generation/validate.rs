@@ -87,7 +87,8 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                             if m.role != MessageRole::Assistant {
                                 return Err(GenerationError::RefusalInUserMessage);
                             }
-                            add(&mut bytes, t.as_str())?;
+                            t.validate()?;
+                            charge(&mut bytes, t.bytes())?;
                         }
                         ContentPart::Resource(_) => {}
                     }

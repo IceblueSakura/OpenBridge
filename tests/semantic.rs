@@ -6,6 +6,8 @@ mod wire;
 
 #[path = "semantic/adapters.rs"]
 mod adapters;
+#[path = "semantic/chat_logprobs.rs"]
+mod chat_logprobs;
 #[path = "semantic/chat_wire.rs"]
 mod chat_wire;
 #[path = "semantic/extensions.rs"]
@@ -30,6 +32,8 @@ mod response;
 mod router_adapter;
 #[path = "semantic/schema.rs"]
 mod schema;
+#[path = "semantic/text_admission.rs"]
+mod text_admission;
 #[path = "semantic/text_events.rs"]
 mod text_events;
 #[path = "semantic/text_profile.rs"]

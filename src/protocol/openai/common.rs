@@ -163,7 +163,7 @@ impl Items {
         }
         Ok(Part {
             id: PartId::new(self.next_part),
-            content: ContentPart::Refusal(text),
+            content: ContentPart::Refusal(text.into()),
         })
     }
     pub fn part(&mut self, s: &str) -> Result<Part, CodecError> {
@@ -268,7 +268,13 @@ pub(super) fn tool_call(
         f.get("parsed_arguments"),
         Some(string(f, "arguments")?),
     )?;
-    let status = super::responses::status(o, ItemLifecycle::Completed)?;
+    // Function-call status is optional/nullable, unlike complete message status.
+    // https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_function_tool_call.py
+    let status = if o.get("status").is_some_and(Value::is_null) {
+        ItemLifecycle::Completed
+    } else {
+        super::responses::status(o, ItemLifecycle::Completed)?
+    };
     Ok(ToolCall {
         call_id: text(id, "call_id", 256)?,
         name: text(string(f, "name")?, "function name", 128)?,

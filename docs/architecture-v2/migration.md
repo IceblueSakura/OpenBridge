@@ -12,7 +12,7 @@
 |---|---|---|
 | Task IR / 变换 / lowering | 已有完整主链，目标合同仍为受限子集 | `src/semantic/task/generation/`、`src/lowering/`；最终 IR 权威、候选独立投影与拒绝已有测试；最小入口仅使用启动固定候选，不代表动态选择或任意模型 capability |
 | Responses JSON/SSE | 常用无状态文本分支已实现，必填性已闭合但未审计全部标准分支 | `src/protocol/openai/`、`tests/semantic/`、`tests/transport/responses_sse.rs`；见下方缺口状态，不能称完整标准实现 |
-| 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证，不是待从零建立的 codec | `tests/transport/chat.rs`；文本/prediction usage 与 content_filter 终态已有映射；部分标准文本 metadata/控制仍被拒绝，不等于 Chat 协议无法表达 |
+| 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证；文本 context 与 content/refusal probabilities 已有双向映射 | `tests/semantic/chat_logprobs.rs`、`tests/transport/chat.rs`；请求/静态/SSE、IR 编辑与目标拒绝分别验证；其他标准文本控制仍有限，不等于 Chat 协议无法表达 |
 | 固定消费者 / Agent 场景 | codec fixture gates 与实际 Gateway/HTTP Provider 全链 gate 并存 | `tests/sdk/gateway.rs` 让固定 SDK 经同一 Router 完成双协议 JSON/SSE 工具与 reasoning 续轮；上游为 synthetic，显式 ignored，默认 Rust tests 不执行。范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
 | 缓存亲和性 | 有表示与保序基础，尚无执行亲和策略或命中效果验收 | CacheHints、schema order、origin-bound replay 已存在；缓存 scope 的执行绑定、跨轮/跨目标策略及真实 hit/成本/延迟效果不能由字段往返推出 |
 | 执行库 / HTTP 接线 | 最小 loopback 服务已接通认证、固定入口、Provider transport 与增量 body；未生产验收 | `src/gateway/`、`src/transport/http.rs`、`tests/gateway.rs`；启动与错误边界见 [HTTP 指南](../http-gateway.md)。没有凭据池、自动 retry/fallback 或动态 registry |
@@ -24,11 +24,11 @@
 | 域 | 当前闭合范围 | 主要源码 / 独立测试 |
 |---|---|---|
 | Instructions / messages | 顶层 instructions、有序 system/developer/user/assistant、文本/refusal、instruction 非完成生命周期、assistant `phase` 与 status 分离 | `request.rs`、`responses.rs`、`chat.rs`；[instructions](../../tests/semantic/instructions.rs)、[phase](../../tests/semantic/phase.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
-| 输出控制 / Schema | sampling、输出上限、Responses verbosity/logprobs/truncation；双协议 text/json_object/json_schema；schema 属性顺序、结构/strict/default、本地递归引用、独立预算、pattern/format 语法准入 | `settings.rs`、`schema.rs`、`pattern.rs`；[schema](../../tests/semantic/schema.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
+| 输出控制 / Schema | sampling、输出上限、Responses verbosity/truncation、双协议 logprobs 控制；双协议 text/json_object/json_schema；schema 属性顺序、结构/strict/default、本地递归引用、独立预算、pattern/format 语法准入 | `settings.rs`、`schema.rs`、`pattern.rs`；[schema](../../tests/semantic/schema.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
 | Function / custom | 定义、choice（含 Chat function-only allowed_tools）、调用关联、双协议文本/文本数组结果、原始参数权威、调度字段表示、program/program_output 的 opaque 表示 | `tool.rs`、`function_tools.rs`、`responses.rs`；[tools](../../tests/semantic/tools.rs)、[function_events](../../tests/semantic/function_events.rs)；不执行工具或 program |
 | Reasoning / replay | effort/context/mode、summary/readable text、owner/origin/finality 约束、有序 `configuration_update.reasoning.effort`、SDK `parsed`/`parsed_arguments` 验证后丢弃 | `reasoning.rs`、`fidelity.rs`；[reasoning](../../tests/semantic/reasoning.rs)、[parsed_replay](../../tests/semantic/parsed_replay.rs)；不是运行时 effective-settings 管理 |
-| Response / events | identity、reported settings、annotations/logprobs、typed Usage 文本/prediction 细分、Chat content_filter 与其他已准入完成/非成功终态；有序 reducer 与 Static/Event 一致性；queued 事件生命周期 | `response.rs`、`event.rs`、`events/`；[response](../../tests/semantic/response.rs)、[usage](../../tests/semantic/usage.rs)、[text_events](../../tests/semantic/text_events.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
-| Context / 扩展 | 统一 CacheHints（含 `prewarm`）、execution/reported context、delivery；request body sections 与 Codex headers 的有界 typed/opaque 承载 | `semantic/context.rs`、`adapter/request.rs`、`extensions.rs`；[extensions](../../tests/semantic/extensions.rs)、[text_profile](../../tests/semantic/text_profile.rs)；不管理 turn 或凭据 |
+| Response / events | identity、reported settings、annotations、content/refusal 概率的独立 owner、typed Usage 文本/prediction 细分、Chat content_filter 与其他已准入完成/非成功终态；有序 reducer 与 Static/Event 一致性；queued 事件生命周期 | `response.rs`、`event.rs`、`events/`；[response](../../tests/semantic/response.rs)、[usage](../../tests/semantic/usage.rs)、[text_events](../../tests/semantic/text_events.rs)、[text_profile](../../tests/semantic/text_profile.rs) |
+| Context / 扩展 | 统一 CacheHints（含 `prewarm`）、双协议 metadata/service-tier request context、静态 reported context、delivery；request body sections 与 Codex headers 的有界 typed/opaque 承载 | `semantic/context.rs`、`adapter/request.rs`、`extensions.rs`；[extensions](../../tests/semantic/extensions.rs)、[text_profile](../../tests/semantic/text_profile.rs)；不管理 turn 或凭据 |
 | 原始字节 / I/O | strict JSON、重复 key 拒绝、有界 SSE framing、UTF-8 分片、EOF/terminal/poisoning、padding 预算；synthetic body 的取消/背压 | `json.rs`、`sse.rs`、`chat_sse.rs`；[transport](../../tests/transport.rs)；测试 body 不是生产 ingress |
 
 上表的短文件名按所属 semantic/protocol 域解释；实际模块布局由[当前架构](../architecture.md)维护。Schema 和派生 view 已有实质实现，不再列成需要重建的基础设施。
@@ -37,7 +37,9 @@
 
 当前[显式适配合同](decisions/0008-stable-core-and-vendor-adapters.md)把标准语义、厂商形状和兼容默认值分开。具体规则、拒绝理由及独立反例由 `src/adapter/`、`src/protocol/`、`tests/semantic/adapters.rs` 和 `tests/transport/chain.rs` 维护，不在此同步厂商 wire 清单或实测结果。固定 SDK 标准事件的 required/presence 与完整 Response snapshot 必填性已闭合：标准事件缺失 `sequence_number`、完整 snapshot 缺失 `output` 数组（含 queued/created/in_progress 初始 snapshot）在完整字节入口与低层 snapshot 分支都被拒绝，显式空数组仍然合法，拒绝后不能恢复为成功。规则与回归测试入口由 [Responses text profile](responses-text-profile.md#complete-stream-required-fields) 维护。
 
-仍未声称所有事件的 required/null/跨 kind 检查均已审计：更广标准分支的 required/presence 按[尚未映射的文本能力](#尚未映射的文本能力)收敛，新反例按 owner 立项，不以“全部标准分支已审计”为前提。
+当前文本审计的已准入分支维持 role-specific history shells、独立 nullable controls/call headers、必填文本事件概率数组和静态/事件 owner 一致性：assistant-only 字段不能在 instruction/tool/user 消息上被接受后丢失，Chat continuation 的可空字段不替换已绑定身份，缺失必填数组不能被默认空值掩盖。对应规则与独立反例由 `chat.rs`、`common.rs`、`events/decode.rs`、`tests/semantic/text_admission.rs` 维护。低层 pre-parsed event 的可选 sequence 与完整 SSE 必填性仍是不同入口合同。
+
+这不声称整个标准 union 的 required/null/跨 kind 检查均已完成：更广分支按[尚未映射的文本能力](#尚未映射的文本能力)收敛，新反例按 owner 修复，不以“全部标准分支已审计”为前提。
 
 Provider/模型支持、启动协议准入和运行实例启用状态按 [AGENTS.md](../../AGENTS.md#current-provider-model-and-compatibility-information)查询。源码注册不等于真实账号/网络可用；不在本页保留模型清单、账号阻塞、通过率或失败跟进日记。结构性语义缺口仍按以下 owner 分类。
 
@@ -47,8 +49,8 @@ Provider/模型支持、启动协议准入和运行实例启用状态按 [AGENTS
 
 | 域 | 具体缺口 | 对下一步的意义 |
 |---|---|---|
-| Chat 标准上下文 | `system_fingerprint`、响应 `service_tier` 已按标准 reported fact 准入（presence 保留、Chat 流内首值绑定）；请求 service-tier、metadata 仍无 Chat 投影 | `chat_envelope.rs`、`static_response.rs`、`events/chat.rs` 闭合字段表按 [Chat profile](chat-text-profile.md) 演进；带未准入字段的 envelope 仍确定性拒绝，不能称通用兼容 |
-| 其余 Chat 文本投影 | logprobs、其他生成控制等未准入；请求 message 的非空有序纯文本数组和工具结果的文本数组（含空数组）已准入，响应 message 与媒体数组未扩张；Responses `phase`、custom/program 等也不能无损投影；reasoning replay 仅在显式限定格式的 Chat 扩展中映射 | 前者按具体消费需求逐项立项；后者不能靠丢字段强行变成 Chat，也不以 Chat 限制反向缩减 Responses IR |
+| Chat 上下文表示边界 | 请求 metadata/service-tier 与静态 reported metadata 已准入；`system_fingerprint`、响应 `service_tier` 保留 reported presence/流内绑定。Chat chunks 没有 metadata 槽位，持有该静态事实时不能投影成 Chat SSE；max_tool_calls 等仍无 Chat 请求位置 | `chat_envelope.rs`、`static_response.rs`、`events/encode.rs` 按 [Chat profile](chat-text-profile.md) 拒绝不可表示投影，不通过丢字段放宽兼容 |
+| 其余 Chat 文本投影 | 其他生成控制仍未准入；概率-bearing history 没有 Chat choice carrier，Responses refusal 概率无对应 wire 槽位；请求 message 的非空有序纯文本数组和工具结果的文本数组（含空数组）已准入，响应 message 与媒体数组未扩张；Responses `phase`、custom/program 等也不能无损投影；reasoning replay 仅在显式限定格式的 Chat 扩展中映射 | 前者按具体消费需求逐项立项；后者不能靠丢字段强行变成 Chat，也不以 Chat 限制反向缩减 Responses IR |
 | Context 扩展 | response body 自定义段、typed observation headers、body/header 跨位置一致性、namespace 版本和 turn 管理模式尚未闭合 | [ADR 0007](decisions/0007-stateless-cache-affinity-and-extensions.md) 已定义 carrier，不等于 scoped runtime 已实现；继续扩张前须有具体来源和生命周期 |
 | 更广标准准入 | 尚无固定 union 的完整逐分支验收；部分 required/presence、snapshot/event 组合仍需审查 | 按当前已支持分支及反例收敛，不以“全部标准事件”作为一个实现切片的退出条件 |
 

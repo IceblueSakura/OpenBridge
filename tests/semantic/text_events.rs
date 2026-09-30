@@ -19,8 +19,8 @@ fn independent_text_wire_decodes_empty_and_multiple_parts() {
     for (i, s) in ["", "你好"].into_iter().enumerate() {
         for v in [
             json!({"type":"response.content_part.added","output_index":0,"item_id":"m","content_index":i,"part":{"type":"output_text","text":"","annotations":[]}}),
-            json!({"type":"response.output_text.delta","output_index":0,"item_id":"m","content_index":i,"delta":s}),
-            json!({"type":"response.output_text.done","output_index":0,"item_id":"m","content_index":i,"text":s}),
+            json!({"type":"response.output_text.delta","output_index":0,"item_id":"m","content_index":i,"delta":s,"logprobs":[]}),
+            json!({"type":"response.output_text.done","output_index":0,"item_id":"m","content_index":i,"text":s,"logprobs":[]}),
             json!({"type":"response.content_part.done","output_index":0,"item_id":"m","content_index":i,"part":{"type":"output_text","text":s,"annotations":[]}}),
         ] {
             d.push(&v).unwrap();
@@ -92,7 +92,7 @@ fn part_close_does_not_close_item_and_snapshot_grammar_is_checked() {
     d.push(&created()).unwrap();
     d.push(&json!({"type":"response.output_item.added","output_index":0,"item":{"id":"m","type":"message","role":"assistant","status":"in_progress","content":[]}})).unwrap();
     d.push(&json!({"type":"response.content_part.added","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":"","annotations":[]}})).unwrap();
-    d.push(&json!({"type":"response.output_text.done","output_index":0,"item_id":"m","content_index":0,"text":""})).unwrap();
+    d.push(&json!({"type":"response.output_text.done","output_index":0,"item_id":"m","content_index":0,"text":"","logprobs":[]})).unwrap();
     d.push(&json!({"type":"response.content_part.done","output_index":0,"item_id":"m","content_index":0,"part":{"type":"output_text","text":"","annotations":[]}})).unwrap();
     assert!(d.push(&json!({"type":"response.completed","response":envelope("completed",json!([{"id":"m","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"","annotations":[]}]}]))})).is_err());
 }

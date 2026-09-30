@@ -88,6 +88,14 @@ impl TextContent {
     pub fn logprobs(&self) -> &Presence<Vec<Logprob>> {
         &self.logprobs
     }
+    pub fn with_logprobs(
+        mut self,
+        logprobs: Presence<Vec<Logprob>>,
+    ) -> Result<Self, GenerationError> {
+        self.logprobs = logprobs;
+        self.validate()?;
+        Ok(self)
+    }
     /// A text replacement cannot inherit offsets or model probabilities from the old text.
     pub fn replace_text(self, text: Text) -> Self {
         if self.text == text { self } else { text.into() }
@@ -138,6 +146,61 @@ impl TextContent {
             }
         }
         if let Presence::Value(probs) = &self.logprobs {
+            validate_logprobs(probs)?;
+        }
+        Ok(())
+    }
+}
+/// Refusal probabilities belong to the refusal value, never to ordinary message text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefusalContent {
+    text: Text,
+    logprobs: Presence<Vec<Logprob>>,
+}
+impl From<Text> for RefusalContent {
+    fn from(text: Text) -> Self {
+        Self {
+            text,
+            logprobs: Presence::Absent,
+        }
+    }
+}
+impl RefusalContent {
+    pub fn new(text: Text, logprobs: Presence<Vec<Logprob>>) -> Result<Self, GenerationError> {
+        let value = Self { text, logprobs };
+        value.validate()?;
+        Ok(value)
+    }
+    pub fn as_str(&self) -> &str {
+        self.text.as_str()
+    }
+    pub fn logprobs(&self) -> &Presence<Vec<Logprob>> {
+        &self.logprobs
+    }
+    pub fn with_logprobs(
+        mut self,
+        logprobs: Presence<Vec<Logprob>>,
+    ) -> Result<Self, GenerationError> {
+        self.logprobs = logprobs;
+        self.validate()?;
+        Ok(self)
+    }
+    pub fn replace_text(self, text: Text) -> Self {
+        if self.text == text { self } else { text.into() }
+    }
+    pub fn bytes(&self) -> usize {
+        self.text
+            .as_str()
+            .len()
+            .saturating_add(self.logprobs.value().map_or(0, |p| {
+                crate::semantic::value::json_size(p, MAX_TEXT_BYTES).unwrap_or(usize::MAX)
+            }))
+    }
+    pub fn validate(&self) -> Result<(), GenerationError> {
+        if self.bytes() > MAX_TEXT_BYTES {
+            return Err(GenerationError::Limit);
+        }
+        if let Some(probs) = self.logprobs.value() {
             validate_logprobs(probs)?;
         }
         Ok(())
