@@ -34,6 +34,8 @@ cargo run --locked --offline --bin openbridge
 - Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单文本 part 编码规范化为字符串，多 part 保序。user content 另可包含有序 `image_url` 图片 parts，Responses 使用 `input_image`；只准入 URL/inline 图片输入，且 Public Model/Endpoint 必须声明可表示。详细边界见[图片输入 slice](architecture-v2/responses-text-profile.md#user-image-input)。工具结果支持字符串或有序纯文本数组，保留空数组和单/多 part，不拼接。function-only `allowed_tools` 使用 Chat 的嵌套 shell；实际目标支持仍须独立核对。
 - 请求要求 JSON Content-Type，仅 UTF-8；不接受 Content-Encoding。严格 JSON 解析拒绝重复 key。先解析 envelope 中的 public model，绑定受信 task，再进行语义 decode。
 - 每个 `(public model, client protocol)` 在启动时显式激活 Route 成员；多个不同 Endpoint 的 Entry 合并并保持编译 Route 顺序，不按激活输入顺序排序。重复或路由外成员拒绝。默认 bootstrap 仍激活单个相同 wire family 成员；没有对应入口返回 `model_not_found`，不从 Chat 激活推导 Responses。请求按完整最终 IR 和 Route 的候选策略独立预检；无兼容成员在 I/O 前失败。默认选择首个兼容成员。只有显式 `RoutePolicy.fallback = BeforeCommit` 允许提交前顺序前移，最多 `max_attempts` 个不同成员；无同成员重试/竞速/运行时改序，也不允许业务 JSON 指定目标。多成员入口不共用 issuer scope，当前拒绝 opaque replay/加密输出请求。
+- 缓存亲和只利用 Provider 原生功能，不维护网关会话/回答缓存，不重排固定 Route。标准 `prompt_cache_key` 是 advisory hint，未声明 carrier 的目标可以省略它；显式 cache options 目标不支持时拒绝。`user`/`safety_identifier` 独立于 cache hints，目标未声明时拒绝而非随 cache 一起丢弃。
+- 两个入口额外支持非空、最多 256 字符且不含控制字符的 `session_id` body 扩展，用于 Provider cache/observability grouping；只投影到明确支持它的目标，否则拒绝。它不等于 OpenBridge 会话，不从其他 ID 自动生成，不把 `session-id`/`x-session-id` 入站 header 透传。具体 profile/激活仍按源码核对。
 - operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。Chat metadata/service-tier 和 logprobs/top_logprobs 经同一 typed IR/context 与 Endpoint gate，不因 codec 准入就自动扩大 catalog 模型能力。响应 reported facts 不从请求复制补齐。
 - Provider URL、path、model 和 auth 都来自启动绑定。入站 headers 不透传，包括独立 `CodexHeaders` carrier；低层 Responses envelope 可读写的 `CustomSections` 也未接线，非空 sections 在请求准入时拒绝。上游非成功 HTTP 状态的诊断正文、认证状态细节、origin、凭据 locator 不回显；下游 `model` 为 public label。
 - 未实现 `/v1/models`、状态资源、WebSocket、媒体资源服务/图片输出或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。Chat 正文/refusal 概率按 owner 保真；静态 reported metadata 没有 Chat chunk 槽位，不能通过丢字段合成 SSE。
@@ -91,7 +93,7 @@ Chat 对应图片 part 为 `{"type":"image_url","image_url":{"url":"https://exam
 | 502 / 504 | 上游状态、协议、投影或预算失败 / 上游交付超时 |
 | 503 / 500 | 服务关闭中 / 本地运行故障 |
 
-未发布下游 frame 时，显式 BeforeCommit 策略可在 429/5xx、连接失败及有剩余总预算的尝试超时后前移；参数、auth/权限、协议或投影错误默认终止。各尝试共享 permit 和绝对总 deadline，单成员 timeout 不重置总预算。可能重复上游计算/计费，不保证上游已停止处理。非成功模型终态不是 fallback 理由。最终失败返回 JSON 错误。首次下游 frame 发布时保守冻结候选以避免 recv/timeout 竞争，发布不等于 commit；HTTP response 已交出后不能更改状态：late error、取消、超时或缺失/错误终态会中止 body，不合成成功 `response.completed` / `[DONE]`，也不重试。已准入的模型非成功语义终态（如 incomplete）与 transport 错误不同，仍按语义合同交付。
+未发布下游 frame 时，显式 BeforeCommit 策略可在 429/5xx、连接失败及有剩余总预算的尝试超时后前移；参数、auth/权限、HTTP 重定向、协议或投影错误终止。各尝试共享 permit 和绝对总 deadline，单成员 timeout 不重置总预算。可能重复上游计算/计费，不保证上游已停止处理。非成功模型终态不是 fallback 理由。最终失败返回 JSON 错误。首次下游 frame 发布时保守冻结候选以避免 recv/timeout 竞争，发布不等于 commit；HTTP response 已交出后不能更改状态：late error、取消、超时或缺失/错误终态会中止 body，不合成成功 `response.completed` / `[DONE]`，也不重试。已准入的模型非成功语义终态（如 incomplete）与 transport 错误不同，仍按语义合同交付。
 
 SSE 不收完整流再回放。每次最多消费一个上游 frame；下游 frame 在 HTTP body handoff 时确认，未确认不推进后续语义处理。仅编码或排队不算 commit。严格上游 EOF 后才释放终态；完成全部 handoff 后才完成 producer。这是服务 transport 边界，不声称已收到客户端/TCP acknowledgement。消费者不 poll body 时，deadline 仍能释放上游；drop/shutdown 同样取消资源。
 
@@ -101,7 +103,7 @@ SSE 不收完整流再回放。每次最多消费一个上游 frame；下游 fra
 
 仅认证后的 POST 请求且唯一 `x-openbridge-probe-id` 符合 `<32位小写hex run-id>:<1–999999 attempt>` 时记录；无效/重复 ID 只禁用该请求诊断，不改变业务准入。它不进入 IR，不选择上游、不透传，不在响应中回显。
 
-白名单仅含关联 ID、最后阶段/结果、上游 HTTP、0–86400 秒内的规范化 Retry-After、接收/已 handoff 字节与时间偏移。合法 HTTP-date 也规范化；未知或超范围值不保存。绝不记录正文、header 原文、URL、原始错误、credential locator、reasoning 或 opaque。静态 JSON 在 EOF finalize 时解析，其失败可出现在 `terminal` 阶段；`complete` 仍只表示 server transport handoff，不证明客户端收到。该通道不改变原有 429/502 映射，不把 Retry-After 透传下游，不触发 retry/fallback。
+白名单含关联 ID、最后阶段/结果、上游 HTTP、0–86400 秒内的规范化 Retry-After、接收/已 handoff 字节与时间偏移；另有最多 64 条候选观察（ordinal、stage、status、Retry-After、独立字节计数、耗时、封闭错误码及是否前移）。汇总字节是全链累计，候选记录不会把前一个 HTTP 状态归给尚未收到响应头的新尝试。合法 HTTP-date 也规范化；未知或超范围值不保存。绝不记录正文、header 原文、URL、原始错误、credential locator、reasoning 或 opaque。静态 JSON 在 EOF finalize 时解析，其失败可出现在 `terminal` 阶段；`complete` 仍只表示 server transport handoff，不证明客户端收到。该通道不改变原有 429/502 映射，不把 Retry-After 透传下游，不触发 retry/fallback。
 
 嵌入方可在共享 Gateway 前调用 `with_probe_diagnostics(path)`，结束时 `flush_probe_diagnostics().await` 做有界 drain。run/attempt 及 SDK/pi 账本的归属见 [probe 指南](probes.md)。
 

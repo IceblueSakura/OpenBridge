@@ -194,7 +194,7 @@ fn opaque_origin_and_owner_dependencies_are_checked_but_deleted_owners_are_irrel
         .unwrap();
     assert!(lower_request(&deleted, &d.fidelity, Profile::Chat, Contract::full()).is_ok());
     let mut no = contract();
-    no.reasoning = false;
+    no.semantics.reasoning = false;
     assert!(lower_request(&d.semantic, &d.fidelity, Profile::Responses, no).is_err());
 }
 #[test]

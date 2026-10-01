@@ -14,7 +14,7 @@
 | Responses JSON/SSE | 已准入无状态文本分支有双向与 Static/Event 验证；完整 union 尚未逐分支审计 | `src/protocol/openai/`、`tests/semantic/`、`tests/transport/responses_sse.rs`；见下方缺口状态，不能称完整标准实现 |
 | 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证；文本 context 与 content/refusal probabilities 已有双向映射 | `tests/semantic/chat_logprobs.rs`、`tests/transport/chat.rs`；请求/静态/SSE、IR 编辑与目标拒绝分别验证；其他标准文本控制仍有限，不等于 Chat 协议无法表达 |
 | 固定消费者 / Agent 场景 | 有固定 SDK 工具/reasoning 续轮 gates，未证明一般 Agent 兼容 | `tests/sdk/gateway.rs` 让固定 SDK 经同一 Router 完成双协议 JSON/SSE 工具与 reasoning 续轮；上游为 synthetic，显式 ignored，默认 Rust tests 不执行。范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
-| 缓存亲和性 | 有表示与保序基础，尚无执行亲和策略或命中效果验收 | CacheHints、schema order、origin-bound replay 已存在；缓存 scope 的执行绑定、跨轮/跨目标策略及真实 hit/成本/延迟效果不能由字段往返推出 |
+| Provider 缓存亲和性 | 稳定前缀与显式 cache carrier 投影；未验证真实命中收益 | CacheHints 与 ClientIdentityHints 分开；scoped session_id 仅向声明目标投影。工具/Schema/多轮前缀有独立回归；不实现网关回答缓存、会话管理、负载均衡或跨请求粘性。真实 hit/成本/延迟另行验收 |
 | 执行库 / HTTP 接线 | 最小 loopback 服务已接通认证、固定入口、Provider transport 与增量 body；未生产验收 | `src/gateway/`、`src/transport/http.rs`、`tests/gateway.rs`；启动与错误边界见 [HTTP 指南](../http-gateway.md)。没有凭据池、同候选自动 retry 或动态 registry；显式 fixed Route 的提交前有界 fallback 已接线，默认关闭 |
 
 ### 使用判断

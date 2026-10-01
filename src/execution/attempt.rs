@@ -66,6 +66,7 @@ pub fn admit(
     if public.id.as_str() != request.model {
         return Err(AttemptError::Protocol("public model mismatch"));
     }
+    request.check_context(public.standard_context)?;
     Ok(request.check_semantic(&public.contract)?)
 }
 

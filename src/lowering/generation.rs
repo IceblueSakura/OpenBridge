@@ -26,27 +26,11 @@ pub struct GenerationRepresentationContract {
     /// Delivery policy for reported facts; `Faithful` unless a consumer
     /// explicitly demands the strict complete form.
     pub reported_facts: ReportedFactPolicy,
-    pub instructions: bool,
-    pub temperature: bool,
-    pub max_output_tokens: bool,
-    pub tools: bool,
-    pub custom_tools: bool,
-    pub text_metadata: bool,
-    pub top_p: bool,
-    pub logprobs: bool,
-    pub verbosity: bool,
-    pub truncation: bool,
-    pub structured_output: bool,
-    pub reasoning: bool,
-    pub image_input: bool,
-    pub images: super::images::ImageConstraints,
-    pub audio_input: bool,
-    pub file_input: bool,
-    pub parallel_tool_calls: bool,
-    pub strict_tools: bool,
-    /// Endpoint accepts cache-affinity hint fields (`prompt_cache_key` and
-    /// friends) on its wire; otherwise lowering omits them as inactive hints.
-    pub cache_hints: bool,
+    pub semantics: GenerationSemanticContract,
+    pub images: crate::protocol::image_constraints::ImageConstraints,
+    pub cache: crate::protocol::cache::CacheProjection,
+    /// Identity/safety acceptance is independent of optional cache hints.
+    pub identity_hints: bool,
     /// Target admits metadata/service-tier/tool-budget context fields.
     pub standard_context: bool,
 }
@@ -56,25 +40,10 @@ impl GenerationRepresentationContract {
             adaptation: Default::default(),
             replay_origin: None,
             reported_facts: ReportedFactPolicy::Faithful,
-            instructions: true,
-            temperature: true,
-            max_output_tokens: true,
-            tools: true,
-            custom_tools: true,
-            text_metadata: true,
-            top_p: true,
-            logprobs: true,
-            verbosity: true,
-            truncation: true,
-            structured_output: true,
-            reasoning: true,
-            image_input: true,
-            images: super::images::ImageConstraints::all(),
-            audio_input: true,
-            file_input: true,
-            parallel_tool_calls: true,
-            strict_tools: true,
-            cache_hints: true,
+            semantics: GenerationSemanticContract::full(),
+            images: crate::protocol::image_constraints::ImageConstraints::all(),
+            cache: crate::protocol::cache::CacheProjection::all(),
+            identity_hints: true,
             standard_context: true,
         }
     }
@@ -84,59 +53,7 @@ pub fn check(
     c: GenerationRepresentationContract,
 ) -> Result<GenerationRequirements, RepresentationError> {
     r.validate()?;
-    let q = GenerationRequirements::derive(r);
-    if q.instruction_count > 0 && !c.instructions {
-        return Err(RepresentationError::Instructions);
-    }
-    if q.temperature && !c.temperature {
-        return Err(RepresentationError::Temperature);
-    }
-    if q.max_output_tokens.is_some() && !c.max_output_tokens {
-        return Err(RepresentationError::MaxOutputTokens);
-    }
-    if (q.tool_count > 0
-        || q.tool_history
-        || q.tool_choice.is_some()
-        || q.parallel_tool_calls.is_some())
-        && !c.tools
-    {
-        return Err(RepresentationError::Tools);
-    }
-    if q.custom_tools && !c.custom_tools {
-        return Err(RepresentationError::Tools);
-    }
-    if q.text_metadata && !c.text_metadata {
-        return Err(RepresentationError::TextMetadata);
-    }
-    if q.top_p && !c.top_p
-        || q.logprobs && !c.logprobs
-        || q.truncation && !c.truncation
-        || !r.text_options().verbosity.is_absent() && !c.verbosity
-    {
-        return Err(RepresentationError::Controls);
-    }
-    if q.parallel_tool_calls == Some(true) && !c.parallel_tool_calls {
-        return Err(RepresentationError::ParallelTools);
-    }
-    if q.strict_function_tools && !c.strict_tools {
-        return Err(RepresentationError::StrictTools);
-    }
-    if q.structured_output && !c.structured_output {
-        return Err(RepresentationError::StructuredOutput);
-    }
-    if q.reasoning && !c.reasoning {
-        return Err(RepresentationError::Reasoning);
-    }
-    if q.image_inputs > 0 && !c.image_input {
-        return Err(RepresentationError::ImageInput);
-    }
-    if q.audio_inputs > 0 && !c.audio_input {
-        return Err(RepresentationError::AudioInput);
-    }
-    if q.file_inputs > 0 && !c.file_input {
-        return Err(RepresentationError::FileInput);
-    }
-    Ok(q)
+    c.semantics.check(r).map_err(RepresentationError::Admission)
 }
 pub fn lower_request<'a>(
     r: &'a GenerationRequest,
@@ -187,7 +104,9 @@ pub fn lower_request<'a>(
         c.adaptation.rules.structured_chat_reasoning,
         true,
     )?;
-    c.images.check(r)?;
+    c.images
+        .check(r)
+        .map_err(|_| RepresentationError::ImageInput)?;
     for (_, item) in r.items() {
         if let Item::Message(message) = item {
             for part in &message.parts {
@@ -646,6 +565,8 @@ fn validate_wire_ids(
 }
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 pub enum RepresentationError {
+    #[error(transparent)]
+    Admission(#[from] GenerationFeature),
     #[error(transparent)]
     Semantic(#[from] GenerationError),
     #[error(transparent)]

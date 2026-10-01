@@ -134,7 +134,7 @@ fn chat_probability_request_controls_project_and_reject_invalid_combinations() {
             .is_none()
     );
     let mut contract = Contract::full();
-    contract.logprobs = false;
+    contract.semantics.logprobs = false;
     assert!(
         adapter(Profile::Chat)
             .encode_request(&request, "m", &contract)
@@ -219,7 +219,7 @@ fn chat_content_and_refusal_probabilities_close_static_and_event_paths() {
             "final metadata must not duplicate streamed probabilities"
         );
         let mut limited = Contract::full();
-        limited.logprobs = false;
+        limited.semantics.logprobs = false;
         assert!(
             adapter(Profile::Chat)
                 .encode_response(&decoded, &limited)

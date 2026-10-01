@@ -323,7 +323,14 @@ fn unified_request_projection_keeps_targets_trusted_and_debug_redacted() {
         .unwrap();
     let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);
     let request = client.decode_request(json!({"model":"deepseek-flash","input":"hello","stream":true,"prompt_cache_key":"session"}).to_string().as_bytes()).unwrap();
-    admit(&catalog::deepseek_flash(), &request).unwrap();
+    admit(
+        catalog::default_topology()
+            .unwrap()
+            .model("deepseek-flash")
+            .unwrap(),
+        &request,
+    )
+    .unwrap();
     let secret = SecretMaterial::new("synthetic-only-secret").unwrap();
     let upstream = prepare(endpoint, &providers::deepseek(), &secret, &request).unwrap();
     let body: Value = serde_json::from_slice(&upstream.body).unwrap();
@@ -341,7 +348,11 @@ fn unified_request_projection_keeps_targets_trusted_and_debug_redacted() {
         Err(AttemptError::Delivery(_))
     ));
     assert!(prepare(endpoint, &providers::xiaomi(), &secret, &request).is_err());
-    let mut no_temperature = catalog::deepseek_flash();
+    let mut no_temperature = catalog::default_topology()
+        .unwrap()
+        .model("deepseek-flash")
+        .unwrap()
+        .clone();
     no_temperature.contract.temperature = false;
     let request = client
         .decode_request(
@@ -360,7 +371,16 @@ fn unified_request_projection_keeps_targets_trusted_and_debug_redacted() {
             .unwrap()
             .extend(extra.as_object().unwrap().clone());
         let request = client.decode_request(body.to_string().as_bytes()).unwrap();
-        assert!(admit(&catalog::deepseek_flash(), &request).is_err());
+        assert!(
+            admit(
+                catalog::default_topology()
+                    .unwrap()
+                    .model("deepseek-flash")
+                    .unwrap(),
+                &request
+            )
+            .is_err()
+        );
         assert!(prepare(endpoint, &providers::deepseek(), &secret, &request).is_err());
     }
 }
@@ -386,7 +406,14 @@ fn router_request_policy_is_fixed_and_luna_controls_are_not_silently_ignored() {
     ] {
         let client = Adapter::new(profile, Dialect::OpenBridge, None);
         let request = client.decode_request(body.to_string().as_bytes()).unwrap();
-        admit(&catalog::gpt_6_luna(), &request).unwrap();
+        admit(
+            catalog::default_topology()
+                .unwrap()
+                .model("gpt-6-luna")
+                .unwrap(),
+            &request,
+        )
+        .unwrap();
         let endpoint = topology
             .endpoint(&EndpointId::new(&format!("openrouter-{suffix}")).unwrap())
             .unwrap();
@@ -420,7 +447,16 @@ fn router_request_policy_is_fixed_and_luna_controls_are_not_silently_ignored() {
         }
         body["temperature"] = json!(0.5);
         let unsupported = client.decode_request(body.to_string().as_bytes()).unwrap();
-        assert!(admit(&catalog::gpt_6_luna(), &unsupported).is_err());
+        assert!(
+            admit(
+                catalog::default_topology()
+                    .unwrap()
+                    .model("gpt-6-luna")
+                    .unwrap(),
+                &unsupported
+            )
+            .is_err()
+        );
         assert!(prepare(endpoint, &providers::openrouter(), &secret, &unsupported).is_err());
         body.as_object_mut().unwrap().remove("temperature");
         body["provider"] = json!({"require_parameters":false,"order":["untrusted"]});

@@ -6,7 +6,9 @@ pub mod bootstrap;
 mod config;
 mod diagnostics;
 mod error;
+mod exchange;
 mod http;
+mod intake;
 #[cfg(test)]
 mod route_fallback_tests;
 #[cfg(test)]
@@ -52,18 +54,23 @@ impl BoundEntry {
         {
             return Err(ApiError::invalid());
         }
-        let mut result = vec![];
-        for candidate in &self.candidates {
-            if crate::execution::plan::representable(&candidate.endpoint, request) {
-                result.push(candidate.clone());
-            } else if self.policy.candidates == crate::topology::CandidatePolicy::RequireAll {
-                return Err(ApiError::invalid());
-            }
-        }
-        if result.is_empty() {
-            return Err(ApiError::invalid());
-        }
-        Ok(result)
+        let selected = crate::execution::plan::select_candidates(
+            request,
+            self.policy.candidates,
+            self.candidates.iter().map(|c| &c.endpoint),
+        )
+        .map_err(|_| ApiError::invalid())?;
+        Ok(selected
+            .candidates
+            .iter()
+            .map(|planned| {
+                self.candidates
+                    .iter()
+                    .find(|c| c.endpoint.id == planned.endpoint_id)
+                    .expect("selected activated member")
+                    .clone()
+            })
+            .collect())
     }
 }
 struct Runtime {

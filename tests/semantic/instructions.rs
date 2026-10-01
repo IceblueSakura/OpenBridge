@@ -52,7 +52,10 @@ fn ir_deletion_controls_both_encoders() {
 fn unrepresentable_instructions_fail_before_encoding() {
     let d = chat::decode_generation(&json!({"messages":[{"role":"system","content":"required"},{"role":"user","content":"hello"}]})).unwrap();
     let contract = Contract {
-        instructions: false,
+        semantics: openbridge::semantic::task::generation::GenerationSemanticContract {
+            instructions: false,
+            ..openbridge::semantic::task::generation::GenerationSemanticContract::full()
+        },
         ..Contract::full()
     };
     assert!(check(&d.semantic, contract).is_err());

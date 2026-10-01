@@ -57,7 +57,7 @@ Wire + trusted admission context
 - [chat-text-profile.md](chat-text-profile.md)：同一 IR 的单候选 Chat 静态/流式映射与拒绝边界。
 - [schema-profile.md](schema-profile.md)：请求/报告设置共享的 Schema 结构、strict/default、本地引用与预算准入。
 
-最小 HTTP 入口、启动固定候选与 body handoff 边界见 [ADR 0009](decisions/0009-minimal-http-text-gateway.md)；canonical model 与显式固定多成员/提交前 fallback 由 [ADR 0010](decisions/0010-canonical-model-fixed-fallback.md) 扩展。既有 decisions 维护其当前有效规则，不添加完成日志或平行 schema；reasoning 的 owner/origin/finality 见[专项规则](decisions/0006-reasoning-ownership.md)。设计与历史来源有冲突时，依据当前需求及固定一手证据显式解决；来源快照不构成冻结设计的理由。
+最小 HTTP 入口、启动固定候选与 body handoff 边界见 [ADR 0009](decisions/0009-minimal-http-text-gateway.md)；canonical model 与显式固定多成员/提交前 fallback 由 [ADR 0010](decisions/0010-canonical-model-fixed-fallback.md) 扩展。稳定合同、显式注册和 Provider 原生缓存投影由 [ADR 0011](decisions/0011-stable-admission-provider-cache.md) 收敛；不实现网关负载均衡、回答缓存或会话管理。既有 decisions 维护其当前有效规则，不添加完成日志或平行 schema；reasoning 的 owner/origin/finality 见[专项规则](decisions/0006-reasoning-ownership.md)。设计与历史来源有冲突时，依据当前需求及固定一手证据显式解决；来源快照不构成冻结设计的理由。
 
 ## 验收原则
 

@@ -35,45 +35,6 @@ impl Bootstrap {
                 .map_err(|_| StartupError::Credentials)?;
         let mut credentials = Credentials::new();
         let mut entries = vec![];
-        for (variable, binding, models) in [
-            (
-                "OPENBRIDGE_DEEPSEEK_API_KEY",
-                "deepseek-api-key",
-                &[("deepseek-flash", "deepseek")][..],
-            ),
-            (
-                "OPENBRIDGE_XIAOMI_API_KEY",
-                "xiaomi-api-key",
-                &[
-                    ("mimo-v2.6-pro", "xiaomi"),
-                    ("mimo-v2.6-flash", "xiaomi-flash"),
-                ][..],
-            ),
-            (
-                "OPENBRIDGE_OPENROUTER_API_KEY",
-                "openrouter-api-key",
-                &[("gpt-6-luna", "openrouter")][..],
-            ),
-        ] {
-            if let Some(key) = get(variable)? {
-                credentials.insert(
-                    CredentialBindingId::new(binding).map_err(|_| StartupError::Binding)?,
-                    Arc::new(SecretMaterial::new(&key).map_err(|_| StartupError::Credentials)?),
-                );
-                for &(model, prefix) in models {
-                    for (protocol, suffix) in
-                        [(Profile::Chat, "chat"), (Profile::Responses, "responses")]
-                    {
-                        entries.push(Entry {
-                            model: model.into(),
-                            protocol,
-                            endpoint: EndpointId::new(&format!("{prefix}-{suffix}"))
-                                .map_err(|_| StartupError::Binding)?,
-                        });
-                    }
-                }
-            }
-        }
         for binding in catalog::API_KEY_BINDINGS {
             if let Some(key) = get(binding.variable)? {
                 credentials.insert(

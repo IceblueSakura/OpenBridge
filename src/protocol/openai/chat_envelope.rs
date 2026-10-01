@@ -4,7 +4,7 @@ use super::{
     chat, common::*,
 };
 use crate::semantic::{
-    context::{CacheHints, ExecutionHints, ServiceTier, StreamOptions},
+    context::{CacheHints, ClientIdentityHints, ExecutionHints, ServiceTier, StreamOptions},
     value::Presence,
 };
 use serde_json::{Map, Value, json};
@@ -40,6 +40,7 @@ pub struct RequestContext {
     pub stream: Presence<bool>,
     pub stream_options: Presence<StreamOptions>,
     pub cache: CacheHints,
+    pub identity: ClientIdentityHints,
     pub metadata: Presence<std::collections::BTreeMap<String, String>>,
     pub service_tier: Presence<ServiceTier>,
 }
@@ -60,6 +61,7 @@ impl RequestContext {
         }
         validate_context(&ExecutionHints {
             cache: self.cache.clone(),
+            identity: self.identity.clone(),
             metadata: self.metadata.clone(),
             service_tier: self.service_tier.clone(),
             ..Default::default()
@@ -132,6 +134,7 @@ pub(crate) fn decode_request_with(
         })?,
         stream_options: read_presence(o, "stream_options", StreamOptions::read)?,
         cache: hints.cache,
+        identity: hints.identity,
         metadata: hints.metadata,
         service_tier: hints.service_tier,
     };
@@ -163,6 +166,12 @@ pub fn encode_request(
         StreamOptions::write,
     );
     context.cache.write(o)?;
+    let Value::Object(identity) = serde_json::to_value(&context.identity)
+        .map_err(|_| CodecError::Invalid("identity hints"))?
+    else {
+        unreachable!()
+    };
+    o.extend(identity);
     put_presence(o, "metadata", &context.metadata, |v| json!(v));
     put_presence(o, "service_tier", &context.service_tier, |v| json!(v));
     bounded(&v)?;

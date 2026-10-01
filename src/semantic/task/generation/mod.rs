@@ -1,4 +1,6 @@
 //! Generation semantic IR.
+mod contract;
+pub use contract::{GenerationFeature, GenerationSemanticContract};
 mod event;
 mod output;
 mod pattern;

@@ -149,15 +149,35 @@ impl Dialect {
             ),
         };
         let mut images = match self {
-            Self::OpenBridge | Self::Xiaomi => crate::lowering::images::ImageConstraints::all(),
-            _ => crate::lowering::images::ImageConstraints::common(),
+            Self::OpenBridge | Self::Xiaomi => {
+                crate::protocol::image_constraints::ImageConstraints::all()
+            }
+            _ => crate::protocol::image_constraints::ImageConstraints::common(),
         };
         if self == Self::Xiaomi {
             images.details.clear();
         }
+        let cache = match self {
+            Self::Standard => crate::protocol::cache::CacheProjection {
+                session_id: false,
+                ..crate::protocol::cache::CacheProjection::all()
+            },
+            Self::OpenBridge => crate::protocol::cache::CacheProjection::all(),
+            // The standard cache key is explicitly accepted as an affinity fallback.
+            // session_id is a separate caller-supplied grouping value, never synthesized.
+            // https://openrouter.ai/docs/guides/best-practices/prompt-caching
+            // https://openrouter.ai/docs/client-sdks/typescript/models/responsesrequest
+            Self::OpenRouter => crate::protocol::cache::CacheProjection {
+                key: true,
+                session_id: true,
+                ..Default::default()
+            },
+            _ => Default::default(),
+        };
         Adaptation {
             rules,
             images,
+            cache,
             profile_id,
             scope,
         }
@@ -189,6 +209,7 @@ impl Adapter {
         let mut result = contract.clone();
         result.adaptation = self.adaptation.clone();
         result.images.intersect(&self.adaptation.images);
+        result.cache.intersect(self.adaptation.cache);
         result
     }
     pub fn decode_response(&self, bytes: &[u8]) -> Result<DecodedResponse, CodecError> {

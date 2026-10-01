@@ -71,10 +71,16 @@
     },
     "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "description": "Exactly one Authorization header. Configured startup secret, not an upstream API key."}},
     "schemas": {
+      "CacheSession": {
+        "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
+        "description": "OpenBridge scoped extension: caller-supplied Provider cache/observability grouping, not a gateway-managed session. Only explicitly supporting targets may receive it. No derivation from prompt_cache_key, user, safety_identifier or opaque replay; unsupported targets reject it. Incoming session headers are not forwarded."
+      },
       "ChatRequest": {
         "type": "object", "required": ["model", "messages"],
         "properties": {
           "model": {"type": "string", "minLength": 1},
+          "session_id": {"$ref": "#/components/schemas/CacheSession"},
+          "prompt_cache_key": {"type": ["string", "null"], "maxLength": 256, "description": "Advisory Provider cache-affinity key. Targets without a declared key carrier omit it; automatic caching is independent. Does not select or reorder OpenBridge candidates."},
           "messages": {"type": "array", "items": {"type": "object"}, "description": "User/assistant and system/developer content accepts a string or nonempty ordered plain-text part array. Tool result content accepts a string or ordered plain-text part array, including an empty array; single tool-result parts remain arrays. User content additionally admits ordered text/image_url parts when public and endpoint contracts permit image input; one image remains an array. HTTP(S) URL and Base64 image data URL only; file IDs, other roles' images, tool-result media and generated media are rejected."},
           "stream": {"type": ["boolean", "null"], "default": false},
           "max_completion_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."},
@@ -91,6 +97,8 @@
         "type": "object", "required": ["model"],
         "properties": {
           "model": {"type": "string", "minLength": 1},
+          "session_id": {"$ref": "#/components/schemas/CacheSession"},
+          "prompt_cache_key": {"type": ["string", "null"], "maxLength": 256, "description": "Advisory Provider cache-affinity key, independent of session_id. Cache echoes/usage are only upstream-reported facts."},
           "input": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "object"}}]},
           "stream": {"type": ["boolean", "null"], "default": false},
           "max_output_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}

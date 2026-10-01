@@ -58,33 +58,7 @@ fn promised(
     semantic: &GenerationSemanticContract,
     endpoint: &GenerationRepresentationContract,
 ) -> bool {
-    let promise = semantic.representation();
-    let flags = [
-        (promise.instructions, endpoint.instructions),
-        (promise.temperature, endpoint.temperature),
-        (promise.max_output_tokens, endpoint.max_output_tokens),
-        (promise.tools, endpoint.tools),
-        (promise.custom_tools, endpoint.custom_tools),
-        (promise.text_metadata, endpoint.text_metadata),
-        (promise.top_p, endpoint.top_p),
-        (promise.logprobs, endpoint.logprobs),
-        (promise.verbosity, endpoint.verbosity),
-        (promise.truncation, endpoint.truncation),
-        (promise.structured_output, endpoint.structured_output),
-        (promise.reasoning, endpoint.reasoning),
-        (promise.image_input, endpoint.image_input),
-        (promise.audio_input, endpoint.audio_input),
-        (promise.file_input, endpoint.file_input),
-        (promise.parallel_tool_calls, endpoint.parallel_tool_calls),
-        (promise.strict_tools, endpoint.strict_tools),
-        (promise.cache_hints, endpoint.cache_hints),
-        (promise.standard_context, endpoint.standard_context),
-    ];
-    let replay_ok = promise
-        .replay_origin
-        .as_ref()
-        .is_none_or(|p| endpoint.replay_origin.as_ref() == Some(p));
-    flags.into_iter().all(|(p, e)| !p || e) && replay_ok
+    endpoint.semantics.supports(semantic)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -207,7 +181,9 @@ pub fn compile(
         if route.endpoints.is_empty() {
             return Err(TopologyError::EmptyRoute);
         }
-        if !(1..=64).contains(&route.policy.max_attempts) {
+        if route.endpoints.len() > super::route::MAX_ROUTE_CANDIDATES
+            || !(1..=super::route::MAX_ROUTE_CANDIDATES).contains(&route.policy.max_attempts)
+        {
             return Err(TopologyError::InvalidRoutePolicy);
         }
         let mut seen = std::collections::BTreeSet::new();
@@ -237,7 +213,7 @@ pub fn compile(
         if canonical.task != model.task {
             return Err(TopologyError::TaskMismatch);
         }
-        if !promised(&model.contract, &canonical.contract.representation()) {
+        if !canonical.contract.supports(&model.contract) {
             return Err(TopologyError::SemanticUnsatisfiable);
         }
         let route = route_map
@@ -252,7 +228,8 @@ pub fn compile(
                 return Err(TopologyError::CanonicalModelMismatch);
             }
             if route.policy.candidates == super::CandidatePolicy::RequireAll
-                && !promised(&model.contract, &endpoint.representation)
+                && (!promised(&model.contract, &endpoint.representation)
+                    || model.standard_context && !endpoint.representation.standard_context)
             {
                 return Err(TopologyError::ContractUnsatisfiable);
             }
@@ -347,7 +324,7 @@ mod tests {
             ModelId::new("fixture-model").unwrap(),
             TaskKind::Generation,
             RouteId::new("fixture-route").unwrap(),
-            GenerationSemanticContract::from_representation(&contract),
+            contract.semantics,
         )
     }
 
@@ -433,6 +410,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn public_aliases_share_one_explicit_canonical_without_mutating_either_contract() {
+        let first = model(GenerationRepresentationContract::full());
+        let mut second = first.clone();
+        second.id = ModelId::new("another-public-alias").unwrap();
+        second.contract.temperature = false;
+        let compiled = compile_fixture(
+            vec![endpoint(ProtocolProfile::OpenAiChat)],
+            vec![route()],
+            vec![first, second],
+        )
+        .unwrap();
+        assert!(
+            compiled
+                .canonical_model(&ModelId::new("fixture-model").unwrap())
+                .unwrap()
+                .contract
+                .temperature
+        );
+        assert!(
+            !compiled
+                .model("another-public-alias")
+                .unwrap()
+                .contract
+                .temperature
+        );
+        assert!(
+            compiled
+                .model("fixture-model")
+                .unwrap()
+                .contract
+                .temperature
+        );
+    }
     #[test]
     fn duplicate_relations_are_rejected() {
         assert_eq!(
@@ -572,11 +583,17 @@ mod tests {
     #[test]
     fn public_contract_must_be_satisfiable_by_every_candidate() {
         let promise = GenerationRepresentationContract {
-            strict_tools: true,
+            semantics: GenerationSemanticContract {
+                strict_tools: true,
+                ..GenerationSemanticContract::full()
+            },
             ..GenerationRepresentationContract::full()
         };
         let candidate = GenerationRepresentationContract {
-            strict_tools: false,
+            semantics: GenerationSemanticContract {
+                strict_tools: false,
+                ..GenerationSemanticContract::full()
+            },
             ..GenerationRepresentationContract::full()
         };
         assert_eq!(

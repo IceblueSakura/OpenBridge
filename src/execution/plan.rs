@@ -27,9 +27,10 @@ pub struct ExecutionPlan {
     /// Fixed route order. Candidates project independently from immutable input.
     pub candidates: Vec<CandidatePlan>,
     pub policy: RoutePolicy,
+    pub rejections: Vec<CandidateRejection>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum PlanError {
     #[error("unknown public model label")]
     UnknownModel,
@@ -38,20 +39,99 @@ pub enum PlanError {
     #[error("request does not satisfy public semantic admission")]
     InvalidRequest,
     #[error("no activated candidate can faithfully represent the request")]
-    NoCandidate,
+    NoCandidate { rejections: Vec<CandidateRejection> },
+    #[error("candidate rejected: {0:?}")]
+    CandidateRejected(RejectionReason),
+    #[error("candidate set exceeds planning budget")]
+    CandidateLimit,
 }
 
-/// Preflight is pure: no credentials, network, semantic edits or route selection.
-pub fn representable(endpoint: &Endpoint, request: &crate::adapter::Request) -> bool {
+/// Closed reasons never retain request data, codec messages or credential locators.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RejectionReason {
+    Streaming,
+    BodyLimit,
+    Semantic(crate::semantic::task::generation::GenerationFeature),
+    Image,
+    ReplayScope,
+    Representation,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CandidateRejection {
+    pub endpoint_id: EndpointId,
+    pub reason: RejectionReason,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CandidateSelection {
+    pub candidates: Vec<CandidatePlan>,
+    pub rejections: Vec<CandidateRejection>,
+}
+pub const MAX_CANDIDATES: usize = crate::topology::route::MAX_ROUTE_CANDIDATES;
+/// Pure preflight; use bounded counting, not a serialized copy of every candidate body.
+pub fn representable(
+    endpoint: &Endpoint,
+    request: &crate::adapter::Request,
+) -> Result<(), RejectionReason> {
     if request.delivery.streaming() && !endpoint.execution.streaming {
-        return false;
+        return Err(RejectionReason::Streaming);
     }
-    endpoint
+    let value = endpoint
         .adapter()
         .encode_request(request, &endpoint.upstream_model, &endpoint.representation)
-        .ok()
-        .and_then(|v| serde_json::to_vec(&v).ok())
-        .is_some_and(|body| body.len() <= endpoint.execution.request_body_limit)
+        .map_err(|error| {
+            use crate::{adapter::AdapterError, lowering::generation::RepresentationError};
+            match error {
+                AdapterError::Representation(RepresentationError::Admission(feature)) => {
+                    RejectionReason::Semantic(feature)
+                }
+                AdapterError::Representation(RepresentationError::ImageInput) => {
+                    RejectionReason::Image
+                }
+                AdapterError::Representation(RepresentationError::ReplayOrigin) => {
+                    RejectionReason::ReplayScope
+                }
+                _ => RejectionReason::Representation,
+            }
+        })?;
+    crate::semantic::value::json_size(&value, endpoint.execution.request_body_limit)
+        .map_err(|_| RejectionReason::BodyLimit)?;
+    Ok(())
+}
+/// Sole ordered selection mechanism for library plans and activated Gateway members.
+pub fn select_candidates<'a>(
+    request: &crate::adapter::Request,
+    policy: CandidatePolicy,
+    endpoints: impl IntoIterator<Item = &'a Endpoint>,
+) -> Result<CandidateSelection, PlanError> {
+    let mut selected = CandidateSelection {
+        candidates: vec![],
+        rejections: vec![],
+    };
+    for (index, endpoint) in endpoints.into_iter().enumerate() {
+        if index >= MAX_CANDIDATES {
+            return Err(PlanError::CandidateLimit);
+        }
+        match representable(endpoint, request) {
+            Ok(()) => selected.candidates.push(CandidatePlan {
+                endpoint_id: endpoint.id.clone(),
+            }),
+            Err(reason) => {
+                if policy == CandidatePolicy::RequireAll {
+                    return Err(PlanError::CandidateRejected(reason));
+                }
+                selected.rejections.push(CandidateRejection {
+                    endpoint_id: endpoint.id.clone(),
+                    reason,
+                });
+            }
+        }
+    }
+    if selected.candidates.is_empty() {
+        return Err(PlanError::NoCandidate {
+            rejections: selected.rejections,
+        });
+    }
+    Ok(selected)
 }
 impl ExecutionPlan {
     pub fn for_request(
@@ -72,21 +152,13 @@ impl ExecutionPlan {
                 Delivery::Json
             },
         )?;
-        let mut eligible = vec![];
-        for candidate in &plan.candidates {
-            let endpoint = topology
-                .endpoint(&candidate.endpoint_id)
-                .ok_or(PlanError::NoCandidate)?;
-            if representable(endpoint, request) {
-                eligible.push(candidate.clone());
-            } else if plan.policy.candidates == CandidatePolicy::RequireAll {
-                return Err(PlanError::NoCandidate);
-            }
-        }
-        if eligible.is_empty() {
-            return Err(PlanError::NoCandidate);
-        }
-        plan.candidates = eligible;
+        let selected = select_candidates(
+            request,
+            plan.policy.candidates,
+            topology.route_endpoints(&public.route),
+        )?;
+        plan.candidates = selected.candidates;
+        plan.rejections = selected.rejections;
         Ok(plan)
     }
     /// Derive the plan for one public model label. The label is the only model
@@ -109,6 +181,7 @@ impl ExecutionPlan {
             task,
             delivery,
             policy: route.policy.clone(),
+            rejections: vec![],
             candidates: route
                 .endpoints
                 .iter()

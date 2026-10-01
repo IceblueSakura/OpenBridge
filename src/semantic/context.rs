@@ -62,18 +62,32 @@ pub struct CacheHints {
     pub prompt_cache_retention: Presence<CacheRetention>,
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
     pub prompt_cache_options: Presence<CacheOptions>,
+}
+/// Client identity and safety metadata are not cache keys or session identities.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientIdentityHints {
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
     pub safety_identifier: Presence<String>,
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
     pub user: Presence<String>,
 }
+impl ClientIdentityHints {
+    pub fn validate(&self) -> Result<(), ContextError> {
+        for (value, max) in [(&self.safety_identifier, 64), (&self.user, 256)] {
+            if value
+                .value()
+                .is_some_and(|s| s.chars().count() > max || s.len() > max * 4)
+            {
+                return Err(ContextError::Limit);
+            }
+        }
+        Ok(())
+    }
+}
 impl CacheHints {
     pub fn validate(&self) -> Result<(), ContextError> {
-        for (value, max) in [
-            (&self.safety_identifier, 64),
-            (&self.user, 256),
-            (&self.prompt_cache_key, 256),
-        ] {
+        for (value, max) in [(&self.prompt_cache_key, 256)] {
             if value
                 .value()
                 .is_some_and(|s| s.chars().count() > max || s.len() > max * 4)
@@ -102,6 +116,8 @@ impl CacheHints {
 pub struct ExecutionHints {
     #[serde(flatten)]
     pub cache: CacheHints,
+    #[serde(flatten)]
+    pub identity: ClientIdentityHints,
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
     pub metadata: Presence<BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Presence::is_absent")]
@@ -126,6 +142,7 @@ pub struct ExecutionHints {
 impl ExecutionHints {
     pub fn validate(&self) -> Result<(), ContextError> {
         self.cache.validate()?;
+        self.identity.validate()?;
         if self.store == Presence::Value(true)
             || self.background == Presence::Value(true)
             || self

@@ -38,6 +38,7 @@ async fn ordered_route_only_falls_back_before_visible_delivery() {
             200,
         ),
         (1, false, FallbackPolicy::BeforeCommit, 2, vec!["a"], 504),
+        (302, false, FallbackPolicy::BeforeCommit, 2, vec!["a"], 502),
         (403, false, FallbackPolicy::BeforeCommit, 2, vec!["a"], 502),
         (429, false, FallbackPolicy::Disabled, 2, vec!["a"], 429),
         (429, false, FallbackPolicy::BeforeCommit, 1, vec!["a"], 429),
@@ -55,6 +56,8 @@ async fn ordered_route_only_falls_back_before_visible_delivery() {
                     assert_eq!(headers["authorization"],format!("Bearer synthetic-{id}-credential"));
                     assert_eq!(body["model"],format!("{id}-alias"));
                     assert_eq!(body["max_output_tokens"],32);
+                    assert_eq!(body["prompt_cache_key"],"synthetic-affinity");
+                    assert_eq!(body["session_id"],"synthetic-session");
                     assert_eq!(body["input"][0]["content"],json!([{"type":"input_text","text":"keep"},{"type":"input_image","image_url":"data:image/png;base64,AQ==","detail":"auto"}]));
                     calls.lock().unwrap().push(id);
                     if id=="a" && status<=1 { return std::future::pending::<axum::response::Response>().await; }
@@ -96,7 +99,12 @@ async fn ordered_route_only_falls_back_before_visible_delivery() {
                 task: TaskKind::Generation,
                 protocol: ProtocolProfile::OpenAiResponses,
                 upstream_model: format!("{id}-alias"),
-                representation: Representation::full(),
+                representation: Adapter::new(
+                    Profile::Responses,
+                    crate::adapter::Dialect::OpenBridge,
+                    None,
+                )
+                .contract(&Representation::full()),
                 execution: ExecutionContract {
                     streaming: true,
                     retry_before_commit: false,
@@ -171,7 +179,7 @@ async fn ordered_route_only_falls_back_before_visible_delivery() {
                 .unwrap()
         });
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
-        let response=tokio::time::timeout(std::time::Duration::from_secs(5),client.post(format!("http://{addr}/v1/responses")).bearer_auth(super::tests::KEY).json(&json!({"model":"public","max_output_tokens":32,"stream":stream,"input":[{"role":"user","content":[{"type":"input_text","text":"keep"},{"type":"input_image","image_url":"data:image/png;base64,AQ==","detail":"auto"}]}]})).send()).await.unwrap().unwrap();
+        let response=tokio::time::timeout(std::time::Duration::from_secs(5),client.post(format!("http://{addr}/v1/responses")).bearer_auth(super::tests::KEY).json(&json!({"model":"public","prompt_cache_key":"synthetic-affinity","session_id":"synthetic-session","max_output_tokens":32,"stream":stream,"input":[{"role":"user","content":[{"type":"input_text","text":"keep"},{"type":"input_image","image_url":"data:image/png;base64,AQ==","detail":"auto"}]}]})).send()).await.unwrap().unwrap();
         assert_eq!(response.status().as_u16(), expected_status);
         if stream {
             assert!(

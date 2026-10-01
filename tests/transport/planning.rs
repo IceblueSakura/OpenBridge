@@ -87,10 +87,33 @@ fn full_requests_are_filtered_without_mutation_or_reordering() {
         vec!["b"]
     );
     assert_eq!(request, before);
+    assert_eq!(plan.rejections.len(), 1);
+    assert_eq!(plan.rejections[0].endpoint_id.as_str(), "a");
+    assert_eq!(
+        plan.rejections[0].reason,
+        openbridge::execution::plan::RejectionReason::Image
+    );
+    let compiled = topology(CandidatePolicy::SkipUnrepresentable);
+    let active = openbridge::execution::plan::select_candidates(
+        &request,
+        CandidatePolicy::SkipUnrepresentable,
+        compiled.route_endpoints(&RouteId::new("route").unwrap()),
+    )
+    .unwrap();
+    assert_eq!(active.candidates, plan.candidates);
+    assert_eq!(active.rejections, plan.rejections);
     assert!(ExecutionPlan::for_request(&topology(CandidatePolicy::RequireAll), &request).is_err());
     let both=client.decode_request(&serde_json::to_vec(&json!({"model":"public","input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/bmp;base64,AQ=="},{"type":"input_image","image_url":"data:image/png;base64,AQ=="}]}]})).unwrap()).unwrap();
+    let error = ExecutionPlan::for_request(&topology(CandidatePolicy::SkipUnrepresentable), &both)
+        .unwrap_err();
+    let openbridge::execution::PlanError::NoCandidate { rejections } = error else {
+        panic!("expected all candidate rejections")
+    };
+    assert_eq!(rejections.len(), 2);
     assert!(
-        ExecutionPlan::for_request(&topology(CandidatePolicy::SkipUnrepresentable), &both).is_err()
+        rejections
+            .iter()
+            .all(|r| r.reason == openbridge::execution::plan::RejectionReason::Image)
     );
     let text = client
         .decode_request(br#"{"model":"public","input":"x"}"#)
@@ -103,5 +126,14 @@ fn full_requests_are_filtered_without_mutation_or_reordering() {
             .map(|c| c.endpoint_id.as_str())
             .collect::<Vec<_>>(),
         vec!["a", "b"]
+    );
+    let endpoint = compiled.endpoint(&EndpointId::new("a").unwrap()).unwrap();
+    assert_eq!(
+        openbridge::execution::plan::select_candidates(
+            &text,
+            CandidatePolicy::SkipUnrepresentable,
+            std::iter::repeat_n(endpoint, 65)
+        ),
+        Err(openbridge::execution::PlanError::CandidateLimit)
     );
 }

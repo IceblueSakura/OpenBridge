@@ -6,6 +6,7 @@ use crate::{
     topology::{EndpointId, ModelId, RouteId, TaskKind},
 };
 
+pub const MAX_ROUTE_CANDIDATES: usize = 64;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum CandidatePolicy {
@@ -55,5 +56,7 @@ pub struct PublicModel {
     pub task: TaskKind,
     pub route: RouteId,
     pub contract: GenerationSemanticContract,
+    /// Public context admission is not a property of model intelligence.
+    pub standard_context: bool,
     pub reported_facts: ReportedFactPolicy,
 }

@@ -7,7 +7,7 @@ use crate::{
         openai::{self, CodecError, DecodedRequest, Profile, chat_envelope, envelope},
     },
     semantic::{
-        context::{CacheHints, DeliveryIntent, ExecutionHints, StreamOptions},
+        context::{DeliveryIntent, ExecutionHints, StreamOptions},
         value::Presence,
     },
 };
@@ -20,24 +20,25 @@ pub struct Request {
     pub context: ExecutionHints,
     pub delivery: DeliveryIntent,
     pub extensions: CustomSections,
+    pub cache_session: Option<crate::protocol::cache::CacheSession>,
     source: Profile,
     n: Presence<u64>,
 }
 impl Request {
     pub fn check_semantic(
         &self,
-        contract: &crate::topology::GenerationSemanticContract,
+        contract: &crate::semantic::task::generation::GenerationSemanticContract,
     ) -> Result<crate::semantic::task::generation::GenerationRequirements, AdapterError> {
-        self.check(&contract.representation())
+        self.task.semantic.validate().map_err(CodecError::from)?;
+        contract
+            .check(&self.task.semantic)
+            .map_err(|e| RepresentationError::Admission(e).into())
     }
-    fn check_context(
-        &self,
-        contract: &GenerationRepresentationContract,
-    ) -> Result<(), AdapterError> {
+    pub fn check_context(&self, standard_context: bool) -> Result<(), AdapterError> {
         self.context.validate().map_err(CodecError::from)?;
         self.delivery.validate().map_err(CodecError::from)?;
         if self.extensions != CustomSections::default()
-            || !contract.standard_context
+            || !standard_context
                 && (!self.context.metadata.is_absent()
                     || !self.context.service_tier.is_absent()
                     || !self.context.max_tool_calls.is_absent())
@@ -50,7 +51,7 @@ impl Request {
         &self,
         contract: &GenerationRepresentationContract,
     ) -> Result<crate::semantic::task::generation::GenerationRequirements, AdapterError> {
-        self.check_context(contract)?;
+        self.check_context(contract.standard_context)?;
         Ok(crate::lowering::generation::check(
             &self.task.semantic,
             contract.clone(),
@@ -59,7 +60,20 @@ impl Request {
 }
 impl Adapter {
     pub fn decode_request(&self, bytes: &[u8]) -> Result<Request, CodecError> {
-        let value = openai::json::decode(bytes)?;
+        let mut value = openai::json::decode(bytes)?;
+        let cache_session = if let Some(session) = value
+            .as_object_mut()
+            .and_then(|o| o.shift_remove("session_id"))
+        {
+            if !self.adaptation.cache.session_id {
+                return Err(CodecError::Unsupported("session_id".into()));
+            }
+            Some(crate::protocol::cache::CacheSession::new(
+                session.as_str().ok_or(CodecError::Invalid("session_id"))?,
+            )?)
+        } else {
+            None
+        };
         let mut request = match self.protocol {
             Profile::Chat => {
                 let decoded = chat_envelope::decode_request_with(&value, &self.adaptation)?;
@@ -68,6 +82,7 @@ impl Adapter {
                     model: decoded.context.model,
                     context: ExecutionHints {
                         cache: decoded.context.cache,
+                        identity: decoded.context.identity,
                         metadata: decoded.context.metadata,
                         service_tier: decoded.context.service_tier,
                         ..Default::default()
@@ -78,6 +93,7 @@ impl Adapter {
                     },
                     extensions: CustomSections::default(),
                     source: self.protocol,
+                    cache_session,
                     n: decoded.context.n,
                 }
             }
@@ -101,6 +117,7 @@ impl Adapter {
                     },
                     extensions: decoded.context.extensions,
                     source: self.protocol,
+                    cache_session,
                     n: Presence::Absent,
                 }
             }
@@ -117,10 +134,18 @@ impl Adapter {
         model: &str,
         contract: &GenerationRepresentationContract,
     ) -> Result<Value, AdapterError> {
-        request.check_context(contract)?;
+        request.check_context(contract.standard_context)?;
+        let contract = self.contract(contract);
         let mut context = request.context.clone();
-        if !contract.cache_hints {
-            context.cache = CacheHints::default();
+        contract.cache.project(&mut context)?;
+        if !contract.identity_hints
+            && (!context.identity.user.is_absent()
+                || !context.identity.safety_identifier.is_absent())
+        {
+            return Err(CodecError::Unsupported("identity hints".into()).into());
+        }
+        if request.cache_session.is_some() && !contract.cache.session_id {
+            return Err(CodecError::Unsupported("session_id".into()).into());
         }
         if self.protocol == Profile::Chat && !context.max_tool_calls.is_absent() {
             return Err(RepresentationError::UnmigratedSemantic.into());
@@ -129,7 +154,7 @@ impl Adapter {
             &request.task.semantic,
             &request.task.fidelity,
             self.protocol,
-            self.contract(contract),
+            contract,
         )?;
         let mut value = match self.protocol {
             Profile::Chat => {
@@ -153,6 +178,7 @@ impl Adapter {
                         stream: request.delivery.stream.clone(),
                         stream_options: options,
                         cache: context.cache,
+                        identity: context.identity,
                         metadata: context.metadata,
                         service_tier: context.service_tier,
                     },
@@ -187,6 +213,9 @@ impl Adapter {
             for message in messages {
                 openai::adapter_shapes::encode_message(message);
             }
+        }
+        if let Some(session) = &request.cache_session {
+            value["session_id"] = serde_json::json!(session.as_str());
         }
         if self.adaptation.rules.require_parameters {
             // Fixed adapter policy, not a user-controlled routing extension.

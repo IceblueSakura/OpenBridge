@@ -157,10 +157,8 @@ fn edits_delete_replace_insert_and_reorder_images_without_source_resurrection() 
         GenerationRequirements::derive(&request.task.semantic).image_inputs,
         0
     );
-    let contract = GenerationRepresentationContract {
-        image_input: false,
-        ..GenerationRepresentationContract::full()
-    };
+    let mut contract = GenerationRepresentationContract::full();
+    contract.semantics.image_input = false;
     assert!(
         adapter(Profile::Chat)
             .encode_request(&request, "synthetic", &contract)
@@ -309,10 +307,8 @@ fn lowering_rejects_disabled_images_and_undeclared_detail_without_mutating_ir() 
         )
         .unwrap();
     let before = request.clone();
-    let contract = GenerationRepresentationContract {
-        image_input: false,
-        ..GenerationRepresentationContract::full()
-    };
+    let mut contract = GenerationRepresentationContract::full();
+    contract.semantics.image_input = false;
     assert!(
         adapter(Profile::Responses)
             .encode_request(&request, "synthetic", &contract)

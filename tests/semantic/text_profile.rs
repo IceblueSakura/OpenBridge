@@ -175,7 +175,7 @@ fn text_presence_and_final_requirements_match_independent_wire_expectations() {
         );
         assert_eq!(request_wire(&d).get("text"), expected.as_ref());
         let mut limited = contract();
-        limited.structured_output = false;
+        limited.semantics.structured_output = false;
         assert_eq!(
             lower_request(&d.semantic, &d.fidelity, Profile::Responses, limited).is_err(),
             structured
@@ -259,7 +259,7 @@ fn response_format_shells_map_to_one_owner_with_independent_shapes() {
             structured
         );
         let mut limited = contract();
-        limited.structured_output = false;
+        limited.semantics.structured_output = false;
         for profile in [Profile::Chat, Profile::Responses] {
             assert_eq!(
                 lower_request(&d.semantic, &d.fidelity, profile, limited.clone()).is_err(),
@@ -1146,7 +1146,7 @@ fn cache_affinity_hints_keep_presence_and_never_convert_retention_into_ttl() {
         Presence::Value(false)
     );
     assert_eq!(
-        d.context.execution.cache.user.value().unwrap(),
+        d.context.execution.identity.user.value().unwrap(),
         "synthetic-user"
     );
     let out = responses_round_trip(&request);

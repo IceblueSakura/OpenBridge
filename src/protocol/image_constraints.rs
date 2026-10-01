@@ -1,5 +1,4 @@
 //! Value-sensitive target restrictions, independent of the model's vision semantics.
-use super::generation::RepresentationError;
 use crate::semantic::task::generation::{
     ContentPart, GenerationRequest, ImageDetail, ImageFormat, Item, MAX_IMAGE_DECODED_BYTES,
     ResourceLocation,
@@ -51,7 +50,10 @@ impl ImageConstraints {
         value.inline_formats.retain(|f| *f != ImageFormat::Bmp);
         value
     }
-    pub(crate) fn check(&self, request: &GenerationRequest) -> Result<(), RepresentationError> {
+    pub(crate) fn check(
+        &self,
+        request: &GenerationRequest,
+    ) -> Result<(), crate::semantic::task::generation::GenerationError> {
         let mut count = 0;
         for (_, item) in request.items() {
             if let Item::Message(message) = item {
@@ -77,7 +79,9 @@ impl ImageConstraints {
                                 .image_detail
                                 .is_some_and(|d| !self.details.contains(&d))
                         {
-                            return Err(RepresentationError::ImageInput);
+                            return Err(
+                                crate::semantic::task::generation::GenerationError::InvalidResource,
+                            );
                         }
                     }
                 }

@@ -481,24 +481,33 @@ fn target_failure_is_local_and_unsupported_domains_cannot_reach_encoding() {
     for (contract, expected) in [
         (
             Contract {
-                tools: false,
+                semantics: GenerationSemanticContract {
+                    tools: false,
+                    ..GenerationSemanticContract::full()
+                },
                 ..Contract::full()
             },
-            RepresentationError::Tools,
+            RepresentationError::Admission(GenerationFeature::Tools),
         ),
         (
             Contract {
-                parallel_tool_calls: false,
+                semantics: GenerationSemanticContract {
+                    parallel_tool_calls: false,
+                    ..GenerationSemanticContract::full()
+                },
                 ..Contract::full()
             },
-            RepresentationError::ParallelTools,
+            RepresentationError::Admission(GenerationFeature::ParallelTools),
         ),
         (
             Contract {
-                strict_tools: false,
+                semantics: GenerationSemanticContract {
+                    strict_tools: false,
+                    ..GenerationSemanticContract::full()
+                },
                 ..Contract::full()
             },
-            RepresentationError::StrictTools,
+            RepresentationError::Admission(GenerationFeature::StrictTools),
         ),
     ] {
         assert!(
@@ -515,11 +524,16 @@ fn target_failure_is_local_and_unsupported_domains_cannot_reach_encoding() {
             &d.fidelity,
             Profile::Chat,
             Contract {
-                structured_output: false,
+                semantics: GenerationSemanticContract {
+                    structured_output: false,
+                    ..GenerationSemanticContract::full()
+                },
                 ..Contract::full()
             }
         ),
-        Err(RepresentationError::StructuredOutput)
+        Err(RepresentationError::Admission(
+            GenerationFeature::StructuredOutput
+        ))
     ));
 }
 #[test]

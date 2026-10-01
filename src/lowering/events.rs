@@ -23,14 +23,14 @@ pub fn check_event(
                     return Err(RepresentationError::Tools);
                 }
                 ItemKind::ConfigurationUpdate { .. }
-                    if profile != Profile::Responses || !contract.reasoning =>
+                    if profile != Profile::Responses || !contract.semantics.reasoning =>
                 {
                     return Err(RepresentationError::Reasoning);
                 }
                 // Chat reasoning is provisional at event time: its carrier
                 // message and single text part are validated at the terminal.
                 ItemKind::Reasoning
-                    if !contract.reasoning
+                    if !contract.semantics.reasoning
                         || (profile == Profile::Chat
                             && !contract.adaptation.rules.readable_reasoning) =>
                 {
@@ -38,17 +38,17 @@ pub fn check_event(
                 }
                 ItemKind::CustomCall { .. }
                     if profile != Profile::Responses
-                        || !contract.tools
-                        || !contract.custom_tools =>
+                        || !contract.semantics.tools
+                        || !contract.semantics.custom_tools =>
                 {
                     return Err(RepresentationError::Tools);
                 }
                 ItemKind::Program { .. } | ItemKind::ProgramOutput { .. }
-                    if profile != Profile::Responses || !contract.tools =>
+                    if profile != Profile::Responses || !contract.semantics.tools =>
                 {
                     return Err(RepresentationError::Tools);
                 }
-                ItemKind::ToolCall { .. } if !contract.tools => {
+                ItemKind::ToolCall { .. } if !contract.semantics.tools => {
                     return Err(RepresentationError::Tools);
                 }
                 ItemKind::Message { .. }
@@ -95,7 +95,7 @@ pub fn check_event(
             return Err(RepresentationError::Terminal);
         }
         StreamEvent::AnnotationAdded { .. }
-            if profile == Profile::Chat || !contract.text_metadata =>
+            if profile == Profile::Chat || !contract.semantics.text_metadata =>
         {
             return Err(RepresentationError::TextMetadata);
         }
@@ -131,7 +131,9 @@ pub fn check_event(
             annotations,
             logprobs,
         } => {
-            if !annotations.is_empty() && (profile == Profile::Chat || !contract.text_metadata) {
+            if !annotations.is_empty()
+                && (profile == Profile::Chat || !contract.semantics.text_metadata)
+            {
                 return Err(RepresentationError::TextMetadata);
             }
             if !logprobs.is_absent() {
@@ -191,8 +193,8 @@ fn probability_target(
     profile: Profile,
     contract: &GenerationRepresentationContract,
 ) -> Result<(), RepresentationError> {
-    if !contract.logprobs
-        || !contract.text_metadata
+    if !contract.semantics.logprobs
+        || !contract.semantics.text_metadata
         || profile == Profile::Responses && state.part(item, part)?.kind == PartKind::Refusal
     {
         return Err(RepresentationError::TextMetadata);

@@ -20,7 +20,7 @@ Chat / Responses wire
 ```
 
 - `src/semantic/`：Generation typed request、response、event、标准 context/delivery、验证和 requirements。
-- `src/adapter/`：显式 client/Provider profiles、统一 request 表示与目标投影；允许有合同的字段归一化，不另建厂商 IR。
+- `src/adapter/`：显式 client/Provider profiles、统一 request 表示与目标投影（含声明的 Provider cache key/session carrier）；允许有合同的字段归一化，不另建厂商 IR。
 - `src/protocol/`：Chat/Responses codec、表示元数据及各自的完整 JSON/SSE 边界。
 - `src/lowering/`：针对固定表示契约的可表示性检查。
 - `src/transport/sse.rs`：有界纯 SSE framing。
@@ -29,6 +29,8 @@ Chat / Responses wire
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/gateway.rs`、`tests/sdk_loopback.rs`：语义、transport、真实 Router/binary 与固定 SDK 验收；HTTP 测试只使用 synthetic loopback。
 
 **受限的无状态 text Generation 主链已闭合，并准入选定的 user URL/inline 图片输入→文本输出 slice；不是完整多模态标准实现或生产就绪服务。** 图片语义与明确拒绝范围见[图片输入合同](docs/architecture-v2/responses-text-profile.md#user-image-input)，实际模型/Endpoint 准入仍须现场查询。 Responses 为语义主干，单候选 Chat 是同一 IR 的第二协议投影，跨协议不可表示时拒绝。语义、codec、扩展接线、SDK/Agent、缓存与执行的分层判断统一见[当前能力与边界](docs/implementation-status/generation.md)；推进方向见[下一步目标](docs/implementation-plans/next-goal.md)，获准行为切片由[当前焦点](docs/implementation-plans/current-focus.md)维护。
+
+缓存亲和只利用 Provider 原生自动缓存和明确字段，维护稳定前缀；不实现网关负载均衡、回答缓存或会话管理。稳定合同与扩展 owner 见 [ADR 0011](docs/architecture-v2/decisions/0011-stable-admission-provider-cache.md)。
 
 ## 验证
 

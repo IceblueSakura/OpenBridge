@@ -7,6 +7,7 @@ pub enum ErrorClass {
     PermissionDenied,
     InvalidRequest,
     NotFound,
+    Redirect,
     RateLimit,
     Server,
     Timeout,
@@ -26,6 +27,7 @@ pub enum StatusClass {
 pub fn classify_status(status: u16) -> StatusClass {
     match status {
         200..=299 => StatusClass::Success,
+        300..=399 => StatusClass::Failure(ErrorClass::Redirect),
         401 => StatusClass::Failure(ErrorClass::Authentication),
         403 => StatusClass::Failure(ErrorClass::PermissionDenied),
         404 => StatusClass::Failure(ErrorClass::NotFound),
@@ -68,7 +70,7 @@ mod tests {
             (429, StatusClass::Failure(ErrorClass::RateLimit)),
             (500, StatusClass::Failure(ErrorClass::Server)),
             (503, StatusClass::Failure(ErrorClass::Server)),
-            (302, StatusClass::Failure(ErrorClass::Upstream)),
+            (302, StatusClass::Failure(ErrorClass::Redirect)),
         ] {
             assert_eq!(classify_status(status), class, "status {status}");
         }

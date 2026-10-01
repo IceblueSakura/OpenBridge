@@ -60,6 +60,17 @@ fn fixed_route_policy_never_replays_visible_or_exhausted_attempts() {
             true
         ));
     }
+    let redirect = match openbridge::provider::classify_status(302) {
+        openbridge::provider::StatusClass::Failure(error) => error,
+        _ => panic!("redirect is not success"),
+    };
+    assert!(!may_advance(
+        &policy,
+        DeliveryState::Uncommitted,
+        redirect,
+        1,
+        true
+    ));
     for error in [
         ErrorClass::Authentication,
         ErrorClass::PermissionDenied,

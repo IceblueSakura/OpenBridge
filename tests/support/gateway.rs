@@ -80,6 +80,7 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
             task: TaskKind::Generation,
             route: route.id.clone(),
             contract: GenerationSemanticContract::full(),
+            standard_context: true,
             reported_facts: openbridge::lowering::generation::ReportedFactPolicy::Faithful,
         })
         .collect();

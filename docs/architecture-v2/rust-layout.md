@@ -103,12 +103,12 @@ More precisely:
 
 - `semantic` depends on no protocol/provider/topology/execution module.
 - `protocol` depends on semantic values and protocol-local DTOs.
-- `topology` depends on semantic task/capability vocabulary but not protocol implementation internals.
+- Model support vocabulary lives in `semantic::task::generation::contract`; topology references it directly. Endpoint bindings carry explicit adapter/representation contracts, never inferred upstream aliases.
 - `lowering` depends on semantic + protocol profile contracts + compiled endpoint contracts.
 - `adapter` composes protocol rules and target lowering, and owns context projection; it does not access topology, credentials or network.
 - `execution` consumes plans and adapters, owns bounded intake/delivery state and exposes commit acknowledgement to the I/O caller. It does not interpret context fields.
 - `transport` is semantically blind.
-- `gateway` owns startup entry/credential resolution, authenticated public-task admission, trusted budget policy and actual HTTP body ownership. Its minimal environment bootstrap is not a general configuration or plugin framework.
+- `gateway` owns startup entry/credential resolution, authenticated public-task admission and trusted budget policy. `exchange` coordinates the fixed chain, `intake` owns one upstream decode/projection, and `body` owns publication/handoff/cancellation. Library and Gateway reuse one pure candidate selector. Its minimal environment bootstrap is not a general configuration or plugin framework.
 
 ## Types to avoid
 

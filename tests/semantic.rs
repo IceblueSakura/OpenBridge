@@ -8,10 +8,14 @@ mod wire;
 mod adapters;
 #[path = "semantic/billing_modal_usage.rs"]
 mod billing_modal_usage;
+#[path = "semantic/cache_projection.rs"]
+mod cache_projection;
 #[path = "semantic/chat_logprobs.rs"]
 mod chat_logprobs;
 #[path = "semantic/chat_wire.rs"]
 mod chat_wire;
+#[path = "semantic/contract_ownership.rs"]
+mod contract_ownership;
 #[path = "semantic/extensions.rs"]
 mod extensions;
 #[path = "semantic/function_events.rs"]
