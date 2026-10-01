@@ -2,7 +2,7 @@
 
 这里只保存检索入口和必要出处，**不是 OpenBridge 支持列表、API 快照或测试记录**。当前绑定、协议准入和实例启用情况按 [AGENTS.md 的查询方法](../../../AGENTS.md#current-provider-model-and-compatibility-information)从代码现场确认；上游字段、模型、地域、价格和可用性按任务需要重新查阅官方来源。
 
-链接存在不证明 API 合同未变。网页和 Models 目录也不证明账号权限或生成请求成功；凭据查询、真实调用和付费验证仍需独立授权。本次整理不声明重新核验过外部页面。下列资料属于各自发布方；这里只提供链接，不复制其实现或测试数据。
+链接存在不证明 API 合同未变。网页和 Models 目录也不证明账号权限或生成请求成功；凭据查询、真实调用和付费验证仍需独立授权。本索引不声明外部页面已重新核验。下列资料属于各自发布方；这里只提供链接，不复制其实现或测试数据。
 
 ## Alibaba Cloud Model Studio
 
@@ -56,7 +56,3 @@
 
 - [OpenAI SDK compatibility](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction)
 - [Structured output](https://docs.bigmodel.cn/cn/guide/capabilities/struct-output)
-
-## 独立认证设计资料
-
-[Antigravity](antigravity-oauth.md)、[Grok](grok-oauth.md)、[ChatGPT/Codex](openai-chatgpt-oauth.md)保留各自固定来源和认证设计边界，不表示当前实现已接入，也不授权读取其他应用的认证缓存。

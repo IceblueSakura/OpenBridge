@@ -2,20 +2,19 @@
 
 ## Status
 
-Accepted. Extends the single-entry execution slice in [ADR 0009](0009-minimal-http-text-gateway.md); no automatic activation of additional targets follows.
+Accepted. Extends [ADR 0009](0009-minimal-http-text-gateway.md); registration does not automatically activate additional targets.
 
 ## Decision
 
-- Canonical model identity and task semantics are independent of Provider aliases. Public admission may intentionally expose a narrower semantic slice. Every Endpoint binds a trusted canonical identity; compilation rejects unknown identities, cross-model Route members and public semantics exceeding canonical support.
-- Provider/profile image constraints and configured Endpoint limits are typed and intersected. Format/detail/source/count/byte limits do not rewrite model support or final IR. Shared security budgets remain independently bounded.
-- Routes specify fixed Endpoint order, candidate admission policy and a bounded attempt count. RequireAll keeps strict admission; SkipUnrepresentable evaluates whole final requests independently, not capability unions. Activation names only existing members and cannot reorder them. Different wire families are explicit candidates, not inferred compatibility.
-- Default fallback is Disabled. BeforeCommit may advance after rate limits, server failures, connection failures or attempt timeout while total budget remains. Never repeat a candidate, hedge, reorder, expand a Route, change model semantics, drop fields or fabricate tool results. Protocol/projection/auth/permission failures, HTTP redirects and model refusal/incomplete are not retry permissions. Shared planning and I/O ownership are refined in [ADR 0011](0011-stable-admission-provider-cache.md).
-- One chain owns its concurrency permit, absolute exchange deadline and bounded diagnostic trace. Each attempt owns fresh transport/decoder/encoder state and its own credential/adapter binding. Per-attempt timeout is bounded by the remaining total deadline.
-- Publication of the first downstream frame conservatively freezes advancement, closing the receive/timeout race before HTTP response ownership escapes. Publication is not commit: acknowledged HTTP body handoff still owns `ResponseDelivery::commit`, and validated EOF plus final handoff owns completion. Late failures abort the body without another candidate or a fabricated terminal.
-- Multi-member ingress currently rejects opaque continuation/encrypted-output requests. Canonical model equality never authorizes sharing an issuer/auth scope. Single-member replay keeps its existing boundary; explicit affinity support is a separate future slice.
+- Canonical model identity and task semantics are independent of Provider aliases. Public admission may be narrower; topology compilation rejects unknown identities, cross-model Route members and public semantics exceeding canonical support.
+- Intersect typed model, representation and execution constraints without rewriting final IR. Routes fix candidate order, admission strategy and bounded attempts. Project the whole immutable request independently for each candidate; never union capabilities or reorder activation.
+- Fallback is disabled unless explicitly allowed. Eligible pre-publication failures may advance while total budget remains; never repeat, hedge, expand the Route, drop semantics or invent tool results. Protocol/projection/auth/permission errors, redirects and model refusal/incomplete do not authorize fallback.
+- One chain owns its permit and absolute deadline. Each attempt has fresh transport/codec/delivery state and its own credential binding; attempt deadlines cannot exceed the remaining total budget.
+- First downstream-frame publication freezes advancement before response ownership escapes. Publication is distinct from acknowledged body handoff/commit; validated EOF and final handoff govern completion. Late failure aborts the body.
+- Canonical equality never authorizes replay across issuer/auth scopes. Until explicit affinity ownership is admitted, multi-member ingress rejects opaque continuation/encrypted-output requests rather than guessing an equivalent target.
 
-## Consequences and validation
+## Rationale and consequences
 
-The bootstrap continues to activate its fixed single members. New real cross-Provider equivalence, route order and activation require trusted registration/operator choices, not request JSON or model-name guessing. Fallback may duplicate upstream computation/billing; cancellation does not prove that an upstream stopped processing.
+Fixed selection preserves a stable public contract while allowing bounded recovery without dynamic routing. Publication must close the timeout/receive race earlier than I/O commit. Fallback may duplicate upstream computation and billing; cancellation does not prove upstream processing stopped.
 
-Pure policy tests protect classification, visibility and attempt budgets. Independent synthetic planning protects whole-request compatibility and IR immutability. A real Router smoke protects fixed order, model/credential rebinding, unchanged image/control payloads, total/per-attempt deadlines and post-publication failure. Existing body lifecycle and fixed SDK gates continue to protect handoff, cancellation, backpressure and protocol closure. These are not live Provider, load or production acceptance.
+Owners: [topology compilation](../../../src/topology/compile.rs), [candidate planning](../../../src/execution/plan.rs), [fallback policy](../../../src/execution/fallback.rs), [exchange](../../../src/gateway/exchange.rs), [body](../../../src/gateway/body.rs). Shared admission ownership is refined by [ADR 0011](0011-stable-admission-provider-cache.md).

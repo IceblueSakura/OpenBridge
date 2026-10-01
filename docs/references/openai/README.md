@@ -1,8 +1,8 @@
-# OpenAI 协议调研索引
+# OpenAI 协议来源索引
 
 ## 文档定位
 
-本目录记录 OpenAI 官方 API/SDK 的外部协议事实，以及单独标注来源的兼容性测试资产。这里不记录 OpenBridge 当前实现、目标类型、
+本目录定位 OpenAI 官方 API/SDK 的标准资料与既有固定基线。这里不记录 OpenBridge 当前实现、目标类型、
 实施计划或已运行验证。
 
 正文按“具体 API operation + request encoding + response transport”划分：
@@ -108,10 +108,4 @@ SDK/文档版本。
 跨 family 文档只比较 endpoint、transport/lifecycle 依赖与 fake 证据边界；字段级事实仍由上面各 operation owner 文档维护，
 不构成 OpenBridge 产品范围、当前实施状态或获准计划。
 
-## 10. 测试与兼容性资产
-
-这些文档研究测试项目或 SDK consumer，不是 OpenAI API 字段规范：
-
-- [OpenAI gpt-oss compatibility-test](gpt-oss-compatibility-test-analysis.md)
-- [OpenAI SDK streaming consumers](openai-sdk-stream-test-assets-analysis.md)
-- [Open Responses Compliance](open-responses-compliance-analysis.md)：独立开放规范，不能写成 OpenAI 官方 API 的完全等价物。
+测试方法见[验收基线](../conformance-baseline.md)，本地执行入口见[开发指南](../../development.md)。不保存外部测试资产调查或执行结果；引入资产前另行核对版本、许可和独立预期。

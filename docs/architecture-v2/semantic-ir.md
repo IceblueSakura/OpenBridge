@@ -1,6 +1,6 @@
 # Responses-first IR 与扩展设计
 
-这是 Generation IR 的设计基线，不是当前 Rust 类型已完整落地的声明。主要依据为 [Responses 标准语义](../references/responses-standard.md)、[历史调研综合](../references/semantic-baseline.md)及[固定上游快照](../references/upstream-sync.md)。当前缺口由[能力与边界](../implementation-status/generation.md)维护，不以旧版本为功能对等目标。
+这是 Generation IR 的设计基线，不是当前 Rust 类型已完整落地的声明。主要依据为 [Responses 标准语义](../references/responses-standard.md)及[固定上游来源](../references/upstream-sync.md)。当前缺口由[能力与边界](../implementation-status/generation.md)维护，不以旧版本为功能对等目标。
 
 ## 1. 核心决定
 

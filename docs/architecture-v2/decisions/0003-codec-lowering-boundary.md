@@ -6,10 +6,12 @@ Accepted.
 
 ## Decision
 
-Protocol/profile codecs own wire syntax, standard field admission and declared extension mappings. Generation semantics use the Responses-first baseline; endpoint lowering owns representability, explicit mappings and conversion policy for a fixed endpoint. A narrow target cannot redefine the IR's standard expressiveness.
+Protocol/profile codecs own wire syntax, structural validation and declared extension mappings. Lowering owns representability and explicit conversion policy for a fixed target. Neither performs registry lookup, credential resolution or network I/O.
 
-Encoding cannot silently drop unsupported Task IR. Provider code cannot mutate modeled semantic JSON after protocol encoding.
+Unsupported task semantics must fail explicitly rather than disappear during encoding. Provider adaptation uses typed contracts or explicit profiles, never a post-encode body hook.
 
-## Consequences
+## Rationale and consequences
 
-The predecessor `bridge` abstraction and runtime are archived. Same-protocol and cross-protocol paths use identical semantic stages. Any future Provider adaptation that affects modeled values must use typed contracts/lowering or an explicit profile, never a post-encode body hook. Complete responses, request shorthand and SDK-derived views require distinct validation boundaries.
+Separating syntax from target restrictions prevents a narrow Endpoint from redefining standard semantics. Same-protocol and cross-protocol paths share the same stages. Request shorthand, complete responses and SDK-derived views need distinct validation boundaries.
+
+Owners: [protocol](../../../src/protocol/mod.rs), [lowering](../../../src/lowering/generation.rs), [adapters](../../../src/adapter/mod.rs). Cross-module contract: [protocol and lowering](../protocol-and-lowering.md).

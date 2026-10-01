@@ -1,6 +1,6 @@
 # Responses 标准语义基线
 
-- 来源/版本：2026-09-23 官方 Create、streaming events、reasoning、Structured Outputs 与 WebSocket 文档；官方 Python SDK `3.19.0` 源码快照。精确 URL、commit、差异和冲突见 [上游同步](upstream-sync.md)。
+- 来源/版本：2026-09-23 官方 Create、streaming events、reasoning、Structured Outputs 与 WebSocket 文档；官方 Python SDK `3.19.0` 源码快照。精确 URL、commit 和许可见[固定上游来源](upstream-sync.md)。
 - 范围：Generation 相关 create/input/output/event、状态与工具；不是全部 OpenAI 产品 API 的复制。
 - 证据边界：公开 schema 与客户端类型，不证明账号、模型或第三方 Provider 执行能力；SDK 字段存在不自动解决文档歧义。
 - 重核：官方 schema、SDK 类型、model-dependent 默认值或 transport 版本变化。
@@ -85,6 +85,6 @@ function strict 的省略默认与显式 false/true、response format strict 的
 
 ## 6. Transport 与资源服务
 
-HTTP JSON、HTTP SSE、Responses WebSocket、Realtime 是不同 transport/operation 合同。WS 最新指南支持 `stream_id` lane、并行与 fork、steering 的 response 后继关系；详情见[同步差异](upstream-sync.md#本次同步影响)。单 response reducer 保持唯一 terminal，外层负责 multiplexing 和 successor。
+HTTP JSON、HTTP SSE、Responses WebSocket、Realtime 是不同 transport/operation 合同。WS 最新指南支持 `stream_id` lane、并行与 fork、steering 的 response 后继关系；来源见[WebSocket 官方指南](https://developers.openai.com/api/docs/guides/websocket-mode)。单 response reducer 保持唯一 terminal，外层负责 multiplexing 和 successor。
 
 retrieve/delete/cancel/input-items、conversation、compaction、文件与 container 服务需要独立资源/执行合同，不自动由 create codec 提供；也不能因为当前 runtime 未实现就从标准目标中删除其引用语义。

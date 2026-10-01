@@ -6,12 +6,12 @@ Accepted.
 
 ## Decision
 
-Execution receives compiled candidate plans and encoded protocol representations. Credential binding, retry, fallback, cancellation, transport and commit are execution concerns.
+Execution consumes compiled candidate plans and encoded representations. It owns credential binding, attempts, cancellation, transport and delivery lifecycle, not semantic mutation. Response bytes/events re-enter semantics through the selected adapter before downstream delivery.
 
-Transport and attempt coordination cannot inspect or alter Task IR semantics. Retry/fallback is allowed only before downstream commit and cannot modify route order or semantic input.
+Retry/fallback must remain bounded and pre-commit, preserving fixed route order and immutable semantic input. Encoding bytes does not constitute downstream commit.
 
-Response bytes/events re-enter semantics through the selected endpoint codec before downstream delivery.
+## Rationale and consequences
 
-## Consequences
+Keeping execution out of field conversion prevents late mutations from bypassing validation. I/O owners explicitly acknowledge visibility and completion; failure or cancellation cannot become a successful terminal. HTTP publication may freeze candidate advancement earlier than commit, as required by [ADR 0010](0010-canonical-model-fixed-fallback.md).
 
-Bounded retry, credential isolation and commit invariants apply to execution. Any Provider adaptation affecting modeled values must be expressed in lowering/profile logic before encoding, not as late semantic JSON mutation.
+Owners: [execution](../../../src/execution/mod.rs), [delivery](../../../src/execution/delivery.rs), [HTTP body](../../../src/gateway/body.rs). Detailed contracts: [execution model](../execution-model.md).

@@ -90,8 +90,8 @@ node --test tests/sdk/provider_probe_observation.test.mjs tests/sdk/probe_http_h
 
 ## 文档与边界
 
-Rust comments/docs 与 Python docstrings 使用简洁 English；将协议、安全、资源和失败不变量、非显然兼容理由及必要来源 URL 放在 owning code 旁，不抄测试结果或模型清单。Markdown 保留稳定设计和操作方法；按 [AGENTS 查询流程](../AGENTS.md#current-provider-model-and-compatibility-information)获取动态信息。检查相对链接、锚点、占位符示例和规则一致性；结构性检查不证明行为改善。
+Rust comments/docs 与 Python docstrings 使用简洁 English；将协议、安全、资源和失败不变量、非显然兼容理由及必要来源 URL 放在 owning code 旁，不抄测试结果或模型清单。Markdown 保留稳定决策、跨模块合同、设计缺口和操作方法，不保留历史分析、审计报告或任何测试结果（包括离线/SDK）；按 [AGENTS 查询流程](../AGENTS.md#current-provider-model-and-compatibility-information)获取动态信息。检查相对链接、锚点、占位符示例和规则一致性；结构性检查不证明行为改善。
 
-不修改 `.env`、私人 `config/`、OAuth 文件，也不读取外部应用认证缓存。保留外部资料的版本、许可与 attribution；历史证据只能按当时边界解释。日志和诊断不能回显真实秘密或私有 payload。
+不修改 `.env`、私人 `config/`、OAuth 文件，也不读取外部应用认证缓存。保留仍使用的外部资料的版本、许可与 attribution；历史问题查 Git，不恢复工作区分析报告。日志和诊断不能回显真实秘密或私有 payload。
 
 完成时区分静态检查、Rust tests、固定 SDK/loopback、真实 Provider、负载和生产验证。当前正常基线没有任何真实 Provider、付费 API、部署或外部发布。

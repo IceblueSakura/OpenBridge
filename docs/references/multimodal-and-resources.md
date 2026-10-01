@@ -1,6 +1,6 @@
 # 多模态与资源语义基线
 
-来源：2026-09-23 Responses Create 与 SDK 固定类型；历史 image/file/audio、特殊语音 wire 研究已整合于本页，精确版本与链接见[同步基线](upstream-sync.md)和[历史来源](semantic-baseline.md#8-历史来源追溯)。证据限于规范和源码，不包含媒体下载、模型调用或 codec/playback 执行验证。新模态、格式、source 类型或 operation 变化时重核。
+来源为[固定 Responses Create 与 SDK 类型](upstream-sync.md)。本页解释语义与资源边界，不记录历史研究或执行结果；新模态、格式、source 类型或 operation 变化时重新核对一手合同。
 
 ## 1. 标准优先，缺少标准的能力才扩展
 
@@ -11,7 +11,7 @@
 | Responses 文件输入 | file_data/file_url/file_id、filename、detail、cache breakpoint | 标准 file part；source 与处理用途分离 |
 | 工具多模态结果 | function/custom result 内容数组，computer screenshot、hosted image output 等各自 schema | 按对应 result/item 建模，不统一 stringify |
 | Responses 音频 | 事件目录存在 audio/transcript delta/done；固定 SDK 输入 content union 仍为 text/image/file | 已声明事件是标准证据，但不能据此猜出完整音频 create→output 契约；需单独补齐来源与 profile |
-| Provider 特殊音频/视频 | 历史资料展示 Chat-shaped ASR/TTS 等并非标准 Audio endpoint | 经固定操作合同进入 task-specific typed extension，不伪装成普通 conversation |
+| Provider 特殊音频/视频 | 需按具体 operation 查阅[官方来源](providers/README.md)，不由 Chat envelope 推断任务 | 经固定操作合同进入 task-specific typed extension，不伪装成普通 conversation |
 
 标准图片/文件不能因当前实现没有 codec 就降格为“Provider 特殊能力”。同样，存在 audio 事件也不等于任意 Responses model 支持 audio input/output。
 
@@ -50,4 +50,4 @@ encoded 与 decoded bytes、单资源与总请求、解压/解析深度、增量
 4. bytes、encoded/decoded 预算、分片、截断与取消；
 5. 静态结果与增量 materialization 一致。
 
-小型 synthetic 媒体可证明表示和资源边界，不证明 OCR、音质、语音授权、模型质量或 Provider 下载行为。历史 MiMo 观察只适用于当时 endpoint 与样本，不上升为通用多模态规则。
+小型 synthetic 媒体可证明表示和资源边界，不证明 OCR、音质、语音授权、模型质量或 Provider 下载行为。特定 endpoint 或样本的表现不能上升为通用多模态规则。

@@ -1,6 +1,6 @@
 # Codec 与扩展验收基线
 
-来源：已整合的[历史测试研究](semantic-baseline.md#8-历史来源追溯)、[Responses 标准快照](responses-standard.md)和[上游同步](upstream-sync.md)。综合日期 2026-09-23。外部项目测试与模型 benchmark 不自动成为本地 oracle；引入资产或升级 SDK/profile 时重核版本、许可与独立预期。
+本页定义验证方法，不记录执行结果。协议预期依据[Responses 标准基线](responses-standard.md)和[固定来源](upstream-sync.md)；外部测试与模型 benchmark 不自动成为本地 oracle。引入资产或升级 SDK/profile 时重核版本、许可与独立预期。
 
 ## 1. 准入表必须按语义分支
 
@@ -38,7 +38,7 @@
 - 每种 SDK derived view 都需要独立的回放准入与一致性规则；一种派生 view 通过不证明另一种也支持。
 - 标准 phase、configuration update、媒体、工具与 state 必须分支验收，不靠一个两轮 fixture 声明完整。
 
-OpenBridge 已准入分支的独立反例入口与剩余审计边界统一在[当前能力与边界](../implementation-status/generation.md#已闭合的正确性边界)维护；新发现的具体违反项须带复现与源码证据单独记录，不能把已闭合回归、尚未映射能力或刻意的 profile 边界当作已观察到的错误。本页只定义方法与来源边界。
+独立反例由 [semantic](../../tests/semantic.rs) 和 [transport](../../tests/transport.rs) 测试维护；剩余审计范围见[实施缺口](../implementation-status/generation.md#验收缺口)。新发现的问题须区分违反合同、未准入与缺少验收，不能从测试存在推断已经通过。
 
 ## 4. 属性顺序、JSON 与 Schema
 

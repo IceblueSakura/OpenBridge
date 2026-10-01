@@ -1,99 +1,73 @@
 # OpenBridge Agent Instructions
 
-These instructions apply to the repository and all subdirectories. More specific guidance may narrow them, but must not weaken authorization, security, evidence, or change-control boundaries.
+These instructions apply throughout the repository. More specific guidance may narrow, not weaken, authorization, security or change-control boundaries.
 
 ## Scope and Authorization
 
-- OpenBridge's `main` is based on the former `semantic-v2` Rust semantic library and minimal loopback text gateway, not a production-ready service. Develop it against current product goals, contracts, source and tests; migrating, matching or restoring the predecessor is not an objective. The predecessor runtime, templates, corpus and dedicated tests remain historical references at the fixed Git ref in [archive.md](docs/archive.md), not current features or acceptance requirements.
-- Inspect the branch, `git status`, and the target-file diff before editing. Preserve unrelated work; do not overwrite, revert, stage, or commit it. Stop on overlapping external edits.
-- Reviews, diagnosis, status, and planning are read-only. Implement explicitly requested changes within scope; a design-first step is not an extra approval gate when implementation is already authorized. Stop for unresolved material design choices, not an arbitrary phase boundary.
-- Commit, push, external publication, service/production changes, and paid Provider requests require explicit authorization for the relevant action and target. A commit request does not authorize a push.
-- ADRs record accepted decisions; [next-goal](docs/implementation-plans/next-goal.md) records direction and [current-focus](docs/implementation-plans/current-focus.md) records the approved implementation slice. None grants authority, proves implementation, or turns a design gap into a completed feature.
+- Develop against current product goals, contracts and source. Predecessor feature parity is not an objective; [archived code](docs/archive.md) is not a current dependency or acceptance requirement. Do not claim production readiness from the mainline designation.
+- Before editing, inspect the branch, `git status` and target diff. Preserve unrelated work; stop on overlapping external edits. Do not discard, stage, commit or push without scoped authorization.
+- Review, diagnosis and planning are read-only. An implementation request authorizes scoped edits and disposable checks; a design step is not another approval gate. Stop for unresolved material choices, not arbitrary phases.
+- Commits, pushes, publication, service/production changes, credential operations and live/paid requests require explicit authorization for the target and effects. A commit request does not authorize a push.
+- ADRs record decisions, [next-goal](docs/implementation-plans/next-goal.md) records direction, and [current-focus](docs/implementation-plans/current-focus.md) records the approved behavior slice. None grants authority or proves implementation.
 
 ## Read the Relevant Context
 
-Before non-trivial work, read the root [README](README.md) and [documentation index](docs/README.md), then follow the task-specific route:
+Read [README](README.md) and the [documentation index](docs/README.md) before non-trivial work, then follow only the relevant sources:
 
-| Task | Required context |
+| Task | Starting points |
 |---|---|
-| Product behavior or compatibility | [Generation capabilities and boundaries](docs/implementation-status/generation.md), [Responses text admission](docs/architecture-v2/responses-text-profile.md), affected source/tests and fixed reference material |
-| Cross-module ownership or data flow | [Current architecture](docs/architecture.md), [v2 design](docs/architecture-v2/README.md), affected module docs and callers |
-| Task IR, media semantics, or encode/decode | [Semantic IR](docs/architecture-v2/semantic-ir.md), [thematic research](docs/references/semantic-baseline.md), [fixed upstream baseline](docs/references/upstream-sync.md), relevant standard/extension/media leaves, [protocol/lowering](docs/architecture-v2/protocol-and-lowering.md), and actual `src/semantic/`, `src/protocol/`, `src/lowering/` types/callers |
-| Implementation, dependency, or test changes | [Development guide](docs/development.md), affected tests and manifests |
-| Provider onboarding or protocol changes | Use the current-information lookup below, affected adapters/code comments/tests, and the relevant official API pages fetched when needed; fixed standard/SDK references remain separate from live Provider behavior |
-| Corpus or semantic testing | [Development guide](docs/development.md), independent `tests/semantic/` and `tests/support/` fixtures and affected Rust contracts; archived corpus is evidence only, not an active test dependency |
-| Documentation or instruction maintenance | Documentation responsibilities, canonical sources, incoming links, and affected guidance |
+| Product behavior | [Generation gaps](docs/implementation-status/generation.md), affected codecs, callers and independent tests |
+| Ownership / data flow | [Architecture](docs/architecture.md), [design and ADRs](docs/architecture-v2/README.md), affected module docs |
+| IR / codec / media | [Semantic IR](docs/architecture-v2/semantic-ir.md), [protocol/lowering](docs/architecture-v2/protocol-and-lowering.md), [fixed sources](docs/references/upstream-sync.md), affected types and profile contracts |
+| Implementation / tests / dependencies | [Development guide](docs/development.md), affected tests and manifests |
+| Provider / compatibility | The lookup below, owning adapter rules and current official sources as needed |
+| Documentation | Canonical owners, incoming links and affected instructions; do not refresh external verification dates during local editing |
 
-Read only relevant leaves, not every document. Product contracts state intended behavior, source/tests describe implementation, and executed evidence describes observations. Investigate conflicts rather than silently changing a contract to match code.
+Contracts describe intended behavior; source and tests describe implementation; executed checks describe observations. Investigate disagreements instead of silently changing the contract to match code.
 
 ## Current Provider, Model and Compatibility Information
 
-Do not maintain Provider/model inventories, per-model support tables, live-test results, account status or temporary failures in Markdown (including this file), source comments or memory as a substitute for a fresh lookup. Prefer code, nearby rationale comments and independent executable regressions. Documentation explains how to investigate, not what a changing catalog currently contains.
+Query current information; do not maintain Provider/model inventories, support matrices, account status or test results in Markdown, comments or memory.
 
-1. **Registered definitions:** read [`src/provider/catalog.rs`](src/provider/catalog.rs) for trusted origins, protocol paths and auth schemes; follow [`src/topology/catalog.rs`](src/topology/catalog.rs) through `default_topology`, Public Model → Route → Endpoint, upstream model IDs, representation contracts and execution limits. A declared Provider or `Dialect` alone is not a usable model binding.
-2. **Startup admission:** read [`src/gateway/bootstrap.rs`](src/gateway/bootstrap.rs) and [`src/gateway/config.rs`](src/gateway/config.rs). Cross-check explicit entries, protocol family and credential activation with the compiled topology. Do not infer that every catalog model/protocol is exposed by a running instance, or that Chat compatibility implies Responses.
-3. **Wire behavior:** read [`src/adapter/mod.rs`](src/adapter/mod.rs), [`src/protocol/adaptation.rs`](src/protocol/adaptation.rs), the owning request/response/event codecs and `src/lowering/`. Follow their comments and independent tests in `tests/semantic/` and `tests/transport/`; do not turn test names or prior pass counts into capability claims.
-4. **Probe choices:** inspect [`examples/probe_support/catalog.py`](examples/probe_support/catalog.py), scenario code and each entry point before creating a plan. The probe's selectable subset/defaults are not the product catalog. See [probe operations](docs/probes.md) for dry-run, shared budgets and result interpretation.
-5. **Running instance / upstream availability:** verify the actual binary revision and operator-approved non-secret activation metadata. Inspect the current router before assuming a discovery API exists: this checkout has no `GET /v1/models`. If safe instance metadata is unavailable, report activation as unknown; do not inspect private files or dump environment values to fill the gap. Official Models APIs list upstream offerings, not OpenBridge admission or successful inference. Re-read relevant official pages on demand; the [source index](docs/references/providers/README.md) is navigation, not a support list. Credential-bearing discovery, live/paid requests and service operations still need scoped authorization and bounded execution.
+1. **Registration:** [provider catalog](src/provider/catalog.rs) and [topology catalog](src/topology/catalog.rs), following Public Model → Route → Endpoint, upstream IDs, representation and execution contracts. A Provider or `Dialect` declaration alone is not a usable binding.
+2. **Activation:** [bootstrap](src/gateway/bootstrap.rs) and [configuration](src/gateway/config.rs). Check explicit entries, protocol family and credential activation against compiled topology; Chat admission does not imply Responses admission.
+3. **Wire behavior:** [adapters](src/adapter/mod.rs), [named rules](src/protocol/adaptation.rs), owning request/response/event codecs, lowering and independent tests. Test names and previous pass counts are not capability evidence.
+4. **Probes:** [probe catalog](examples/probe_support/catalog.py), selected entry points and [operations](docs/probes.md). Probe choices/defaults are not the product catalog.
+5. **Running instance:** verify binary revision and operator-approved non-secret activation metadata; inspect [router source](src/gateway/http.rs) before assuming discovery endpoints. If metadata is unavailable, report activation as unknown. Do not inspect private files or dump environment values. [Official sources](docs/references/providers/README.md) describe upstream offerings, not OpenBridge admission or successful inference.
 
-Safe, offline starting points (run from the repository root, then read the enclosing definitions and callers):
+Report revision, scope and unverified layers in the current conversation. Credential-bearing discovery and live requests still require authorization and bounded execution.
 
-```sh
-git status --short
-rg -n 'pub fn|ProviderDefinition|EndpointPath|TrustedOrigin' src/provider/catalog.rs
-rg -n 'pub fn|PublicModel|Route|Endpoint|API_KEY_BINDINGS|upstream|protocols' src/topology/catalog.rs
-rg -n 'OPENBRIDGE_|catalog::|Entry|binding.protocols' src/gateway/bootstrap.rs src/gateway/config.rs
-rg -n '\.route\(' src/gateway/http.rs
-```
+## Implementation Discipline
 
-Report findings in the current conversation with source revision, exact scope and unverified layers. Keep authorized probe artifacts only in ignored local run directories; do not copy result matrices, payloads or transient incident status into docs/comments. When a finding justifies a code change, preserve the invariant, rationale and essential source URL near the owning code and write a minimal independent synthetic regression—not a narrative of the Provider session. Historical Git content is available for explicit historical questions, never as current support evidence.
+- Keep one Responses-first semantic authority, with typed scoped extensions rather than a Chat/common subset, raw SDK DTOs or a second Provider IR. Standard fields retain standard owners even when codecs are incomplete.
+- Keep task, wire and modality separate. Pure codecs/lowering cannot access registry, credentials or network. Runtime target/retry/commit state is not semantic data. Check the actual call path and affected ADR before changing ownership.
+- Final typed semantics govern encoding. Fidelity cannot restore deleted values or attach to another owner. Preserve field-specific absent/null/empty/default distinctions, numeric precision, resource meaning and source-bound replay.
+- Validate request/response closure and Static/Event consistency. Derive requirements after transforms; project each fixed candidate independently from immutable input, without route reordering or capability unions.
+- Keep changes focused. Split by responsibility, not line count; preserve intended public paths through explicit re-exports. Keep startup registration, request planning, pure policy, body I/O and observation separate. Do not add speculative frameworks or unrelated tasks.
+- Before a behavior change, record observable result, requirement, failing case, non-goals and validation boundary in current-focus, then use TDD. Documentation/comment-only work does not need a behavior slice. Clear focus when the approved slice is complete; do not erase unfinished direction in next-goal.
+- Breaking changes update implementation, serialization, OpenAPI, examples, fixtures and affected contracts together. Unpublished APIs may be replaced within scope without legacy aliases or meaningless schema bumps. Dependency changes update both manifests and locks, followed by locked validation.
 
-## IR and Codec Work
+## Security and Resources
 
-- Generation is Responses-first: the fixed OpenAI standard supplies the semantic backbone, with scoped typed extensions for special capabilities. Do not reduce IR to the Chat/common subset or treat SDK DTOs as the IR. Standard fields are not generic extensions merely because local codecs have gaps.
-- The overall representation includes task semantics, typed context, delivery, scoped extensions and fidelity. Session/context extensions are allowed, but selected runtime endpoints, credentials, sockets and retry/commit state are not semantic data. Follow the canonical design for attachment, provenance, lifecycle and target checks rather than inventing a second schema here.
-- Check the affected task's supported semantics, IR ownership, request/response codecs, and failure boundaries before choosing a field-by-field implementation. Distinguish type expressiveness, codec mapping, and production wiring; a type or passing test alone proves none of the other layers. Establish semantic ownership and design admission before expanding the conformance fixtures.
-- Keep task, wire protocol, and modality separate. Follow the task-family design rather than forcing Embedding, Images, or dedicated Speech semantics into GenerationRequest. Shared resource values must retain task-specific meaning; Chat wire does not imply conversation history.
-- Follow the accepted target ordering: resolve the fixed Public Model task contract before semantic decode, process task IR before Provider selection, and keep registry/credentials/network outside pure codecs. Verify the current call path before changing it; the ADR is not a description of already completed wiring.
-- Treat typed semantics as authoritative. Source metadata may preserve equivalent representation, not restore deleted values or reattach metadata to the wrong item. Check omission/null/empty/default distinctions, media metadata, numeric precision, and source-bound extensions against the affected contract. Do not mistake a narrower v2 codec for full preservation of archived Native behavior.
-- Validate request/response closure and Static/Event consistency, not only request encoding. Derive requirements after semantic changes; each candidate must project independently from immutable input without changing fixed Route order or capability intersections.
-- Do not introduce speculative hooks, a generic plugin framework, new task support, or arbitrary cross-Provider conversion while closing IR ownership gaps. Detailed task semantics and design choices belong in the ADRs, task contracts, and source docs, not a second schema in this file.
+- Never expose real credentials, private configuration, sensitive bodies or auth caches in files, tools, logs, fixtures or output. `.env`, private `config/` files and OAuth files are not investigation or test inputs. Do not discover third-party auth caches; use authorized synthetic examples.
+- Preserve loopback ingress, trusted egress and fail-closed authentication. Business data cannot choose upstream URLs, credentials, auth/proxy headers or scripts. Do not expose credential locators or trusted origins downstream.
+- Preserve bounded allocation/capture, protocol terminals, cancellation, cleanup and retry/fallback/commit boundaries. No unbounded buffering, post-commit replay or fabricated successful terminal.
+- Any content logging starts after authentication, observes the final downstream boundary and redacts sensitive headers. Bounded snapshots belong only in a dedicated local JSONL sink, not stdout or reviewed OTLP traces; sink failure cannot change responses. Development logging profiles do not authorize sensitive traffic capture.
+- Test tooling must not load real credentials, call Providers, implicitly start services or add automatic retry/fallback. Explicit bootstrap tests may own an isolated disposable loopback binary with synthetic keys and rejecting loopback egress. Live, ignored network and external-dependency gates require approval; paid probes also need exact targets, request matrix, budgets and sanitized output limits.
+- Do not inspect or manually edit build/virtualenv/cache output (`target/`, `tools/corpus/.venv/`, `.pytest_cache/`, `__pycache__/`) unless targeted. Normal tools may populate their caches. Do not commit derived `testdata/{generated,reports,dist,runtime}/`; canonical fixtures are contracts, not cleanup targets.
 
-## Change Discipline
+## Verification
 
-- Keep changes focused on the requested result. Split modules by responsibility or independent protocol domain, not line count; keep facades small and preserve intended public crate paths through explicit re-exports.
-- Keep startup registration separate from request-time planning, analyzers separate from registry resolution, and pure response policy separate from body I/O, observation, and downstream commit. Detailed module ownership belongs in the architecture and source docs.
-- Before an approved behavior change, record the observable result, requirement, failing test, non-goals, and validation boundary in the current focus; then use TDD. Pure instruction/comment/documentation maintenance does not require a manufactured behavior focus.
-- A breaking change must update implementation, parsing/serialization, OpenAPI, examples, fixtures, docs, and tests together. Unpublished prototype APIs may be replaced within approved scope without legacy aliases, compatibility shims, or meaningless schema bumps.
-- Keep dependencies intentional. Update `Cargo.lock` with `Cargo.toml` and repeat locked validation.
-- Follow the development guide for code-comment conventions. The minimal binary uses the documented environment bootstrap, not archived service configuration templates; private files left in `config/` are not a source of test data. Rust comments/docs and Python docstrings use concise English; document non-obvious protocol, security, concurrency, cleanup, and failure boundaries.
+- Add tests for distinct semantic, wire or security/resource boundaries, not each catalog value. Test at the lowest owning layer; add at most one production-Router smoke when it adds independent value. Avoid inventory and incidental DTO snapshots.
+- Use independent wire→IR and IR→wire expectations, then insertion/replacement/deletion and applicable stream/failure cases. Round trips alone can hide symmetric loss. Reuse small synthetic fixtures; review version, license, sensitivity and oracle independence before importing assets.
+- Run focused checks, then the [development baseline](docs/development.md). Rust changes require `cargo fmt -- --check`, `cargo test --locked --offline` and `cargo clippy --locked --offline --all-targets -- -D warnings`. SDK loopback is a separate explicit gate. Prose-only changes require structure/link/anchor checks and `git diff --check`, not runtime tests.
+- Parallelize only independent scenarios with isolated paths/ports/output. Use readiness/events and bounded timeouts; keep ordered retry/fallback/cancellation scenarios serial, without sleeps hiding races.
+- Inspect the final diff. Report actual checks, failures and skipped layers in the task response. Compilation, test existence and synthetic execution do not prove live Provider, general SDK/Agent, TLS/network, load or production compatibility.
 
-## Security and Resource Boundaries
+## Documentation and Comments
 
-- Never print, copy, commit, or place real keys, passwords, bearer tokens, private configuration, sensitive production bodies, or credential values in code, fixtures, comments, logs, docs, or tool output. Synthetic non-sensitive fixtures are allowed.
-- Treat `.env`, `config/users.toml`, `config/upstream-credentials.toml`, and OAuth auth files as private. Use only explicitly authorized synthetic examples for shape; old tracked configuration templates are archived. Do not discover or import third-party applications' auth caches.
-- Keep the listener loopback-only and egress statically trusted. Business requests must not select upstream URLs, credentials, authentication/proxy headers, or transformation scripts. Preserve the separation of safe and sensitive headers; do not expose credential locators or trusted origins downstream.
-- Preserve fail-closed authentication, credential ownership, bounded allocation/capture, protocol terminal, retry/fallback/cooldown, cancellation, and resource-lifetime behavior. Do not buffer without bounds, replay after downstream commit, or fabricate a successful terminal.
-- Content logging starts only after downstream authentication, observes the final downstream boundary, and always redacts sensitive headers. It is not an upstream wire dump. Bounded content snapshots remain in the dedicated local JSONL sink, absent from stdout and reviewed OTLP traces; sink failure must not change business responses.
-- Checked-in logging profiles are for controlled development. Do not run them against sensitive traffic merely to verify logging; production owners must reduce or disable content capture first.
-- The corpus/testkit must not load OpenBridge credentials, call a real Provider, implicitly start OpenBridge, or implement automatic retry/fallback. Explicit Rust bootstrap tests may own a disposable loopback binary with synthetic keys, an isolated environment and a rejecting loopback egress proxy. Live, paid, ignored network, and external-dependency checks require explicit approval; paid probes also require an agreed target, exact request matrix, output limits, and sanitized report boundary.
-- Do not inspect or manually edit `target/`, `tools/corpus/.venv/`, `tools/corpus/.pytest_cache/`, or Python `__pycache__/` unless explicitly targeted. Normal build/test tools may populate their own caches; do not treat generated output as source.
-- Do not commit derived output under `testdata/generated/`, `testdata/reports/`, `testdata/dist/`, or `testdata/runtime/`. Canonical `testdata/` files are contracts; change wire data only for requested behavior and do not add comments to formats that forbid them.
-
-## Tests and Verification
-
-- A new test must protect a distinct client-visible semantic result, wire behavior, or security/resource failure boundary. A new Model, Route, Provider instance, or catalog value alone does not justify a test.
-- Test each mechanism at its lowest owning layer; add at most one production-Router smoke test when it adds independent value. Avoid complete inventories, capability snapshots, incidental DTO snapshots, Route/candidate inventory assertions, and repeated per-model matrices. Assertions on intentional IR semantics and routing mechanisms are valid; do not confuse them with implementation snapshots.
-- For codecs, verify wire-to-IR and IR-to-wire against independent expected results, then test insertion/replacement/deletion and applicable stream/terminal failures. Round trips alone can hide symmetric loss. Provider-independent means offline and account-independent, not protocol/profile-independent.
-- Reuse canonical fixtures and admit external samples only after version, license, sensitivity, and independent-oracle review. Prefer small deterministic media and vectors over model-quality datasets. Keep Rust runtime contracts distinct from Python corpus/tooling; do not force all tasks into the current semantic-case schema or build a speculative test framework.
-- Run focused checks first, then the proportionate baseline in [development.md](docs/development.md). Rust changes use `cargo fmt -- --check`, `cargo test --locked --offline`, and `cargo clippy --locked --offline --all-targets -- -D warnings`; SDK loopback is a separate explicit gate. Prose-only edits need structural/link checks and `git diff --check`, not a manufactured runtime run. Compilation and test existence do not prove changed behavior.
-- Parallelize only independent scenarios with isolated paths, ports, and outputs. Keep ordered retry/fallback/cancellation scenarios serial; use readiness/events and bounded timeouts, not sleeps to hide races.
-- Deterministic tests do not prove live Provider, SDK/Agent, TLS/network, load, long-run, or production compatibility. State each unexecuted layer explicitly.
-
-## Documentation and Completion
-
-- Prefer code and comments as implementation documentation. Follow [docs/README.md](docs/README.md) for the remaining stable material: architecture explains cross-module ownership, ADRs explain accepted decisions, implementation status tracks semantic/design gaps, and next-goal gives direction. Keep exact mappings, defaults and failure invariants beside their owning code/tests; do not mirror registrations or maintain a second schema in Markdown.
-- Maintain stable research by semantic topic under [references](docs/references/README.md), preserving necessary source URLs, fixed standard/SDK versions and licenses. Do not add or retain Provider acceptance reports, model inventories, per-Provider API snapshots or live-test completion diaries, even when dated. Query volatile upstream facts when needed; dated standard/design research is not a current compatibility claim. Keep test outcomes in the task response and authorized ignored artifacts, not a new evidence page. Do not refresh external verification dates during local cleanup.
-- Update affected architecture, decisions, goals and concrete limitations, not completion diaries. Restore the current focus to empty after completing the approved behavior slice; update the next goal separately rather than erasing an unfinished direction.
-- Inspect the final diff and verify relative links/anchors and `git diff --check` for documentation changes. The old OpenAPI and Swagger runtime assets are archived with their service; introducing new HTTP schema assets requires an authorized interface contract, not copying predecessor claims.
-- Report what changed, the files involved, exact checks and outcomes, skipped external layers, and remaining acceptance gaps. Do not claim runtime success from documentation edits or improved agent behavior from static instruction review alone.
+- Prefer executable types, validation and independent regressions. Put non-obvious protocol, compatibility, security, concurrency and cleanup rationale beside the owning code, with essential source URLs. Rust comments/docs and Python docstrings use concise English; comments explain why, not narrate a previous investigation.
+- Keep Markdown for stable cross-module decisions, design gaps, source provenance and necessary operations. ADRs state the decision, rationale and consequences with owner links; do not duplicate field tables, defaults, file trees or test scenarios already owned by code/tests.
+- Do not retain historical analysis, comparison surveys, audit reports, test results or completion diaries, including offline/SDK results. Do not move them into comments or memory. Outcomes belong in the current response and authorized ignored artifacts; Git history is sufficient for explicit historical questions.
+- Preserve necessary attribution, fixed standard/SDK versions and licenses for retained material. References are source navigation, not another implementation schema or a changing Provider API snapshot. Do not add research pages when a nearby rationale comment or an existing ADR suffices.
+- Update only affected owners and links. Do not weaken a design constraint merely because it is not implemented, or claim behavior improved from documentation review alone.

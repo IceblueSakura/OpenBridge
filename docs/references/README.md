@@ -1,33 +1,17 @@
-# 协议与设计参考
+# 协议来源入口
 
-**当前参考按语义主题维护，不再按项目／Provider 分块撰写。** Generation 以 OpenAI Responses 标准为主要参考，再以 scoped extensions 承载特殊能力。事实综合、接受的设计、当前实现和执行证据仍分开。
+这里只维护仍用于设计的标准出处、固定版本和必要许可。接受的决策归 [ADRs](../architecture-v2/README.md#架构决策)，实现细节归代码和邻近注释；不保留历史分析、项目比较或测试报告。
 
-## 当前主题入口
-
-| 入口 | 责任 |
+| 入口 | 用途 |
 |---|---|
-| [语义模型综合](semantic-baseline.md) | 汇总历史 IR、转换、tools、state、runtime 与测试经验；按问题组织而不是逐项目比较 |
-| [Responses 标准语义](responses-standard.md) | request/item/output/event、Schema、状态与 operation 的目标边界 |
-| [扩展与上下文](extensions-and-context.md) | Codex session/cache/thread/turn、扩展 scope、信任与 replay |
-| [多模态与资源](multimodal-and-resources.md) | 标准 image/file、特殊媒体、task/modality/wire 和资源边界 |
-| [Codec 验收](conformance-baseline.md) | 准入矩阵、独立 oracle、SDK 和失败/资源边界方法；当前缺口链接到实现 owner |
-| [上游同步](upstream-sync.md) | 官方页面日期、SDK/Codex commit、同步差异、证据冲突和重核入口 |
+| [固定上游来源](upstream-sync.md) | OpenAI SDK、Codex 的固定提交、许可和官方页面入口 |
+| [Responses 标准基线](responses-standard.md) | 设计所依据的公开语义，区别于本地准入 |
+| [扩展与上下文](extensions-and-context.md) | 固定 Codex 来源与生命周期边界 |
+| [多模态与资源](multimodal-and-resources.md) | task、wire、资源与媒体的语义边界 |
+| [Codec 验收方法](conformance-baseline.md) | 独立 oracle、变换和失败/资源边界；不是执行记录 |
+| [OpenAI operation 参考](openai/README.md) | 按 operation 定位标准资料；不代表本地支持 |
+| [Provider 官方入口](providers/README.md) | 动态资料的查询导航，不是兼容清单 |
 
-采用决定由 [IR 设计](../architecture-v2/semantic-ir.md)拥有；[当前能力与边界](../implementation-status/generation.md)记录当前缺口，[current focus](../implementation-plans/current-focus.md)记录当前切片与验收条件，不自动授权执行。
+新增或修改协议行为时，按需核对一手来源，将必要 URL 和非显然理由留在 owning code；只有跨模块决策才更新 ADR。固定标准、SDK consumer 和产品私有协议不能混为同一合同。不要为每次调查新增分析页，也不要把本地实现缺口写成标准限制。
 
-## 历史材料的角色
-
-现有 `openai/`、`codex/`、`protocol-gateways/` 等来源目录保留为**固定研究原文与出处**，不再作为当前设计的分块入口，不要求继续逐来源维护。Provider 的动态 API/模型资料只保留[官方来源导航](providers/README.md)，需要时重新查询，不维护适配清单、API 快照或实测报告。旧页面中的“当前”、建议和维护流程只适用于其原快照；当前结论以主题综合和上游同步为准。精确原文可查[整合前 Git 快照](https://github.com/IceblueSakura/OpenBridge/tree/5924f80d9af5a68dbf13185c56942ff9102b3361/docs/references)。
-
-主题综合覆盖 IR/codec 设计；OAuth grant、MCP server 框架、计费和运营实现仍以各自固定资料为依据。既有原文及[历史测试资产登记](topics/test-assets-registry.md)、[语义评测方法](semantic-testing-methods.md)按原版本解释，不因文档整理刷新外部验证日期。
-
-## 维护规则
-
-1. 新调研直接进入所属主题，同行引用来源 URL、commit/release、读取日期、适用范围与未知项；不再要求先建来源专页或 cross-project 前置页。
-2. 新标准字段进入标准语义，特殊能力才进入扩展。SDK、独立开放规范、Codex 产品私有协议和其他 gateway 的容错不能混作 OpenAI 标准。
-3. 一个事实只保留一个当前 owner。类型表达、codec 映射、生产接线、实际执行分别举证；不建立按项目重复维护的设计 schema。
-4. 上游同步必须固定版本并处理冲突，不把网页整理日期写成外部执行日期；新增领域先核对相关一手 schema，不根据名字猜形状。
-5. 保留必要 attribution 与 license。默认提炼场景并自主写 synthetic fixture，不复制企业代码、限制商业使用的数据、敏感 payload 或大段第三方源码。
-6. Provider/model 当前支持按 [AGENTS 查询流程](../../AGENTS.md#current-provider-model-and-compatibility-information)现场核对代码、启动和实例；上游字段、目录、价格和 capability metadata 按需查官方来源。不维护本地支持矩阵或 Provider API/测试结果快照，本地类型不证明真实可用。
-7. 扩展不能承载 auth/target/script override 或绕过资源与信任边界。真实凭据、私人配置与会话不得进入文档、工具参数或输出。
-8. 维护相对链接和锚点；Provider 测试结果只在当次交付与授权 ignored run 中报告，不新建 evidence 页，也不把旧报告迁成代码注释。有效不变量、拒绝理由与必要出处归 owning code 和独立 synthetic 回归；静态规范差异不能称为实测 discrepancy。
+使用外部资产前核对具体版本、许可、敏感性和独立预期；默认自主编写最小 synthetic fixture，不复制真实会话。实际 Provider/模型准入按 [AGENTS 查询流程](../../AGENTS.md#current-provider-model-and-compatibility-information)确认，历史成功和源码类型均不能替代现场验证。

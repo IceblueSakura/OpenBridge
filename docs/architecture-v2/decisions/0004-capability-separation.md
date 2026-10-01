@@ -6,10 +6,10 @@ Accepted.
 
 ## Decision
 
-Capability is modeled in four dimensions: semantic contract, representation contract, execution contract and public contract. Requirements are derived from final Task IR plus delivery intent.
+Keep semantic, representation, execution and public contracts separate. Requirements come from final Task IR and delivery intent; no generic capability bitset is authoritative across all dimensions.
 
-No generic capability bitset may become authoritative across these dimensions.
+## Rationale and consequences
 
-## Consequences
+Standard expressiveness, target encoding, executable resources and public admission answer different questions. Topology compilation validates their relationships. Candidate compatibility checks the whole typed request, not ad-hoc JSON filters or unions of candidate capabilities.
 
-Registry compilation must validate relationships among the four contracts. Existing capability structures can be reused only after fields are assigned to a single dimension. Candidate compatibility is a typed representability check, not ad-hoc JSON filtering.
+Design: [capability model](../capability-model.md). Owners: [semantic contract](../../../src/semantic/task/generation/contract.rs), [representation](../../../src/lowering/generation.rs), [topology](../../../src/topology/mod.rs).

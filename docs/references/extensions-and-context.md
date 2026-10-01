@@ -1,6 +1,6 @@
 # 扩展语义、上下文与来源约束
 
-来源快照：2026-09-23 固定的 OpenAI/Codex 公共源码，见[同步基线](upstream-sync.md)；历史 scoped tool、provider metadata、reasoning signature 与 state recovery 经验见[主题综合](semantic-baseline.md)。未运行 Codex、登录 OAuth 或调用 Provider。字段/lifecycle/profile 变更时重核。
+来源为[固定 OpenAI/Codex 公共源码](upstream-sync.md)。本页只说明来源与语义边界，不记录调查或执行结果；字段、lifecycle 或 profile 变更时重核。
 
 本页区分外部事实与设计约束；接受的 IR 所有权由 [semantic-ir](../architecture-v2/semantic-ir.md)维护。扩展不是裸 `extra_body` 或 `extra_headers` 透传口。
 
