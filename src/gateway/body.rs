@@ -4,7 +4,7 @@
 #[path = "body_tests.rs"]
 mod tests;
 use super::{
-    ApiError, BoundEntry, Limits,
+    ApiError, BoundCandidate, BoundEntry, Limits,
     diagnostics::{Outcome, Stage, Trace},
 };
 use crate::{
@@ -181,6 +181,7 @@ async fn produce(
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn respond(
     entry: Arc<BoundEntry>,
+    candidate: Arc<BoundCandidate>,
     request: Request,
     upstream: reqwest::Response,
     limits: &Limits,
@@ -210,14 +211,14 @@ pub(super) async fn respond(
     }
     let limit = limits
         .response_bytes
-        .min(entry.endpoint.execution.response_body_limit);
+        .min(candidate.endpoint.execution.response_body_limit);
     let sse = SseLimits {
         max_event_bytes: limits.event_bytes.min(limit),
         max_wire_bytes: limit,
         max_events: limits.max_events,
         max_obfuscation_bytes: (limit / 4).min(4 << 20),
     };
-    let mut attempt = Attempt::new(entry.endpoint.adapter(), limit, sse);
+    let mut attempt = Attempt::new(candidate.endpoint.adapter(), limit, sse);
     attempt
         .begin(status, content_type)
         .map_err(|_| ApiError::upstream())?;

@@ -212,6 +212,7 @@ pub fn xiaomi_endpoints() -> Vec<Endpoint> {
 
 pub fn deepseek_route() -> Route {
     Route {
+        policy: super::RoutePolicy::default(),
         id: RouteId::new("deepseek-generation").expect("static identity"),
         task: TaskKind::Generation,
         // Responses-first fixed order; fallback is only possible pre-commit.
@@ -224,6 +225,7 @@ pub fn deepseek_route() -> Route {
 
 pub fn xiaomi_route() -> Route {
     Route {
+        policy: super::RoutePolicy::default(),
         id: RouteId::new("xiaomi-generation").expect("static identity"),
         task: TaskKind::Generation,
         endpoints: vec![
@@ -235,6 +237,7 @@ pub fn xiaomi_route() -> Route {
 
 pub fn xiaomi_flash_route() -> Route {
     Route {
+        policy: super::RoutePolicy::default(),
         id: RouteId::new("xiaomi-flash-generation").expect("static identity"),
         task: TaskKind::Generation,
         endpoints: vec![
@@ -317,6 +320,7 @@ pub fn openrouter_endpoints() -> Vec<Endpoint> {
 
 pub fn openrouter_route() -> Route {
     Route {
+        policy: super::RoutePolicy::default(),
         id: RouteId::new("openrouter-generation").expect("static identity"),
         task: TaskKind::Generation,
         endpoints: vec![
@@ -489,6 +493,7 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
             members.push(EndpointId::new(&endpoint_id).expect("static identity"));
         }
         routes.push(Route {
+            policy: super::RoutePolicy::default(),
             id: route_id.clone(),
             task: TaskKind::Generation,
             endpoints: members,

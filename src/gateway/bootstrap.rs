@@ -130,9 +130,10 @@ mod tests {
         for profile in [Profile::Chat, Profile::Responses] {
             let entry =
                 &boot.gateway.state.entries[&(super::super::family(profile), "gpt-6-luna".into())];
-            assert_eq!(entry.endpoint.upstream_model, "openai/gpt-6-luna");
-            assert_eq!(entry.provider.origin.as_str(), "https://openrouter.ai");
-            assert_eq!(entry.endpoint.credential.as_str(), "openrouter-api-key");
+            let candidate = &entry.candidates[0];
+            assert_eq!(candidate.endpoint.upstream_model, "openai/gpt-6-luna");
+            assert_eq!(candidate.provider.origin.as_str(), "https://openrouter.ai");
+            assert_eq!(candidate.endpoint.credential.as_str(), "openrouter-api-key");
         }
         assert!(
             boot.gateway
@@ -205,10 +206,11 @@ mod tests {
             for protocol in [Profile::Chat, Profile::Responses] {
                 let entry =
                     &boot.gateway.state.entries[&(super::super::family(protocol), model.into())];
-                assert_eq!(entry.endpoint.upstream_model, upstream);
-                assert_eq!(entry.endpoint.credential.as_str(), credential);
+                let candidate = &entry.candidates[0];
+                assert_eq!(candidate.endpoint.upstream_model, upstream);
+                assert_eq!(candidate.endpoint.credential.as_str(), credential);
                 assert_eq!(
-                    entry.endpoint.target.path.as_str(),
+                    candidate.endpoint.target.path.as_str(),
                     format!(
                         "{}/{}",
                         if protocol == Profile::Chat {
@@ -284,10 +286,11 @@ mod tests {
                         continue;
                     }
                     let (entry, request) = admitted.unwrap();
+                    let candidate = &entry.candidates[0];
                     let prepared = crate::execution::prepare(
-                        &entry.endpoint,
-                        &entry.provider,
-                        &entry.secret,
+                        &candidate.endpoint,
+                        &candidate.provider,
+                        &candidate.secret,
                         &request,
                     )
                     .unwrap();
@@ -322,8 +325,16 @@ mod tests {
                 let metered_entry = &boot.gateway.state.entries
                     [&(super::super::family(Profile::Chat), "qwen3.8-max".into())];
                 assert_ne!(
-                    subscription_entry.endpoint.representation.adaptation.scope,
-                    metered_entry.endpoint.representation.adaptation.scope
+                    subscription_entry.candidates[0]
+                        .endpoint
+                        .representation
+                        .adaptation
+                        .scope,
+                    metered_entry.candidates[0]
+                        .endpoint
+                        .representation
+                        .adaptation
+                        .scope
                 );
             }
         }

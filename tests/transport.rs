@@ -12,5 +12,7 @@ mod chain;
 mod chat;
 #[path = "transport/framing.rs"]
 mod framing;
+#[path = "transport/planning.rs"]
+mod planning;
 #[path = "transport/responses_sse.rs"]
 mod responses_sse;

@@ -29,6 +29,52 @@ pub(super) fn gateway(limits: Limits) -> Gateway {
     .unwrap()
 }
 #[tokio::test]
+async fn activated_members_keep_route_order_and_never_share_an_opaque_issuer_scope() {
+    let entries = ["deepseek-chat", "deepseek-responses"]
+        .into_iter()
+        .map(|id| Entry {
+            model: "deepseek-flash".into(),
+            protocol: Profile::Responses,
+            endpoint: EndpointId::new(id).unwrap(),
+        })
+        .collect();
+    let gate = Gateway::new(
+        crate::topology::catalog::default_topology().unwrap(),
+        entries,
+        BTreeMap::from([(
+            CredentialBindingId::new("deepseek-api-key").unwrap(),
+            Arc::new(SecretMaterial::new("synthetic-upstream-credential-0001").unwrap()),
+        )]),
+        SecretMaterial::new(KEY).unwrap(),
+        Limits::default(),
+        None,
+    )
+    .unwrap();
+    let entry = &gate.state.entries[&(family(Profile::Responses), "deepseek-flash".into())];
+    assert!(entry.client.adaptation.scope.is_none());
+    let request = entry
+        .client
+        .decode_request(br#"{"model":"deepseek-flash","input":"x"}"#)
+        .unwrap();
+    assert_eq!(
+        entry
+            .eligible(&request)
+            .unwrap()
+            .iter()
+            .map(|c| c.endpoint.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["deepseek-responses", "deepseek-chat"]
+    );
+    let opaque = entry
+        .client
+        .decode_request(
+            br#"{"model":"deepseek-flash","input":"x","include":["reasoning.encrypted_content"]}"#,
+        )
+        .unwrap();
+    assert!(entry.eligible(&opaque).is_err());
+}
+
+#[tokio::test]
 async fn model_request_limits_do_not_suppress_client_reported_facts() {
     use serde_json::json;
     let gate = Gateway::new(
@@ -60,12 +106,20 @@ async fn model_request_limits_do_not_suppress_client_reported_facts() {
     assert!(
         entry
             .client
-            .encode_request(&request, "synthetic", &entry.endpoint.representation)
+            .encode_request(
+                &request,
+                "synthetic",
+                &entry.candidates[0].endpoint.representation
+            )
             .is_err()
     );
     let provider = Adapter {
         protocol: Profile::Responses,
-        adaptation: entry.endpoint.representation.adaptation.clone(),
+        adaptation: entry.candidates[0]
+            .endpoint
+            .representation
+            .adaptation
+            .clone(),
     };
     let response = provider.decode_response(&serde_json::to_vec(&json!({
         "object":"response","id":"r","model":"synthetic","created_at":1,"status":"completed",

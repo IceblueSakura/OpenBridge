@@ -14,7 +14,7 @@ pub mod route;
 pub use compile::{CompiledTopology, TopologyError, compile};
 pub use endpoint::{Endpoint, EndpointTarget, ExecutionContract};
 pub use model::{CanonicalModel, GenerationSemanticContract};
-pub use route::{PublicModel, Route};
+pub use route::{CandidatePolicy, FallbackPolicy, PublicModel, Route, RoutePolicy};
 
 use crate::provider::{ProviderError, ident_ok};
 

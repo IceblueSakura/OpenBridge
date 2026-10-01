@@ -111,15 +111,23 @@ pub(super) async fn handle(
         result=tokio::time::timeout(state.limits.body_timeout,admission::collect(request.into_body(),state.limits.request_bytes))=>result.map_err(|_|ApiError::new(StatusCode::REQUEST_TIMEOUT,"request_timeout"))??,
     };
     let (entry, semantic) = admission::prepare(&state, profile, &bytes)?;
-    let timeout = state
-        .limits
-        .exchange_timeout
-        .min(Duration::from_millis(entry.endpoint.execution.timeout_ms));
+    let candidate = entry
+        .eligible(&semantic)?
+        .into_iter()
+        .next()
+        .ok_or(ApiError::invalid())?;
+    let timeout = state.limits.exchange_timeout.min(Duration::from_millis(
+        candidate.endpoint.execution.timeout_ms,
+    ));
     let deadline = tokio::time::Instant::now() + timeout;
     trace.stage(Stage::Prepare);
-    let prepared =
-        crate::execution::prepare(&entry.endpoint, &entry.provider, &entry.secret, &semantic)
-            .map_err(|_| ApiError::invalid())?;
+    let prepared = crate::execution::prepare(
+        &candidate.endpoint,
+        &candidate.provider,
+        &candidate.secret,
+        &semantic,
+    )
+    .map_err(|_| ApiError::invalid())?;
     trace.stage(Stage::Connect);
     let upstream = tokio::select! {
         biased;
@@ -128,6 +136,7 @@ pub(super) async fn handle(
     };
     body::respond(
         entry,
+        candidate,
         semantic,
         upstream,
         &state.limits,

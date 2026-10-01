@@ -64,6 +64,7 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
     })
     .collect();
     let route = Route {
+        policy: openbridge::topology::RoutePolicy::default(),
         id: RouteId::new("fixture-route").unwrap(),
         task: TaskKind::Generation,
         endpoints: vec![

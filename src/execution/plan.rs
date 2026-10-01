@@ -3,7 +3,9 @@
 //! A plan is data, not a closure. Candidate order is the compiled route order;
 //! deriving a plan can never expand, reorder or re-target it.
 
-use crate::topology::{CompiledTopology, EndpointId, ModelId, TaskKind};
+use crate::topology::{
+    CandidatePolicy, CompiledTopology, Endpoint, EndpointId, ModelId, RoutePolicy, TaskKind,
+};
 
 /// Downstream interaction requirement, independent of upstream protocol.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,6 +26,7 @@ pub struct ExecutionPlan {
     pub delivery: Delivery,
     /// Fixed route order. Candidates project independently from immutable input.
     pub candidates: Vec<CandidatePlan>,
+    pub policy: RoutePolicy,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
@@ -32,9 +35,60 @@ pub enum PlanError {
     UnknownModel,
     #[error("task kind does not match the public model")]
     TaskMismatch,
+    #[error("request does not satisfy public semantic admission")]
+    InvalidRequest,
+    #[error("no activated candidate can faithfully represent the request")]
+    NoCandidate,
 }
 
+/// Preflight is pure: no credentials, network, semantic edits or route selection.
+pub fn representable(endpoint: &Endpoint, request: &crate::adapter::Request) -> bool {
+    if request.delivery.streaming() && !endpoint.execution.streaming {
+        return false;
+    }
+    endpoint
+        .adapter()
+        .encode_request(request, &endpoint.upstream_model, &endpoint.representation)
+        .ok()
+        .and_then(|v| serde_json::to_vec(&v).ok())
+        .is_some_and(|body| body.len() <= endpoint.execution.request_body_limit)
+}
 impl ExecutionPlan {
+    pub fn for_request(
+        topology: &CompiledTopology,
+        request: &crate::adapter::Request,
+    ) -> Result<Self, PlanError> {
+        let public = topology
+            .model(&request.model)
+            .ok_or(PlanError::UnknownModel)?;
+        super::admit(public, request).map_err(|_| PlanError::InvalidRequest)?;
+        let mut plan = Self::derive(
+            topology,
+            &request.model,
+            public.task,
+            if request.delivery.streaming() {
+                Delivery::Stream
+            } else {
+                Delivery::Json
+            },
+        )?;
+        let mut eligible = vec![];
+        for candidate in &plan.candidates {
+            let endpoint = topology
+                .endpoint(&candidate.endpoint_id)
+                .ok_or(PlanError::NoCandidate)?;
+            if representable(endpoint, request) {
+                eligible.push(candidate.clone());
+            } else if plan.policy.candidates == CandidatePolicy::RequireAll {
+                return Err(PlanError::NoCandidate);
+            }
+        }
+        if eligible.is_empty() {
+            return Err(PlanError::NoCandidate);
+        }
+        plan.candidates = eligible;
+        Ok(plan)
+    }
     /// Derive the plan for one public model label. The label is the only model
     /// input a request supplies; targets, credentials and profiles stay fixed.
     pub fn derive(
@@ -54,6 +108,7 @@ impl ExecutionPlan {
             model: model_contract.id.clone(),
             task,
             delivery,
+            policy: route.policy.clone(),
             candidates: route
                 .endpoints
                 .iter()

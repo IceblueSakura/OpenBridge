@@ -46,6 +46,10 @@ pub enum TopologyError {
     InvalidExecutionLimits,
     #[error("invalid upstream model binding")]
     InvalidModelBinding,
+    #[error("invalid bounded route policy")]
+    InvalidRoutePolicy,
+    #[error("duplicate route candidate")]
+    DuplicateCandidate,
 }
 
 /// `promise` must be pointwise implied by `endpoint`. Whether a narrower promise
@@ -203,7 +207,14 @@ pub fn compile(
         if route.endpoints.is_empty() {
             return Err(TopologyError::EmptyRoute);
         }
+        if !(1..=64).contains(&route.policy.max_attempts) {
+            return Err(TopologyError::InvalidRoutePolicy);
+        }
+        let mut seen = std::collections::BTreeSet::new();
         for candidate in &route.endpoints {
+            if !seen.insert(candidate) {
+                return Err(TopologyError::DuplicateCandidate);
+            }
             let endpoint = endpoint_map
                 .get(candidate.as_str())
                 .ok_or(TopologyError::UnknownEndpoint)?;
@@ -240,7 +251,9 @@ pub fn compile(
             if endpoint.canonical_model != model.canonical_model {
                 return Err(TopologyError::CanonicalModelMismatch);
             }
-            if !promised(&model.contract, &endpoint.representation) {
+            if route.policy.candidates == super::CandidatePolicy::RequireAll
+                && !promised(&model.contract, &endpoint.representation)
+            {
                 return Err(TopologyError::ContractUnsatisfiable);
             }
         }
@@ -314,6 +327,7 @@ mod tests {
 
     fn route() -> Route {
         Route {
+            policy: super::super::RoutePolicy::default(),
             id: RouteId::new("fixture-route").unwrap(),
             task: TaskKind::Generation,
             endpoints: vec![EndpointId::new("fixture-endpoint").unwrap()],
@@ -360,6 +374,7 @@ mod tests {
         let topology = compile_fixture(
             vec![chat, responses],
             vec![Route {
+                policy: super::super::RoutePolicy::default(),
                 id: RouteId::new("fixture-route").unwrap(),
                 task: TaskKind::Generation,
                 endpoints: vec![
@@ -486,6 +501,7 @@ mod tests {
                     id: RouteId::new("fixture-route").unwrap(),
                     task: TaskKind::Generation,
                     endpoints: vec![EndpointId::new("fixture-endpoint").unwrap()],
+                    policy: super::super::RoutePolicy::default(),
                 }],
                 vec![model(GenerationRepresentationContract::full())],
             ),
@@ -513,6 +529,7 @@ mod tests {
                     id: RouteId::new("fixture-route").unwrap(),
                     task: TaskKind::Generation,
                     endpoints: vec![EndpointId::new("missing").unwrap()],
+                    policy: super::super::RoutePolicy::default(),
                 }],
                 vec![],
             ),
@@ -533,6 +550,7 @@ mod tests {
                     id: RouteId::new("fixture-route").unwrap(),
                     task: TaskKind::Generation,
                     endpoints: vec![],
+                    policy: super::super::RoutePolicy::default(),
                 }],
                 vec![],
             ),

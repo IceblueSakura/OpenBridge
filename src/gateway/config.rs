@@ -1,5 +1,5 @@
 //! Startup-only resolution of immutable entry, contract and credential ownership.
-use super::{BoundEntry, Gateway, Runtime, auth, family};
+use super::{BoundCandidate, BoundEntry, Gateway, Runtime, auth, family};
 use crate::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract,
@@ -104,7 +104,7 @@ impl Gateway {
         }
         let auth = auth::Auth::new(client_key)?;
         let transport = HttpTransport::new(proxy).map_err(|_| StartupError::Transport)?;
-        let mut bound = BTreeMap::new();
+        let mut bound: BTreeMap<(u8, String), BoundEntry> = BTreeMap::new();
         for entry in entries {
             let public = topology
                 .model(&entry.model)
@@ -158,25 +158,48 @@ impl Gateway {
                 reported_facts: public.reported_facts,
                 ..GenerationRepresentationContract::full()
             };
-            if bound
-                .insert(
-                    (family(entry.protocol), entry.model),
-                    Arc::new(BoundEntry {
-                        public,
-                        endpoint,
-                        provider,
-                        secret,
-                        client,
-                        downstream,
-                    }),
-                )
-                .is_some()
+            let group = bound
+                .entry((family(entry.protocol), entry.model))
+                .or_insert_with(|| BoundEntry {
+                    public,
+                    client,
+                    downstream,
+                    policy: route.policy.clone(),
+                    candidates: vec![],
+                });
+            if group
+                .candidates
+                .iter()
+                .any(|c| c.endpoint.id == endpoint.id)
             {
                 return Err(StartupError::Binding);
             }
+            group.candidates.push(Arc::new(BoundCandidate {
+                endpoint,
+                provider,
+                secret,
+            }));
         }
         if bound.is_empty() {
             return Err(StartupError::Binding);
+        }
+        let mut activated = BTreeMap::new();
+        for (key, mut group) in bound {
+            let route = topology
+                .route(&group.public.route)
+                .ok_or(StartupError::Binding)?;
+            group.candidates.sort_by_key(|c| {
+                route
+                    .endpoints
+                    .iter()
+                    .position(|id| id == &c.endpoint.id)
+                    .expect("validated member")
+            });
+            if group.candidates.len() > 1 {
+                group.client.adaptation.scope = None;
+                group.downstream.replay_origin = None;
+            }
+            activated.insert(key, Arc::new(group));
         }
         let (shutdown, _) = watch::channel(false);
         let permits = Arc::new(Semaphore::new(limits.concurrency));
@@ -184,7 +207,7 @@ impl Gateway {
             state: Arc::new(Runtime {
                 diagnostics: None,
                 auth,
-                entries: bound,
+                entries: activated,
                 limits,
                 permits,
                 transport,

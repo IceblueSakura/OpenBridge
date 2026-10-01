@@ -74,8 +74,10 @@ async fn response(
         "x-openbridge-probe-id",
         "00000000000000000000000000000001:1".parse().unwrap(),
     );
+    let candidate = entry.candidates[0].clone();
     respond(
         entry,
+        candidate,
         request,
         upstream,
         &gate.state.limits,
