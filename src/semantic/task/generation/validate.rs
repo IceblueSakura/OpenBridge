@@ -190,10 +190,38 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                 match &r.output {
                     ToolOutput::Text(t) => add(&mut bytes, t)?,
                     ToolOutput::Parts(p) => {
-                        for (id, t) in p {
+                        for (id, value) in p {
                             part_id(&mut parts, *id)?;
-                            add(&mut bytes, t.as_str())?;
+                            match value {
+                                ToolResultPart::Text(text) => add(&mut bytes, text.as_str())?,
+                                ToolResultPart::Resource(resource) => {
+                                    // Selected tool media is inert URL/inline image content.
+                                    // Opaque references need an issuer/lifecycle contract first.
+                                    if resource.kind != ResourceKind::Image
+                                        || matches!(
+                                            resource.location,
+                                            ResourceLocation::OpaqueReference(_)
+                                        )
+                                    {
+                                        return Err(GenerationError::InvalidResource);
+                                    }
+                                    charge(&mut bytes, resource.validate()?)?;
+                                }
+                            }
                         }
+                    }
+                    ToolOutput::Structured(value) => charge(&mut bytes, value.bytes()?)?,
+                    ToolOutput::Error(error) => {
+                        if r.status == Some(ItemLifecycle::InProgress) {
+                            return Err(GenerationError::InvalidToolResult);
+                        }
+                        if let Some(code) = &error.code {
+                            if code.as_str().is_empty() || code.as_str().len() > 128 {
+                                return Err(GenerationError::Limit);
+                            }
+                            add(&mut bytes, code.as_str())?;
+                        }
+                        add(&mut bytes, error.message.as_str())?;
                     }
                 }
             }

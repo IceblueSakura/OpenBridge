@@ -219,12 +219,14 @@ pub(super) fn decode_message(
                     for value in texts {
                         parts.push((
                             b.part_id()?,
-                            crate::semantic::value::Text::allowing_empty(
-                                value,
-                                "tool output",
-                                MAX_TEXT_BYTES,
-                            )
-                            .map_err(|_| CodecError::Limit)?,
+                            ToolResultPart::Text(
+                                crate::semantic::value::Text::allowing_empty(
+                                    value,
+                                    "tool output",
+                                    MAX_TEXT_BYTES,
+                                )
+                                .map_err(|_| CodecError::Limit)?,
+                            ),
                         ));
                     }
                     ToolOutput::Parts(parts)
@@ -378,6 +380,9 @@ pub(super) fn decode_message(
 pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, CodecError> {
     if target.profile != Profile::Chat {
         return Err(CodecError::ProfileMismatch);
+    }
+    if target.semantic.items().iter().any(|(_, item)| matches!(item, Item::ToolResult(result) | Item::CustomResult(result) if !result.output.is_text_only())) {
+        return Err(CodecError::Unsupported("tool result semantics".into()));
     }
     let mut messages = encode_items_with(
         target.semantic.items(),
@@ -533,7 +538,11 @@ pub(super) fn encode_items_with(
             Item::ToolResult(r) => {
                 standalone_calls = false;
                 messages.push(
-                    json!({"role":"tool","tool_call_id":r.call_id.as_str(),"content":match &r.output { ToolOutput::Text(s)=>json!(s), ToolOutput::Parts(parts)=>json!(parts.iter().map(|(_,t)|json!({"type":"text","text":t.as_str()})).collect::<Vec<_>>()) }}),
+                    json!({"role":"tool","tool_call_id":r.call_id.as_str(),"content":match &r.output {
+                        ToolOutput::Text(s)=>json!(s),
+                        ToolOutput::Parts(parts)=>json!(parts.iter().map(|(_,t)|json!({"type":"text","text":t.as_text().expect("lowering admits text-only tool parts")})).collect::<Vec<_>>()),
+                        ToolOutput::Structured(_) | ToolOutput::Error(_) => unreachable!("lowering rejects tool result semantics without a carrier"),
+                    }}),
                 );
             }
         }

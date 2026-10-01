@@ -117,8 +117,8 @@ fn chat_tool_text_arrays_preserve_parts_and_project_only_final_ir() {
             unreachable!()
         };
         result.output = ToolOutput::Parts(vec![
-            (PartId::new(900), text("replacement")),
-            (PartId::new(901), text("inserted")),
+            (PartId::new(900), ToolResultPart::Text(text("replacement"))),
+            (PartId::new(901), ToolResultPart::Text(text("inserted"))),
         ]);
         decoded.semantic = decoded.semantic.with_items(items).unwrap();
         assert_eq!(

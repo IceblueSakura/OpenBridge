@@ -166,8 +166,10 @@ fn output(b: &mut Items, v: &Value) -> Result<ToolOutput, CodecError> {
         record_input_form(b, id, o)?;
         p.push((
             id,
-            Text::allowing_empty(string(o, "text")?, "tool output", MAX_TEXT_BYTES)
-                .map_err(|_| CodecError::Limit)?,
+            ToolResultPart::Text(
+                Text::allowing_empty(string(o, "text")?, "tool output", MAX_TEXT_BYTES)
+                    .map_err(|_| CodecError::Limit)?,
+            ),
         ));
     }
     Ok(ToolOutput::Parts(p))
@@ -507,6 +509,9 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     if target.profile != Profile::Responses {
         return Err(CodecError::ProfileMismatch);
     }
+    if target.semantic.items().iter().any(|(_, item)| matches!(item, Item::ToolResult(result) | Item::CustomResult(result) if !result.output.is_text_only())) {
+        return Err(CodecError::Unsupported("tool result semantics".into()));
+    }
     let mut v = json!({"input":encode_items(target.semantic.items(),target.fidelity,false)});
     settings::write(
         target.semantic.settings(),
@@ -520,9 +525,16 @@ fn output_wire(o: &ToolOutput, fidelity: &FidelityRecords) -> Value {
         ToolOutput::Text(s) => json!(s),
         ToolOutput::Parts(p) => json!(
             p.iter()
-                .map(|(id, t)| input_part(*id, t.as_str(), fidelity))
+                .map(|(id, t)| input_part(
+                    *id,
+                    t.as_text().expect("lowering admits text-only tool parts"),
+                    fidelity
+                ))
                 .collect::<Vec<_>>()
         ),
+        ToolOutput::Structured(_) | ToolOutput::Error(_) => {
+            unreachable!("lowering rejects tool result semantics without a carrier")
+        }
     }
 }
 pub(super) fn encode_items(

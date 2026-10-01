@@ -18,6 +18,8 @@ pub mod sse;
 pub(crate) mod static_response;
 mod terminal;
 mod text;
+#[cfg(test)]
+mod tool_results_test;
 
 use crate::{
     protocol::fidelity::FidelityRecords,

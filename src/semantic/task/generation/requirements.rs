@@ -18,6 +18,9 @@ pub struct GenerationRequirements {
     pub parallel_tool_calls: Option<bool>,
     pub strict_function_tools: bool,
     pub tool_history: bool,
+    pub structured_tool_results: bool,
+    pub tool_result_errors: bool,
+    pub tool_result_images: usize,
     pub structured_output: bool,
     pub reasoning: bool,
     pub reasoning_items: usize,
@@ -71,9 +74,27 @@ impl GenerationRequirements {
                         }
                     }
                 }
-                Item::ToolCall(_) | Item::ToolResult(_) => x.tool_history = true,
+                Item::ToolCall(_) => x.tool_history = true,
+                Item::ToolResult(result) | Item::CustomResult(result) => {
+                    x.tool_history = true;
+                    x.custom_tools |= matches!(i, Item::CustomResult(_));
+                    match &result.output {
+                        super::ToolOutput::Structured(_) => x.structured_tool_results = true,
+                        super::ToolOutput::Error(_) => x.tool_result_errors = true,
+                        super::ToolOutput::Parts(parts) => {
+                            for (_, part) in parts {
+                                if matches!(part, super::ToolResultPart::Resource(resource) if resource.kind == ResourceKind::Image)
+                                {
+                                    x.tool_result_images += 1;
+                                    x.resource_count += 1;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 Item::Program(_) | Item::ProgramOutput(_) => x.tool_history = true,
-                Item::CustomCall(_) | Item::CustomResult(_) => {
+                Item::CustomCall(_) => {
                     x.tool_history = true;
                     x.custom_tools = true;
                 }

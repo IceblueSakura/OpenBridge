@@ -1,5 +1,5 @@
 //! Client-executed tools. Payloads and grammar are data; this module never executes them.
-use super::{ItemId, PartId};
+use super::ItemId;
 use crate::semantic::value::Text;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StrictDefault {
@@ -143,28 +143,6 @@ pub struct CustomCall {
     pub call_id: Text,
     pub name: Text,
     pub input: String,
-    pub context: CallContext,
-}
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ToolOutput {
-    Text(String),
-    Parts(Vec<(PartId, Text)>),
-}
-impl From<String> for ToolOutput {
-    fn from(s: String) -> Self {
-        Self::Text(s)
-    }
-}
-impl From<&str> for ToolOutput {
-    fn from(s: &str) -> Self {
-        Self::Text(s.into())
-    }
-}
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolResult {
-    pub call_id: Text,
-    pub output: ToolOutput,
-    pub status: Option<ItemLifecycle>,
     pub context: CallContext,
 }
 /// Programmatic-calling program item. Opaque `code` and `fingerprint` round-trip

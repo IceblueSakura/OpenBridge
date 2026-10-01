@@ -96,6 +96,15 @@ fn dependency(
                     }
                 }
             }
+            Item::ToolResult(result) | Item::CustomResult(result) => {
+                if let ToolOutput::Parts(parts) = &result.output {
+                    for (_, part) in parts {
+                        if let ToolResultPart::Resource(resource) = part {
+                            resource_dependency(&mut writer.hash, resource);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }

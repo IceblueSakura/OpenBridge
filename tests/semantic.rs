@@ -64,6 +64,8 @@ mod text_admission;
 mod text_events;
 #[path = "semantic/text_profile.rs"]
 mod text_profile;
+#[path = "semantic/tool_results.rs"]
+mod tool_results;
 #[path = "semantic/tools.rs"]
 mod tools;
 #[path = "semantic/turn_continuation.rs"]

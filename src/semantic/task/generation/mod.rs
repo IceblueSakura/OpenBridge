@@ -18,6 +18,10 @@ mod response;
 mod schema;
 mod text;
 mod tool;
+mod tool_result;
+pub use tool_result::{
+    StructuredToolOutput, ToolExecutionError, ToolOutput, ToolResult, ToolResultPart,
+};
 mod turn;
 pub use turn::{
     ContinuationError, ResponseContinuation, ResponseId, ResponseRelation, ResultReadiness, TurnId,
@@ -45,7 +49,7 @@ pub use text::{
 pub use tool::{
     CallContext, CallOrigin, CallerMode, CustomCall, CustomFormat, CustomTool, FunctionStrictness,
     FunctionTool, GrammarSyntax, ItemLifecycle, Program, ProgramOutput, StrictDefault, ToolCall,
-    ToolChoice, ToolDefinition, ToolDispatch, ToolKind, ToolOutput, ToolReference, ToolResult,
+    ToolChoice, ToolDefinition, ToolDispatch, ToolKind, ToolReference,
 };
 
 pub use event::{

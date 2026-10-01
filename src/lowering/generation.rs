@@ -427,6 +427,12 @@ fn text_items(
     request: bool,
 ) -> Result<(), RepresentationError> {
     for (_, i) in items {
+        // New result semantics require an explicit wire contract; stringifying
+        // structured/error/media values would silently erase their meaning.
+        if matches!(i, Item::ToolResult(result) | Item::CustomResult(result) if !result.output.is_text_only())
+        {
+            return Err(RepresentationError::Tools);
+        }
         // Standard Responses has no message-call membership carrier. Keeping
         // both items is insufficient to preserve this relation through history.
         if profile == Profile::Responses
