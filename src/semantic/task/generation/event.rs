@@ -292,6 +292,14 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                     {
                         return Err(EventError::Identity);
                     }
+                    if state
+                        .item(owner)?
+                        .parts
+                        .iter()
+                        .any(|p| p.kind == PartKind::Refusal)
+                    {
+                        return Err(GenerationError::InvalidResponse.into());
+                    }
                     if state.items.iter().rev().take_while(|i| i.id != owner).any(
                         |i| !matches!(&i.kind,ItemKind::ToolCall{message:Some(m),..} if *m==owner),
                     ) {
@@ -333,6 +341,12 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             });
         }
         StreamEvent::PartStarted { item, part, kind } => {
+            // Refusal and calls cannot share an owner, regardless of arrival order.
+            if kind == PartKind::Refusal && state.items.iter().any(|i| {
+                matches!(i.kind, ItemKind::ToolCall { message: Some(owner), .. } if owner == item)
+            }) {
+                return Err(GenerationError::InvalidResponse.into());
+            }
             if state.part_ids.len() >= MAX_ITEMS {
                 return Err(EventError::Limit);
             }

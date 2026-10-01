@@ -28,6 +28,8 @@ mod image_usage;
 mod images;
 #[path = "semantic/instructions.rs"]
 mod instructions;
+#[path = "semantic/message_groups.rs"]
+mod message_groups;
 #[path = "semantic/model_constraints.rs"]
 mod model_constraints;
 #[path = "semantic/parsed_replay.rs"]

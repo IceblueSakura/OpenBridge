@@ -30,6 +30,10 @@ The table describes shared grammar and explicitly selected adapter rules, not a 
 
 `Usage.input_cache_write_tokens` maps to `prompt_tokens_details.cache_write_tokens` in static and event paths. Absent details remain absent unless the selected adapter explicitly enables a field-specific default; its source selection and exact conditions live in code. Defaults are recorded outside task semantics, never override reported or malformed input, and never invent a whole usage object. A compatibility value is not a measured cache-write/billing fact; see [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md).
 
+### Explicit message groups
+
+The request/response `message_groups()` view borrows each assistant owner and its contiguous, explicitly attached function calls from final typed items. `ToolCall.message` is the membership authority, not array position; independent calls, reasoning and results are not inferred members. Whole-group reorder preserves identities, while removing an owner or moving a call outside its declared group requires explicit repair or rejection. Refusal and attached calls are mutually exclusive in static validation and at the first conflicting stream event. This view has no separate stored membership, turn identity or execution policy. Owners: [group view](../../src/semantic/task/generation/group.rs), [validation](../../src/semantic/task/generation/validate.rs), [reducer](../../src/semantic/task/generation/event.rs), [independent tests](../../tests/semantic/message_groups.rs).
+
 ### Text and refusal probabilities
 
 Codec-only synthetic request example (the model label is not a catalog/instance claim):

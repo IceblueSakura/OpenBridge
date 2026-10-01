@@ -133,6 +133,7 @@ pub struct ToolCall {
     pub call_id: Text,
     pub name: Text,
     pub arguments: String,
+    /// Explicit assistant owner. Absence does not declare membership in a neighboring group.
     pub message: Option<ItemId>,
     pub status: ItemLifecycle,
     pub context: CallContext,

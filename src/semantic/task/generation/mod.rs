@@ -4,6 +4,8 @@ mod contract;
 pub use continuation::{CallReference, Continuation};
 pub use contract::{GenerationFeature, GenerationSemanticContract};
 mod event;
+mod group;
+pub use group::MessageGroup;
 mod output;
 mod pattern;
 mod reasoning;
