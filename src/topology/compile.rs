@@ -343,12 +343,18 @@ mod tests {
     }
 
     #[test]
-    fn fixed_route_order_survives_compilation() {
+    fn fixed_route_order_and_provider_specific_aliases_survive_compilation() {
         let mut responses = endpoint(ProtocolProfile::OpenAiResponses);
         responses.id = EndpointId::new("e-responses").unwrap();
+        responses.upstream_model = "native-model-name".into();
+        let mut other_provider = provider();
+        other_provider.id = ProviderId::new("other").unwrap();
         let mut chat = endpoint(ProtocolProfile::OpenAiChat);
         chat.id = EndpointId::new("e-chat").unwrap();
-        let topology = compile_fixture(
+        chat.provider = other_provider.id.clone();
+        chat.upstream_model = "hosted-model-alias".into();
+        let topology = compile(
+            vec![provider(), other_provider],
             vec![chat, responses],
             vec![Route {
                 policy: super::super::RoutePolicy::default(),
@@ -360,6 +366,7 @@ mod tests {
                 ],
             }],
             vec![model(GenerationRepresentationContract::full())],
+            vec![canonical()],
         )
         .unwrap();
         let order: Vec<_> = topology
@@ -368,6 +375,34 @@ mod tests {
             .map(|e| e.id.as_str())
             .collect();
         assert_eq!(order, ["e-responses", "e-chat"]);
+        let request = crate::adapter::Adapter::new(
+            crate::protocol::openai::Profile::Responses,
+            crate::adapter::Dialect::Standard,
+            None,
+        )
+        .decode_request(br#"{"model":"fixture-model","input":"keep"}"#)
+        .unwrap();
+        let original = request.clone();
+        let secret = crate::provider::SecretMaterial::new("synthetic-upstream-key").unwrap();
+        for (id, provider_id, upstream_name) in [
+            ("e-responses", "fixture", "native-model-name"),
+            ("e-chat", "other", "hosted-model-alias"),
+        ] {
+            let target = topology.endpoint(&EndpointId::new(id).unwrap()).unwrap();
+            assert_eq!(target.provider.as_str(), provider_id);
+            assert_eq!(target.canonical_model.as_str(), "fixture-model");
+            let prepared = crate::execution::prepare(
+                target,
+                topology.provider(provider_id).unwrap(),
+                &secret,
+                &request,
+            )
+            .unwrap();
+            let wire: serde_json::Value = serde_json::from_slice(&prepared.body).unwrap();
+            assert_eq!(wire["model"], upstream_name);
+            assert_eq!(request, original);
+        }
+        assert!(topology.model("fixture/fixture-model").is_none());
     }
 
     #[test]

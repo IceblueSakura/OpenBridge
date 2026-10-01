@@ -257,6 +257,70 @@ async fn identity_budget_and_scope_are_owned_by_trusted_ingress() {
         413
     );
 }
+#[test]
+fn clients_only_resolve_public_labels_and_cannot_select_a_provider() {
+    // Activate one Chat target for both client wire families without I/O.
+    let gate = Gateway::new(
+        crate::topology::catalog::default_topology().unwrap(),
+        [Profile::Chat, Profile::Responses]
+            .into_iter()
+            .map(|protocol| Entry {
+                model: "deepseek-flash".into(),
+                protocol,
+                endpoint: EndpointId::new("deepseek-chat").unwrap(),
+            })
+            .collect(),
+        BTreeMap::from([(
+            CredentialBindingId::new("deepseek-api-key").unwrap(),
+            Arc::new(SecretMaterial::new("synthetic-upstream-credential-0001").unwrap()),
+        )]),
+        SecretMaterial::new(KEY).unwrap(),
+        Limits::default(),
+        None,
+    )
+    .unwrap();
+    for profile in [Profile::Chat, Profile::Responses] {
+        let original = if profile == Profile::Chat {
+            serde_json::json!({"model":"deepseek-flash","messages":[{"role":"user","content":"hi"}]})
+        } else {
+            serde_json::json!({"model":"deepseek-flash","input":"hi"})
+        };
+        assert!(
+            admission::prepare(
+                &gate.state,
+                profile,
+                &serde_json::to_vec(&original).unwrap()
+            )
+            .is_ok()
+        );
+        for provider in [
+            serde_json::json!("deepseek"),
+            serde_json::json!("aliyun-tokenplan-cn"),
+            serde_json::json!({"order":["deepseek"]}),
+            serde_json::Value::Null,
+        ] {
+            let mut wire = original.clone();
+            wire["provider"] = provider;
+            assert_eq!(
+                admission::prepare(&gate.state, profile, &serde_json::to_vec(&wire).unwrap())
+                    .err()
+                    .unwrap()
+                    .status,
+                400
+            );
+        }
+        let mut wire = original;
+        wire["model"] = serde_json::json!("deepseek/deepseek-flash");
+        assert_eq!(
+            admission::prepare(&gate.state, profile, &serde_json::to_vec(&wire).unwrap())
+                .err()
+                .unwrap()
+                .status,
+            404
+        );
+    }
+}
+
 #[tokio::test]
 async fn concurrency_and_collection_timeout_fail_before_upstream() {
     let gate = gateway(Limits {

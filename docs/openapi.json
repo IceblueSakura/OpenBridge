@@ -71,14 +71,19 @@
     },
     "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "description": "Exactly one Authorization header. Configured startup secret, not an upstream API key."}},
     "schemas": {
+      "PublicModelLabel": {
+        "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9_.-]+$",
+        "description": "Activated public model label without a provider/ prefix. Resolves a fixed trusted Route; canonical identity and Provider-specific upstream model names remain internal. Clients cannot select a Provider."
+      },
       "CacheSession": {
         "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
         "description": "OpenBridge scoped extension: caller-supplied Provider cache/observability grouping, not a gateway-managed session. Only explicitly supporting targets may receive it. No derivation from prompt_cache_key, user, safety_identifier or opaque replay; unsupported targets reject it. Incoming session headers are not forwarded."
       },
       "ChatRequest": {
         "type": "object", "required": ["model", "messages"],
+        "not": {"required": ["provider"]},
         "properties": {
-          "model": {"type": "string", "minLength": 1},
+          "model": {"$ref": "#/components/schemas/PublicModelLabel"},
           "session_id": {"$ref": "#/components/schemas/CacheSession"},
           "prompt_cache_key": {"type": ["string", "null"], "maxLength": 256, "description": "Advisory Provider cache-affinity key. Targets without a declared key carrier omit it; automatic caching is independent. Does not select or reorder OpenBridge candidates."},
           "messages": {"type": "array", "items": {"type": "object"}, "description": "User/assistant and system/developer content accepts a string or nonempty ordered plain-text part array. Tool result content accepts a string or ordered plain-text part array, including an empty array; single tool-result parts remain arrays. User content additionally admits ordered text/image_url parts when public and endpoint contracts permit image input; one image remains an array. HTTP(S) URL and Base64 image data URL only; file IDs, other roles' images, tool-result media and generated media are rejected."},
@@ -95,8 +100,9 @@
       },
       "ResponsesRequest": {
         "type": "object", "required": ["model"],
+        "not": {"required": ["provider"]},
         "properties": {
-          "model": {"type": "string", "minLength": 1},
+          "model": {"$ref": "#/components/schemas/PublicModelLabel"},
           "session_id": {"$ref": "#/components/schemas/CacheSession"},
           "prompt_cache_key": {"type": ["string", "null"], "maxLength": 256, "description": "Advisory Provider cache-affinity key, independent of session_id. Cache echoes/usage are only upstream-reported facts."},
           "input": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "object"}}]},

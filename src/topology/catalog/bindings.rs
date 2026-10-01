@@ -29,8 +29,11 @@ pub struct ApiKeyBinding {
     pub provider: fn() -> ProviderDefinition,
     pub dialect: Dialect,
     pub endpoint_prefix: &'static str,
+    /// Downstream label only; clients cannot choose a Provider through it.
     pub model: &'static str,
+    /// Shared semantic identity, independent of upstream naming.
     pub canonical_model: &'static str,
+    /// Exact model spelling accepted by this Provider, injected during encoding.
     pub upstream: &'static str,
     pub credential: &'static str,
     pub variable: &'static str,
@@ -140,14 +143,14 @@ pub const API_KEY_BINDINGS: &[ApiKeyBinding] = &[
         endpoint_slice: RequestSlice::Canonical,
     },
     ApiKeyBinding {
-        provider: catalog::bailian,
+        provider: catalog::aliyun_dashscope_cn,
         dialect: Dialect::Bailian,
-        endpoint_prefix: "bailian",
+        endpoint_prefix: "aliyun-dashscope-cn",
         model: "qwen3.8-max",
         canonical_model: "qwen3.8-max",
         upstream: "qwen3.8-max",
-        credential: "bailian-api-key",
-        variable: "OPENBRIDGE_BAILIAN_API_KEY",
+        credential: "aliyun-dashscope-cn-api-key",
+        variable: "OPENBRIDGE_ALIYUN_DASHSCOPE_CN_API_KEY",
         protocols: BOTH,
         replay_responses: false,
         replay_chat: false,

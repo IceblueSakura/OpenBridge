@@ -80,11 +80,11 @@ pub fn nvidia() -> ProviderDefinition {
 /// Region-bound endpoint; credentials must belong to the selected region.
 /// Sources: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>,
 /// <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses>.
-pub fn bailian() -> ProviderDefinition {
+pub fn aliyun_dashscope_cn() -> ProviderDefinition {
     ProviderDefinition {
         responses: Some(EndpointPath::new("/compatible-mode/v1/responses").expect("static path")),
         ..chat_provider(
-            "bailian",
+            "aliyun-dashscope-cn",
             "https://dashscope.aliyuncs.com",
             "/compatible-mode/v1/chat/completions",
         )
@@ -130,7 +130,7 @@ pub fn all() -> Vec<ProviderDefinition> {
         openrouter(),
         longcat(),
         nvidia(),
-        bailian(),
+        aliyun_dashscope_cn(),
         aliyun_tokenplan_cn(),
         kimi(),
         zhipu(),

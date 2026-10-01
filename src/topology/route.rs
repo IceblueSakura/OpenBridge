@@ -51,7 +51,9 @@ pub struct Route {
 /// from trusted catalog facts and required to be satisfiable by its route.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicModel {
+    /// Client-visible label without a Provider prefix; upstream names stay on Endpoints.
     pub id: ModelId,
+    /// Semantic identity shared by every member of the fixed Route.
     pub canonical_model: ModelId,
     pub task: TaskKind,
     pub route: RouteId,

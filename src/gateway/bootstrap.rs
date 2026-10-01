@@ -116,6 +116,87 @@ mod tests {
     }
 
     #[test]
+    fn dashscope_bootstrap_uses_only_the_renamed_binding() {
+        let boot = Bootstrap::from_lookup(|name| {
+            Ok(match name {
+                "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
+                "OPENBRIDGE_ALIYUN_DASHSCOPE_CN_API_KEY" => Some("synthetic-dashscope-key".into()),
+                "OPENBRIDGE_BAILIAN_API_KEY" => Some("synthetic-obsolete-key".into()),
+                _ => None,
+            })
+        })
+        .unwrap();
+        for (profile, suffix) in [(Profile::Chat, "chat"), (Profile::Responses, "responses")] {
+            let entry =
+                &boot.gateway.state.entries[&(super::super::family(profile), "qwen3.8-max".into())];
+            let candidate = &entry.candidates[0];
+            assert_eq!(
+                entry.public.route.as_str(),
+                "aliyun-dashscope-cn-generation"
+            );
+            assert_eq!(candidate.provider.id.as_str(), "aliyun-dashscope-cn");
+            assert_eq!(
+                candidate.endpoint.id.as_str(),
+                format!("aliyun-dashscope-cn-{suffix}")
+            );
+            assert_eq!(
+                candidate.endpoint.credential.as_str(),
+                "aliyun-dashscope-cn-api-key"
+            );
+            assert_eq!(candidate.endpoint.canonical_model.as_str(), "qwen3.8-max");
+            let wire = if profile == Profile::Chat {
+                serde_json::json!({"model":"qwen3.8-max","messages":[{"role":"user","content":"hi"}]})
+            } else {
+                serde_json::json!({"model":"qwen3.8-max","input":"hi"})
+            };
+            let (_, request) = super::super::admission::prepare(
+                &boot.gateway.state,
+                profile,
+                &serde_json::to_vec(&wire).unwrap(),
+            )
+            .unwrap();
+            let prepared = crate::execution::prepare(
+                &candidate.endpoint,
+                &candidate.provider,
+                &candidate.secret,
+                &request,
+            )
+            .unwrap();
+            assert_eq!(prepared.origin, "https://dashscope.aliyuncs.com");
+            assert_eq!(
+                prepared.path,
+                format!(
+                    "/compatible-mode/v1/{}",
+                    if profile == Profile::Chat {
+                        "chat/completions"
+                    } else {
+                        "responses"
+                    }
+                )
+            );
+            assert_eq!(
+                prepared.auth_header,
+                (
+                    "authorization".into(),
+                    "Bearer synthetic-dashscope-key".into()
+                )
+            );
+            let upstream: serde_json::Value = serde_json::from_slice(&prepared.body).unwrap();
+            assert_eq!(upstream["model"], "qwen3.8-max");
+        }
+        assert!(matches!(
+            Bootstrap::from_lookup(|name| {
+                Ok(match name {
+                    "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
+                    "OPENBRIDGE_BAILIAN_API_KEY" => Some("synthetic-obsolete-key".into()),
+                    _ => None,
+                })
+            }),
+            Err(StartupError::Binding)
+        ));
+    }
+
+    #[test]
     fn shared_provider_credentials_keep_model_and_protocol_targets_distinct() {
         let boot = Bootstrap::from_lookup(|name| {
             Ok(match name {
@@ -212,7 +293,9 @@ mod tests {
                     "OPENBRIDGE_ALIYUN_TOKENPLAN_CN_API_KEY" if subscription => {
                         Some("synthetic-subscription-key".into())
                     }
-                    "OPENBRIDGE_BAILIAN_API_KEY" if metered => Some("synthetic-metered-key".into()),
+                    "OPENBRIDGE_ALIYUN_DASHSCOPE_CN_API_KEY" if metered => {
+                        Some("synthetic-metered-key".into())
+                    }
                     _ => None,
                 })
             })

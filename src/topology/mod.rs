@@ -55,3 +55,17 @@ pub enum ProtocolProfile {
     OpenAiChat,
     OpenAiResponses,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ModelId;
+
+    #[test]
+    fn model_labels_do_not_encode_provider_selection() {
+        assert_eq!(
+            ModelId::new("synthetic-model").unwrap().as_str(),
+            "synthetic-model"
+        );
+        assert!(ModelId::new("synthetic-provider/synthetic-model").is_err());
+    }
+}

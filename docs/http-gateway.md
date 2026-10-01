@@ -37,7 +37,7 @@ cargo run --locked --offline --bin openbridge
 - 缓存亲和只利用 Provider 原生功能，不维护网关会话/回答缓存，不重排固定 Route。标准 `prompt_cache_key` 是 advisory hint，未声明 carrier 的目标可以省略它；显式 cache options 目标不支持时拒绝。`user`/`safety_identifier` 独立于 cache hints，目标未声明时拒绝而非随 cache 一起丢弃。
 - 两个入口额外支持非空、最多 256 字符且不含控制字符的 `session_id` body 扩展，用于 Provider cache/observability grouping；只投影到明确支持它的目标，否则拒绝。它不等于 OpenBridge 会话，不从其他 ID 自动生成，不把 `session-id`/`x-session-id` 入站 header 透传。具体 profile/激活仍按源码核对。
 - operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。Chat metadata/service-tier 和 logprobs/top_logprobs 经同一 typed IR/context 与 Endpoint gate，不因 codec 准入就自动扩大 catalog 模型能力。响应 reported facts 不从请求复制补齐。
-- Provider URL、path、model 和 auth 都来自启动绑定。入站 headers 不透传，包括独立 `CodexHeaders` carrier；低层 Responses envelope 可读写的 `CustomSections` 也未接线，非空 sections 在请求准入时拒绝。上游非成功 HTTP 状态的诊断正文、认证状态细节、origin、凭据 locator 不回显；下游 `model` 为 public label。
+- 客户端 `model` 只接受已激活的 public label，不带 `provider/` 前缀；顶层 `provider` 字段拒绝，包括字符串、路由对象和 null，不作为选择或 fallback 提示。上游 URL、path、model 和 auth 都来自启动绑定。入站 headers 不透传，包括独立 `CodexHeaders` carrier；低层 Responses envelope 可读写的 `CustomSections` 也未接线，非空 sections 在请求准入时拒绝。上游非成功 HTTP 状态的诊断正文、认证状态细节、origin、凭据 locator 不回显；下游 `model` 为 public label。
 - 未实现 `/v1/models`、状态资源、WebSocket、媒体资源服务/图片输出或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。Chat 正文/refusal 概率按 owner 保真；静态 reported metadata 没有 Chat chunk 槽位，不能通过丢字段合成 SSE。
 
 ### 最小请求示例
@@ -98,6 +98,19 @@ Chat 对应图片 part 为 `{"type":"image_url","image_url":{"url":"https://exam
 SSE 不收完整流再回放。每次最多消费一个上游 frame；下游 frame 在 HTTP body handoff 时确认，未确认不推进后续语义处理。仅编码或排队不算 commit。严格上游 EOF 后才释放终态；完成全部 handoff 后才完成 producer。这是服务 transport 边界，不声称已收到客户端/TCP acknowledgement。消费者不 poll body 时，deadline 仍能释放上游；drop/shutdown 同样取消资源。
 
 ## 操作者诊断
+
+### 固定路由定位
+
+调试路由时按以下 owner 链核对，不从名称前缀推导目标：
+
+1. [`PublicModel`](../src/topology/route.rs) 的 public label 指向固定 Route，同时引用独立于 Provider spelling 的 canonical model。
+2. [`Route`](../src/topology/route.rs) 声明有序 Endpoint ID；[`Gateway::new`](../src/gateway/config.rs) 只允许显式激活其中的成员，仍保持 Route 顺序。
+3. [`Endpoint`](../src/topology/endpoint.rs) 同时绑定 Provider、canonical model、协议、trusted target、`upstream_model` 和凭据；同一 canonical model 的不同 Provider 成员可以有不同 `upstream_model`。
+4. [`execution::prepare`](../src/execution/attempt.rs) 使用所选 Endpoint 的 `upstream_model` 编码请求；下游响应的 `model` 仍为 public label。
+
+静态绑定从 [`catalog`](../src/topology/catalog.rs) 查询，环境启用规则从 [`bootstrap`](../src/gateway/bootstrap.rs) 查询。注册关系不证明运行实例已启用；不要通过读取私有配置、输出凭据或记录正文来定位路由。
+
+### 受控请求诊断
 
 显式 `OPENBRIDGE_PROBE_DIAGNOSTICS` 启用受控 probe 元数据，不是内容日志或生产观测系统。文件必须新建，父目录由操作者准备；Unix 权限 0600。启动时路径无效/已存在会拒绝启动。运行时采用容量 64 的 try-send 队列、每文件 1 MiB 上限；写失败/队列满会丢诊断，不改变业务响应或等待写入。Ctrl-C 后 best-effort 有界 drain；强杀或未完成 I/O 可使记录缺失，不能据缺失推断成功。
 

@@ -105,11 +105,11 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "qwen3.8-max",
-        pool: "bailian-primary",
-        provider: "bailian",
+        pool: "aliyun-dashscope-cn-primary",
+        provider: "aliyun-dashscope-cn",
         models_path: Some("/compatible-mode/v1/models"),
-        chat_endpoint: "bailian-chat",
-        responses_endpoint: Some("bailian-responses"),
+        chat_endpoint: "aliyun-dashscope-cn-chat",
+        responses_endpoint: Some("aliyun-dashscope-cn-responses"),
     },
     ModelSpec {
         label: "qwen3.8-flash",

@@ -38,9 +38,10 @@ pub struct Endpoint {
     pub target: EndpointTarget,
     pub task: TaskKind,
     pub protocol: ProtocolProfile,
-    /// Upstream model identity bound at compile time, injected at attempt time.
+    /// Exact Provider spelling, bound at compile time and injected at attempt time.
+    /// Different Providers may spell the same canonical model differently.
     pub upstream_model: String,
-    /// Trusted alias binding, independent of Provider's spelling and capabilities.
+    /// Shared semantic identity; neither a public label nor a Provider selector.
     pub canonical_model: super::ModelId,
     pub representation: GenerationRepresentationContract,
     pub execution: ExecutionContract,

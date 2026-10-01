@@ -26,7 +26,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         "longcat" => Dialect::LongCat,
         "xiaomi" => Dialect::Xiaomi,
         "nvidia" => Dialect::Nvidia,
-        "bailian" => Dialect::Bailian,
+        "aliyun-dashscope-cn" => Dialect::Bailian,
         "kimi" => Dialect::Kimi,
         "zhipu" => Dialect::Zhipu,
         _ => return Err("unknown diagnostic provider".into()),

@@ -31,11 +31,21 @@ class SelectionTests(unittest.TestCase):
             ("aliyun-tokenplan-primary", "OPENBRIDGE_ALIYUN_TOKENPLAN_CN_API_KEY"),
         )
         for provider, model in [
-            ("bailian", "qwen3.8-flash"),
+            ("aliyun-dashscope-cn", "qwen3.8-flash"),
             ("aliyun-tokenplan-cn", "qwen3.8-max"),
         ]:
             with self.assertRaises(RuntimeError):
                 select_bindings(provider, models=[model])
+
+    def test_dashscope_selection_uses_the_renamed_provider_and_key(self):
+        rows = select_bindings("aliyun-dashscope-cn", models=["qwen3.8-max"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(
+            rows[0][2:4],
+            ("aliyun-dashscope-cn-primary", "OPENBRIDGE_ALIYUN_DASHSCOPE_CN_API_KEY"),
+        )
+        with self.assertRaises(RuntimeError):
+            select_bindings("bailian")
 
     def test_paused_unknown_and_duplicate_selections_fail_closed(self):
         rows = select_bindings()

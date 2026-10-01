@@ -6,7 +6,7 @@ Accepted. Refines [ADR 0007](0007-stateless-cache-affinity-and-extensions.md) an
 
 ## Decision
 
-- Register canonical models explicitly once. Public aliases and upstream spellings reference that identity; Provider bindings declare adapters/protocols rather than duplicating a bootstrap switch.
+- Register canonical models explicitly once, independently of Provider spelling. Client-visible model labels have no Provider prefix and select only a fixed Route, never a client-supplied Provider. Each Endpoint binds its own upstream model spelling to the shared canonical identity; different Providers may use different names for that identity. Provider bindings declare adapters/protocols rather than duplicating a bootstrap switch.
 - Public semantic admission and the client response contract remain independent of upstream aliases and Endpoint replacement. Representation contracts reuse semantic vocabulary, not a second flag model. Context admission, identity, cache projection, media limits and execution policy remain separate owners.
 - Library and gateway use one bounded pure candidate selector. It projects whole requests independently and emits closed rejection categories, never raw request values or credential locators.
 - Cache affinity uses Provider automatic caching and declared carriers, not an OpenBridge answer cache, load balancer, session manager or sticky router. Preserve deterministic target projection, tool/Schema order and surviving history prefixes; every request still supplies required history.

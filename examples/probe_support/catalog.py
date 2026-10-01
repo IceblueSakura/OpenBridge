@@ -44,10 +44,10 @@ BINDINGS = (
         ("chat", "responses"),
     ),
     (
-        "bailian",
+        "aliyun-dashscope-cn",
         "qwen3.8-max",
-        "bailian-primary",
-        "OPENBRIDGE_BAILIAN_API_KEY",
+        "aliyun-dashscope-cn-primary",
+        "OPENBRIDGE_ALIYUN_DASHSCOPE_CN_API_KEY",
         ("chat", "responses"),
     ),
     (
