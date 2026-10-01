@@ -40,17 +40,15 @@ pub enum MessageRole {
 }
 /// Assistant phase label from the standard, independent of item status. Missing and
 /// null both mean unlabeled; no default label is ever synthesized.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum Phase {
     Commentary,
     FinalAnswer,
 }
 impl Phase {
     pub fn label(self) -> &'static str {
-        match self {
-            Self::Commentary => "commentary",
-            Self::FinalAnswer => "final_answer",
-        }
+        self.into()
     }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -38,6 +38,8 @@ mod response;
 mod router_adapter;
 #[path = "semantic/schema.rs"]
 mod schema;
+#[path = "semantic/string_enums.rs"]
+mod string_enums;
 #[path = "semantic/text_admission.rs"]
 mod text_admission;
 #[path = "semantic/text_events.rs"]

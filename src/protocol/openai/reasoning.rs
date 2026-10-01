@@ -64,19 +64,12 @@ pub(super) fn request(
         r.summary = old;
     }
     r.context = optional_label(reasoning, "context", |s| {
-        Ok(match s {
-            "auto" => ReasoningContext::Auto,
-            "current_turn" => ReasoningContext::CurrentTurn,
-            "all_turns" => ReasoningContext::AllTurns,
-            _ => return Err(CodecError::Unsupported("reasoning context".into())),
-        })
+        s.parse::<ReasoningContext>()
+            .map_err(|_| CodecError::Unsupported("reasoning context".into()))
     })?;
     r.mode = optional_label(reasoning, "mode", |s| {
-        Ok(match s {
-            "standard" => ReasoningMode::Standard,
-            "pro" => ReasoningMode::Pro,
-            _ => return Err(CodecError::Unsupported("reasoning mode".into())),
-        })
+        s.parse::<ReasoningMode>()
+            .map_err(|_| CodecError::Unsupported("reasoning mode".into()))
     })?;
     r.validate()?;
     Ok(r)
@@ -130,17 +123,12 @@ pub(super) fn write_request(
         }
     });
     put_presence(&mut reasoning, "context", &value.context, |v| {
-        json!(match v {
-            ReasoningContext::Auto => "auto",
-            ReasoningContext::CurrentTurn => "current_turn",
-            ReasoningContext::AllTurns => "all_turns",
-        })
+        let label: &'static str = (*v).into();
+        json!(label)
     });
     put_presence(&mut reasoning, "mode", &value.mode, |v| {
-        json!(match v {
-            ReasoningMode::Standard => "standard",
-            ReasoningMode::Pro => "pro",
-        })
+        let label: &'static str = (*v).into();
+        json!(label)
     });
     o.insert("reasoning".into(), Value::Object(reasoning));
 }
@@ -281,16 +269,9 @@ fn optional_label<T>(
     })
 }
 pub(super) fn effort(value: &str) -> Result<ReasoningEffort, CodecError> {
-    Ok(match value {
-        "none" => ReasoningEffort::None,
-        "minimal" => ReasoningEffort::Minimal,
-        "low" => ReasoningEffort::Low,
-        "medium" => ReasoningEffort::Medium,
-        "high" => ReasoningEffort::High,
-        "xhigh" => ReasoningEffort::XHigh,
-        "max" => ReasoningEffort::Max,
-        _ => return Err(CodecError::Unsupported("reasoning effort".into())),
-    })
+    value
+        .parse::<ReasoningEffort>()
+        .map_err(|_| CodecError::Unsupported("reasoning effort".into()))
 }
 fn summary(value: &str) -> Result<ReasoningSummary, CodecError> {
     Ok(match value {
@@ -301,15 +282,7 @@ fn summary(value: &str) -> Result<ReasoningSummary, CodecError> {
     })
 }
 pub(super) fn effort_label(value: ReasoningEffort) -> &'static str {
-    match value {
-        ReasoningEffort::None => "none",
-        ReasoningEffort::Minimal => "minimal",
-        ReasoningEffort::Low => "low",
-        ReasoningEffort::Medium => "medium",
-        ReasoningEffort::High => "high",
-        ReasoningEffort::XHigh => "xhigh",
-        ReasoningEffort::Max => "max",
-    }
+    value.into()
 }
 fn summary_label(value: ReasoningSummary) -> &'static str {
     match value {

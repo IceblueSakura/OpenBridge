@@ -40,8 +40,10 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
 pub(super) fn read_phase(o: &Map<String, Value>) -> Result<Option<Phase>, CodecError> {
     match o.get("phase") {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::String(s)) if s == "commentary" => Ok(Some(Phase::Commentary)),
-        Some(Value::String(s)) if s == "final_answer" => Ok(Some(Phase::FinalAnswer)),
+        Some(Value::String(s)) => s
+            .parse::<Phase>()
+            .map(Some)
+            .map_err(|_| CodecError::Invalid("phase")),
         _ => Err(CodecError::Invalid("phase")),
     }
 }

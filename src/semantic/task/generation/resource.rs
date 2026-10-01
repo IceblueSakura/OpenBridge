@@ -5,7 +5,8 @@ use base64::engine::general_purpose::STANDARD;
 
 pub const MAX_IMAGE_URL_BYTES: usize = 8192;
 pub const MAX_IMAGE_DECODED_BYTES: usize = 768 * 1024;
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum ImageDetail {
     Auto,
     Low,
@@ -14,12 +15,7 @@ pub enum ImageDetail {
 }
 impl ImageDetail {
     pub fn label(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Low => "low",
-            Self::High => "high",
-            Self::Original => "original",
-        }
+        self.into()
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

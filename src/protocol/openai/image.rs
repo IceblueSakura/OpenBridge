@@ -48,13 +48,10 @@ pub(super) fn read(part: &Map<String, Value>, profile: Profile) -> Result<Resour
     };
     let image_detail = match image.get("detail") {
         None => None,
-        Some(Value::String(s)) => Some(match s.as_str() {
-            "auto" => ImageDetail::Auto,
-            "low" => ImageDetail::Low,
-            "high" => ImageDetail::High,
-            "original" => ImageDetail::Original,
-            _ => return Err(CodecError::Invalid("image detail")),
-        }),
+        Some(Value::String(s)) => Some(
+            s.parse::<ImageDetail>()
+                .map_err(|_| CodecError::Invalid("image detail"))?,
+        ),
         _ => return Err(CodecError::Invalid("image detail")),
     };
     let resource = Resource {

@@ -12,7 +12,8 @@ pub enum ReasoningPresence {
     Null,
     Present,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum ReasoningEffort {
     None,
     Minimal,
@@ -29,13 +30,15 @@ pub enum ReasoningSummary {
     Concise,
     Detailed,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum ReasoningContext {
     Auto,
     CurrentTurn,
     AllTurns,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum ReasoningMode {
     Standard,
     Pro,
