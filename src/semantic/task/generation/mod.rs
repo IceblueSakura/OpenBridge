@@ -1,5 +1,7 @@
 //! Generation semantic IR.
 mod continuation;
+mod dependency;
+pub use dependency::{HistoryDependency, RequestDependencyProof};
 mod contract;
 pub use continuation::{CallReference, Continuation};
 pub use contract::{GenerationFeature, GenerationSemanticContract};

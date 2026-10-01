@@ -43,6 +43,7 @@ struct ReplayBinding {
     origin: Option<ReplayOrigin>,
     dependency: [u8; 32],
     final_value: bool,
+    history: Option<RequestDependencyProof>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -129,6 +130,7 @@ impl FidelityRecords {
                 origin,
                 dependency: fingerprint(semantic),
                 final_value,
+                history: None,
             },
         );
         Ok(())
@@ -143,7 +145,56 @@ impl FidelityRecords {
             binding.origin.is_some()
                 && binding.origin.as_ref() == target
                 && binding.dependency == fingerprint(semantic)
+                && binding.history.is_none()
         })
+    }
+    /// A declared relationship dependency must be checked against final history;
+    /// the owner-only path intentionally cannot accept such a binding.
+    pub fn replay_matches_request(
+        &self,
+        owner: ItemId,
+        semantic: &ReasoningItem,
+        target: Option<&ReplayOrigin>,
+        request: &GenerationRequest,
+    ) -> bool {
+        self.reasoning_replay.get(&owner).is_some_and(|binding| {
+            binding.origin.is_some()
+                && binding.origin.as_ref() == target
+                && binding.dependency == fingerprint(semantic)
+                && request.items().iter().any(|(id, item)| {
+                    *id == owner && matches!(item, Item::Reasoning(value) if value == semantic)
+                })
+                && binding
+                    .history
+                    .as_ref()
+                    .is_none_or(|proof| proof.check(request).is_ok())
+        })
+    }
+    /// Trusted source contract only, before transforms. Binding cannot recapture
+    /// an edited token or replace an existing dependency with a weaker scope.
+    pub fn bind_replay_dependency(
+        &mut self,
+        owner: ItemId,
+        proof: RequestDependencyProof,
+        source: &GenerationRequest,
+    ) -> Result<(), CodecError> {
+        proof.check(source)?;
+        let Some((_, Item::Reasoning(reasoning))) =
+            source.items().iter().find(|(id, _)| *id == owner)
+        else {
+            return Err(CodecError::Invalid("replay dependency owner"));
+        };
+        let binding = self
+            .reasoning_replay
+            .get_mut(&owner)
+            .ok_or(CodecError::Invalid("unbound replay dependency"))?;
+        if binding.dependency != fingerprint(reasoning)
+            || binding.history.as_ref().is_some_and(|old| old != &proof)
+        {
+            return Err(CodecError::Invalid("replay dependency rebinding"));
+        }
+        binding.history = Some(proof);
+        Ok(())
     }
     pub fn remove_replay(&mut self, owner: ItemId) {
         self.reasoning_replay.remove(&owner);

@@ -102,7 +102,7 @@ pub fn lower_request<'a>(
         profile,
         c.replay_origin.as_ref(),
         c.adaptation.rules.structured_chat_reasoning,
-        true,
+        Some(r),
     )?;
     c.images
         .check(r)
@@ -274,7 +274,7 @@ pub fn lower_response<'a>(
         profile,
         c.replay_origin.as_ref(),
         c.adaptation.rules.structured_chat_reasoning,
-        false,
+        None,
     )?;
     let chat_status = if r.outcome() == Outcome::Incomplete {
         ItemLifecycle::Incomplete
@@ -368,8 +368,9 @@ fn represent_reasoning(
     profile: Profile,
     origin: Option<&crate::semantic::value::ReplayOrigin>,
     structured_chat: bool,
-    request: bool,
+    history: Option<&GenerationRequest>,
 ) -> Result<(), RepresentationError> {
+    let request = history.is_some();
     for (id, item) in items {
         if (profile == Profile::Chat || request)
             && matches!(item, Item::Reasoning(r) if r.encrypted.is_some() && r.status != ItemLifecycle::Completed)
@@ -379,7 +380,10 @@ fn represent_reasoning(
         if let Item::Reasoning(reasoning) = item
             && let Some(replay) = &reasoning.encrypted
             && (profile != Profile::Responses && !(profile == Profile::Chat && structured_chat)
-                || !fidelity.replay_matches(*id, reasoning, origin)
+                || !history.map_or_else(
+                    || fidelity.replay_matches(*id, reasoning, origin),
+                    |request| fidelity.replay_matches_request(*id, reasoning, origin, request),
+                )
                 || replay.replay_token().is_none()
                     && (request
                         || reasoning.status == ItemLifecycle::Completed

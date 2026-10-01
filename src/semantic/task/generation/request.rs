@@ -325,6 +325,8 @@ pub enum GenerationError {
     NonFiniteTemperature,
     #[error("invalid generation control")]
     InvalidControl,
+    #[error("history dependency is missing or changed")]
+    InvalidDependency,
     #[error("tool call identity is duplicated")]
     DuplicateCall,
     #[error("tool result has no matching preceding call or duplicates a result")]

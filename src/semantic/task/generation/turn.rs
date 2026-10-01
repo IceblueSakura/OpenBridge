@@ -57,7 +57,9 @@ pub enum ResultReadiness<'a> {
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ContinuationError {
-    #[error("response call owners or values changed in final history")]
+    #[error("final history is invalid")]
+    InvalidHistory,
+    #[error("response owners, values, order or grouping changed in final history")]
     ChangedResponse,
     #[error("this response's tool results are not completely reported")]
     ResultsNotComplete,
@@ -85,17 +87,22 @@ impl<'a> ResponseContinuation<'a> {
         if self.response.outcome() != Outcome::Completed {
             return Ok(ResultReadiness::Unreported);
         }
+        history
+            .validate()
+            .map_err(|_| ContinuationError::InvalidHistory)?;
+        for group in self.response.message_groups() {
+            if !history
+                .message_groups()
+                .any(|candidate| candidate.items() == group.items())
+            {
+                return Err(ContinuationError::ChangedResponse);
+            }
+        }
         let mut pending = Vec::new();
         let mut calls = 0;
         let mut partial = false;
         let mut previous_position = None;
         for (owner, item) in self.response.items() {
-            let call_id = match item {
-                Item::ToolCall(call) => call.call_id.as_str(),
-                Item::CustomCall(call) => call.call_id.as_str(),
-                Item::Program(call) => call.call_id.as_str(),
-                _ => continue,
-            };
             let position = history
                 .items()
                 .iter()
@@ -105,6 +112,12 @@ impl<'a> ResponseContinuation<'a> {
                 return Err(ContinuationError::ChangedResponse);
             }
             previous_position = Some(position);
+            let call_id = match item {
+                Item::ToolCall(call) => call.call_id.as_str(),
+                Item::CustomCall(call) => call.call_id.as_str(),
+                Item::Program(call) => call.call_id.as_str(),
+                _ => continue,
+            };
             calls += 1;
             let result = history.items()[position + 1..]
                 .iter()

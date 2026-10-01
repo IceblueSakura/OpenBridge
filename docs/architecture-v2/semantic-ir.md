@@ -84,7 +84,7 @@ Generation representation
 
 Continuation 表示下一次交互的要求和依赖，例如待回应 call、必须保留的内容组/opaque 值、有效 scope、工具或设置约束。它不是自动发送请求的命令、重试许可或脚本。语义层验证这些要求；执行/调用方另行决定是否继续、预算与权限。
 
-[显式 response 续轮检查](../../src/semantic/task/generation/turn.rs)以调用方提供的 local `TurnId` / `ResponseId` 关联不可变 response，不将它们冒充上游报告。它检查最终 history 中同一 owner 的调用值、kind、顺序及对应结果；进行中结果保持未知，齐备仅报告 `ResultsComplete`，不报告工具成功、产物完整、turn 完成或整体执行就绪。显式后继关联只校验当前及直接前驱 identity，不管理全局 identity、session 或调度；调用方负责全链唯一性及其他依赖。既有 wire 不承载这些本地关联，也不因这项只读 API 扩大准入。
+[显式 response 续轮检查](../../src/semantic/task/generation/turn.rs)以调用方提供的 local `TurnId` / `ResponseId` 关联不可变 response，不将它们冒充上游报告。它检查最终 history 中完整输出的 owner、值、顺序、声明的消息组成员及调用对应结果；进行中结果保持未知，齐备仅报告 `ResultsComplete`，不报告工具成功、产物完整、turn 完成或整体执行就绪。显式后继关联只校验当前及直接前驱 identity，不管理全局 identity、session 或调度；调用方负责全链唯一性及其他依赖。既有 wire 不承载这些本地关联，也不因这项只读 API 扩大准入。
 
 单 response reducer 终止后不可复活。后继 response 可以延续同一逻辑 turn，但应以显式关系关联，不能拼接进前一个 response 伪装成一次成功，也不能借 continuation 绕过提交后的禁止 fallback 边界。无状态完整历史、远端 response/conversation 引用、store/background 分别建模；表示它们不隐式启用存储或远端状态解析。
 
@@ -143,6 +143,8 @@ Schema 是带方言、顺序、严格性和有界引用关系的约束，不是�
 | 替换正文/资源/参数 | 使依赖旧内容的 signature、annotation、probability 或引用失效，除非有明确可证明的保持规则 |
 | 删除 | 删除 owner 附着值；悬空调用、引用或组约束须显式修复或拒绝，不偷偷恢复或级联丢弃其他语义 |
 | 修改控制/上下文 | 重算 effective settings、continuation/cache/resource 要求，不能把旧 reported fact 当新设置 |
+
+[进程内依赖证明](../../src/semantic/task/generation/dependency.rs)提供显式 message group / prefix-through-owner 范围及可选 settings 绑定。证明只保留摘要；组外变换或前缀尾后 append 不影响所选范围，范围内的值、顺序、成员、identity 或绑定设置变化必须重验失败。Schema 属性顺序及 redacted opaque/资源正文均参与摘要。范围由能力合同选择，不从相邻 item 猜测；证明不授权 replay，不构成持久化或客户端 carrier。
 
 变换后重新验证整体语义并派生 requirements；每个固定候选从相同不可变输入独立 lowering。若需损失转换，必须具名、限定前提、显式获准并说明可观察后果；没有泛化 `best_effort`。
 
