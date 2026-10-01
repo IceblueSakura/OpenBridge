@@ -505,17 +505,26 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         }
     }
     // A fixed Responses entry can project a Chat provider without native bypass.
-    let response = client
-        .post(format!("{url}/v1/responses"))
-        .bearer_auth(support::CLIENT_KEY)
-        .json(&json!({"model":"cross-model","input":"lookup"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 200);
-    let wire: Value = response.json().await.unwrap();
-    assert_eq!(wire["model"], "cross-model");
-    assert_eq!(wire["output"][0]["call_id"], "call-local");
+    for stream in [false, true] {
+        let response = client
+            .post(format!("{url}/v1/responses"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&json!({"model":"cross-model","input":"lookup","stream":stream}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let decoded = responses_delivery(&response.bytes().await.unwrap(), stream);
+        assert_eq!(decoded.metadata.model, "cross-model");
+        assert_eq!(decoded.semantic.outcome(), Outcome::Completed);
+        assert_eq!(decoded.semantic.items().len(), 2);
+        assert!(matches!(&decoded.semantic.items()[0].1,
+            openbridge::semantic::task::generation::Item::Message(m)
+            if m.parts.is_empty() && m.status == openbridge::semantic::task::generation::ItemLifecycle::Completed));
+        assert!(matches!(&decoded.semantic.items()[1].1,
+            openbridge::semantic::task::generation::Item::ToolCall(c)
+            if c.call_id.as_str() == "call-local" && c.arguments == "{\"n\":1}"));
+    }
     let before = observed.0.lock().unwrap().len();
     let response = client
         .post(format!("{url}/v1/responses"))

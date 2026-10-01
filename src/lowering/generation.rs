@@ -543,14 +543,7 @@ fn validate_wire_ids(
     generate: bool,
 ) -> Result<(), RepresentationError> {
     let mut ids = BTreeSet::new();
-    for (id, item) in items {
-        if matches!(item, Item::Message(m) if m.parts.is_empty())
-            && items
-                .iter()
-                .any(|(_, i)| matches!(i,Item::ToolCall(c) if c.message == Some(*id)))
-        {
-            continue;
-        }
+    for (id, _) in items {
         let value = fidelity
             .response_item_id(*id)
             .map(str::to_owned)

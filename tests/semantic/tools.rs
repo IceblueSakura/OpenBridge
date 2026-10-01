@@ -609,10 +609,16 @@ fn static_response_encodes_independent_expectations_and_replays_into_history() {
         Contract::full(),
     )
     .unwrap();
-    assert_eq!(
-        responses::encode_response(&t).unwrap(),
-        responses_response()
+    let mut expected = responses_response();
+    expected["output"].as_array_mut().unwrap().insert(
+        0,
+        json!({
+            "id":"item_1","type":"message","role":"assistant","content":[],"status":"completed"
+        }),
     );
+    assert_eq!(responses::encode_response(&t).unwrap(), expected);
+    // Independent Responses calls permit the explicit contiguous-call Chat projection;
+    // this is not a claim that Responses reports the original Chat owner relation.
     let b = responses::decode_response(&responses_response()).unwrap();
     let t = lower_response(
         &b.semantic,

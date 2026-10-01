@@ -22,6 +22,8 @@ mod contract_ownership;
 mod extensions;
 #[path = "semantic/function_events.rs"]
 mod function_events;
+#[path = "semantic/group_projection.rs"]
+mod group_projection;
 #[path = "semantic/image_usage.rs"]
 mod image_usage;
 #[path = "semantic/images.rs"]

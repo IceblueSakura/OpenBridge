@@ -83,6 +83,28 @@ def run(base_url: str) -> None:
                     ])
                 else:
                     assert result.output_text == '{"ok":false}'
+        # Validate empty owner items with a complete independent Responses envelope;
+        # do not invent missing Chat-reported settings to satisfy strict SDK validation.
+        for stream in (False, True):
+            params = dict(model="public-model", input="lookup", store=False,
+                          metadata={"case": "empty-owner"},
+                          tools=[{"type": "function", **function}])
+            if stream:
+                completed = 0
+                with client.responses.stream(**params) as events:
+                    for event in events:
+                        completed += event.type == "response.completed"
+                    result = events.get_final_response()
+                assert completed == 1
+            else:
+                result = client.responses.parse(**params)
+            requests += 1
+            assert result.model == "public-model" and result.status == "completed"
+            assert len(result.output) == 2
+            owner, call = result.output
+            assert owner.type == "message" and owner.status == "completed" and owner.content == []
+            assert call.type == "function_call" and call.call_id == "call-local"
+            assert json.loads(call.arguments) == {"n": 1}
     print(json.dumps({"requests": requests, "protocols": 2, "deliveries": 2}))
 
 

@@ -6,7 +6,7 @@ Generation 的目标是 Agent-first、协议中立；当前类型与 codec 仍�
 
 ## 语义与表示缺口
 
-- **交互与依赖设计落地**：跨 response 的逻辑 turn/continuation、typed group 与非 reasoning attachment 的 replay 依赖尚未形成完整共享合同及主链；现有 response outcome 与只读 pending-call continuation view 仅覆盖完成响应的待结果引用，不表达完整 turn 进度、组依赖或其他协议的暂停续轮；Responses reasoning 的单 owner 值/证明约束不覆盖其他 attachment、group 或 prefix 依赖。新的设计基线不自动扩大当前 profile 准入。
+- **交互与依赖设计落地**：跨 response 的逻辑 turn/continuation、跨协议 typed group 与非 reasoning attachment 的 replay 依赖尚未形成完整共享合同及主链；[消息组视图](../../src/semantic/task/generation/group.rs)仅覆盖已声明的 assistant/function-call 归属，不表达共同 replay 或前缀依赖；现有 response outcome 与只读 pending-call continuation view 仅覆盖完成响应的待结果引用，不表达完整 turn 进度、组依赖或其他协议的暂停续轮；Responses reasoning 的单 owner 值/证明约束不覆盖其他 attachment、group 或 prefix 依赖。新的设计基线不自动扩大当前 profile 准入。
 - **能力域演进**：资源关联与来源坐标引用、结构化/媒体工具结果及工具错误、typed 前缀缓存意图、多协议 usage 口径与合法派生仍需独立定稿和实现。已有 Resource、ToolOutput、Usage 或 cache/fidelity 字段不等于这些设计已完整表达。
 - **Chat 请求覆盖**：部分文本控制与 history 字段仍未准入。以 [Chat codec](../../src/protocol/openai/chat.rs) 的字段准入和 role shells 对照固定 SDK，不维护第二份字段清单。按具体消费需求决定 owner、映射和独立反例，不以追平全部字段为默认目标。
 - **目标无损表示**：并非每种 reasoning、custom/program、phase、概率、reported context 或多 part grouping 都有对端位置。存在对应语义时由 lowering 拒绝，不丢字段或补默认值强行兼容；某个 shell 能表达 Schema 也不代表 strict 缺省语义相同。

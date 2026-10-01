@@ -203,12 +203,16 @@ fn content_filter_is_incomplete_not_length_or_refusal_success() {
                     &other.metadata,
                     Profile::Chat,
                     Contract::full(),
-                )
-                .unwrap();
-                assert_eq!(
-                    chat::encode_response(&back).unwrap()["choices"][0]["finish_reason"],
-                    "content_filter"
                 );
+                if message.get("tool_calls").is_some() {
+                    // Responses preserves the empty owner but has no call→message link.
+                    assert!(matches!(back, Err(RepresentationError::MessageGrouping)));
+                } else {
+                    assert_eq!(
+                        chat::encode_response(&back.unwrap()).unwrap()["choices"][0]["finish_reason"],
+                        "content_filter"
+                    );
+                }
             }
         }
     }

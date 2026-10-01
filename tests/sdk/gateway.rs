@@ -28,8 +28,40 @@ async fn bounded_output(reader: impl AsyncRead + Unpin) -> Vec<u8> {
         .unwrap();
     bytes
 }
+fn owner_response() -> Value {
+    let mut value = wire::response(2);
+    value["output"] = json!([
+        {"id":"empty-owner","type":"message","role":"assistant","content":[],"status":"completed"},
+        {"id":"lookup-call","type":"function_call","call_id":"call-local","name":"lookup","arguments":"{\"n\":1}","status":"completed"}
+    ]);
+    value
+}
+fn owner_events() -> Vec<Value> {
+    let completed = owner_response();
+    let mut initial = completed.clone();
+    initial["status"] = json!("in_progress");
+    initial["output"] = json!([]);
+    initial["usage"] = Value::Null;
+    initial["completed_at"] = Value::Null;
+    vec![
+        json!({"type":"response.created","response":initial}),
+        json!({"type":"response.output_item.added","output_index":0,"item":{"id":"empty-owner","type":"message","role":"assistant","content":[],"status":"in_progress"}}),
+        json!({"type":"response.output_item.done","output_index":0,"item":completed["output"][0]}),
+        json!({"type":"response.output_item.added","output_index":1,"item":{"id":"lookup-call","type":"function_call","call_id":"call-local","name":"lookup","arguments":"","status":"in_progress"}}),
+        json!({"type":"response.function_call_arguments.delta","output_index":1,"item_id":"lookup-call","delta":"{\"n\":1}"}),
+        json!({"type":"response.function_call_arguments.done","output_index":1,"item_id":"lookup-call","arguments":"{\"n\":1}"}),
+        json!({"type":"response.output_item.done","output_index":1,"item":completed["output"][1]}),
+        json!({"type":"response.completed","response":completed}),
+    ]
+}
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+struct Scenario {
+    chat: bool,
+    stream: bool,
+    empty_owner: bool,
+}
 #[derive(Clone, Default)]
-struct Observed(Arc<Mutex<BTreeMap<(bool, bool), u8>>>);
+struct Observed(Arc<Mutex<BTreeMap<Scenario, u8>>>);
 async fn provider(
     State(state): State<Observed>,
     headers: HeaderMap,
@@ -42,6 +74,13 @@ async fn provider(
     assert_eq!(request["model"], "private-model");
     let chat = request.get("messages").is_some();
     let stream = request["stream"] == true;
+    let owner_case = request["metadata"]["case"] == "empty-owner";
+    if owner_case {
+        assert!(
+            !chat,
+            "SDK item validation uses a complete Responses envelope"
+        );
+    }
     assert_eq!(
         request[if chat {
             "max_completion_tokens"
@@ -52,11 +91,17 @@ async fn provider(
     );
     let turn = {
         let mut seen = state.0.lock().unwrap();
-        let count = seen.entry((chat, stream)).or_default();
+        let count = seen
+            .entry(Scenario {
+                chat,
+                stream,
+                empty_owner: owner_case,
+            })
+            .or_default();
         *count += 1;
         *count
     };
-    assert!(turn <= 2);
+    assert!(turn <= if owner_case { 1 } else { 2 });
     if turn == 2 {
         let history = request[if chat { "messages" } else { "input" }]
             .as_array()
@@ -94,11 +139,17 @@ async fn provider(
     };
     let bytes = if stream {
         let mut output = Vec::new();
-        for mut value in if chat {
+        let frames = if owner_case {
+            owner_events()
+        } else if chat {
             chat_wire::events(turn)
         } else {
             wire::events(turn)
-        } {
+        };
+        for (sequence, mut value) in frames.into_iter().enumerate() {
+            if !chat {
+                value["sequence_number"] = json!(sequence);
+            }
             if chat {
                 value["model"] = json!("private-model");
             } else if value.get("response").is_some() {
@@ -117,7 +168,9 @@ async fn provider(
         }
         output
     } else {
-        serde_json::to_vec(&snapshot(if chat {
+        serde_json::to_vec(&snapshot(if owner_case {
+            owner_response()
+        } else if chat {
             chat_wire::response(turn)
         } else {
             wire::response(turn)
@@ -209,17 +262,16 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
         String::from_utf8_lossy(&stderr)
     );
     let report: Value = serde_json::from_slice(&stdout).unwrap();
-    assert_eq!(report["requests"], 8);
-    assert_eq!(
-        observed
-            .0
-            .lock()
-            .unwrap()
-            .values()
-            .copied()
-            .collect::<Vec<_>>(),
-        [2, 2, 2, 2]
-    );
+    assert_eq!(report["requests"], 10);
+    {
+        let observed = observed.0.lock().unwrap();
+        assert_eq!(observed.len(), 6);
+        assert!(
+            observed
+                .iter()
+                .all(|(scenario, count)| *count == if scenario.empty_owner { 1 } else { 2 })
+        );
+    }
     stop.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(3), serving)
         .await
