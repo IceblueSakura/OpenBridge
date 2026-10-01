@@ -15,7 +15,8 @@ Generation 以 Responses 为主干，Chat 是同一 IR 的目标投影，不承�
 
 - [CustomSections / CodexHeaders](../../src/protocol/extensions.rs) 的低层 carrier 不等于 gateway 支持。[Adapter request](../../src/adapter/request.rs) 限制 body sections；Codex headers 尚未接入 HTTP 主链。响应自定义段、typed observation headers、body/header 一致性、版本与 turn 生命周期需要独立定稿。
 - configuration/program/cache 控制的表示不授权运行时应用设置、执行 program、管理 turn 或扩展 prewarm 执行语义。
-- 固定 Route fallback 不提供凭据池/OAuth、动态 registry、同候选自动 retry 或 session affinity。跨候选 opaque replay 不能由 canonical model 相同推定安全。
+- 上游 OAuth 登录、token refresh 与账户绑定生命周期尚未接入当前 Gateway；Bearer header 编码不等于 OAuth 登录。来源入口见 [OAuth 登录资料](../references/oauth-login.md)，推进方向由 [next-goal](../implementation-plans/next-goal.md) 维护。
+- 固定 Route fallback 不提供凭据池、动态 registry、同候选自动 retry 或 session affinity，也不授权跨账户认证恢复。跨候选 opaque replay 不能由 canonical model 相同推定安全。
 - 内部 replay scope 绑定不是 client token 的来源证明；源头真实性仍由 issuer 验证。生产观测、负载和长期资源保障不能由最小 loopback 网关推定。
 
 ## 验收缺口

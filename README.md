@@ -8,6 +8,8 @@ Generation IR **以 OpenAI Responses 标准语义为主干，结合有明确归�
 
 旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。库构造不读取私有配置；`openbridge` binary 通过显式环境变量启动认证的 loopback HTTP 入口，不读取旧配置。启动方式、限制与接口见 [HTTP 网关指南](docs/http-gateway.md)。受控 `examples/live_probe.rs` 仍有独立运行授权与凭据边界，不属于默认验证。
 
+下一步优先推进 **Codex / SuperGrok OAuth2 登录**，目前仍待进一步调研、未接入当前网关。顺序和实现前置条件由 [next-goal](docs/implementation-plans/next-goal.md) 维护；从 `v0.1` 整理的标准与固定源码入口见 [OAuth 登录来源](docs/references/oauth-login.md)。
+
 ## 当前范围
 
 ```text
