@@ -110,7 +110,7 @@
           "max_output_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
         },
         "additionalProperties": true,
-        "description": "Detailed input, settings and inactive-state admission follow the Responses profile, including its user input_image URL/inline slice and target-specific optional detail restrictions. File IDs, instruction/assistant images, tool-result media and generated media remain rejected. Models with only a Chat startup entry return model_not_found here; no implicit protocol fallback. No arbitrary endpoint, credential or header selection."
+        "description": "Detailed input, settings and inactive-state admission follow the Responses profile, including its user input_image URL/inline slice and target-specific optional detail restrictions. File IDs, instruction/assistant images, tool-result media and generated media remain rejected. Models with only a Chat startup entry return model_not_found here; no implicit protocol fallback. Each program in replay history requires a matching program_output; missing outputs are rejected before upstream I/O. Library continuation views do not add request fields, infer turn completion or authorize automatic execution. No arbitrary endpoint, credential or header selection."
       },
       "Error": {
         "type": "object", "required": ["error"], "additionalProperties": false,

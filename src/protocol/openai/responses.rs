@@ -32,10 +32,34 @@ pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
         None if o.get("instructions").is_some_and(Value::is_string) => {}
         _ => return Err(CodecError::Invalid("input")),
     }
+    let semantic = GenerationRequest::from_settings(b.items, settings::read(o, false)?)?;
+    validate_program_history(&semantic)?;
     Ok(DecodedRequest {
-        semantic: GenerationRequest::from_settings(b.items, settings::read(o, false)?)?,
+        semantic,
         fidelity: b.fidelity,
     })
+}
+/// Responses replay requires each program's reported output. This wire constraint
+/// must not prevent protocol-neutral IR from representing an outstanding program.
+pub(crate) fn validate_program_history(request: &GenerationRequest) -> Result<(), CodecError> {
+    let outputs: std::collections::BTreeSet<_> = request
+        .items()
+        .iter()
+        .filter_map(|(_, item)| {
+            if let Item::ProgramOutput(output) = item {
+                Some(output.call_id.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Request validation already proves kind, uniqueness and preceding-call order.
+    if request.items().iter().any(|(_, item)| {
+        matches!(item, Item::Program(program) if !outputs.contains(program.call_id.as_str()))
+    }) {
+        return Err(CodecError::Invalid("program history"));
+    }
+    Ok(())
 }
 pub(super) fn read_phase(o: &Map<String, Value>) -> Result<Option<Phase>, CodecError> {
     match o.get("phase") {

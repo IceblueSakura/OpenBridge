@@ -39,6 +39,7 @@ cargo run --locked --offline --bin openbridge
 - 两个入口额外支持非空、最多 256 字符且不含控制字符的 `session_id` body 扩展，用于 Provider cache/observability grouping；只投影到明确支持它的目标，否则拒绝。它不等于 OpenBridge 会话，不从其他 ID 自动生成，不把 `session-id`/`x-session-id` 入站 header 透传。OpenCode Go 的受信 adapter 将显式 body `session_id` 投影为 `x-opencode-session`，不发送上游 body 同名字段；该 header carrier 只接受 ASCII，无值时不生成身份，并使用固定 OpenBridge User-Agent。客户端应为同一会话显式提供稳定值；其他入站 headers 仍不透传。具体 profile/激活仍按源码核对。
 - operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。Chat metadata/service-tier 和 logprobs/top_logprobs 经同一 typed IR/context 与 Endpoint gate，不因 codec 准入就自动扩大 catalog 模型能力。响应 reported facts 不从请求复制补齐。
 - 客户端 `model` 只接受已激活的 public label，不带 `provider/` 前缀；顶层 `provider` 字段拒绝，包括字符串、路由对象和 null，不作为选择或 fallback 提示。上游 URL、path、model 和 auth 都来自启动绑定。入站 headers 不透传，包括独立 `CodexHeaders` carrier；低层 Responses envelope 可读写的 `CustomSections` 也未接线，非空 sections 在请求准入时拒绝。上游非成功 HTTP 状态的诊断正文、认证状态细节、origin、凭据 locator 不回显；下游 `model` 为 public label。
+- `GenerationRequest::continuation()` 是库级 history 事实视图，不增加 HTTP 字段或自动调度；部分/全部工具结果只更新缺失结果关联，不证明 turn 完成或全部 replay 依赖已满足。Responses program history 回放要求每个 program 带对应 program_output，缺少时在 decode/目标预检阶段拒绝，不发送上游请求；IR 可以表示待结果 program，不代表该 history 已可发送。详见[continuation 合同](architecture-v2/responses-text-profile.md#response-outcome-and-continuation)。
 - 未实现 `/v1/models`、状态资源、WebSocket、媒体资源服务/图片输出或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。Chat 正文/refusal 概率按 owner 保真；静态 reported metadata 没有 Chat chunk 槽位，不能通过丢字段合成 SSE。
 
 ### 最小请求示例

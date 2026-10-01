@@ -312,13 +312,37 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
                     .unwrap();
                 let mut history = vec![json!({"role":"user","content":"lookup"})];
                 history.extend(projected["output"].as_array().unwrap().iter().cloned());
-                for call in calls {
+                for (index, call) in calls.into_iter().enumerate() {
                     // Synthetic results only; call arguments never execute code.
                     history.push(match call.call_id {
                         "c_sql" => json!({"type":"custom_tool_call_output","call_id":call.call_id,"output":"1"}),
                         "c_lookup" => json!({"type":"function_call_output","call_id":call.call_id,"output":"{\"n\":1}"}),
                         _ => panic!("unexpected call identity"),
                     });
+                    // Derive facts from the actual delivered/replayed history,
+                    // not from the earlier response's unchanged pending view.
+                    let replay = Adapter::new(Profile::Responses, Dialect::Standard, None)
+                        .decode_request(
+                            &serde_json::to_vec(&json!({"model":"public-model","input":history}))
+                                .unwrap(),
+                        )
+                        .unwrap();
+                    if index == 0 {
+                        let Continuation::ToolResults(pending) =
+                            replay.task.semantic.continuation()
+                        else {
+                            panic!("one result must not resolve both calls")
+                        };
+                        assert_eq!(
+                            pending.iter().map(|c| c.call_id).collect::<Vec<_>>(),
+                            ["c_lookup"]
+                        );
+                    } else {
+                        assert_eq!(
+                            replay.task.semantic.continuation(),
+                            Continuation::Unreported
+                        );
+                    }
                 }
                 let followup = client
                     .post(format!("{url}{path}"))
@@ -580,6 +604,14 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         .send()
         .await
         .unwrap();
+    assert_eq!(response.status(), 400);
+    let response = client
+        .post(format!("{url}/v1/responses"))
+        .bearer_auth(support::CLIENT_KEY)
+        .json(&json!({"model":"public-model","input":[
+            {"type":"program","id":"p","call_id":"pending-program","code":"opaque code","fingerprint":"opaque fingerprint"}
+        ]}))
+        .send().await.unwrap();
     assert_eq!(response.status(), 400);
     assert_eq!(observed.0.lock().unwrap().len(), before);
     shutdown.send(()).unwrap();

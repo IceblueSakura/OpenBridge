@@ -24,6 +24,8 @@ mod extensions;
 mod function_events;
 #[path = "semantic/group_projection.rs"]
 mod group_projection;
+#[path = "semantic/history_continuation.rs"]
+mod history_continuation;
 #[path = "semantic/image_usage.rs"]
 mod image_usage;
 #[path = "semantic/images.rs"]

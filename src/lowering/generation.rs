@@ -120,6 +120,10 @@ pub fn lower_request<'a>(
             }
         }
     }
+    if profile == Profile::Responses {
+        crate::protocol::openai::responses::validate_program_history(r)
+            .map_err(|_| RepresentationError::Tools)?;
+    }
     text_items(r.items(), profile, true)?;
     let expected_default = if profile == Profile::Chat {
         StrictDefault::NonStrict
