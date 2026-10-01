@@ -10,6 +10,8 @@ mod body_lifecycle;
 mod chain;
 #[path = "transport/chat.rs"]
 mod chat;
+#[path = "transport/fallback_policy.rs"]
+mod fallback_policy;
 #[path = "transport/framing.rs"]
 mod framing;
 #[path = "transport/planning.rs"]

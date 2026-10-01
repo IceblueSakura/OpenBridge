@@ -87,7 +87,7 @@ Execution tracks a monotonic delivery state:
 Uncommitted -> Committed -> Terminal
 ```
 
-Only Uncommitted requests may retry or advance to another candidate.
+Only Uncommitted requests may advance under an explicit bounded Route policy; the current gateway never repeats a candidate. First downstream-frame publication additionally freezes advancement conservatively before the HTTP response escapes, closing the receive/timeout race without claiming delivery commit. See [ADR 0010](decisions/0010-canonical-model-fixed-fallback.md).
 
 For streaming, `Attempt::push` consumes at most one upstream frame and returns semantic events without retaining a replay log. `ResponseDelivery::encode_events` projects these incrementally. Only the terminal is withheld until `Attempt::finish` validates strict EOF; `finish_stream` then emits it. The I/O caller retains unconsumed suffixes and controls readiness/backpressure.
 

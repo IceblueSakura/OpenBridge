@@ -9,10 +9,16 @@ use serde_json::json;
 pub(super) struct ApiError {
     pub status: StatusCode,
     pub code: &'static str,
+    /// Execution-only classification; never part of the downstream error body.
+    pub fallback: Option<crate::provider::ErrorClass>,
 }
 impl ApiError {
     pub const fn new(status: StatusCode, code: &'static str) -> Self {
-        Self { status, code }
+        Self {
+            status,
+            code,
+            fallback: None,
+        }
     }
     pub const fn invalid() -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalid_request")
@@ -21,17 +27,35 @@ impl ApiError {
         Self::new(StatusCode::BAD_GATEWAY, "upstream_error")
     }
     pub const fn timeout() -> Self {
-        Self::new(StatusCode::GATEWAY_TIMEOUT, "upstream_timeout")
+        Self {
+            fallback: Some(crate::provider::ErrorClass::Timeout),
+            ..Self::new(StatusCode::GATEWAY_TIMEOUT, "upstream_timeout")
+        }
     }
     pub const fn shutdown() -> Self {
         Self::new(StatusCode::SERVICE_UNAVAILABLE, "shutting_down")
     }
+    pub fn transport(class: crate::provider::ErrorClass) -> Self {
+        let mut error = if class == crate::provider::ErrorClass::Timeout {
+            Self::timeout()
+        } else {
+            Self::upstream()
+        };
+        error.fallback = Some(class);
+        error
+    }
     pub fn status(status: u16) -> Self {
-        if status == 429 {
+        let mut error = if status == 429 {
             Self::new(StatusCode::TOO_MANY_REQUESTS, "upstream_rate_limit")
         } else {
             Self::upstream()
+        };
+        if let crate::provider::StatusClass::Failure(class) =
+            crate::provider::classify_status(status)
+        {
+            error.fallback = Some(class);
         }
+        error
     }
 }
 impl IntoResponse for ApiError {

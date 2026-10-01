@@ -3,7 +3,7 @@
 ## Status
 
 Accepted for the first runnable text slice. Implementation and executed acceptance
-remain separately tracked in the architecture, [Generation status](../../implementation-status/generation.md) and tests.
+remain separately tracked in the architecture, [Generation status](../../implementation-status/generation.md) and tests. The fixed multi-member extension is governed by [ADR 0010](0010-canonical-model-fixed-fallback.md); defaults below remain the original single-member slice.
 
 ## Decision
 

@@ -25,7 +25,7 @@ Chat / Responses wire
 - `src/lowering/`：针对固定表示契约的可表示性检查。
 - `src/transport/sse.rs`：有界纯 SSE framing。
 - `src/provider/`、`src/topology/`、`src/execution/`：可信绑定、固定候选、增量 intake/delivery 与显式 I/O commit。
-- `src/gateway/`、`src/transport/http.rs`、`src/bin/openbridge.rs`：认证入口、可信预算变换、HTTP I/O 与实际 body handoff；不自动重试或 fallback。
+- `src/gateway/`、`src/transport/http.rs`、`src/bin/openbridge.rs`：认证入口、可信预算变换、HTTP I/O 与实际 body handoff；无同候选重试，只有显式受信 Route 策略允许提交前有界 fallback。
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/gateway.rs`、`tests/sdk_loopback.rs`：语义、transport、真实 Router/binary 与固定 SDK 验收；HTTP 测试只使用 synthetic loopback。
 
 **受限的无状态 text Generation 主链已闭合，并准入选定的 user URL/inline 图片输入→文本输出 slice；不是完整多模态标准实现或生产就绪服务。** 图片语义与明确拒绝范围见[图片输入合同](docs/architecture-v2/responses-text-profile.md#user-image-input)，实际模型/Endpoint 准入仍须现场查询。 Responses 为语义主干，单候选 Chat 是同一 IR 的第二协议投影，跨协议不可表示时拒绝。语义、codec、扩展接线、SDK/Agent、缓存与执行的分层判断统一见[当前能力与边界](docs/implementation-status/generation.md)；推进方向见[下一步目标](docs/implementation-plans/next-goal.md)，获准行为切片由[当前焦点](docs/implementation-plans/current-focus.md)维护。

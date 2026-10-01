@@ -1,15 +1,15 @@
-//! One acknowledged frame in flight. The worker owns the upstream/deadline;
-//! HTTP body polling owns visibility acknowledgement, and drop cancels the worker.
+//! One acknowledged frame in flight. A chain owns one permit/deadline/trace;
+//! each candidate owns a fresh decoder/delivery, and visibility forbids advancement.
 #[cfg(test)]
 #[path = "body_tests.rs"]
 mod tests;
 use super::{
-    ApiError, BoundCandidate, BoundEntry, Limits,
+    ApiError, BoundCandidate, BoundEntry, Limits, Runtime,
     diagnostics::{Outcome, Stage, Trace},
 };
 use crate::{
     adapter::Request,
-    execution::{Attempt, ResponseDelivery},
+    execution::{Attempt, DeliveryState, ResponseDelivery, fallback::may_advance},
     protocol::openai::sse::{Obfuscation, SseLimits},
 };
 use axum::{
@@ -24,6 +24,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
+    time::Duration,
 };
 use tokio::{
     sync::{OwnedSemaphorePermit, mpsc, oneshot, watch},
@@ -42,6 +43,7 @@ enum Message {
 struct Status {
     failed: AtomicBool,
     complete: AtomicBool,
+    published: AtomicBool,
 }
 struct Output {
     first: Option<Message>,
@@ -95,8 +97,12 @@ impl Drop for Output {
         self.abort.abort();
     }
 }
+struct Lane<'a> {
+    tx: &'a mpsc::Sender<Message>,
+    state: &'a Status,
+}
 async fn send_frames(
-    tx: &mpsc::Sender<Message>,
+    lane: &Lane<'_>,
     delivery: &mut ResponseDelivery,
     frames: Vec<Bytes>,
     trace: &mut Trace,
@@ -105,12 +111,15 @@ async fn send_frames(
     for bytes in frames {
         let size = bytes.len();
         let (ack, seen) = oneshot::channel();
-        tx.send(Message::Chunk(Chunk { bytes, ack }))
+        // Freeze advancement before publication, closing the recv/timeout race.
+        // This is not delivery commit; handoff acknowledgement still owns commit.
+        lane.state.published.store(true, Ordering::Release);
+        lane.tx
+            .send(Message::Chunk(Chunk { bytes, ack }))
             .await
             .map_err(|_| ApiError::upstream())?;
         seen.await.map_err(|_| ApiError::upstream())?;
-        // The HTTP body has handed this frame to server transport. Queueing alone
-        // cannot reach this point. Peer receipt is not observable at this layer.
+        // Only HTTP body handoff acknowledges commit; queueing cannot do so.
         delivery.commit().map_err(|_| ApiError::upstream())?;
         trace.handed_off(size);
     }
@@ -120,18 +129,18 @@ async fn produce(
     mut upstream: reqwest::Response,
     attempt: &mut Attempt,
     delivery: &mut ResponseDelivery,
-    tx: &mpsc::Sender<Message>,
+    lane: &Lane<'_>,
     stream: bool,
     limit: usize,
     trace: &mut Trace,
 ) -> Result<(), ApiError> {
     let mut used_bytes = 0usize;
     while let Some(chunk) = upstream.chunk().await.map_err(|e| {
-        if e.is_timeout() {
-            ApiError::timeout()
+        ApiError::transport(if e.is_timeout() {
+            crate::provider::ErrorClass::Timeout
         } else {
-            ApiError::upstream()
-        }
+            crate::provider::ErrorClass::Upstream
+        })
     })? {
         trace.stage(Stage::Intake);
         trace.received(chunk.len());
@@ -151,7 +160,7 @@ async fn produce(
                 let frames = delivery
                     .encode_events(attempt, &events)
                     .map_err(|_| ApiError::upstream())?;
-                send_frames(tx, delivery, frames, trace).await?;
+                send_frames(lane, delivery, frames, trace).await?;
                 trace.stage(Stage::Intake);
             }
         }
@@ -172,24 +181,21 @@ async fn produce(
         }
         vec![Bytes::from(bytes)]
     };
-    send_frames(tx, delivery, frames, trace).await?;
+    send_frames(lane, delivery, frames, trace).await?;
     delivery
         .complete(attempt)
         .map_err(|_| ApiError::upstream())?;
     Ok(())
 }
-#[allow(clippy::too_many_arguments)]
-pub(super) async fn respond(
-    entry: Arc<BoundEntry>,
-    candidate: Arc<BoundCandidate>,
-    request: Request,
+async fn produce_candidate(
+    entry: &BoundEntry,
+    candidate: &BoundCandidate,
+    request: &Request,
     upstream: reqwest::Response,
     limits: &Limits,
-    deadline: Instant,
-    mut shutdown: watch::Receiver<bool>,
-    permit: OwnedSemaphorePermit,
-    mut trace: Trace,
-) -> Result<Response, ApiError> {
+    lane: &Lane<'_>,
+    trace: &mut Trace,
+) -> Result<(), ApiError> {
     trace.stage(Stage::ResponseHead);
     let status = upstream.status().as_u16();
     trace.head(status, upstream.headers());
@@ -248,14 +254,191 @@ pub(super) async fn respond(
         options,
         padding,
     );
+    let result = produce(
+        upstream,
+        &mut attempt,
+        &mut delivery,
+        lane,
+        stream,
+        limit,
+        trace,
+    )
+    .await;
+    if result.is_err() {
+        attempt.cancel();
+        delivery.cancel();
+    }
+    result
+}
+enum Upstreams {
+    Http {
+        runtime: Arc<Runtime>,
+        candidates: Vec<Arc<BoundCandidate>>,
+    },
+    #[cfg(test)]
+    Observed {
+        candidate: Arc<BoundCandidate>,
+        response: reqwest::Response,
+    },
+}
+#[allow(clippy::too_many_arguments)]
+async fn produce_chain(
+    source: Upstreams,
+    entry: &BoundEntry,
+    request: &Request,
+    limits: &Limits,
+    deadline: Instant,
+    tx: &mpsc::Sender<Message>,
+    state: &Status,
+    trace: &mut Trace,
+) -> Result<(), ApiError> {
+    let lane = Lane { tx, state };
+    let (runtime, candidates, mut observed) = match source {
+        Upstreams::Http {
+            runtime,
+            candidates,
+        } => (Some(runtime), candidates, None),
+        #[cfg(test)]
+        Upstreams::Observed {
+            candidate,
+            response,
+        } => (None, vec![candidate], Some(response)),
+    };
+    for (index, candidate) in candidates
+        .iter()
+        .enumerate()
+        .take(entry.policy.max_attempts)
+    {
+        if Instant::now() >= deadline {
+            return Err(ApiError::timeout());
+        }
+        let attempt_deadline = deadline
+            .min(Instant::now() + Duration::from_millis(candidate.endpoint.execution.timeout_ms));
+        let result = tokio::time::timeout_at(attempt_deadline, async {
+            let upstream = if let Some(response) = observed.take() {
+                response
+            } else {
+                let runtime = runtime.as_ref().ok_or(ApiError::upstream())?;
+                trace.stage(Stage::Prepare);
+                let prepared = crate::execution::prepare(
+                    &candidate.endpoint,
+                    &candidate.provider,
+                    &candidate.secret,
+                    request,
+                )
+                .map_err(|_| ApiError::invalid())?;
+                trace.stage(Stage::Connect);
+                runtime
+                    .transport
+                    .send(
+                        prepared,
+                        attempt_deadline.saturating_duration_since(Instant::now()),
+                    )
+                    .await
+                    .map_err(ApiError::transport)?
+            };
+            produce_candidate(entry, candidate, request, upstream, limits, &lane, trace).await
+        })
+        .await
+        .unwrap_or_else(|_| Err(ApiError::timeout()));
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                let visibility = if state.published.load(Ordering::Acquire) {
+                    DeliveryState::Committed
+                } else {
+                    DeliveryState::Uncommitted
+                };
+                let advance = error.fallback.is_some_and(|class| {
+                    may_advance(
+                        &entry.policy,
+                        visibility,
+                        class,
+                        index + 1,
+                        Instant::now() < deadline,
+                    )
+                });
+                if !advance || index + 1 == candidates.len() {
+                    return Err(error);
+                }
+            }
+        }
+    }
+    Err(ApiError::upstream())
+}
+pub(super) async fn exchange(
+    runtime: Arc<Runtime>,
+    entry: Arc<BoundEntry>,
+    request: Request,
+    deadline: Instant,
+    permit: OwnedSemaphorePermit,
+    trace: Trace,
+) -> Result<Response, ApiError> {
+    let candidates = entry.eligible(&request)?;
+    let limits = runtime.limits.clone();
+    let shutdown = runtime.shutdown.subscribe();
+    respond_source(
+        entry,
+        request,
+        Upstreams::Http {
+            runtime,
+            candidates,
+        },
+        limits,
+        deadline,
+        shutdown,
+        permit,
+        trace,
+    )
+    .await
+}
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+async fn respond(
+    entry: Arc<BoundEntry>,
+    candidate: Arc<BoundCandidate>,
+    request: Request,
+    upstream: reqwest::Response,
+    limits: &Limits,
+    deadline: Instant,
+    shutdown: watch::Receiver<bool>,
+    permit: OwnedSemaphorePermit,
+    trace: Trace,
+) -> Result<Response, ApiError> {
+    respond_source(
+        entry,
+        request,
+        Upstreams::Observed {
+            candidate,
+            response: upstream,
+        },
+        limits.clone(),
+        deadline,
+        shutdown,
+        permit,
+        trace,
+    )
+    .await
+}
+#[allow(clippy::too_many_arguments)]
+async fn respond_source(
+    entry: Arc<BoundEntry>,
+    request: Request,
+    source: Upstreams,
+    limits: Limits,
+    deadline: Instant,
+    mut shutdown: watch::Receiver<bool>,
+    permit: OwnedSemaphorePermit,
+    mut trace: Trace,
+) -> Result<Response, ApiError> {
+    let stream = request.delivery.streaming();
     let (tx, mut rx) = mpsc::channel(1);
     let state = Arc::new(Status::default());
     let worker_state = state.clone();
     let worker = tokio::spawn(async move {
         trace.outcome(Outcome::Interrupted);
         let _permit = permit;
-        let stopped = *shutdown.borrow();
-        let result = if stopped {
+        let result = if *shutdown.borrow() {
             Err(ApiError::shutdown())
         } else {
             tokio::select! {
@@ -263,7 +446,7 @@ pub(super) async fn respond(
                 _=shutdown.changed()=>Err(ApiError::shutdown()),
                 _=tokio::time::sleep_until(deadline)=>Err(ApiError::timeout()),
                 _=tx.closed()=>Err(ApiError::upstream()),
-                result=produce(upstream,&mut attempt,&mut delivery,&tx,stream,limit,&mut trace)=>result,
+                result=produce_chain(source,&entry,&request,&limits,deadline,&tx,&worker_state,&mut trace)=>result,
             }
         };
         match result {
@@ -278,8 +461,6 @@ pub(super) async fn respond(
                     "shutting_down" => Outcome::Shutdown,
                     _ => Outcome::Error,
                 });
-                attempt.cancel();
-                delivery.cancel();
                 worker_state.failed.store(true, Ordering::Release);
                 let _ = tx.try_send(Message::Error(error));
             }
@@ -293,6 +474,9 @@ pub(super) async fn respond(
         Some(Message::Error(error)) => return Err(error),
         _ => return Err(ApiError::upstream()),
     };
+    // Conservatively freeze the candidate when HTTP response ownership leaves
+    // this layer; encoding/queueing alone still never calls delivery.commit().
+    state.published.store(true, Ordering::Release);
     let body = Body::from_stream(Output {
         first: Some(first),
         rx,

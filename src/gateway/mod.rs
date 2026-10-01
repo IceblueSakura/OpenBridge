@@ -8,6 +8,8 @@ mod diagnostics;
 mod error;
 mod http;
 #[cfg(test)]
+mod route_fallback_tests;
+#[cfg(test)]
 mod tests;
 use crate::{
     adapter::Adapter,

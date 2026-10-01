@@ -15,7 +15,7 @@
 | 单候选 Chat JSON/SSE | 已是同一 IR 的第二协议验证；文本 context 与 content/refusal probabilities 已有双向映射 | `tests/semantic/chat_logprobs.rs`、`tests/transport/chat.rs`；请求/静态/SSE、IR 编辑与目标拒绝分别验证；其他标准文本控制仍有限，不等于 Chat 协议无法表达 |
 | 固定消费者 / Agent 场景 | 有固定 SDK 工具/reasoning 续轮 gates，未证明一般 Agent 兼容 | `tests/sdk/gateway.rs` 让固定 SDK 经同一 Router 完成双协议 JSON/SSE 工具与 reasoning 续轮；上游为 synthetic，显式 ignored，默认 Rust tests 不执行。范围见[开发指南](../development.md#固定-openai-sdk-loopback) |
 | 缓存亲和性 | 有表示与保序基础，尚无执行亲和策略或命中效果验收 | CacheHints、schema order、origin-bound replay 已存在；缓存 scope 的执行绑定、跨轮/跨目标策略及真实 hit/成本/延迟效果不能由字段往返推出 |
-| 执行库 / HTTP 接线 | 最小 loopback 服务已接通认证、固定入口、Provider transport 与增量 body；未生产验收 | `src/gateway/`、`src/transport/http.rs`、`tests/gateway.rs`；启动与错误边界见 [HTTP 指南](../http-gateway.md)。没有凭据池、自动 retry/fallback 或动态 registry |
+| 执行库 / HTTP 接线 | 最小 loopback 服务已接通认证、固定入口、Provider transport 与增量 body；未生产验收 | `src/gateway/`、`src/transport/http.rs`、`tests/gateway.rs`；启动与错误边界见 [HTTP 指南](../http-gateway.md)。没有凭据池、同候选自动 retry 或动态 registry；显式 fixed Route 的提交前有界 fallback 已接线，默认关闭 |
 
 ### 使用判断
 
@@ -71,7 +71,7 @@
 - **Configuration / program 表示与执行分开**：固定 SDK 的 configuration update 只声明 reasoning effort，当前有序表示已存在；不虚构“effort 以外配置”作为既定标准缺口。是否计算 effective settings、调度 program、管理 Codex turn 属于独立执行设计。`prewarm` 也仅表示，未建立其 `generate` override 合同。
 - **有状态 API 暂缓**：previous response/conversation/store/background、prompt、compaction/reference、retrieve/cancel 及 WS lane/steering 尚未实现；queued 事件已准入不等于静态 queued/in_progress body 或 state service 可用。当前只准入 inactive state 形式，编码显式 `store:false`。
 - **其他语义域暂缓**：user URL/inline 图片请求的双协议映射已准入；file_id 来源/生命周期、developer 图片、工具媒体结果、媒体输出/事件、音视频与其他 source 均未闭合。hosted/dynamic tools、独立 Embedding/Images/Speech 任务不是该 slice 的前置条件；不能由图片输入回归宣称完整多模态 IR。
-- **生产缺口独立存在**：最小认证 ingress、环境变量凭据绑定、实际 HTTP Provider I/O、body handoff/commit、取消与 deadline 已接通并通过 synthetic 验收。尚无多用户凭据池/OAuth、动态 registry、自动 retry/fallback、生产观测与负载/长稳证据；raw client replay token 的源头真实性仍由 issuer 验证，内部 scope 绑定不是来源证明。不能把最小本机服务称为生产就绪。
+- **生产缺口独立存在**：最小认证 ingress、环境变量凭据绑定、实际 HTTP Provider I/O、body handoff/commit、取消与 deadline 已接通并通过 synthetic 验收。尚无多用户凭据池/OAuth、动态 registry、同候选自动 retry、生产观测与负载/长稳证据；显式提交前 fixed-route fallback 不代替这些生产验收；raw client replay token 的源头真实性仍由 issuer 验证，内部 scope 绑定不是来源证明。不能把最小本机服务称为生产就绪。
 
 ## 验收边界
 

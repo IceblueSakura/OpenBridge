@@ -1,8 +1,5 @@
 //! HTTP ingress owns authentication ordering, request deadlines and listener lifecycle.
-use super::{
-    ApiError, Gateway, Runtime, admission, body,
-    diagnostics::{Stage, Trace},
-};
+use super::{ApiError, Gateway, Runtime, admission, body, diagnostics::Trace};
 use crate::protocol::openai::Profile;
 use axum::{
     Router,
@@ -12,7 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
-use std::{future::Future, sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc};
 use tokio::net::TcpListener;
 // Aborting the listener future must also stop detached body workers and the
 // graceful-shutdown watcher, not leave them alive until their request deadlines.
@@ -91,7 +88,7 @@ pub(super) async fn handle(
     profile: Profile,
     request: Request,
 ) -> Result<Response, ApiError> {
-    let mut trace = Trace::new(state.diagnostics.as_ref(), request.headers());
+    let trace = Trace::new(state.diagnostics.as_ref(), request.headers());
     if *state.shutdown.borrow() {
         return Err(ApiError::shutdown());
     }
@@ -111,39 +108,6 @@ pub(super) async fn handle(
         result=tokio::time::timeout(state.limits.body_timeout,admission::collect(request.into_body(),state.limits.request_bytes))=>result.map_err(|_|ApiError::new(StatusCode::REQUEST_TIMEOUT,"request_timeout"))??,
     };
     let (entry, semantic) = admission::prepare(&state, profile, &bytes)?;
-    let candidate = entry
-        .eligible(&semantic)?
-        .into_iter()
-        .next()
-        .ok_or(ApiError::invalid())?;
-    let timeout = state.limits.exchange_timeout.min(Duration::from_millis(
-        candidate.endpoint.execution.timeout_ms,
-    ));
-    let deadline = tokio::time::Instant::now() + timeout;
-    trace.stage(Stage::Prepare);
-    let prepared = crate::execution::prepare(
-        &candidate.endpoint,
-        &candidate.provider,
-        &candidate.secret,
-        &semantic,
-    )
-    .map_err(|_| ApiError::invalid())?;
-    trace.stage(Stage::Connect);
-    let upstream = tokio::select! {
-        biased;
-        _=shutdown.changed()=>return Err(ApiError::shutdown()),
-        result=state.transport.send(prepared,timeout)=>result.map_err(|e|if e==crate::provider::ErrorClass::Timeout {ApiError::timeout()}else{ApiError::upstream()})?,
-    };
-    body::respond(
-        entry,
-        candidate,
-        semantic,
-        upstream,
-        &state.limits,
-        deadline,
-        shutdown,
-        permit,
-        trace,
-    )
-    .await
+    let deadline = tokio::time::Instant::now() + state.limits.exchange_timeout;
+    body::exchange(state, entry, semantic, deadline, permit, trace).await
 }
