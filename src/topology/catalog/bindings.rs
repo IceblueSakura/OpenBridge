@@ -8,6 +8,7 @@ use crate::{
 pub enum RequestSlice {
     Canonical,
     RestrictedLuna,
+    OpenCodeHy4,
 }
 impl RequestSlice {
     pub fn apply(
@@ -17,6 +18,17 @@ impl RequestSlice {
         if matches!(self, Self::RestrictedLuna) {
             contract.temperature = false;
             contract.top_p = false;
+            contract.logprobs = false;
+            contract.verbosity = false;
+            contract.truncation = false;
+            contract.parallel_tool_calls = false;
+        }
+        if matches!(self, Self::OpenCodeHy4) {
+            // A coding-model listing does not establish these optional request controls.
+            // Source: https://opencode.ai/docs/go/#endpoints
+            contract.structured_output = false;
+            // Readable reasoning history remains semantic input; unverified controls are
+            // rejected by the target adapter rather than disabling this shared owner.
             contract.logprobs = false;
             contract.verbosity = false;
             contract.truncation = false;
@@ -171,6 +183,21 @@ pub const API_KEY_BINDINGS: &[ApiKeyBinding] = &[
         replay_chat: false,
         public_slice: RequestSlice::Canonical,
         endpoint_slice: RequestSlice::Canonical,
+    },
+    ApiKeyBinding {
+        provider: catalog::opencode_go,
+        dialect: Dialect::OpenCodeGo,
+        endpoint_prefix: "opencode-go",
+        model: "hy4-preview",
+        canonical_model: "hy4-preview",
+        upstream: "hy4-preview",
+        credential: "opencode-go-api-key",
+        variable: "OPENBRIDGE_OPENCODE_GO_API_KEY",
+        protocols: CHAT,
+        replay_responses: false,
+        replay_chat: false,
+        public_slice: RequestSlice::OpenCodeHy4,
+        endpoint_slice: RequestSlice::OpenCodeHy4,
     },
     ApiKeyBinding {
         provider: catalog::kimi,

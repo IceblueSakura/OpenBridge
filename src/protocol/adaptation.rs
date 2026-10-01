@@ -23,6 +23,9 @@ pub struct WireRules {
     pub responses_unreported_text_logprobs: bool,
     /// Assistant reasoning text has its own typed owner before its Chat carrier.
     pub readable_reasoning: bool,
+    /// Preserve reasoning items while rejecting unverified active request controls.
+    /// A readable history carrier does not establish reasoning-effort admission.
+    pub reject_reasoning_controls: bool,
     /// Cache hit/miss aliases must agree with reported totals and cached counts.
     pub usage_aliases: bool,
     /// Default absent/null cache-write to zero only inside valid usage. Never
@@ -45,6 +48,10 @@ pub struct WireRules {
     /// Final encrypted replay requires a completed owner and matching origin;
     /// it does not make the carrier response completed or permit partial replay.
     pub structured_chat_reasoning: bool,
+    /// A closed format:unknown reasoning.text view owns readable text only.
+    /// Never interprets its marker as a versioned or encrypted replay format.
+    /// Source: <https://opencode.ai/docs/go/>.
+    pub unversioned_chat_reasoning_view: bool,
     /// Accept only the checked redundant format marker, not arbitrary formats.
     pub responses_reasoning_format: bool,
     /// One data-only DONE may follow a validated terminal; never replace it.
@@ -55,6 +62,10 @@ pub struct WireRules {
     pub require_parameters: bool,
     /// Provider request spelling; downstream still uses max_completion_tokens.
     pub legacy_max_tokens: bool,
+    /// Fixed client identity and an explicit session header for OpenCode Go.
+    /// Never forwards inbound headers or invents a conversation identity.
+    /// Source: <https://opencode.ai/docs/go/#where-can-i-use-it>.
+    pub opencode_go_headers: bool,
     /// Advisory lastOne marker and source-bound numeric matched_stop diagnostics.
     pub chat_stop_diagnostics: bool,
     /// Source-bound diagnostic; never public response identity or task semantics.

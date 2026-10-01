@@ -48,6 +48,235 @@ fn provider_token_spelling_is_only_an_outbound_mapping() {
     assert!(adapter(Dialect::Nvidia).decode_request(br#"{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tokens":29,"max_completion_tokens":29}"#).is_err());
 }
 #[test]
+fn opencode_go_keeps_readable_reasoning_and_tool_result_history() {
+    let provider = adapter(Dialect::OpenCodeGo);
+    let client = adapter(Dialect::OpenBridge);
+    let decoded = provider
+        .decode_response(body().to_string().as_bytes())
+        .unwrap();
+    let wire = client.encode_response(&decoded, &Contract::full()).unwrap();
+    assert_eq!(wire["choices"][0]["message"]["content"], "pong");
+    assert_eq!(wire["choices"][0]["message"]["reasoning_content"], "think");
+    let request = client.decode_request(br#"{"model":"hy4-preview","messages":[
+        {"role":"user","content":"lookup"},
+        {"role":"assistant","content":null,"reasoning_content":"think","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{\"key\":\"alpha\"}"}}]},
+        {"role":"tool","tool_call_id":"call-1","content":"{\"value\":17}"}],"max_completion_tokens":37}"#).unwrap();
+    let topology = openbridge::topology::catalog::default_topology().unwrap();
+    let endpoint = topology
+        .endpoint(&openbridge::topology::EndpointId::new("opencode-go-chat").unwrap())
+        .unwrap();
+    openbridge::execution::admit(topology.model("hy4-preview").unwrap(), &request).unwrap();
+    let before = request.clone();
+    let wire = endpoint
+        .adapter()
+        .encode_request(&request, "hy4-preview", &endpoint.representation)
+        .unwrap();
+    assert_eq!(wire["messages"][1]["reasoning"], "think");
+    assert!(wire["messages"][1].get("reasoning_content").is_none());
+    assert_eq!(
+        wire["messages"][1]["tool_calls"][0]["function"]["arguments"],
+        "{\"key\":\"alpha\"}"
+    );
+    assert_eq!(
+        wire["messages"][2],
+        json!({"role":"tool","tool_call_id":"call-1","content":"{\"value\":17}"})
+    );
+    assert_eq!(request, before);
+    let controlled = client.decode_request(br#"{"model":"hy4-preview","messages":[{"role":"user","content":"keep"}],"reasoning_effort":"low"}"#).unwrap();
+    assert!(
+        endpoint
+            .adapter()
+            .encode_request(&controlled, "hy4-preview", &endpoint.representation)
+            .is_err()
+    );
+
+    let chunk = |delta: Value, finish: Value| json!({"id":"c1","object":"chat.completion.chunk","model":"m","created":1,"choices":[{"index":0,"delta":delta,"finish_reason":finish}]});
+    let mut stream = provider.event_decoder();
+    stream
+        .push(&chunk(
+            json!({"role":"assistant","reasoning_content":"think"}),
+            Value::Null,
+        ))
+        .unwrap();
+    stream
+        .push(&chunk(json!({"content":"pong"}), Value::Null))
+        .unwrap();
+    stream.push(&chunk(json!({}), json!("stop"))).unwrap();
+    stream.push(&json!({"id":"c1","object":"chat.completion.chunk","model":"m","created":1,"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}})).unwrap();
+    stream.done().unwrap();
+    assert_eq!(stream.materialize().unwrap().semantic, decoded.semantic);
+    let mut incomplete = provider.event_decoder();
+    incomplete
+        .push(&chunk(
+            json!({"role":"assistant","content":"pong"}),
+            Value::Null,
+        ))
+        .unwrap();
+    assert!(incomplete.finish().is_err());
+}
+
+#[test]
+fn opencode_go_unversioned_readable_views_are_closed_and_never_restore_deleted_reasoning() {
+    use openbridge::semantic::task::generation::{Item, ReasoningContent};
+    use openbridge::semantic::value::Text;
+    let provider = adapter(Dialect::OpenCodeGo);
+    let details = json!([{"type":"reasoning.text","text":"think","format":"unknown","index":0}]);
+    let mut source = body();
+    let message = source["choices"][0]["message"].as_object_mut().unwrap();
+    message.remove("reasoning_content");
+    message.insert("reasoning".into(), json!("think"));
+    message.insert("reasoning_details".into(), details.clone());
+    source["usage"]["prompt_tokens_details"] =
+        json!({"audio_tokens":0,"cached_tokens":0,"cache_write_tokens":0});
+    source["usage"]["completion_tokens_details"] = json!({"audio_tokens":0,"reasoning_tokens":1});
+    let decoded = provider
+        .decode_response(source.to_string().as_bytes())
+        .unwrap();
+    let client = adapter(Dialect::OpenBridge);
+    let wire = client.encode_response(&decoded, &Contract::full()).unwrap();
+    assert_eq!(wire["choices"][0]["message"]["reasoning_content"], "think");
+    assert_eq!(
+        wire["usage"]["completion_tokens_details"]["reasoning_tokens"],
+        1
+    );
+    assert!(
+        wire["usage"]["completion_tokens_details"]
+            .get("audio_tokens")
+            .is_none()
+    );
+    assert!(
+        adapter(Dialect::OpenRouter)
+            .decode_response(source.to_string().as_bytes())
+            .is_err()
+    );
+    for (path, value) in [
+        ("/choices/0/message/reasoning", json!("disagree")),
+        (
+            "/choices/0/message/reasoning_details/0/type",
+            json!("reasoning.encrypted"),
+        ),
+        (
+            "/choices/0/message/reasoning_details/0/format",
+            json!("arbitrary"),
+        ),
+        ("/choices/0/message/reasoning_details/0/index", json!(1)),
+        ("/usage/completion_tokens_details/audio_tokens", json!(1)),
+        ("/usage/prompt_tokens_details/audio_tokens", Value::Null),
+    ] {
+        let mut invalid = source.clone();
+        *invalid.pointer_mut(path).unwrap() = value;
+        assert!(
+            provider
+                .decode_response(invalid.to_string().as_bytes())
+                .is_err()
+        );
+    }
+    let mut invalid = source.clone();
+    invalid["choices"][0]["message"]["reasoning_details"][0]["data"] = json!("synthetic-opaque");
+    assert!(
+        provider
+            .decode_response(invalid.to_string().as_bytes())
+            .is_err()
+    );
+    let chunk = |delta: Value, finish: Value| json!({"id":"c1","object":"chat.completion.chunk","model":"m","created":1,"choices":[{"index":0,"delta":delta,"finish_reason":finish}]});
+    let mut stream = provider.event_decoder();
+    stream
+        .push(&chunk(
+            json!({"role":"assistant","reasoning":"think","reasoning_details":details}),
+            Value::Null,
+        ))
+        .unwrap();
+    stream
+        .push(&chunk(json!({"content":"pong"}), Value::Null))
+        .unwrap();
+    stream.push(&chunk(json!({}), json!("stop"))).unwrap();
+    stream.push(&json!({"id":"c1","object":"chat.completion.chunk","model":"m","created":1,"choices":[],"usage":source["usage"]})).unwrap();
+    stream.done().unwrap();
+    assert_eq!(stream.materialize().unwrap().semantic, decoded.semantic);
+    let history = json!({"model":"hy4-preview","messages":[source["choices"][0]["message"],{"role":"user","content":"next"}],"max_tokens":37});
+    let mut request = provider
+        .decode_request(history.to_string().as_bytes())
+        .unwrap();
+    let mut items = request.task.semantic.items().to_vec();
+    let Item::Reasoning(reason) = &mut items[0].1 else {
+        panic!("reasoning owner")
+    };
+    reason.parts[0].1 = ReasoningContent::Text(Text::new("replacement", "reasoning", 256).unwrap());
+    request.task.semantic = request.task.semantic.clone().with_items(items).unwrap();
+    let changed = provider
+        .encode_request(&request, "hy4-preview", &Contract::full())
+        .unwrap();
+    assert_eq!(changed["messages"][0]["reasoning"], "replacement");
+    assert!(changed["messages"][0].get("reasoning_details").is_none());
+    let projected = provider
+        .decode_request(changed.to_string().as_bytes())
+        .unwrap();
+    assert_eq!(projected.task.semantic, request.task.semantic);
+    request.task.semantic = request
+        .task
+        .semantic
+        .clone()
+        .retain_items(|_, i| !matches!(i, Item::Reasoning(_)))
+        .unwrap();
+    let deleted = provider
+        .encode_request(&request, "hy4-preview", &Contract::full())
+        .unwrap();
+    assert!(deleted["messages"][0].get("reasoning").is_none());
+    assert!(deleted["messages"][0].get("reasoning_details").is_none());
+    assert_eq!(deleted["messages"][0]["content"], "pong");
+}
+
+#[test]
+fn opencode_go_usage_tail_can_repeat_only_the_existing_finish_without_new_content() {
+    let provider = adapter(Dialect::OpenCodeGo);
+    let chunk = |delta: Value, finish: Value| json!({"id":"go-stream","object":"chat.completion.chunk","model":"hy4-preview","created":1,"choices":[{"index":0,"delta":delta,"finish_reason":finish}]});
+    let started = || {
+        let mut decoder = provider.event_decoder();
+        decoder.push(&chunk(json!({"role":"assistant","content":"","tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"lookup","arguments":""}}]}), Value::Null)).unwrap();
+        decoder.push(&chunk(json!({"role":"assistant","content":"","tool_calls":[{"index":0,"function":{"arguments":"{\"key\":\"alpha\"}"}}]}), Value::Null)).unwrap();
+        decoder
+            .push(&chunk(
+                json!({"role":"assistant","content":""}),
+                json!("tool_calls"),
+            ))
+            .unwrap();
+        decoder
+    };
+    let mut tail = chunk(
+        json!({"role":"assistant","content":""}),
+        json!("tool_calls"),
+    );
+    tail["usage"] = json!({"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"prompt_tokens_details":{"audio_tokens":0},"completion_tokens_details":{"audio_tokens":0,"reasoning_tokens":1}});
+    let mut decoder = started();
+    decoder.push(&tail).unwrap();
+    decoder.done().unwrap();
+    let wire = adapter(Dialect::OpenBridge)
+        .encode_response(&decoder.materialize().unwrap(), &Contract::full())
+        .unwrap();
+    assert_eq!(wire["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(
+        wire["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
+        "{\"key\":\"alpha\"}"
+    );
+    assert_eq!(
+        wire["usage"]["completion_tokens_details"]["reasoning_tokens"],
+        1
+    );
+    for (path, value) in [
+        ("/choices/0/delta/content", json!("late output")),
+        ("/choices/0/finish_reason", json!("stop")),
+        ("/choices/0/index", json!(1)),
+        ("/usage", Value::Null),
+    ] {
+        let mut invalid = tail.clone();
+        *invalid.pointer_mut(path).unwrap() = value;
+        let mut decoder = started();
+        assert!(decoder.push(&invalid).is_err());
+        assert!(decoder.finish().is_err());
+    }
+}
+
+#[test]
 fn transport_markers_and_stop_diagnostics_do_not_replace_semantic_terminals() {
     let provider = adapter(Dialect::LongCat);
     let mut value = body();

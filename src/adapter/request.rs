@@ -128,6 +128,27 @@ impl Adapter {
         }
         Ok(request)
     }
+    /// Closed Provider header projection; no inbound header map or runtime target selection.
+    pub(crate) fn request_headers(
+        &self,
+        request: &Request,
+    ) -> Result<Vec<(String, String)>, CodecError> {
+        if !self.adaptation.rules.opencode_go_headers {
+            return Ok(vec![]);
+        }
+        let mut headers = vec![(
+            "user-agent".into(),
+            concat!("OpenBridge/", env!("CARGO_PKG_VERSION")).into(),
+        )];
+        if let Some(session) = &request.cache_session {
+            // Body sessions can be Unicode; this HTTP carrier must be representable before I/O.
+            if !session.as_str().is_ascii() {
+                return Err(CodecError::Invalid("session header"));
+            }
+            headers.push(("x-opencode-session".into(), session.as_str().into()));
+        }
+        Ok(headers)
+    }
     pub fn encode_request(
         &self,
         request: &Request,
@@ -146,6 +167,15 @@ impl Adapter {
         }
         if request.cache_session.is_some() && !contract.cache.session_id {
             return Err(CodecError::Unsupported("session_id".into()).into());
+        }
+        // Candidate preflight uses this same encoder, so invalid header carriers cannot reach I/O.
+        self.request_headers(request)?;
+        if self.adaptation.rules.reject_reasoning_controls
+            && (request.task.semantic.reasoning().presence()
+                == crate::semantic::task::generation::ReasoningPresence::Present
+                || request.task.semantic.reasoning().encrypted_output())
+        {
+            return Err(CodecError::Unsupported("reasoning controls".into()).into());
         }
         if self.protocol == Profile::Chat && !context.max_tool_calls.is_absent() {
             return Err(RepresentationError::UnmigratedSemantic.into());
@@ -214,7 +244,9 @@ impl Adapter {
                 openai::adapter_shapes::encode_message(message);
             }
         }
-        if let Some(session) = &request.cache_session {
+        if let Some(session) = &request.cache_session
+            && !self.adaptation.rules.opencode_go_headers
+        {
             value["session_id"] = serde_json::json!(session.as_str());
         }
         if self.adaptation.rules.require_parameters {

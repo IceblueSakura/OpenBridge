@@ -93,22 +93,24 @@ pub fn prepare(
     if body.len() > endpoint.execution.request_body_limit {
         return Err(AttemptError::Limit);
     }
+    let mut safe_headers = vec![
+        ("content-type".into(), "application/json".into()),
+        (
+            "accept".into(),
+            if streaming {
+                "text/event-stream"
+            } else {
+                "application/json"
+            }
+            .into(),
+        ),
+    ];
+    safe_headers.extend(endpoint.adapter().request_headers(request)?);
     Ok(UpstreamRequest {
         origin: endpoint.target.origin.as_str().into(),
         method: "POST",
         path: endpoint.target.path.as_str().into(),
-        safe_headers: vec![
-            ("content-type".into(), "application/json".into()),
-            (
-                "accept".into(),
-                if streaming {
-                    "text/event-stream"
-                } else {
-                    "application/json"
-                }
-                .into(),
-            ),
-        ],
+        safe_headers,
         auth_header: provider.auth.auth_header(secret),
         body,
     })

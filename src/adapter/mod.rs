@@ -23,6 +23,7 @@ pub enum Dialect {
     DeepSeek,
     Xiaomi,
     OpenRouter,
+    OpenCodeGo,
     LongCat,
     Nvidia,
     Bailian,
@@ -68,6 +69,20 @@ impl Dialect {
                     structured_chat_reasoning: true,
                     repeated_finish_usage: true,
                     require_parameters: true,
+                    ..Default::default()
+                },
+            ),
+            Self::OpenCodeGo => (
+                "opencode-go-v1",
+                WireRules {
+                    readable_reasoning: true,
+                    reject_reasoning_controls: true,
+                    reasoning_alias: true,
+                    unversioned_chat_reasoning_view: true,
+                    zero_usage_details: true,
+                    repeated_finish_usage: true,
+                    legacy_max_tokens: true,
+                    opencode_go_headers: true,
                     ..Default::default()
                 },
             ),
@@ -169,6 +184,12 @@ impl Dialect {
             // https://openrouter.ai/docs/client-sdks/typescript/models/responsesrequest
             Self::OpenRouter => crate::protocol::cache::CacheProjection {
                 key: true,
+                session_id: true,
+                ..Default::default()
+            },
+            // Explicit session grouping is projected to x-opencode-session, not the body.
+            // https://opencode.ai/docs/go/#where-can-i-use-it
+            Self::OpenCodeGo => crate::protocol::cache::CacheProjection {
                 session_id: true,
                 ..Default::default()
             },

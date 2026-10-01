@@ -26,6 +26,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         "longcat" => Dialect::LongCat,
         "xiaomi" => Dialect::Xiaomi,
         "nvidia" => Dialect::Nvidia,
+        "opencode-go" => Dialect::OpenCodeGo,
         "aliyun-dashscope-cn" => Dialect::Bailian,
         "kimi" => Dialect::Kimi,
         "zhipu" => Dialect::Zhipu,

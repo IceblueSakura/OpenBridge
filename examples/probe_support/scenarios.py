@@ -308,6 +308,9 @@ def matrix(
             if model in stopped:
                 continue
             extra = {}
+            if MODELS[model][0] == "opencode-go":
+                # The group is one synthetic conversation, including all tool-result rounds.
+                extra["extra_body"] = {"session_id": f"{run.plan['id']}:{group}"}
             if effort is not None:
                 extra.update(
                     {"reasoning_effort": effort}

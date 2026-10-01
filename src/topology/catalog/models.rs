@@ -41,6 +41,10 @@ pub const MODELS: &[ModelDefinition] = &[
         images: false,
     },
     ModelDefinition {
+        id: "hy4-preview",
+        images: false,
+    },
+    ModelDefinition {
         id: "kimi-k3",
         images: false,
     },

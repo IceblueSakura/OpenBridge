@@ -20,7 +20,7 @@ pub(super) fn parse(
     let Some(value) = m.get("reasoning_details") else {
         return Ok(None);
     };
-    if !a.rules.structured_chat_reasoning {
+    if !a.rules.structured_chat_reasoning && !a.rules.unversioned_chat_reasoning_view {
         return Err(CodecError::Unsupported("reasoning details".into()));
     }
     if value.is_null() {
@@ -41,10 +41,16 @@ pub(super) fn parse(
     };
     for value in values {
         let o = object(value)?;
-        if string(o, "format")? != "openai-responses-v1" {
+        let format = string(o, "format")?;
+        let kind = string(o, "type")?;
+        // An unversioned readable view cannot carry summaries, identities or ciphertext.
+        let readable_view = a.rules.unversioned_chat_reasoning_view
+            && format == "unknown"
+            && kind == "reasoning.text";
+        if !readable_view && (!a.rules.structured_chat_reasoning || format != "openai-responses-v1")
+        {
             return Err(CodecError::Unsupported("reasoning format".into()));
         }
-        let kind = string(o, "type")?;
         match kind {
             "reasoning.summary" | "reasoning.text" => {
                 let field = if kind == "reasoning.summary" {
@@ -147,8 +153,11 @@ pub(super) fn decode_static(
         clean.shift_remove("reasoning");
         clean.shift_remove("reasoning_content");
     }
-    if a.rules.structured_chat_reasoning {
+    if a.rules.structured_chat_reasoning || a.rules.unversioned_chat_reasoning_view {
         clean.shift_remove("reasoning_details");
+    }
+    if a.rules.unversioned_chat_reasoning_view && a.rules.reasoning_alias {
+        super::adapter_shapes::decode_message(&mut clean)?;
     }
     Ok(clean)
 }

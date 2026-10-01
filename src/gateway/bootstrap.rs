@@ -116,6 +116,68 @@ mod tests {
     }
 
     #[test]
+    fn opencode_go_key_only_activates_native_hy4_chat() {
+        let boot = Bootstrap::from_lookup(|name| {
+            Ok(match name {
+                "OPENBRIDGE_CLIENT_KEY" => Some("synthetic-gateway-client-token-0001".into()),
+                "OPENBRIDGE_OPENCODE_GO_API_KEY" => Some("synthetic-go-key".into()),
+                _ => None,
+            })
+        })
+        .unwrap();
+        let (_, request) = super::super::admission::prepare(
+            &boot.gateway.state, Profile::Chat,
+            br#"{"model":"hy4-preview","session_id":"synthetic-conversation","messages":[{"role":"user","content":"hi"}]}"#,
+        ).unwrap();
+        assert_eq!(
+            request.task.semantic.controls().max_output_tokens,
+            Some(1024)
+        );
+        let entry = &boot.gateway.state.entries
+            [&(super::super::family(Profile::Chat), "hy4-preview".into())];
+        assert_eq!(entry.public.route.as_str(), "opencode-go-generation");
+        let candidate = &entry.candidates[0];
+        assert_eq!(candidate.endpoint.id.as_str(), "opencode-go-chat");
+        assert_eq!(candidate.provider.id.as_str(), "opencode-go");
+        assert!(candidate.provider.responses.is_none());
+        let prepared = crate::execution::prepare(
+            &candidate.endpoint,
+            &candidate.provider,
+            &candidate.secret,
+            &request,
+        )
+        .unwrap();
+        assert_eq!(prepared.origin, "https://opencode.ai");
+        assert_eq!(prepared.path, "/zen/go/v1/chat/completions");
+        assert_eq!(prepared.auth_header.1, "Bearer synthetic-go-key");
+        let wire: serde_json::Value = serde_json::from_slice(&prepared.body).unwrap();
+        assert_eq!(wire["model"], "hy4-preview");
+        assert_eq!(wire["max_tokens"], 1024);
+        for (profile, body) in [
+            (
+                Profile::Responses,
+                br#"{"model":"hy4-preview","input":"hi"}"#.as_slice(),
+            ),
+            (
+                Profile::Chat,
+                br#"{"model":"opencode-go/hy4-preview","messages":[]}"#,
+            ),
+            (
+                Profile::Chat,
+                br#"{"model":"deepseek-flash","messages":[]}"#,
+            ),
+        ] {
+            assert_eq!(
+                super::super::admission::prepare(&boot.gateway.state, profile, body)
+                    .err()
+                    .unwrap()
+                    .status,
+                404
+            );
+        }
+    }
+
+    #[test]
     fn dashscope_bootstrap_uses_only_the_renamed_binding() {
         let boot = Bootstrap::from_lookup(|name| {
             Ok(match name {

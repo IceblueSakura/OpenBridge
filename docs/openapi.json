@@ -77,7 +77,7 @@
       },
       "CacheSession": {
         "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
-        "description": "OpenBridge scoped extension: caller-supplied Provider cache/observability grouping, not a gateway-managed session. Only explicitly supporting targets may receive it. No derivation from prompt_cache_key, user, safety_identifier or opaque replay; unsupported targets reject it. Incoming session headers are not forwarded."
+        "description": "OpenBridge scoped extension: caller-supplied Provider cache/observability grouping, not a gateway-managed session. Only explicitly supporting targets may receive it. No derivation from prompt_cache_key, user, safety_identifier or opaque replay; unsupported targets reject it. OpenCode Go maps an explicit ASCII session_id to x-opencode-session instead of the upstream body; absent values do not create an identity. Incoming session headers are not forwarded."
       },
       "ChatRequest": {
         "type": "object", "required": ["model", "messages"],

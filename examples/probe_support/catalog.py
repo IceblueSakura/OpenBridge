@@ -57,6 +57,13 @@ BINDINGS = (
         "OPENBRIDGE_ALIYUN_TOKENPLAN_CN_API_KEY",
         ("chat", "responses"),
     ),
+    (
+        "opencode-go",
+        "hy4-preview",
+        "opencode-primary",
+        "OPENBRIDGE_OPENCODE_GO_API_KEY",
+        ("chat",),
+    ),
     ("zhipu", "glm-5.3", "zhipu-primary", "OPENBRIDGE_ZHIPU_API_KEY", ("chat", "responses")),
     (
         "zhipu",
@@ -76,7 +83,7 @@ def select_bindings(selection=None, *, models=None):
     names = (
         selection.split(",")
         if selection is not None
-        else [name for name in available if name != "aliyun-tokenplan-cn"]
+        else [name for name in available if name not in ("aliyun-tokenplan-cn", "opencode-go")]
     )
     if (
         not names

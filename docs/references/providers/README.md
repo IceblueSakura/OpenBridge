@@ -35,6 +35,11 @@
 - [API Catalog](https://build.nvidia.com/)
 - [Authentication](https://docs.nvidia.com/nemo/retriever/26.5.0/extraction/api-keys)
 
+## OpenCode Go
+
+- [Go usage policy, client/session requirements and model-specific endpoints](https://opencode.ai/docs/go/)
+- [OpenAI-compatible adapter package](https://ai-sdk.dev/providers/openai-compatible-providers)
+
 ## OpenRouter
 
 - [Chat](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request)、[Responses](https://openrouter.ai/docs/api/reference/responses/overview)

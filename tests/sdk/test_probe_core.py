@@ -43,6 +43,26 @@ class ProbeCoreTests(unittest.TestCase):
             self.assertEqual(sum(group[5] for group in groups), 72)
             run.reserve("mimo-v2.6-flash", "selected", 8)
 
+    def test_go_matrix_is_six_requests_with_stable_tool_conversation_sessions(self):
+        from contextlib import nullcontext
+        from probe_support.scenarios import matrix, plan_groups
+        with tempfile.TemporaryDirectory() as temp:
+            run = Run.create(Path(temp) / "run", providers="opencode-go",
+                models=["hy4-preview"], limit=6, tokens=2048)
+            groups = plan_groups(run, run.plan["models"], cases=("text", "tool"))
+            self.assertEqual(sum(group[5] for group in groups), 6)
+            self.assertTrue(all(group[1] == "chat" and group[6] == 2048 for group in groups))
+            with patch("probe_support.scenarios.session", return_value=nullcontext((None, None))), patch(
+                "probe_support.scenarios.call", return_value=([], "", [{"id":"synthetic-call"}])
+            ) as send:
+                self.assertTrue(matrix(run, run.plan["models"], cases=("text", "tool")))
+            sessions = [call.kwargs["extra"]["extra_body"]["session_id"] for call in send.call_args_list]
+            self.assertEqual(len(sessions), 6)
+            self.assertEqual(sessions[1], sessions[2])
+            self.assertEqual(sessions[4], sessions[5])
+            self.assertEqual(len(set(sessions)), 4)
+            self.assertTrue(all(value.isascii() and len(value) <= 256 for value in sessions))
+
     def test_image_matrix_is_eight_bounded_requests_with_independent_pixels(self):
         import base64
         import struct

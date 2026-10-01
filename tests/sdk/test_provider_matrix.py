@@ -47,6 +47,14 @@ class SelectionTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             select_bindings("bailian")
 
+    def test_go_subscription_requires_explicit_selection_and_only_admits_hy4_chat(self):
+        self.assertNotIn("opencode-go", [row[0] for row in select_bindings()])
+        rows = select_bindings("opencode-go", models=["hy4-preview"])
+        self.assertEqual(rows, [("opencode-go", "hy4-preview", "opencode-primary",
+            "OPENBRIDGE_OPENCODE_GO_API_KEY", ("chat",))])
+        with self.assertRaises(RuntimeError):
+            select_bindings("opencode-go", models=["gpt-6-luna"])
+
     def test_paused_unknown_and_duplicate_selections_fail_closed(self):
         rows = select_bindings()
         self.assertEqual(rows[0][0], "nvidia")

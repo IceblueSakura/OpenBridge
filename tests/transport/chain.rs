@@ -385,6 +385,57 @@ fn unified_request_projection_keeps_targets_trusted_and_debug_redacted() {
     }
 }
 #[test]
+fn opencode_go_projects_only_fixed_identity_and_explicit_session_headers() {
+    let topology = catalog::default_topology().unwrap();
+    let endpoint = topology
+        .endpoint(&EndpointId::new("opencode-go-chat").unwrap())
+        .unwrap();
+    let provider = providers::opencode_go();
+    let client = Adapter::new(Profile::Chat, Dialect::OpenBridge, None);
+    let secret = SecretMaterial::new("synthetic-go-key").unwrap();
+    for session in [None, Some("synthetic-conversation")] {
+        let mut body = json!({"model":"hy4-preview","messages":[{"role":"user","content":"keep"}],"max_completion_tokens":37});
+        if let Some(session) = session {
+            body["session_id"] = json!(session);
+        }
+        let request = client.decode_request(body.to_string().as_bytes()).unwrap();
+        let original = request.clone();
+        let prepared = prepare(endpoint, &provider, &secret, &request).unwrap();
+        let wire: Value = serde_json::from_slice(&prepared.body).unwrap();
+        assert_eq!(wire["messages"], json!([{"role":"user","content":"keep"}]));
+        assert_eq!(wire["max_tokens"], 37);
+        assert!(wire.get("max_completion_tokens").is_none());
+        assert!(wire.get("session_id").is_none());
+        assert!(wire.get("provider").is_none());
+        assert!(prepared.safe_headers.contains(&(
+            "user-agent".into(),
+            format!("OpenBridge/{}", env!("CARGO_PKG_VERSION"))
+        )));
+        let projected = prepared
+            .safe_headers
+            .iter()
+            .find(|(name, _)| name == "x-opencode-session")
+            .map(|(_, value)| value.as_str());
+        assert_eq!(projected, session);
+        assert_eq!(request, original);
+        assert!(!format!("{prepared:?}").contains("synthetic-conversation"));
+    }
+    let unsupported = client.decode_request(br#"{"model":"hy4-preview","session_id":"conversation-\u2603","messages":[{"role":"user","content":"keep"}]}"#).unwrap();
+    assert!(prepare(endpoint, &provider, &secret, &unsupported).is_err());
+    assert!(openbridge::execution::ExecutionPlan::for_request(&topology, &unsupported).is_err());
+    assert!(
+        client
+            .decode_request(
+                br#"{"model":"hy4-preview","session_id":"x\r\nInjected: yes","messages":[]}"#
+            )
+            .is_err()
+    );
+    let unsupported = client.decode_request(br#"{"model":"hy4-preview","messages":[{"role":"user","content":"keep"}],"response_format":{"type":"json_object"}}"#).unwrap();
+    assert!(admit(topology.model("hy4-preview").unwrap(), &unsupported).is_err());
+    assert!(prepare(endpoint, &provider, &secret, &unsupported).is_err());
+}
+
+#[test]
 fn router_request_policy_is_fixed_and_luna_controls_are_not_silently_ignored() {
     let topology = catalog::default_topology().unwrap();
     let secret = SecretMaterial::new("synthetic-router-secret").unwrap();

@@ -160,7 +160,7 @@ mod tests {
             assert!(!c.custom_tools, "custom tools are undeclared");
             assert!(!c.audio_input && !c.file_input, "media undeclared");
 
-            assert!(c.tools && c.instructions && c.structured_output && c.reasoning);
+            assert!(c.tools && c.instructions);
             assert!(!endpoint.execution.retry_before_commit);
             assert!(endpoint.execution.streaming);
         }

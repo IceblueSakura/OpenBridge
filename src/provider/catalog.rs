@@ -32,6 +32,17 @@ pub fn xiaomi() -> ProviderDefinition {
     }
 }
 
+/// Go's model-specific entries are not interchangeable with the Zen balance API.
+/// Hy4 is documented on Chat only; other Go models do not admit Responses here.
+/// Source: <https://opencode.ai/docs/go/#endpoints>.
+pub fn opencode_go() -> ProviderDefinition {
+    chat_provider(
+        "opencode-go",
+        "https://opencode.ai",
+        "/zen/go/v1/chat/completions",
+    )
+}
+
 /// Aggregator entries; source: <https://openrouter.ai/docs/api/reference/responses/overview>.
 pub fn openrouter() -> ProviderDefinition {
     ProviderDefinition {
@@ -128,6 +139,7 @@ pub fn all() -> Vec<ProviderDefinition> {
         deepseek(),
         xiaomi(),
         openrouter(),
+        opencode_go(),
         longcat(),
         nvidia(),
         aliyun_dashscope_cn(),
