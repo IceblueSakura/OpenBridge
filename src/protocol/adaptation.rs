@@ -21,12 +21,6 @@ pub struct WireRules {
     /// after reported probabilities still fail. Standard grammar stays strict.
     /// Source: <https://mimo.mi.com/docs/zh-CN/api/chat/responses>.
     pub responses_unreported_text_logprobs: bool,
-    /// Images are admitted, but this profile has no documented detail projection.
-    /// Source: <https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding>.
-    pub undeclared_image_detail: bool,
-    /// Additional inline format beyond the common PNG/JPEG/GIF/WebP image profile.
-    /// Source: <https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding>.
-    pub bmp_image_input: bool,
     /// Assistant reasoning text has its own typed owner before its Chat carrier.
     pub readable_reasoning: bool,
     /// Cache hit/miss aliases must agree with reported totals and cached counts.
@@ -104,6 +98,8 @@ pub struct WireRules {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Adaptation {
     pub rules: WireRules,
+    /// Profile image admission is intersected with independently configured Endpoint limits.
+    pub images: crate::lowering::images::ImageConstraints,
     /// Stable adapter contract identity, not a network or credential locator.
     pub profile_id: &'static str,
     pub scope: Option<ReplayOrigin>,

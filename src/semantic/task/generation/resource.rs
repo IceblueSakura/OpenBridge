@@ -6,6 +6,19 @@ use base64::engine::general_purpose::STANDARD;
 pub const MAX_IMAGE_URL_BYTES: usize = 8192;
 pub const MAX_IMAGE_DECODED_BYTES: usize = 768 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
+pub enum ImageFormat {
+    #[strum(serialize = "image/png")]
+    Png,
+    #[strum(serialize = "image/jpeg")]
+    Jpeg,
+    #[strum(serialize = "image/gif")]
+    Gif,
+    #[strum(serialize = "image/webp")]
+    Webp,
+    #[strum(serialize = "image/bmp")]
+    Bmp,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ImageDetail {
     Auto,
@@ -48,6 +61,21 @@ pub struct Resource {
     pub image_detail: Option<ImageDetail>,
 }
 impl Resource {
+    pub fn inline_decoded_bytes(&self) -> Result<Option<usize>, GenerationError> {
+        let ResourceLocation::Inline { data_base64, .. } = &self.location else {
+            return Ok(None);
+        };
+        if data_base64.as_str().len() > MAX_TEXT_BYTES {
+            return Err(GenerationError::Limit);
+        }
+        let mut reader =
+            base64::read::DecoderReader::new(data_base64.as_str().as_bytes(), &STANDARD);
+        let decoded = std::io::copy(&mut reader, &mut std::io::sink())
+            .map_err(|_| GenerationError::InvalidResource)?;
+        usize::try_from(decoded)
+            .map(Some)
+            .map_err(|_| GenerationError::Limit)
+    }
     /// Account encoded and decoded sizes separately, without allocating decoded bytes.
     /// This proves representation, not format validity, dimensions or model acceptance.
     pub fn validate(&self) -> Result<usize, GenerationError> {
@@ -88,10 +116,7 @@ impl Resource {
                     return Err(GenerationError::Limit);
                 }
                 if self.kind == ResourceKind::Image
-                    && !matches!(
-                        media_type.as_str(),
-                        "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/bmp"
-                    )
+                    && media_type.as_str().parse::<ImageFormat>().is_err()
                 {
                     return Err(GenerationError::InvalidResource);
                 }
@@ -99,10 +124,10 @@ impl Resource {
                     return Err(GenerationError::InvalidResource);
                 }
                 // Write decoded bytes to a counter, not a pixel buffer or a second payload.
-                let mut reader = base64::read::DecoderReader::new(data.as_bytes(), &STANDARD);
-                let decoded = std::io::copy(&mut reader, &mut std::io::sink())
-                    .map_err(|_| GenerationError::InvalidResource)?;
-                if decoded > MAX_IMAGE_DECODED_BYTES as u64 {
+                let decoded = self
+                    .inline_decoded_bytes()?
+                    .ok_or(GenerationError::InvalidResource)?;
+                if decoded > MAX_IMAGE_DECODED_BYTES {
                     return Err(GenerationError::Limit);
                 }
                 // Include the data URL header in the aggregate semantic budget.

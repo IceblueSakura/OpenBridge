@@ -24,6 +24,12 @@ pub struct Request {
     n: Presence<u64>,
 }
 impl Request {
+    pub fn check_semantic(
+        &self,
+        contract: &crate::topology::GenerationSemanticContract,
+    ) -> Result<crate::semantic::task::generation::GenerationRequirements, AdapterError> {
+        self.check(&contract.representation())
+    }
     fn check_context(
         &self,
         contract: &GenerationRepresentationContract,

@@ -35,7 +35,9 @@ Authenticated, bounded HTTP request
 
 厂商差异不形成另一套 Generation/Usage。兼容默认值按 [ADR 0008](architecture-v2/decisions/0008-stable-core-and-vendor-adapters.md)由具名规则显式选择并记录来源，不能覆盖 reported 值或掩盖非法值；当前选择与理由由 `src/adapter/`、`src/protocol/adaptation.rs` 及其 owning codec 注释维护。
 
-Public Model 和 Endpoint 的合同约束请求准入及目标投影，不是客户端响应格式的报告事实白名单。`gateway::config` 独立构造客户端 wire 表示合同，保留 fixed reported-fact policy 与受信 replay scope；不能因为模型不允许请求某控制字段而删掉或拒绝响应中已报告的对应事实。纯 codec/lowering 仍负责未实现语义和目标协议无槽位的拒绝。
+`topology::CanonicalModel` 独立拥有模型 identity/task/语义支持；Public Model 引用 canonical identity 并可公开更窄的语义合同，Endpoint 的 upstream spelling、Provider/profile 与 typed 图片约束不改写模型支持。编译拒绝未知/跨模型绑定与超出 canonical 支持的公开语义。图片目标约束与协议 profile 相交；全局安全预算不是上游模型额度。
+
+Public Model 的语义合同和 Endpoint 的表示合同约束请求准入及目标投影，不是客户端响应格式的报告事实白名单。`gateway::config` 独立构造客户端 wire 表示合同，保留 fixed reported-fact policy 与受信 replay scope；不能因为模型不允许请求某控制字段而删掉或拒绝响应中已报告的对应事实。纯 codec/lowering 仍负责未实现语义和目标协议无槽位的拒绝。
 
 标准 response context 在 semantic 中，instruction echo 的 wire fidelity 独立保存。classified extras 绑定协议、适配合同、可信来源和响应依赖；仅终态捕获/输出，目标不兼容或语义修改后不恢复旧值。encrypted replay 继续使用其更严格的 owner/origin/finality 合同。
 

@@ -155,7 +155,7 @@ impl Gateway {
             // (e.g. empty logprobs or defaults a model cannot accept as controls).
             let downstream = GenerationRepresentationContract {
                 replay_origin: Some(scope),
-                reported_facts: public.contract.reported_facts,
+                reported_facts: public.reported_facts,
                 ..GenerationRepresentationContract::full()
             };
             if bound

@@ -39,6 +39,7 @@ pub struct GenerationRepresentationContract {
     pub structured_output: bool,
     pub reasoning: bool,
     pub image_input: bool,
+    pub images: super::images::ImageConstraints,
     pub audio_input: bool,
     pub file_input: bool,
     pub parallel_tool_calls: bool,
@@ -68,6 +69,7 @@ impl GenerationRepresentationContract {
             structured_output: true,
             reasoning: true,
             image_input: true,
+            images: super::images::ImageConstraints::all(),
             audio_input: true,
             file_input: true,
             parallel_tool_calls: true,
@@ -185,18 +187,14 @@ pub fn lower_request<'a>(
         c.adaptation.rules.structured_chat_reasoning,
         true,
     )?;
+    c.images.check(r)?;
     for (_, item) in r.items() {
         if let Item::Message(message) = item {
             for part in &message.parts {
                 if let ContentPart::Resource(resource) = &part.content
-                    && (matches!(&resource.location, ResourceLocation::Inline { media_type, .. }
-                            if media_type.as_str() == "image/bmp")
-                        && !c.adaptation.rules.bmp_image_input
-                        || c.adaptation.rules.undeclared_image_detail
-                            && resource.image_detail.is_some()
-                        || profile == Profile::Chat
-                            && resource.image_detail == Some(ImageDetail::Original)
-                            && !c.adaptation.rules.chat_original_image_detail)
+                    && profile == Profile::Chat
+                    && resource.image_detail == Some(ImageDetail::Original)
+                    && !c.adaptation.rules.chat_original_image_detail
                 {
                     return Err(RepresentationError::ImageInput);
                 }

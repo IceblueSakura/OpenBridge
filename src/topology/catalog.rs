@@ -50,22 +50,31 @@ fn image_contract(
     }
 }
 
-/// Public and endpoint admission share the same compiled semantic declaration.
-/// Image wire sources: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>,
-/// <https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash>.
-fn model_contract(
-    provider: &str,
-    model: &str,
-    replay_origin: Option<crate::semantic::value::ReplayOrigin>,
-) -> GenerationRepresentationContract {
-    match (provider, model) {
-        ("openrouter", "openai/gpt-6-luna") => luna_contract(replay_origin),
-        ("deepseek", "deepseek-flash")
-        | ("xiaomi", "mimo-v2.6-flash" | "mimo-v2.6-pro")
-        | ("bailian", "qwen3.8-max")
-        | ("zhipu", "glm-5.3-flash") => image_contract(replay_origin),
-        _ => wire_contract(replay_origin),
-    }
+/// Canonical support is declared once by identity, never inferred from Provider names.
+fn canonical_contract(model: &str) -> super::GenerationSemanticContract {
+    let mut contract = super::GenerationSemanticContract::text_images();
+    contract.image_input = matches!(
+        model,
+        "gpt-6-luna"
+            | "deepseek-flash"
+            | "mimo-v2.6-flash"
+            | "mimo-v2.6-pro"
+            | "qwen3.8-max"
+            | "glm-5.3-flash"
+    );
+    contract
+}
+/// Trusted aliases are registration facts, not fuzzy runtime model matching.
+fn canonical_identity(provider: &str, upstream: &str) -> ModelId {
+    let label = if provider == "openrouter" && upstream == "openai/gpt-6-luna" {
+        "gpt-6-luna"
+    } else {
+        API_KEY_BINDINGS
+            .iter()
+            .find(|b| b.provider == provider && b.upstream == upstream)
+            .map_or(upstream, |b| b.model)
+    };
+    ModelId::new(label).expect("static canonical identity")
 }
 
 fn execution_contract() -> ExecutionContract {
@@ -112,11 +121,16 @@ fn endpoint(
     };
     let adapter =
         crate::adapter::Adapter::new(family, dialect, Some(replay_scope(provider.id.as_str())));
-    let representation = adapter.contract(&model_contract(
-        provider.id.as_str(),
-        upstream_model,
-        replay_origin,
-    ));
+    let canonical_model = canonical_identity(provider.id.as_str(), upstream_model);
+    let mut endpoint_contract = if canonical_contract(canonical_model.as_str()).image_input {
+        image_contract(replay_origin.clone())
+    } else {
+        wire_contract(replay_origin.clone())
+    };
+    if dialect == crate::adapter::Dialect::OpenRouter {
+        endpoint_contract = luna_contract(replay_origin);
+    }
+    let representation = adapter.contract(&endpoint_contract);
     Endpoint {
         id: EndpointId::new(id).expect("static identity"),
         provider: provider.id,
@@ -127,6 +141,7 @@ fn endpoint(
         task: TaskKind::Generation,
         protocol,
         upstream_model: upstream_model.into(),
+        canonical_model,
         representation,
         execution: execution_contract(),
         credential: CredentialBindingId::new(credential).expect("static binding"),
@@ -232,27 +247,33 @@ pub fn xiaomi_flash_route() -> Route {
 pub fn mimo_v2_6_flash() -> PublicModel {
     PublicModel {
         id: ModelId::new("mimo-v2.6-flash").expect("static identity"),
+        canonical_model: ModelId::new("mimo-v2.6-flash").expect("static identity"),
         task: TaskKind::Generation,
         route: RouteId::new("xiaomi-flash-generation").expect("static identity"),
-        contract: image_contract(None),
+        contract: super::GenerationSemanticContract::text_images(),
+        reported_facts: crate::lowering::generation::ReportedFactPolicy::Faithful,
     }
 }
 
 pub fn deepseek_flash() -> PublicModel {
     PublicModel {
         id: ModelId::new("deepseek-flash").expect("static identity"),
+        canonical_model: ModelId::new("deepseek-flash").expect("static identity"),
         task: TaskKind::Generation,
         route: RouteId::new("deepseek-generation").expect("static identity"),
-        contract: image_contract(None),
+        contract: super::GenerationSemanticContract::text_images(),
+        reported_facts: crate::lowering::generation::ReportedFactPolicy::Faithful,
     }
 }
 
 pub fn mimo_v2_6_pro() -> PublicModel {
     PublicModel {
         id: ModelId::new("mimo-v2.6-pro").expect("static identity"),
+        canonical_model: ModelId::new("mimo-v2.6-pro").expect("static identity"),
         task: TaskKind::Generation,
         route: RouteId::new("xiaomi-generation").expect("static identity"),
-        contract: image_contract(None),
+        contract: super::GenerationSemanticContract::text_images(),
+        reported_facts: crate::lowering::generation::ReportedFactPolicy::Faithful,
     }
 }
 
@@ -308,9 +329,20 @@ pub fn openrouter_route() -> Route {
 pub fn gpt_6_luna() -> PublicModel {
     PublicModel {
         id: ModelId::new("gpt-6-luna").expect("static identity"),
+        canonical_model: ModelId::new("gpt-6-luna").expect("static identity"),
         task: TaskKind::Generation,
         route: RouteId::new("openrouter-generation").expect("static identity"),
-        contract: luna_contract(None),
+        // Keep the existing public slice explicit; it is not the Provider's contract.
+        contract: super::GenerationSemanticContract {
+            temperature: false,
+            top_p: false,
+            logprobs: false,
+            verbosity: false,
+            truncation: false,
+            parallel_tool_calls: false,
+            ..canonical_contract("gpt-6-luna")
+        },
+        reported_facts: crate::lowering::generation::ReportedFactPolicy::Faithful,
     }
 }
 
@@ -463,12 +495,22 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
         });
         models.push(PublicModel {
             id: ModelId::new(binding.model).expect("static identity"),
+            canonical_model: ModelId::new(binding.model).expect("static identity"),
             task: TaskKind::Generation,
             route: route_id,
-            contract: model_contract(binding.provider, binding.upstream, None),
+            contract: canonical_contract(binding.model),
+            reported_facts: crate::lowering::generation::ReportedFactPolicy::Faithful,
         });
     }
-    compile(providers, endpoints, routes, models)
+    let canonical_models = models
+        .iter()
+        .map(|model| super::CanonicalModel {
+            id: model.canonical_model.clone(),
+            task: model.task,
+            contract: canonical_contract(model.canonical_model.as_str()),
+        })
+        .collect();
+    compile(providers, endpoints, routes, models, canonical_models)
 }
 
 #[cfg(test)]

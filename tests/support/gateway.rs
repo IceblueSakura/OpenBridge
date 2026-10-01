@@ -9,8 +9,9 @@ use openbridge::{
     },
     semantic::value::ReplayOrigin,
     topology::{
-        Endpoint, EndpointId, EndpointTarget, ExecutionContract, ModelId, ProtocolProfile,
-        PublicModel, Route, RouteId, TaskKind, compile,
+        CanonicalModel, Endpoint, EndpointId, EndpointTarget, ExecutionContract,
+        GenerationSemanticContract, ModelId, ProtocolProfile, PublicModel, Route, RouteId,
+        TaskKind, compile,
     },
 };
 use std::{collections::BTreeMap, sync::Arc};
@@ -42,6 +43,7 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         task: TaskKind::Generation,
         protocol,
         upstream_model: "private-model".into(),
+        canonical_model: ModelId::new("canonical-fixture").unwrap(),
         representation: Contract {
             replay_origin: if protocol == ProtocolProfile::OpenAiResponses {
                 Some(ReplayOrigin::new("fixture").unwrap())
@@ -73,12 +75,26 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         .into_iter()
         .map(|label| PublicModel {
             id: ModelId::new(label).unwrap(),
+            canonical_model: ModelId::new("canonical-fixture").unwrap(),
             task: TaskKind::Generation,
             route: route.id.clone(),
-            contract: Contract::full(),
+            contract: GenerationSemanticContract::full(),
+            reported_facts: openbridge::lowering::generation::ReportedFactPolicy::Faithful,
         })
         .collect();
-    let topology = compile(vec![provider], endpoints, vec![route], models).unwrap();
+    let canonical = CanonicalModel {
+        id: ModelId::new("canonical-fixture").unwrap(),
+        task: TaskKind::Generation,
+        contract: GenerationSemanticContract::full(),
+    };
+    let topology = compile(
+        vec![provider],
+        endpoints,
+        vec![route],
+        models,
+        vec![canonical],
+    )
+    .unwrap();
     let entries = vec![
         Entry {
             model: "public-model".into(),

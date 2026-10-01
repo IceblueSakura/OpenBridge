@@ -1,7 +1,8 @@
 //! Fixed route ordering and the public model contract.
 
 use crate::{
-    lowering::generation::GenerationRepresentationContract,
+    lowering::generation::ReportedFactPolicy,
+    topology::GenerationSemanticContract,
     topology::{EndpointId, ModelId, RouteId, TaskKind},
 };
 
@@ -19,7 +20,9 @@ pub struct Route {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicModel {
     pub id: ModelId,
+    pub canonical_model: ModelId,
     pub task: TaskKind,
     pub route: RouteId,
-    pub contract: GenerationRepresentationContract,
+    pub contract: GenerationSemanticContract,
+    pub reported_facts: ReportedFactPolicy,
 }

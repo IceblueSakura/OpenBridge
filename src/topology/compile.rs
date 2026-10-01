@@ -3,7 +3,10 @@
 use crate::{
     lowering::generation::GenerationRepresentationContract,
     provider::ProviderDefinition,
-    topology::{Endpoint, EndpointId, ProtocolProfile, PublicModel, Route, RouteId},
+    topology::{
+        CanonicalModel, Endpoint, EndpointId, GenerationSemanticContract, ProtocolProfile,
+        PublicModel, Route, RouteId,
+    },
 };
 use std::collections::BTreeMap;
 
@@ -17,6 +20,14 @@ pub enum TopologyError {
     DuplicateRoute,
     #[error("duplicate public model")]
     DuplicateModel,
+    #[error("duplicate canonical model")]
+    DuplicateCanonicalModel,
+    #[error("unknown canonical model")]
+    UnknownCanonicalModel,
+    #[error("route candidate refers to another canonical model")]
+    CanonicalModelMismatch,
+    #[error("public semantics exceed canonical model support")]
+    SemanticUnsatisfiable,
     #[error("endpoint references an unknown provider")]
     UnknownProvider,
     #[error("route references an unknown endpoint")]
@@ -40,9 +51,10 @@ pub enum TopologyError {
 /// `promise` must be pointwise implied by `endpoint`. Whether a narrower promise
 /// is published is a route policy decision made in trusted configuration.
 fn promised(
-    promise: &GenerationRepresentationContract,
+    semantic: &GenerationSemanticContract,
     endpoint: &GenerationRepresentationContract,
 ) -> bool {
+    let promise = semantic.representation();
     let flags = [
         (promise.instructions, endpoint.instructions),
         (promise.temperature, endpoint.temperature),
@@ -77,6 +89,7 @@ pub struct CompiledTopology {
     endpoints: BTreeMap<String, Endpoint>,
     routes: BTreeMap<String, Route>,
     models: BTreeMap<String, PublicModel>,
+    canonical_models: BTreeMap<String, CanonicalModel>,
 }
 
 impl CompiledTopology {
@@ -90,6 +103,10 @@ impl CompiledTopology {
 
     pub fn route(&self, id: &RouteId) -> Option<&Route> {
         self.routes.get(id.as_str())
+    }
+
+    pub fn canonical_model(&self, id: &super::ModelId) -> Option<&CanonicalModel> {
+        self.canonical_models.get(id.as_str())
     }
 
     pub fn model(&self, label: &str) -> Option<&PublicModel> {
@@ -126,7 +143,17 @@ pub fn compile(
     endpoints: Vec<Endpoint>,
     routes: Vec<Route>,
     models: Vec<PublicModel>,
+    canonical_models: Vec<CanonicalModel>,
 ) -> Result<CompiledTopology, TopologyError> {
+    let mut canonical_map = BTreeMap::new();
+    for model in canonical_models {
+        if canonical_map
+            .insert(model.id.as_str().to_owned(), model)
+            .is_some()
+        {
+            return Err(TopologyError::DuplicateCanonicalModel);
+        }
+    }
     let mut provider_map = BTreeMap::new();
     for provider in providers {
         if provider_map
@@ -139,6 +166,12 @@ pub fn compile(
     let mut endpoint_map = BTreeMap::new();
     for endpoint in endpoints {
         endpoint.validate()?;
+        let canonical = canonical_map
+            .get(endpoint.canonical_model.as_str())
+            .ok_or(TopologyError::UnknownCanonicalModel)?;
+        if canonical.task != endpoint.task {
+            return Err(TopologyError::TaskMismatch);
+        }
         let definition = provider_map
             .get(endpoint.provider.as_str())
             .ok_or(TopologyError::UnknownProvider)?;
@@ -187,6 +220,15 @@ pub fn compile(
     }
     let mut model_map = BTreeMap::new();
     for model in models {
+        let canonical = canonical_map
+            .get(model.canonical_model.as_str())
+            .ok_or(TopologyError::UnknownCanonicalModel)?;
+        if canonical.task != model.task {
+            return Err(TopologyError::TaskMismatch);
+        }
+        if !promised(&model.contract, &canonical.contract.representation()) {
+            return Err(TopologyError::SemanticUnsatisfiable);
+        }
         let route = route_map
             .get(model.route.as_str())
             .ok_or(TopologyError::UnknownRoute)?;
@@ -195,6 +237,9 @@ pub fn compile(
         }
         for candidate in &route.endpoints {
             let endpoint = &endpoint_map[candidate.as_str()];
+            if endpoint.canonical_model != model.canonical_model {
+                return Err(TopologyError::CanonicalModelMismatch);
+            }
             if !promised(&model.contract, &endpoint.representation) {
                 return Err(TopologyError::ContractUnsatisfiable);
             }
@@ -211,6 +256,7 @@ pub fn compile(
         endpoints: endpoint_map,
         routes: route_map,
         models: model_map,
+        canonical_models: canonical_map,
     })
 }
 
@@ -252,6 +298,7 @@ mod tests {
             task: TaskKind::Generation,
             protocol,
             upstream_model: "fixture-model".into(),
+            canonical_model: ModelId::new("fixture-model").unwrap(),
             representation: GenerationRepresentationContract::full(),
             execution: ExecutionContract {
                 streaming: true,
@@ -273,13 +320,21 @@ mod tests {
         }
     }
 
-    fn model(contract: GenerationRepresentationContract) -> PublicModel {
-        PublicModel {
+    fn canonical() -> CanonicalModel {
+        CanonicalModel {
             id: ModelId::new("fixture-model").unwrap(),
             task: TaskKind::Generation,
-            route: RouteId::new("fixture-route").unwrap(),
-            contract,
+            contract: GenerationSemanticContract::full(),
         }
+    }
+    fn model(contract: GenerationRepresentationContract) -> PublicModel {
+        PublicModel::new(
+            ModelId::new("fixture-model").unwrap(),
+            ModelId::new("fixture-model").unwrap(),
+            TaskKind::Generation,
+            RouteId::new("fixture-route").unwrap(),
+            GenerationSemanticContract::from_representation(&contract),
+        )
     }
 
     fn compile_fixture(
@@ -287,7 +342,13 @@ mod tests {
         routes: Vec<Route>,
         models: Vec<PublicModel>,
     ) -> Result<CompiledTopology, TopologyError> {
-        compile(vec![provider()], endpoints, routes, models)
+        compile(
+            vec![provider()],
+            endpoints,
+            routes,
+            models,
+            vec![canonical()],
+        )
     }
 
     #[test]
@@ -315,6 +376,46 @@ mod tests {
             .map(|e| e.id.as_str())
             .collect();
         assert_eq!(order, ["e-responses", "e-chat"]);
+    }
+
+    #[test]
+    fn canonical_binding_and_public_semantics_cannot_be_reinterpreted_by_a_route() {
+        let mut other = canonical();
+        other.id = ModelId::new("another-model").unwrap();
+        let mut target = endpoint(ProtocolProfile::OpenAiChat);
+        target.canonical_model = other.id.clone();
+        assert_eq!(
+            compile(
+                vec![provider()],
+                vec![target],
+                vec![route()],
+                vec![model(GenerationRepresentationContract::full())],
+                vec![canonical(), other]
+            ),
+            Err(TopologyError::CanonicalModelMismatch)
+        );
+        assert_eq!(
+            compile(
+                vec![provider()],
+                vec![endpoint(ProtocolProfile::OpenAiChat)],
+                vec![route()],
+                vec![model(GenerationRepresentationContract::full())],
+                vec![]
+            ),
+            Err(TopologyError::UnknownCanonicalModel)
+        );
+        let mut limited = canonical();
+        limited.contract.image_input = false;
+        assert_eq!(
+            compile(
+                vec![provider()],
+                vec![endpoint(ProtocolProfile::OpenAiChat)],
+                vec![route()],
+                vec![model(GenerationRepresentationContract::full())],
+                vec![limited]
+            ),
+            Err(TopologyError::SemanticUnsatisfiable)
+        );
     }
 
     #[test]
@@ -360,7 +461,8 @@ mod tests {
                 vec![chat_only.clone()],
                 vec![endpoint(ProtocolProfile::OpenAiResponses)],
                 vec![route()],
-                vec![model(GenerationRepresentationContract::full())]
+                vec![model(GenerationRepresentationContract::full())],
+                vec![canonical()]
             ),
             Err(TopologyError::TargetMismatch)
         );
@@ -369,7 +471,8 @@ mod tests {
                 vec![chat_only],
                 vec![endpoint(ProtocolProfile::OpenAiChat)],
                 vec![route()],
-                vec![model(GenerationRepresentationContract::full())]
+                vec![model(GenerationRepresentationContract::full())],
+                vec![canonical()]
             )
             .is_ok()
         );

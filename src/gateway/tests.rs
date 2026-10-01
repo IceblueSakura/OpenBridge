@@ -60,7 +60,7 @@ async fn model_request_limits_do_not_suppress_client_reported_facts() {
     assert!(
         entry
             .client
-            .encode_request(&request, "synthetic", &entry.public.contract)
+            .encode_request(&request, "synthetic", &entry.endpoint.representation)
             .is_err()
     );
     let provider = Adapter {

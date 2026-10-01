@@ -8,10 +8,12 @@
 pub mod catalog;
 pub mod compile;
 pub mod endpoint;
+pub mod model;
 pub mod route;
 
 pub use compile::{CompiledTopology, TopologyError, compile};
 pub use endpoint::{Endpoint, EndpointTarget, ExecutionContract};
+pub use model::{CanonicalModel, GenerationSemanticContract};
 pub use route::{PublicModel, Route};
 
 use crate::provider::{ProviderError, ident_ok};

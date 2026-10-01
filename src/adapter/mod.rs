@@ -41,7 +41,6 @@ impl Dialect {
                     chat_image_usage: true,
                     responses_image_usage: true,
                     responses_text_usage: true,
-                    bmp_image_input: true,
                     ..Default::default()
                 },
             ),
@@ -142,8 +141,6 @@ impl Dialect {
                 WireRules {
                     readable_reasoning: true,
                     responses_unreported_text_logprobs: true,
-                    undeclared_image_detail: true,
-                    bmp_image_input: true,
                     chat_image_usage: true,
                     derived_output_text: true,
                     chunk_metadata_drift: true,
@@ -151,8 +148,16 @@ impl Dialect {
                 },
             ),
         };
+        let mut images = match self {
+            Self::OpenBridge | Self::Xiaomi => crate::lowering::images::ImageConstraints::all(),
+            _ => crate::lowering::images::ImageConstraints::common(),
+        };
+        if self == Self::Xiaomi {
+            images.details.clear();
+        }
         Adaptation {
             rules,
+            images,
             profile_id,
             scope,
         }
@@ -181,10 +186,10 @@ impl Adapter {
         &self,
         contract: &GenerationRepresentationContract,
     ) -> GenerationRepresentationContract {
-        GenerationRepresentationContract {
-            adaptation: self.adaptation.clone(),
-            ..contract.clone()
-        }
+        let mut result = contract.clone();
+        result.adaptation = self.adaptation.clone();
+        result.images.intersect(&self.adaptation.images);
+        result
     }
     pub fn decode_response(&self, bytes: &[u8]) -> Result<DecodedResponse, CodecError> {
         let value = openai::json::decode(bytes)?;

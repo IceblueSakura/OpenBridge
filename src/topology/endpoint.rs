@@ -40,6 +40,8 @@ pub struct Endpoint {
     pub protocol: ProtocolProfile,
     /// Upstream model identity bound at compile time, injected at attempt time.
     pub upstream_model: String,
+    /// Trusted alias binding, independent of Provider's spelling and capabilities.
+    pub canonical_model: super::ModelId,
     pub representation: GenerationRepresentationContract,
     pub execution: ExecutionContract,
     pub credential: CredentialBindingId,

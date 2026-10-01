@@ -23,7 +23,7 @@ pub use request::{
 };
 pub use requirements::GenerationRequirements;
 pub use resource::{
-    ImageDetail, MAX_IMAGE_DECODED_BYTES, MAX_IMAGE_URL_BYTES, Resource, ResourceKind,
+    ImageDetail, ImageFormat, MAX_IMAGE_DECODED_BYTES, MAX_IMAGE_URL_BYTES, Resource, ResourceKind,
     ResourceLocation,
 };
 pub use text::{

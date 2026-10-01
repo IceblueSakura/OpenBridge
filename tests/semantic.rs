@@ -22,6 +22,8 @@ mod image_usage;
 mod images;
 #[path = "semantic/instructions.rs"]
 mod instructions;
+#[path = "semantic/model_constraints.rs"]
+mod model_constraints;
 #[path = "semantic/parsed_replay.rs"]
 mod parsed_replay;
 #[path = "semantic/phase.rs"]
