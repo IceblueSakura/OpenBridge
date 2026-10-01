@@ -27,10 +27,10 @@ uv run --project tests/sdk --locked --offline python examples/probe.py report te
 
 - Provider 只取固定 catalog 中的 API-key 绑定；不跟随 OAuth 文件，不轮换/改写 key。实际客户端只获得临时 gateway token。
 - `plan --model` 可重复，将所选 Provider 缩小到精确模型子集。重复、未知或不属于所选 Provider 的模型在读取凭据前拒绝。省略模型筛选则包含所选 Provider 的全部已登记测试绑定，不能将此默认扩大解释为授权。
-- `run --model` 可重复，必须属于计划；`--protocol chat|responses`、`--delivery json|sse` 缩小范围。`--effort none|minimal|medium` 是明确请求控制，不自动改默认。
+- `run --model` 可重复，必须属于计划；`--protocol chat|responses`、`--delivery json|sse` 缩小范围。`--effort none|minimal|medium|max` 是明确请求控制，不自动改默认。
 - cases：`text`、`json`、`tool`、`history`、`length`、`cancel`、`image`、`image_math`；`reasoning` 的目标限制读取 `examples/probe_support/scenarios.py`，不得套用到任意模型。
 - `image` 每个协议/交付一请求，使用程序生成的两张无敏感 PNG 与交错文本，oracle 检查按图片顺序返回颜色；最多 512 输出 token，可显式 `--effort none`。不下载图片、不使用账号文件资源、不保存图片或正文；模型准入必须按 catalog 现场查询。独立 PNG 像素/预算守卫在 `tests/sdk/test_probe_core.py`，此场景不证明一般视觉理解质量。
-- `image_math` 每个协议/交付一请求，先从两张程序生成的方块图获得视觉计数，再计算固定算术式，以严格 JSON 数值 oracle 验收；预算取 run 的 token cap（最多 2048）。图片像素、计数和算术预期由独立离线检查保护。可用相同输入分别选取 `--effort none|minimal|medium`；档位的真实语义和支持按官方页面现场核对，不从名称推导强度排序。
+- `image_math` 每个协议/交付一请求，先从两张程序生成的方块图获得视觉计数，再计算固定算术式，以严格 JSON 数值 oracle 验收；预算取 run 的 token cap（最多 2048）。图片像素、计数和算术预期由独立离线检查保护。可用相同输入分别选取 `--effort none|minimal|medium|max`；档位的真实语义和支持按官方页面现场核对，不从名称推导强度排序。
 - `history` 每个交付四请求，两个实际 lookup 调用/返回；`length` 是 8-token Chat 截断，只有这一场景接受 length；`cancel` 是 Chat SSE 提前关闭和后续普通请求，不证明 Provider 停算/停止计费。
 - 默认串行、SDK 零重试，精确限制目标 origin/port/path、model、请求大小、输出 cap 与完整序列化历史。不会因省略 filter 而跳出 run 的模型集合。
 - 所有组在 I/O 前登记；未执行的请求显示 `not_run`，中断的 reservation/dispatched 不算通过。HTTP/传输/wire/配置错误停止该目标；工具链失败跳过其依赖轮次。只有计划明确 `--continue-oracle` 时，内容/预期终态失败后才继续独立组。不自动重复失败请求。

@@ -35,6 +35,8 @@ Authenticated, bounded HTTP request
 
 厂商差异不形成另一套 Generation/Usage。兼容默认值按 [ADR 0008](architecture-v2/decisions/0008-stable-core-and-vendor-adapters.md)由具名规则显式选择并记录来源，不能覆盖 reported 值或掩盖非法值；当前选择与理由由 `src/adapter/`、`src/protocol/adaptation.rs` 及其 owning codec 注释维护。
 
+Public Model 和 Endpoint 的合同约束请求准入及目标投影，不是客户端响应格式的报告事实白名单。`gateway::config` 独立构造客户端 wire 表示合同，保留 fixed reported-fact policy 与受信 replay scope；不能因为模型不允许请求某控制字段而删掉或拒绝响应中已报告的对应事实。纯 codec/lowering 仍负责未实现语义和目标协议无槽位的拒绝。
+
 标准 response context 在 semantic 中，instruction echo 的 wire fidelity 独立保存。classified extras 绑定协议、适配合同、可信来源和响应依赖；仅终态捕获/输出，目标不兼容或语义修改后不恢复旧值。encrypted replay 继续使用其更严格的 owner/origin/finality 合同。
 
 厂商 routing/billing facts 同样受有界来源/响应依赖约束；重复 view 和特殊流式形式只在显式规则下验证。当前映射查询实现与独立回归，不另维护厂商适配表或测试结果页。

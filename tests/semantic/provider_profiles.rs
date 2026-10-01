@@ -905,7 +905,16 @@ fn response_billing_view_rejects_independent_or_conflicting_information() {
             "{pointer}"
         );
     }
-    for field in ["image_tokens", "plugins", "unknown"] {
+    let mut image_report = value.clone();
+    image_report["usage"]["x_details"][0]["image_tokens"] = json!(0);
+    let reported = provider
+        .decode_response(image_report.to_string().as_bytes())
+        .unwrap();
+    assert_eq!(
+        reported.semantic.usage().unwrap().input_image_tokens,
+        Some(0)
+    );
+    for field in ["plugins", "unknown"] {
         let mut bad = value.clone();
         bad["usage"]["x_details"][0][field] = json!(0);
         assert!(

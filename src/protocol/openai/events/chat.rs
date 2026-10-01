@@ -638,7 +638,7 @@ impl EventEncoder {
                     } else {
                         let mut v=self.chunk(json!({}),Value::Null);v["choices"]=json!([]);v
                     };
-                    v["usage"]=super::super::static_response::encode_usage(usage,Profile::Chat);chunks.push(v);
+                    v["usage"]=super::super::static_response::encode_usage(usage,Profile::Chat,&self.contract.adaptation.rules);chunks.push(v);
                 }
                 super::super::envelope::write_response_extras(&self.fidelity,Profile::Chat,&self.contract.adaptation,&response,&self.metadata.id,chunks.last_mut().expect("terminal chunk").as_object_mut().expect("object"));
                 chunks

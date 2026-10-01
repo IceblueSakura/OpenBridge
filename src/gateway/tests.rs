@@ -29,6 +29,61 @@ pub(super) fn gateway(limits: Limits) -> Gateway {
     .unwrap()
 }
 #[tokio::test]
+async fn model_request_limits_do_not_suppress_client_reported_facts() {
+    use serde_json::json;
+    let gate = Gateway::new(
+        crate::topology::catalog::default_topology().unwrap(),
+        vec![Entry {
+            model: "gpt-6-luna".into(),
+            protocol: Profile::Responses,
+            endpoint: EndpointId::new("openrouter-responses").unwrap(),
+        }],
+        BTreeMap::from([(
+            CredentialBindingId::new("openrouter-api-key").unwrap(),
+            Arc::new(SecretMaterial::new("synthetic-upstream-credential-0001").unwrap()),
+        )]),
+        SecretMaterial::new(KEY).unwrap(),
+        Limits::default(),
+        None,
+    )
+    .unwrap();
+    let entry = &gate.state.entries[&(family(Profile::Responses), "gpt-6-luna".into())];
+    let request = entry
+        .client
+        .decode_request(
+            &serde_json::to_vec(&json!({
+                "model":"gpt-6-luna","input":"synthetic","temperature":0.5
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        entry
+            .client
+            .encode_request(&request, "synthetic", &entry.public.contract)
+            .is_err()
+    );
+    let provider = Adapter {
+        protocol: Profile::Responses,
+        adaptation: entry.endpoint.representation.adaptation.clone(),
+    };
+    let response = provider.decode_response(&serde_json::to_vec(&json!({
+        "object":"response","id":"r","model":"synthetic","created_at":1,"status":"completed",
+        "output":[{"type":"message","id":"msg","role":"assistant","status":"completed",
+            "content":[{"type":"output_text","text":"x","annotations":[],"logprobs":[]}]}],
+        "temperature":1,"top_p":1,"parallel_tool_calls":true
+    })).unwrap()).unwrap();
+    let encoded = entry
+        .client
+        .encode_response(&response, &entry.downstream)
+        .unwrap();
+    assert_eq!(encoded["output"][0]["content"][0]["logprobs"], json!([]));
+    assert_eq!(encoded["temperature"].as_f64(), Some(1.0));
+    assert_eq!(encoded["top_p"].as_f64(), Some(1.0));
+    assert_eq!(encoded["parallel_tool_calls"], true);
+}
+
+#[tokio::test]
 async fn diagnostics_only_record_authenticated_requests_and_never_expose_headers() {
     let path = std::env::temp_dir().join(format!(
         "openbridge-auth-diag-{}-{}.jsonl",

@@ -225,7 +225,7 @@ def expect_call(key):
 def plan_groups(
     run, models, *, cases=("text", "tool"), protocol=None, delivery=None, effort=None
 ):
-    require(effort in (None, "none", "minimal", "medium"), "effort", "setup")
+    require(effort in (None, "none", "minimal", "medium", "max"), "effort", "setup")
     groups = []
     for model in models:
         require(model in run.plan["models"], "model", "budget")

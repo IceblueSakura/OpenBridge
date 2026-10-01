@@ -2,6 +2,7 @@
 use super::{BoundEntry, Gateway, Runtime, auth, family};
 use crate::{
     adapter::{Adapter, Dialect},
+    lowering::generation::GenerationRepresentationContract,
     protocol::openai::Profile,
     provider::{CredentialBindingId, SecretMaterial},
     semantic::value::ReplayOrigin,
@@ -150,8 +151,13 @@ impl Gateway {
                 endpoint.representation.replay_origin = Some(scope.clone());
             }
             let client = Adapter::new(entry.protocol, Dialect::OpenBridge, Some(scope.clone()));
-            let mut downstream = public.contract.clone();
-            downstream.replay_origin = Some(scope);
+            // Model input admission must not filter facts reported on the client wire
+            // (e.g. empty logprobs or defaults a model cannot accept as controls).
+            let downstream = GenerationRepresentationContract {
+                replay_origin: Some(scope),
+                reported_facts: public.contract.reported_facts,
+                ..GenerationRepresentationContract::full()
+            };
             if bound
                 .insert(
                     (family(entry.protocol), entry.model),

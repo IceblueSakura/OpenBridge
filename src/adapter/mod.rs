@@ -40,6 +40,7 @@ impl Dialect {
                     structured_chat_reasoning: true,
                     chat_image_usage: true,
                     responses_image_usage: true,
+                    responses_text_usage: true,
                     bmp_image_input: true,
                     ..Default::default()
                 },
@@ -104,9 +105,14 @@ impl Dialect {
                     inactive_chat_fields: true,
                     response_extras: true,
                     responses_billing_view: true,
+                    responses_text_usage: true,
+                    responses_image_usage: true,
                     null_response_billing: true,
                     responses_queued_creation: true,
                     responses_summary_text_alias: true,
+                    // Modality counters are reported facts, never inferred from images.
+                    // https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions
+                    chat_image_usage: true,
                     ..Default::default()
                 },
             ),
@@ -125,6 +131,7 @@ impl Dialect {
                     legacy_max_tokens: true,
                     reported_request_id: true,
                     responses_inactive_state: true,
+                    responses_unreported_text_logprobs: true,
                     // Optional transport trailer, never a replacement for a real terminal.
                     responses_done_marker: true,
                     ..Default::default()

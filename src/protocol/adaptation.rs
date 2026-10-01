@@ -72,10 +72,13 @@ pub struct WireRules {
     /// Only an explicit null billing placeholder is inactive. Real billing needs
     /// its own owner; this does not admit or discard vendor usage detail views.
     pub null_response_billing: bool,
-    /// One exactly redundant response_api usage row. Conflicts, independent
-    /// breakdowns and unknown billing fields remain errors.
+    /// One response_api usage row: validate redundant totals and promote declared
+    /// image/text facts. Conflicts, tool charges and unknown breakdowns are errors.
     /// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses>.
     pub responses_billing_view: bool,
+    /// Explicit typed text-token positions beyond the fixed Responses schema.
+    /// OpenBridge uses canonical detail slots; billing-view profiles own their wire.
+    pub responses_text_usage: bool,
     /// A created/queued snapshot emits Queued, not Started. Only a subsequent
     /// in_progress event starts it; absent progress cannot be synthesized.
     pub responses_queued_creation: bool,

@@ -6,6 +6,8 @@ mod wire;
 
 #[path = "semantic/adapters.rs"]
 mod adapters;
+#[path = "semantic/billing_modal_usage.rs"]
+mod billing_modal_usage;
 #[path = "semantic/chat_logprobs.rs"]
 mod chat_logprobs;
 #[path = "semantic/chat_wire.rs"]

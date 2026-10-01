@@ -50,6 +50,24 @@ fn image_contract(
     }
 }
 
+/// Public and endpoint admission share the same compiled semantic declaration.
+/// Image wire sources: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions>,
+/// <https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash>.
+fn model_contract(
+    provider: &str,
+    model: &str,
+    replay_origin: Option<crate::semantic::value::ReplayOrigin>,
+) -> GenerationRepresentationContract {
+    match (provider, model) {
+        ("openrouter", "openai/gpt-6-luna") => luna_contract(replay_origin),
+        ("deepseek", "deepseek-flash")
+        | ("xiaomi", "mimo-v2.6-flash" | "mimo-v2.6-pro")
+        | ("bailian", "qwen3.8-max")
+        | ("zhipu", "glm-5.3-flash") => image_contract(replay_origin),
+        _ => wire_contract(replay_origin),
+    }
+}
+
 fn execution_contract() -> ExecutionContract {
     ExecutionContract {
         streaming: true,
@@ -94,6 +112,11 @@ fn endpoint(
     };
     let adapter =
         crate::adapter::Adapter::new(family, dialect, Some(replay_scope(provider.id.as_str())));
+    let representation = adapter.contract(&model_contract(
+        provider.id.as_str(),
+        upstream_model,
+        replay_origin,
+    ));
     Endpoint {
         id: EndpointId::new(id).expect("static identity"),
         provider: provider.id,
@@ -104,20 +127,7 @@ fn endpoint(
         task: TaskKind::Generation,
         protocol,
         upstream_model: upstream_model.into(),
-        representation: adapter.contract(&if dialect == crate::adapter::Dialect::OpenRouter {
-            luna_contract(replay_origin)
-        } else if matches!(
-            (dialect, upstream_model),
-            (crate::adapter::Dialect::DeepSeek, "deepseek-flash")
-                | (
-                    crate::adapter::Dialect::Xiaomi,
-                    "mimo-v2.6-flash" | "mimo-v2.6-pro"
-                )
-        ) {
-            image_contract(replay_origin)
-        } else {
-            wire_contract(replay_origin)
-        }),
+        representation,
         execution: execution_contract(),
         credential: CredentialBindingId::new(credential).expect("static binding"),
     }
@@ -247,7 +257,8 @@ pub fn mimo_v2_6_pro() -> PublicModel {
 }
 
 // Public catalog parameters do not declare sampling, logprobs or parallel calls.
-// Media is a codec gap, not a claim that the upstream model lacks media support.
+// URL/inline image perception is declared by the model's public architecture.
+// Source: <https://openrouter.ai/api/v1/models/openai/gpt-6-luna/endpoints>.
 fn luna_contract(
     replay_origin: Option<crate::semantic::value::ReplayOrigin>,
 ) -> GenerationRepresentationContract {
@@ -258,7 +269,7 @@ fn luna_contract(
         verbosity: false,
         truncation: false,
         parallel_tool_calls: false,
-        ..wire_contract(replay_origin)
+        ..image_contract(replay_origin)
     }
 }
 
@@ -454,7 +465,7 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
             id: ModelId::new(binding.model).expect("static identity"),
             task: TaskKind::Generation,
             route: route_id,
-            contract: wire_contract(None),
+            contract: model_contract(binding.provider, binding.upstream, None),
         });
     }
     compile(providers, endpoints, routes, models)

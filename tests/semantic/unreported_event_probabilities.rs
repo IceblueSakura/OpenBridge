@@ -110,6 +110,29 @@ fn missing_event_probabilities_are_unreported_only_under_a_named_rule() {
 }
 
 #[test]
+fn empty_delta_carrier_does_not_invent_a_fact_when_done_omits_probabilities() {
+    let (_, mut events) = fixture();
+    events[3]["logprobs"] = json!([]);
+    let mut source = decoder(Dialect::Zhipu);
+    let bytes = sse(&events);
+    let mut rest = bytes.as_slice();
+    while !rest.is_empty() {
+        let (used, _) = source.consume(rest).unwrap();
+        rest = &rest[used..];
+    }
+    source.finish().unwrap();
+    let materialized = source.materialize().unwrap();
+    let Item::Message(message) = &materialized.semantic.items()[0].1 else {
+        panic!()
+    };
+    let ContentPart::Text(text) = &message.parts[0].content else {
+        panic!()
+    };
+    // An empty delta carrier is not a final static probability report.
+    assert_eq!(text.logprobs(), &Presence::Absent);
+}
+
+#[test]
 fn named_omission_does_not_hide_malformed_probabilities_or_missing_complete_fields() {
     let (_, source) = fixture();
     let mut cases = vec![];

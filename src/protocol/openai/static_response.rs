@@ -109,6 +109,17 @@ pub(super) fn usage(
     {
         return Err(CodecError::Unsupported("image_tokens".into()));
     }
+    if profile == Profile::Responses
+        && !adaptation.rules.responses_text_usage
+        && [input_details, output_details].iter().any(|key| {
+            usage
+                .get(*key)
+                .and_then(Value::as_object)
+                .is_some_and(|d| d.contains_key("text_tokens"))
+        })
+    {
+        return Err(CodecError::Unsupported("text_tokens".into()));
+    }
     let mut parsed = Usage {
         input_tokens: count(usage, input_key)?,
         output_tokens: count(usage, output_key)?,
@@ -117,16 +128,8 @@ pub(super) fn usage(
         input_image_tokens: detail(usage, input_details, "image_tokens")?,
         input_cache_write_tokens: detail(usage, input_details, "cache_write_tokens")?,
         reasoning_tokens: detail(usage, output_details, "reasoning_tokens")?,
-        input_text_tokens: if profile == Profile::Chat {
-            detail(usage, input_details, "text_tokens")?
-        } else {
-            None
-        },
-        output_text_tokens: if profile == Profile::Chat {
-            detail(usage, output_details, "text_tokens")?
-        } else {
-            None
-        },
+        input_text_tokens: detail(usage, input_details, "text_tokens")?,
+        output_text_tokens: detail(usage, output_details, "text_tokens")?,
         accepted_prediction_tokens: if profile == Profile::Chat {
             detail(usage, output_details, "accepted_prediction_tokens")?
         } else {
@@ -197,8 +200,13 @@ fn detail(
                     "accepted_prediction_tokens",
                     "rejected_prediction_tokens",
                 ],
-                "input_tokens_details" => &["cached_tokens", "cache_write_tokens", "image_tokens"],
-                "output_tokens_details" => &["reasoning_tokens"],
+                "input_tokens_details" => &[
+                    "cached_tokens",
+                    "cache_write_tokens",
+                    "image_tokens",
+                    "text_tokens",
+                ],
+                "output_tokens_details" => &["reasoning_tokens", "text_tokens"],
                 _ => unreachable!("fixed usage detail schema"),
             };
             fields(details, allowed)?;
@@ -211,7 +219,11 @@ fn detail(
         }
     }
 }
-pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
+pub(super) fn encode_usage(
+    usage: Usage,
+    profile: Profile,
+    rules: &crate::protocol::adaptation::WireRules,
+) -> Value {
     let mut value = match profile {
         Profile::Chat => json!({
             "prompt_tokens": usage.input_tokens,
@@ -260,18 +272,30 @@ pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
         };
         object.entry(key).or_insert_with(|| json!({}))["image_tokens"] = json!(images);
     }
+    for (details, count) in [
+        (
+            if profile == Profile::Chat {
+                "prompt_tokens_details"
+            } else {
+                "input_tokens_details"
+            },
+            usage.input_text_tokens,
+        ),
+        (
+            if profile == Profile::Chat {
+                "completion_tokens_details"
+            } else {
+                "output_tokens_details"
+            },
+            usage.output_text_tokens,
+        ),
+    ] {
+        if let Some(count) = count {
+            object.entry(details).or_insert_with(|| json!({}))["text_tokens"] = json!(count);
+        }
+    }
     if profile == Profile::Chat {
         for (details, name, count) in [
-            (
-                "prompt_tokens_details",
-                "text_tokens",
-                usage.input_text_tokens,
-            ),
-            (
-                "completion_tokens_details",
-                "text_tokens",
-                usage.output_text_tokens,
-            ),
             (
                 "completion_tokens_details",
                 "accepted_prediction_tokens",
@@ -287,6 +311,14 @@ pub(super) fn encode_usage(usage: Usage, profile: Profile) -> Value {
                 object.entry(details).or_insert_with(|| json!({}))[name] = json!(count);
             }
         }
+    }
+    if profile == Profile::Responses
+        && rules.responses_billing_view
+        && (usage.input_image_tokens.is_some()
+            || usage.input_text_tokens.is_some()
+            || usage.output_text_tokens.is_some())
+    {
+        super::adapter_shapes::encode_billing_usage(&mut value);
     }
     value
 }
@@ -484,7 +516,7 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
     let m = target.metadata;
     let mut value = json!({"id":m.id,"object":"chat.completion","created":m.created,"model":m.model,
         "choices":[{"index":0,"message":message,"finish_reason":finish}],
-        "usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Chat))});
+        "usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Chat, &target.adaptation.rules))});
     if let Some(probabilities) = super::chat_logprobs::choice(target.semantic.items())? {
         value["choices"][0]["logprobs"] = probabilities;
     }
@@ -530,7 +562,7 @@ pub fn encode_responses(target: &ResponseRepresentation<'_>) -> Result<Value, Co
     let output = responses::encode_items(target.semantic.items(), target.fidelity, true);
     let m = target.metadata;
     let mut value = json!({"id":m.id,"object":"response","created_at":m.created,"model":m.model,"status":status,
-        "output":output,"usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Responses))});
+        "output":output,"usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Responses, &target.adaptation.rules))});
     super::envelope::write_metadata(
         m,
         value.as_object_mut().expect("object"),

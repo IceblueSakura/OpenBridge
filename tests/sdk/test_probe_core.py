@@ -120,6 +120,17 @@ class ProbeCoreTests(unittest.TestCase):
             with self.assertRaises(ProbeFailure) as raised: expect_visual_math(text,[],[])
             self.assertEqual(raised.exception.code,code)
 
+    def test_explicit_max_vision_control_keeps_preset_and_unknown_efforts_closed(self):
+        from probe_support.scenarios import plan_groups
+        with tempfile.TemporaryDirectory() as temp:
+            run=Run.create(Path(temp)/"run",providers="openrouter",models=["gpt-6-luna"],limit=8,tokens=2048)
+            groups=plan_groups(run,run.plan["models"],cases=("image","image_math"),effort="max")
+            self.assertEqual(sum(g[5] for g in groups),8)
+            self.assertTrue(all(g[4].endswith(":max") for g in groups))
+            for cases,effort in ((("reasoning",),"max"),(("image",),"unknown")):
+                with self.assertRaises(ProbeFailure):
+                    plan_groups(run,run.plan["models"],cases=cases,effort=effort)
+
     def test_plan_cannot_be_mutated_in_memory_and_expiry_preserves_readback(self):
         with tempfile.TemporaryDirectory() as temp:
             run = Run.create(Path(temp) / "run", limit=1)

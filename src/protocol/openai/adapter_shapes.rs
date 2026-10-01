@@ -112,8 +112,9 @@ fn extract(o: &mut Map<String, Value>, profile: Profile) -> Result<Extras, Codec
     check_budget(&extras)?;
     Ok(extras)
 }
-/// Only a single text response's duplicate counters are a derived view.
-/// Tool charges or modality breakdowns need their own semantic ownership.
+/// Validate one response_api row and promote its explicitly reported modality facts.
+/// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses>.
+/// No raw row survives: every encoder must use the final typed Usage.
 fn response_billing_view(o: &mut Map<String, Value>) -> Result<(), CodecError> {
     let Some(usage) = o.get_mut("usage").and_then(Value::as_object_mut) else {
         return Ok(());
@@ -130,6 +131,7 @@ fn response_billing_view(o: &mut Map<String, Value>) -> Result<(), CodecError> {
         row,
         &[
             "x_billing_type",
+            "image_tokens",
             "input_tokens",
             "output_tokens",
             "total_tokens",
@@ -147,19 +149,112 @@ fn response_billing_view(o: &mut Map<String, Value>) -> Result<(), CodecError> {
             return Err(CodecError::Invalid("billing usage count"));
         }
     }
-    for (name, canonical) in [
-        ("input_tokens_details", "input_tokens_details"),
-        ("prompt_tokens_details", "input_tokens_details"),
-        ("output_tokens_details", "output_tokens_details"),
+    for (name, canonical, allowed) in [
+        (
+            "input_tokens_details",
+            "input_tokens_details",
+            &[
+                "cached_tokens",
+                "cache_write_tokens",
+                "image_tokens",
+                "text_tokens",
+            ][..],
+        ),
+        (
+            "prompt_tokens_details",
+            "input_tokens_details",
+            &["cached_tokens", "cache_write_tokens"][..],
+        ),
+        (
+            "output_tokens_details",
+            "output_tokens_details",
+            &["reasoning_tokens", "text_tokens"][..],
+        ),
     ] {
-        if let Some(detail) = row.get(name)
-            && (!detail.is_object() || usage.get(canonical) != Some(detail))
-        {
-            return Err(CodecError::Invalid("billing usage details"));
+        if let Some(detail) = row.get(name) {
+            merge_usage_detail(
+                usage,
+                canonical,
+                detail
+                    .as_object()
+                    .ok_or(CodecError::Invalid("billing usage details"))?,
+                allowed,
+            )?;
         }
     }
-    // No copy is retained: encoders must use final typed Usage after any edits.
+    if let Some(images) = row.get("image_tokens") {
+        let detail = Map::from_iter([("image_tokens".into(), images.clone())]);
+        merge_usage_detail(usage, "input_tokens_details", &detail, &["image_tokens"])?;
+    }
     Ok(())
+}
+fn merge_usage_detail(
+    usage: &mut Map<String, Value>,
+    key: &str,
+    values: &Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), CodecError> {
+    super::common::fields(values, allowed)?;
+    let detail = usage.entry(key).or_insert_with(|| serde_json::json!({}));
+    if detail.is_null() {
+        *detail = serde_json::json!({});
+    }
+    let detail = detail
+        .as_object_mut()
+        .ok_or(CodecError::Invalid("billing usage details"))?;
+    for (name, value) in values {
+        if value.as_u64().is_none()
+            || detail
+                .get(name)
+                .is_some_and(|old| !old.is_null() && old != value)
+        {
+            return Err(CodecError::Invalid("billing usage detail"));
+        }
+        detail.insert(name.clone(), value.clone());
+    }
+    Ok(())
+}
+/// Rebuild the native billing view from current typed counters, never source JSON.
+pub(crate) fn encode_billing_usage(value: &mut Value) {
+    let mut row = serde_json::json!({"x_billing_type":"response_api", "input_tokens":value["input_tokens"],"output_tokens":value["output_tokens"],"total_tokens":value["total_tokens"]});
+    for (detail, fields) in [
+        ("input_tokens_details", &["image_tokens", "text_tokens"][..]),
+        ("output_tokens_details", &["text_tokens"][..]),
+    ] {
+        for field in fields {
+            if let Some(count) = value
+                .get_mut(detail)
+                .and_then(Value::as_object_mut)
+                .and_then(|o| o.shift_remove(*field))
+            {
+                if row.get(detail).is_none() {
+                    row[detail] = serde_json::json!({});
+                }
+                row[detail][field] = count.clone();
+                if *field == "image_tokens" {
+                    row["image_tokens"] = count;
+                }
+            }
+        }
+        if value
+            .get(detail)
+            .and_then(Value::as_object)
+            .is_some_and(Map::is_empty)
+        {
+            value
+                .as_object_mut()
+                .expect("usage object")
+                .shift_remove(detail);
+        }
+    }
+    if row.get("output_tokens_details").is_some()
+        && let Some(reasoning) = value
+            .get("output_tokens_details")
+            .and_then(|d| d.get("reasoning_tokens"))
+    {
+        row["output_tokens_details"]["reasoning_tokens"] = reasoning.clone();
+    }
+    value["x_details"] = serde_json::json!([row]);
 }
 
 pub(crate) fn decode_message(o: &mut Map<String, Value>) -> Result<(), CodecError> {

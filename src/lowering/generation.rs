@@ -283,8 +283,8 @@ pub fn require_reported_facts(
     }
 }
 
-/// The fixed Responses usage schema has no text/prediction-detail positions.
-/// Even a reported zero is a fact; never silently omit it or invent an extension.
+/// Fixed Responses has no text/prediction slots; explicit profiles may own text slots.
+/// Even zero is reported: never omit it or invent undeclared prediction positions.
 pub(super) fn check_usage(
     usage: Usage,
     profile: Profile,
@@ -300,14 +300,10 @@ pub(super) fn check_usage(
         return Err(RepresentationError::UsageDetails);
     }
     if profile == Profile::Responses
-        && [
-            usage.input_text_tokens,
-            usage.output_text_tokens,
-            usage.accepted_prediction_tokens,
-            usage.rejected_prediction_tokens,
-        ]
-        .iter()
-        .any(Option::is_some)
+        && ((usage.input_text_tokens.is_some() || usage.output_text_tokens.is_some())
+            && !rules.responses_text_usage
+            || usage.accepted_prediction_tokens.is_some()
+            || usage.rejected_prediction_tokens.is_some())
     {
         return Err(RepresentationError::UsageDetails);
     }

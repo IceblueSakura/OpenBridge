@@ -31,7 +31,7 @@ def main():
     run.add_argument("--cases", default="text,tool")
     run.add_argument("--protocol", choices=["chat", "responses"])
     run.add_argument("--delivery", choices=["json", "sse"])
-    run.add_argument("--effort", choices=["none", "minimal", "medium"])
+    run.add_argument("--effort", choices=["none", "minimal", "medium", "max"])
     run.add_argument("--dry-run", action="store_true")
     show = sub.add_parser("report")
     show.add_argument("directory")

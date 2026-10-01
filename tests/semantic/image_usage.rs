@@ -46,6 +46,53 @@ fn named_image_usage_mapping_preserves_counts_and_rejects_standard_targets() {
 }
 
 #[test]
+fn readable_chat_modality_counters_remain_typed_without_claiming_responses_slots() {
+    let mut source = response(json!(7));
+    source["usage"]["prompt_tokens_details"]["text_tokens"] = json!(3);
+    source["usage"]["completion_tokens_details"]["text_tokens"] = json!(2);
+    let provider = Adapter::new(Profile::Chat, Dialect::Bailian, None);
+    let mut decoded = provider
+        .decode_response(&serde_json::to_vec(&source).unwrap())
+        .unwrap();
+    let usage = decoded.semantic.usage().unwrap();
+    assert_eq!(usage.input_image_tokens, Some(7));
+    assert_eq!(usage.input_text_tokens, Some(3));
+    assert_eq!(usage.output_text_tokens, Some(2));
+    let client = Adapter::new(Profile::Chat, Dialect::OpenBridge, None);
+    assert_eq!(
+        client.encode_response(&decoded, &Contract::full()).unwrap()["usage"],
+        source["usage"]
+    );
+    let responses = Adapter::new(Profile::Responses, Dialect::OpenBridge, None)
+        .encode_response(&decoded, &Contract::full())
+        .unwrap();
+    assert_eq!(
+        responses["usage"]["input_tokens_details"],
+        json!({"cached_tokens":1,"image_tokens":7,"text_tokens":3})
+    );
+    assert_eq!(
+        responses["usage"]["output_tokens_details"],
+        json!({"reasoning_tokens":0,"text_tokens":2})
+    );
+    assert!(
+        Adapter::new(Profile::Responses, Dialect::Standard, None)
+            .encode_response(&decoded, &Contract::full())
+            .is_err()
+    );
+    decoded.semantic = decoded
+        .semantic
+        .clone()
+        .with_usage(openbridge::semantic::task::generation::Usage {
+            input_image_tokens: Some(5),
+            ..usage
+        })
+        .unwrap();
+    let changed = client.encode_response(&decoded, &Contract::full()).unwrap();
+    assert_eq!(changed["usage"]["prompt_tokens_details"]["image_tokens"], 5);
+    assert_eq!(changed["usage"]["prompt_tokens_details"]["text_tokens"], 3);
+}
+
+#[test]
 fn image_usage_presence_edits_and_bounds_do_not_restore_deleted_counts() {
     use openbridge::semantic::task::generation::Usage;
     let provider = Adapter::new(Profile::Chat, Dialect::Xiaomi, None);
