@@ -504,26 +504,56 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
             );
         }
     }
-    // A fixed Responses entry can project a Chat provider without native bypass.
+    // A standard Responses target cannot flatten a Chat message-call group.
+    // Static projection fails before publication; SSE may have published an
+    // independent prefix, but must abort without a call or successful terminal.
     for stream in [false, true] {
-        let response = client
+        let before = observed.0.lock().unwrap().len();
+        let mut response = client
             .post(format!("{url}/v1/responses"))
             .bearer_auth(support::CLIENT_KEY)
             .json(&json!({"model":"cross-model","input":"lookup","stream":stream}))
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), 200);
-        let decoded = responses_delivery(&response.bytes().await.unwrap(), stream);
-        assert_eq!(decoded.metadata.model, "cross-model");
-        assert_eq!(decoded.semantic.outcome(), Outcome::Completed);
-        assert_eq!(decoded.semantic.items().len(), 2);
-        assert!(matches!(&decoded.semantic.items()[0].1,
-            openbridge::semantic::task::generation::Item::Message(m)
-            if m.parts.is_empty() && m.status == openbridge::semantic::task::generation::ItemLifecycle::Completed));
-        assert!(matches!(&decoded.semantic.items()[1].1,
-            openbridge::semantic::task::generation::Item::ToolCall(c)
-            if c.call_id.as_str() == "call-local" && c.arguments == "{\"n\":1}"));
+        if stream {
+            assert_eq!(response.status(), 200);
+            let mut prefix = Vec::new();
+            loop {
+                match response.chunk().await {
+                    Ok(Some(chunk)) => {
+                        prefix.extend_from_slice(&chunk);
+                        assert!(prefix.len() < 16 << 10);
+                    }
+                    Err(_) => break,
+                    Ok(None) => panic!("group projection must abort the published body"),
+                }
+            }
+            let prefix = String::from_utf8(prefix).unwrap();
+            assert!(prefix.contains("response.created"));
+            assert!(!prefix.contains("response.completed"));
+            assert!(!prefix.contains("function_call"));
+            assert!(!prefix.contains("private-model"));
+        } else {
+            assert_eq!(response.status(), 502);
+            let error: Value = response.json().await.unwrap();
+            assert_eq!(error["error"]["code"], "upstream_error");
+        }
+        assert_eq!(observed.0.lock().unwrap().len(), before + 1);
+
+        // Opposite request direction: explicit Chat history must be rejected
+        // during candidate projection, before any HTTP Provider call.
+        let before = observed.0.lock().unwrap().len();
+        let response = client
+            .post(format!("{url}/v1/chat/completions"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&json!({"model":"cross-model","stream":stream,"messages":[
+                {"role":"assistant","content":null,"tool_calls":[{"id":"c","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
+                {"role":"tool","tool_call_id":"c","content":"ok"}
+            ]}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), 400);
+        assert_eq!(observed.0.lock().unwrap().len(), before);
     }
     let before = observed.0.lock().unwrap().len();
     let response = client

@@ -96,7 +96,17 @@ fn chat_tool_text_arrays_preserve_parts_and_project_only_final_ir() {
             );
         }
         assert_eq!(request_wire(&decoded, Profile::Chat), c);
-        assert_eq!(request_wire(&decoded, Profile::Responses), r);
+        assert!(matches!(
+            lower_request(
+                &decoded.semantic,
+                &decoded.fidelity,
+                Profile::Responses,
+                Contract::full()
+            ),
+            Err(RepresentationError::MessageGrouping)
+        ));
+        let independent = responses::decode_generation(&r).unwrap();
+        assert_eq!(request_wire(&independent, Profile::Responses), r);
         // Responses call items have no Chat carrier-message association.
         let projected = request_wire(&responses::decode_generation(&r).unwrap(), Profile::Chat);
         let result = projected["messages"].as_array().unwrap().last().unwrap();
@@ -122,7 +132,7 @@ fn chat_tool_text_arrays_preserve_parts_and_project_only_final_ir() {
         result.output = ToolOutput::Parts(vec![]);
         decoded.semantic = decoded.semantic.with_items(items).unwrap();
         assert_eq!(
-            request_wire(&decoded, Profile::Responses)["input"][5]["output"],
+            request_wire(&decoded, Profile::Chat)["messages"][3]["content"],
             json!([])
         );
     }
@@ -142,8 +152,10 @@ fn chat_tool_text_arrays_preserve_parts_and_project_only_final_ir() {
 fn chat_allowed_functions_use_their_own_shell_and_keep_selection_authoritative() {
     for mode in ["auto", "required"] {
         let mut c = chat_history();
+        c["messages"] = json!([{"role":"user","content":"weather?"}]);
         c["tool_choice"] = json!({"type":"allowed_tools","allowed_tools":{"mode":mode,"tools":[{"type":"function","function":{"name":"weather"}}]}});
         let mut r = expected_responses_history();
+        r["input"].as_array_mut().unwrap().truncate(1);
         r["tool_choice"] = json!({"type":"allowed_tools","mode":mode,"tools":[{"type":"function","name":"weather"}]});
         let mut d = chat::decode_generation(&c).unwrap();
         assert_eq!(
@@ -219,10 +231,15 @@ fn independent_decode_preserves_function_meaning_and_message_ownership() {
     assert_eq!(q.parallel_tool_calls, Some(false));
     assert!(!q.strict_function_tools);
     assert_eq!(request_wire(&d, Profile::Chat), chat_history());
-    assert_eq!(
-        request_wire(&d, Profile::Responses),
-        expected_responses_history()
-    );
+    assert!(matches!(
+        lower_request(
+            &d.semantic,
+            &d.fidelity,
+            Profile::Responses,
+            Contract::full()
+        ),
+        Err(RepresentationError::MessageGrouping)
+    ));
 }
 #[test]
 fn independent_ir_encodes_call_and_empty_result_without_source_wire() {
@@ -294,7 +311,9 @@ fn responses_decode_uses_call_ids_not_wire_ids_or_result_positions() {
 }
 #[test]
 fn replacement_insertion_and_reordering_drive_both_encoders() {
-    let mut d = chat::decode_generation(&chat_history()).unwrap();
+    // Independent calls have a representation in both targets; explicit Chat
+    // groups are checked separately by the grouping transformation regressions.
+    let mut d = responses::decode_generation(&expected_responses_history()).unwrap();
     let mut items = d.semantic.items().to_vec();
     if let Item::ToolCall(c) = &mut items[2].1 {
         c.arguments = "{\"city\":\"Tokyo\"}".into();
@@ -308,7 +327,7 @@ fn replacement_insertion_and_reordering_drive_both_encoders() {
                 call_id: text("call_c"),
                 name: text("weather"),
                 arguments: "{}".into(),
-                message: Some(ItemId::new(2)),
+                message: None,
                 status: ItemLifecycle::Completed,
                 context: CallContext::default(),
             }),
@@ -326,12 +345,12 @@ fn replacement_insertion_and_reordering_drive_both_encoders() {
     d.semantic = d.semantic.with_items(items).unwrap();
     let c = request_wire(&d, Profile::Chat);
     let r = request_wire(&d, Profile::Responses);
-    assert_eq!(c["messages"][1]["tool_calls"][0]["id"], "call_b");
+    assert_eq!(c["messages"][2]["tool_calls"][0]["id"], "call_b");
     assert_eq!(
-        c["messages"][1]["tool_calls"][1]["function"]["arguments"],
+        c["messages"][2]["tool_calls"][1]["function"]["arguments"],
         "{\"city\":\"Tokyo\"}"
     );
-    assert_eq!(c["messages"][1]["tool_calls"][2]["id"], "call_c");
+    assert_eq!(c["messages"][2]["tool_calls"][2]["id"], "call_c");
     assert_eq!(r["input"][2]["call_id"], "call_b");
     assert_eq!(r["input"][3]["arguments"], "{\"city\":\"Tokyo\"}");
     assert_eq!(r["input"][4]["call_id"], "call_c");
@@ -408,6 +427,11 @@ fn strict_omission_is_source_default_not_false_and_cross_profile_fails() {
         } else {
             expected_responses_history()
         };
+        if profile == Profile::Chat {
+            wire["messages"].as_array_mut().unwrap().truncate(1);
+        } else {
+            wire["input"].as_array_mut().unwrap().truncate(1);
+        }
         let def = if profile == Profile::Chat {
             &mut wire["tools"][0]["function"]
         } else {
@@ -453,6 +477,7 @@ fn explicit_false_true_and_tool_controls_keep_presence() {
             json!({"type":"function","function":{"name":"weather"}}),
         ] {
             let mut wire = chat_history();
+            wire["messages"].as_array_mut().unwrap().truncate(1);
             wire["tools"][0]["function"]["strict"] = json!(strict);
             if strict {
                 wire["tools"][0]["function"]["parameters"]["required"] = json!(["city"]);
@@ -601,25 +626,40 @@ fn static_response_encodes_independent_expectations_and_replays_into_history() {
             },
         ])
     );
-    let t = lower_response(
+    assert!(matches!(
+        lower_response(
+            &a.semantic,
+            &a.fidelity,
+            &a.metadata,
+            Profile::Responses,
+            Contract::full()
+        ),
+        Err(RepresentationError::MessageGrouping)
+    ));
+    let native = lower_response(
         &a.semantic,
         &a.fidelity,
         &a.metadata,
+        Profile::Chat,
+        Contract::full(),
+    )
+    .unwrap();
+    assert_eq!(chat::encode_response(&native).unwrap(), chat_response());
+    // Independent Responses calls permit the explicit contiguous-call Chat projection;
+    // this is not a claim that Responses reports the original Chat owner relation.
+    let b = responses::decode_response(&responses_response()).unwrap();
+    let native = lower_response(
+        &b.semantic,
+        &b.fidelity,
+        &b.metadata,
         Profile::Responses,
         Contract::full(),
     )
     .unwrap();
-    let mut expected = responses_response();
-    expected["output"].as_array_mut().unwrap().insert(
-        0,
-        json!({
-            "id":"item_1","type":"message","role":"assistant","content":[],"status":"completed"
-        }),
+    assert_eq!(
+        responses::encode_response(&native).unwrap(),
+        responses_response()
     );
-    assert_eq!(responses::encode_response(&t).unwrap(), expected);
-    // Independent Responses calls permit the explicit contiguous-call Chat projection;
-    // this is not a claim that Responses reports the original Chat owner relation.
-    let b = responses::decode_response(&responses_response()).unwrap();
     let t = lower_response(
         &b.semantic,
         &b.fidelity,
@@ -760,6 +800,8 @@ fn response_failures_and_independent_message_grouping_do_not_become_success() {
 #[test]
 fn usage_projects_known_totals_across_profiles_without_estimating() {
     let mut wire = chat_response();
+    wire["choices"][0]["message"] = json!({"role":"assistant","content":"done"});
+    wire["choices"][0]["finish_reason"] = json!("stop");
     wire["usage"] = json!({"prompt_tokens":5,"completion_tokens":3,"total_tokens":8,"completion_tokens_details":{"reasoning_tokens":2}});
     let d = chat::decode_response(&wire).unwrap();
     assert_eq!(

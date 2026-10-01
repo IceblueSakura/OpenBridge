@@ -419,6 +419,13 @@ fn text_items(
     request: bool,
 ) -> Result<(), RepresentationError> {
     for (_, i) in items {
+        // Standard Responses has no message-call membership carrier. Keeping
+        // both items is insufficient to preserve this relation through history.
+        if profile == Profile::Responses
+            && matches!(i, Item::ToolCall(call) if call.message.is_some())
+        {
+            return Err(RepresentationError::MessageGrouping);
+        }
         if profile == Profile::Chat {
             match i {
                 Item::CustomCall(c) if !c.context.is_direct() => {

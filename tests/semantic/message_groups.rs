@@ -222,7 +222,9 @@ fn refusal_and_attached_calls_conflict_at_the_first_known_event_in_either_order(
             reduce(state, conflicting.clone()).unwrap_err(),
             EventError::Semantic(GenerationError::InvalidResponse)
         );
-        let mut encoder = EventEncoder::new(Profile::Responses, metadata()).unwrap();
+        // Responses rejects any attached call before this semantic conflict;
+        // Chat owns the representable group and must reject the conflicting part.
+        let mut encoder = EventEncoder::new(Profile::Chat, metadata()).unwrap();
         let fidelity = FidelityRecords::default();
         for event in &prefix {
             encoder.encode(event, &fidelity).unwrap();

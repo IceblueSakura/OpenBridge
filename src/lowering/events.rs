@@ -14,6 +14,13 @@ pub fn check_event(
         }
         StreamEvent::ItemStarted { kind, replay, .. } => {
             match kind {
+                // Reject before rendering the call: a terminal check cannot
+                // repair membership lost from an already delivered item.
+                ItemKind::ToolCall {
+                    message: Some(_), ..
+                } if profile == Profile::Responses => {
+                    return Err(RepresentationError::MessageGrouping);
+                }
                 ItemKind::Message { phase: Some(_) } if profile == Profile::Chat => {
                     return Err(RepresentationError::UnmigratedSemantic);
                 }

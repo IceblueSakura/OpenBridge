@@ -3,7 +3,9 @@
 use crate::events_support::*;
 use crate::wire;
 use openbridge::{
-    lowering::generation::{GenerationRepresentationContract as Contract, lower_request},
+    lowering::generation::{
+        GenerationRepresentationContract as Contract, RepresentationError, lower_request,
+    },
     protocol::openai::{
         CodecError, DecodedRequest, Profile, chat, chat_envelope, envelope, events::EventDecoder,
         responses,
@@ -279,9 +281,19 @@ fn function_parsed_arguments_follow_the_same_replay_rule_in_both_shells() {
     assert_eq!(admitted[1].semantic, admitted[2].semantic);
     for d in &admitted {
         assert_eq!(arguments(d), "{\"n\":1}");
-        let (r, c) = wire_pair(d);
-        assert!(!r.to_string().contains("parsed_arguments"));
+        let target =
+            lower_request(&d.semantic, &d.fidelity, Profile::Chat, Contract::full()).unwrap();
+        let c = chat::encode_generation(&target).unwrap();
         assert!(!c.to_string().contains("parsed_arguments"));
+        assert!(matches!(
+            lower_request(
+                &d.semantic,
+                &d.fidelity,
+                Profile::Responses,
+                Contract::full()
+            ),
+            Err(RepresentationError::MessageGrouping)
+        ));
     }
     // The Responses function_call shell has the same rule on its own wire shape.
     let admitted = [
@@ -349,13 +361,26 @@ fn dumped_sdk_views_replay_through_the_full_envelope_and_never_leak_into_wire() 
         {"role":"tool","tool_call_id":"call","content":"ok"},
         {"role":"assistant","content":RAW,"parsed":{"ok":true}}]});
     let d = chat_envelope::decode_request_bytes(&serde_json::to_vec(&source).unwrap()).unwrap();
-    let (r, c) = wire_pair(&d.task);
-    for value in [r, c] {
-        let dumped = value.to_string();
-        assert!(!dumped.contains("parsed_arguments"));
-        assert!(!dumped.contains("\"parsed\""));
-        assert!(dumped.contains("lookup"));
-    }
+    let target = lower_request(
+        &d.task.semantic,
+        &d.task.fidelity,
+        Profile::Chat,
+        Contract::full(),
+    )
+    .unwrap();
+    let dumped = chat::encode_generation(&target).unwrap().to_string();
+    assert!(!dumped.contains("parsed_arguments"));
+    assert!(!dumped.contains("\"parsed\""));
+    assert!(dumped.contains("lookup"));
+    assert!(matches!(
+        lower_request(
+            &d.task.semantic,
+            &d.task.fidelity,
+            Profile::Responses,
+            Contract::full()
+        ),
+        Err(RepresentationError::MessageGrouping)
+    ));
 }
 
 #[test]

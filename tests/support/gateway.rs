@@ -113,6 +113,11 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
             protocol: Profile::Responses,
             endpoint: EndpointId::new("chat").unwrap(),
         },
+        Entry {
+            model: "cross-model".into(),
+            protocol: Profile::Chat,
+            endpoint: EndpointId::new("responses").unwrap(),
+        },
     ];
     let credentials = BTreeMap::from([(
         CredentialBindingId::new("fixture-key").unwrap(),
