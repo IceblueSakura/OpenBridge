@@ -4,6 +4,27 @@
 
 链接存在不证明 API 合同未变。网页和 Models 目录也不证明账号权限或生成请求成功；凭据查询、真实调用和付费验证仍需独立授权。本索引不声明外部页面已重新核验。下列资料属于各自发布方；这里只提供链接，不复制其实现或测试数据。
 
+## Google Gemini
+
+- [GenerateContent reference](https://ai.google.dev/api/generate-content)
+- [Interactions overview](https://ai.google.dev/gemini-api/docs/interactions-overview)、[API reference](https://ai.google.dev/api/interactions-api)、[v1 reference](https://ai.google.dev/api/interactions-api-v1)
+- [GenerateContent thought signatures](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures)、[function calling](https://ai.google.dev/gemini-api/docs/generate-content/function-calling)
+- [Interactions thinking](https://ai.google.dev/gemini-api/docs/thinking)、[streaming](https://ai.google.dev/gemini-api/docs/streaming)
+- [Context caching](https://ai.google.dev/gemini-api/docs/generate-content/caching)、[structured outputs](https://ai.google.dev/gemini-api/docs/generate-content/structured-output)
+- [OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai)
+
+GenerateContent、Interactions 和 OpenAI-compatible 接口是不同合同；选择具体 API 版本后分别核对，不混用 guide 示例或推定本地已接入。Vertex AI 的资源与认证边界需另行核对。
+
+## Anthropic
+
+- [Messages reference](https://platform.claude.com/docs/en/api/messages)、[streaming](https://platform.claude.com/docs/en/build-with-claude/streaming)
+- [Thinking](https://platform.claude.com/docs/en/build-with-claude/thinking)、[tool/multi-turn workflows](https://platform.claude.com/docs/en/build-with-claude/thinking-tool-workflows)
+- [Tool calls/results](https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls)、[server tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools)、[fine-grained tool streaming](https://platform.claude.com/docs/en/agents-and-tools/tool-use/fine-grained-tool-streaming)
+- [Stop reasons](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons)、[prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+- [Citations](https://platform.claude.com/docs/en/build-with-claude/citations)、[structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)、[compaction](https://platform.claude.com/docs/en/build-with-claude/compaction-threshold)
+
+Messages 基础合同、beta 能力及各云平台的 wrapper/资源合同分别固定；SDK 自动工具循环或恢复建议不构成网关执行授权。
+
 ## Alibaba Cloud Model Studio
 
 - [OpenAI-compatible Chat](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)

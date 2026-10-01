@@ -8,11 +8,11 @@
 
 | 用途 | 示例 | 不能误归为 |
 |---|---|---|
-| 标准以外的任务能力 | Provider 特殊音频/视频 part、tool signature、特殊输出控制 | 标准字段的第二份拷贝 |
+| Scoped 任务能力 | 尚有特定 profile 含义的媒体控制、tool signature、特殊输出控制 | 已有共享字段的第二份拷贝 |
 | 请求/会话上下文 | Codex logical session、thread/window、agent lineage | prompt 文本、全局万能 SessionId |
 | 受限 opaque replay | Provider 签发 token、signature、turn-state | 可自由跨目标复制的用户 JSON |
 
-OpenAI 已公开标准化的 `phase`、reasoning context、标准 hosted tools 必须进入标准分支。不是所有 `x-*`、body 私有字段都属于同一扩展；位置不是语义所有权。
+已理解的 `phase`、reasoning context、hosted tools 等能力保留 typed owner，不因目标 codec 不支持而退回 JSON。共享语义与 scoped extension 的边界依据含义和生命周期，而非哪家先定义字段。不是所有 `x-*`、body 私有字段都属于同一扩展；位置不是语义所有权。
 
 ## 2. Codex session_id 的实际含义
 
@@ -54,19 +54,19 @@ hosted MCP 标准 schema 含 server URL、headers 与 authorization 等敏感入
 
 session/thread/cache/turn 值即使不是密码，也可能敏感且高基数；默认不作为 metrics label 或普通日志字段，不在文档/fixture 保存真实值。
 
-## 5. 标准化升级与兼容
+## 5. 共享语义演进与兼容
 
-当某扩展被官方标准吸收：核对语义是否等价，迁入标准 owner，消除同一事实两份字段。旧 wire spelling 如仍需接受，由显式 profile codec 处理，不在 IR 保留 legacy alias。
+当 scoped 能力可以被独立、稳定地定义，或参考协议发生标准化变化时，先核对含义、presence、生命周期与依赖是否等价，再迁入唯一共享 owner。另一家出现同名字段不自动证明可合并；相同事实不能同时保留两份权威。旧 wire spelling 如仍需接受，由显式 profile codec 处理，不在 IR 保留 legacy alias。
 
 当前 `reasoning.summary:false` 由 Responses 文本 profile 作为本地兼容形式接受并重发。SDK `3.19.0` 和固定公开 reference 的标准 summary 是字符串枚举或 null；这不是标准枚举，也不是已发布的 downstream extension。
 
 ## 6. 需要单独定稿的事项
 
-扩展承载位置与形状已经定稿：协议层 `protocol::extensions` typed 生命周期字段 + 有界 opaque 兜底，凭据/传输类 fail-closed，见 [ADR 0007](../architecture-v2/decisions/0007-stateless-cache-affinity-and-extensions.md)。以下仍需解决：
+现有低层 carrier 为 `protocol::extensions` 的 typed 生命周期字段与受限 opaque 值，凭据/传输类 fail-closed；它不代表新设计的所有语义 owner 或下游 carrier 已定稿，见 [ADR 0007](../architecture-v2/decisions/0007-stateless-cache-affinity-and-extensions.md)。以下仍需解决：
 
 - namespace 命名与版本协商；response 侧自定义段与观察类 header 的 typed 化；
 - Codex 上下文是由客户端可信 adapter 提供、透明转发，还是由未来 Gateway 管理 turn；当前不自动生成身份或 sticky token；
 - 外部 opaque state 的可信 scope 构造、失效、principal 隔离；
 - 特殊多模态的具体 Provider/operation/schema；没有固定事实不预造字段全集。
 
-这些事项不妨碍确定 Responses-first 和分层扩展基线，但在实现相应 wire 接口或 state owner 前必须解决。
+这些事项不妨碍确定 Agent-first、协议中立和分层扩展基线，但在实现相应 wire 接口或 state owner 前必须解决。已有 Responses encrypted reasoning 的 carrier 不自动适用于其他 signature 或 redacted 内容。

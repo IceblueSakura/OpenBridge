@@ -1,11 +1,13 @@
 # Generation 实施边界与缺口
 
-本页只记录当前设计尚未闭合的边界，不维护完成度矩阵或测试结果。[语义设计](../architecture-v2/semantic-ir.md)与[固定标准来源](../references/upstream-sync.md)定义目标；实际准入查 [adapters](../../src/adapter/mod.rs)、[protocol codecs](../../src/protocol/openai/mod.rs)、[lowering](../../src/lowering/generation.rs)及独立测试。推进顺序只由 [next-goal](../implementation-plans/next-goal.md)维护。
+本页只记录当前设计尚未闭合的边界，不维护完成度矩阵或测试结果。[语义设计](../architecture-v2/semantic-ir.md)定义架构目标；协议合同分别查[来源索引](../references/README.md)，现有 OpenAI/Codex 基线见[固定来源](../references/upstream-sync.md)；实际准入查 [adapters](../../src/adapter/mod.rs)、[protocol codecs](../../src/protocol/openai/mod.rs)、[lowering](../../src/lowering/generation.rs)及独立测试。推进顺序只由 [next-goal](../implementation-plans/next-goal.md)维护。
 
-Generation 以 Responses 为主干，Chat 是同一 IR 的目标投影，不承诺任意双向转换。文本输出及 user URL/inline 图片输入的具体合同见 [Responses](../architecture-v2/responses-text-profile.md) / [Chat](../architecture-v2/chat-text-profile.md) profiles；库类型、HTTP 接线、实例启用和上游接受必须分别核查。
+Generation 的目标是 Agent-first、协议中立；当前类型与 codec 仍以 Responses/Chat 切片为基础，不承诺任意双向转换。文本输出及 user URL/inline 图片输入的具体合同见 [Responses](../architecture-v2/responses-text-profile.md) / [Chat](../architecture-v2/chat-text-profile.md) profiles；库类型、HTTP 接线、实例启用和上游接受必须分别核查。
 
 ## 语义与表示缺口
 
+- **交互与依赖设计落地**：跨 response 的逻辑 turn/continuation、typed group 与非 reasoning attachment 的 replay 依赖尚未形成完整共享合同及主链；现有 completion/replay 类型不能作为这些概念已闭合的证据。新的设计基线不自动扩大当前 profile 准入。
+- **能力域演进**：资源关联与来源坐标引用、结构化/媒体工具结果及工具错误、typed 前缀缓存意图、多协议 usage 口径与合法派生仍需独立定稿和实现。已有 Resource、ToolOutput、Usage 或 cache/fidelity 字段不等于这些设计已完整表达。
 - **Chat 请求覆盖**：部分文本控制与 history 字段仍未准入。以 [Chat codec](../../src/protocol/openai/chat.rs) 的字段准入和 role shells 对照固定 SDK，不维护第二份字段清单。按具体消费需求决定 owner、映射和独立反例，不以追平全部字段为默认目标。
 - **目标无损表示**：并非每种 reasoning、custom/program、phase、概率、reported context 或多 part grouping 都有对端位置。存在对应语义时由 lowering 拒绝，不丢字段或补默认值强行兼容；某个 shell 能表达 Schema 也不代表 strict 缺省语义相同。
 - **有状态 API**：活动 continuation、conversation、存储/background、资源操作、compaction 和 WebSocket 会话尚无完整执行合同。接受 inactive 形式或 queued 事件不代表提供状态服务。

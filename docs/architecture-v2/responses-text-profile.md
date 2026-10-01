@@ -1,6 +1,6 @@
 # Responses v2: stateless Generation admission
 
-This profile explains ownership and intentional admission boundaries, not the ceiling of the [Responses-first design](semantic-ir.md) or a promise that every Public Model admits every option. Exact wire rules and limits belong to [codecs](../../src/protocol/openai/mod.rs), [semantic types](../../src/semantic/task/generation/mod.rs) and independent fixtures. The [fixed standard baseline](../references/responses-standard.md) is distinct from local compatibility choices. [Implementation gaps](../implementation-status/generation.md) track unadmitted semantics, unwired carriers and audit scope; test execution results do not belong in this contract.
+This profile explains ownership and intentional admission boundaries, not the ceiling of the [Agent-first, protocol-neutral design](semantic-ir.md) or a promise that every Public Model admits every option. Exact wire rules and limits belong to [codecs](../../src/protocol/openai/mod.rs), [semantic types](../../src/semantic/task/generation/mod.rs) and independent fixtures. The [fixed standard baseline](../references/responses-standard.md) is distinct from local compatibility choices. [Implementation gaps](../implementation-status/generation.md) track unadmitted semantics, unwired carriers and audit scope; test execution results do not belong in this contract.
 
 | Domain | Authoritative owner | Wire admission and normalization | Transformation / failure rule |
 |---|---|---|---|

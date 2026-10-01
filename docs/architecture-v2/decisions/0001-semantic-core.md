@@ -1,17 +1,21 @@
-# ADR-v2-0001: Responses-first Semantic Authority
+# ADR-v2-0001: Agent-first, Protocol-neutral Semantic Authority
 
 ## Status
 
-Accepted.
+Accepted design direction. Current codec admission and implementation gaps remain separately documented.
 
 ## Decision
 
-Generation uses the fixed OpenAI Responses standard as its semantic backbone, with scoped typed extensions for capabilities outside it. It is neither a Chat/common-denominator model nor an SDK DTO clone.
+Generation has one Agent-first, protocol-neutral semantic authority for ordered content, actions/results, control transfer and continuation dependencies. OpenAI Responses, Google Gemini and Anthropic Messages are design references and projection targets; none defines the IR's expressiveness ceiling.
 
-Same-protocol and cross-protocol paths both decode into typed semantics, validate/transform, derive requirements, lower for a fixed target and encode. There is no Native bypass, separate Bridge authority or post-encode semantic JSON mutation. Runtime secrets, selected endpoints and retry/commit state remain outside IR.
+Keep ordered heterogeneous items, stable identities and explicit lifecycles where they express independent concepts. Do not clone a protocol union, SDK DTO, common denominator or mechanical field union. Shared concepts have one owner; scoped typed extensions preserve genuinely source-specific meaning without creating a Provider IR.
+
+Same-protocol and cross-protocol paths decode, validate/transform, derive requirements, lower for a fixed target and encode. There is no Native bypass or post-encode semantic JSON mutation. Representability, executable capability and public admission remain separate.
 
 ## Rationale and consequences
 
-One semantic authority makes transforms and rejection rules independent of the source protocol. A narrower target may reject semantics, but cannot redefine the IR. Predecessor API compatibility is not a requirement; incomplete implementation is not a permanent model limitation.
+OpenBridge is pre-release and in design exploration. Stability belongs to concepts, ownership and invariants, not current Rust shapes. New designs are evaluated against independent protocol contracts and Agent continuation semantics rather than incumbent implementation convenience.
 
-Structural design: [semantic IR](../semantic-ir.md). Implementation: [Generation](../../../src/semantic/task/generation/mod.rs), [adapters](../../../src/adapter/mod.rs), [lowering](../../../src/lowering/generation.rs). Standard provenance: [fixed sources](../../references/upstream-sync.md).
+A narrow target must reject or explicitly convert unsupported meaning, not redefine the IR. Protocol neutrality does not erase existing Responses semantics or promise arbitrary lossless translation. Other tasks keep their own contracts; Agent-first representation does not authorize orchestration, storage or tools. Runtime secrets, selected targets and retry/commit state stay outside IR.
+
+Detailed design owner: [semantic IR](../semantic-ir.md). Current implementation: [Generation](../../../src/semantic/task/generation/mod.rs), [adapters](../../../src/adapter/mod.rs); [gaps](../../implementation-status/generation.md). Sources: [reference index](../../references/README.md). Design changes do not silently change existing wire profiles.

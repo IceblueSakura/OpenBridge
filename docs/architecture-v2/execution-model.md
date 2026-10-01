@@ -79,6 +79,8 @@ For each fixed candidate:
 
 Retry/fallback cannot change semantic IR or expand/reorder the route.
 
+A semantic continuation is a requirement for a subsequent operation, not a failed-attempt retry. It may retain logical-turn/call/resource dependencies while starting a new response. Whether to continue, execute tools or resolve remote state belongs to a separately authorized caller/orchestration boundary; the transport attempt must not infer those actions from a stop reason. A terminal response reducer is never reopened. See the [interaction contract](semantic-ir.md#5-响应结果控制转移与续轮).
+
 ## Commit boundary
 
 Execution tracks a monotonic delivery state:

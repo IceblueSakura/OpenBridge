@@ -1,20 +1,22 @@
-# ADR-v2-0006: Reasoning and Replay Ownership
+# ADR-v2-0006: Reasoning and Source-bound Replay Ownership
 
 ## Status
 
-Accepted.
+Accepted design. The existing Responses replay implementation is one profile, not the universal opaque-value contract.
 
 ## Decision
 
-- Reasoning controls belong to task semantics. Readable reasoning and summary are typed parts, never assistant text; their identities are distinct from wire indexes.
-- Opaque replay belongs to bounded fidelity attached to a surviving reasoning owner. Encoding requires matching trusted origin and valid owner dependencies; protocol equality alone is insufficient. Unknown origin permits intake, not replay.
-- Item-start replay may be partial. Item-finish owns the final token and replaces the partial value, including removal. Event encoding cannot recover a token from stale fidelity.
-- One ordered reducer owns item/part/value/response lifecycle. Static and event materialization must agree; codecs validate snapshots rather than repair missing payload from terminal JSON.
+- Reasoning controls, readable content/summary, reported usage and opaque continuation are independent owners. Mode, effort, numeric budget and display intent are not interchangeable controls.
+- Replay values have a specific type and surviving attachment: reasoning, part, call, resource or a declared content group. Different issuers' encrypted content, signatures and redacted blocks are not interchangeable strings.
+- One owner holds each authoritative value. Bounded source/fidelity records may prove origin and dependencies but cannot supply a competing payload or restore deleted values. Dependency scope includes order, grouping or settings where the owning contract requires it.
+- Replay requires compatible trusted scope and finality of both value and owner. Unknown origin permits only explicitly admitted intake, not replay. A local dependency check is not issuer authentication or cryptographic verification.
+- Final events replace partial values, including explicit removal. Each opaque type defines its own finalization boundary; the Responses item-done rule cannot be copied to unrelated protocols by assumption.
+- Static/history/event mappings must preserve the same dependencies, including delivery through the client and return on the next request. Request-local retention alone cannot provide stateless continuation.
 
 ## Rationale and consequences
 
-Responses output is an ordered heterogeneous log. Flattening reasoning or maintaining unrelated accumulators loses identity, order and finality. Owner edits invalidate replay until it is explicitly removed or replaced by a trusted transform; deleted owners cannot be recreated by fidelity.
+A reasoning-only replay slot cannot express all Agent continuity constraints. Separating common dependency rules from issuer-specific values preserves extensibility without inventing a universal token or a second Provider IR. Editing a dependency invalidates replay unless an explicit preservation rule proves otherwise; deleted owners cannot be recreated from fidelity.
 
-Target carriers must preserve owner completion and token finality or reject projection. A later response outcome does not retroactively alter an already completed owner. Invalid reduction poisons the stream; resource bounds apply to both semantic state and replay. Transport closure remains outside the reducer and cannot be inferred from EOF alone.
+Block closure, value validity, owner completion, response termination and logical-turn progress are distinct. A completed owner may survive a later incomplete response, but a terminated reducer cannot resume. Missing required replay makes continuation unrepresentable; it does not authorize signature fabrication, implicit history loss or cross-account fallback.
 
-Owners: [reasoning types](../../../src/semantic/task/generation/reasoning.rs), [reducer](../../../src/semantic/task/generation/event.rs), [fidelity](../../../src/protocol/fidelity.rs), [Chat carrier](../../../src/protocol/openai/chat_reasoning.rs). Field admission and local compatibility forms belong to the [Responses](../responses-text-profile.md) and [Chat](../chat-text-profile.md) profiles, not this decision.
+Detailed owner and transform contract: [semantic IR](../semantic-ir.md). Current implementation: [reasoning types](../../../src/semantic/task/generation/reasoning.rs), [reducer](../../../src/semantic/task/generation/event.rs), [fidelity](../../../src/protocol/fidelity.rs), [Chat carrier](../../../src/protocol/openai/chat_reasoning.rs). Existing admission remains in [Responses](../responses-text-profile.md) / [Chat](../chat-text-profile.md); unimplemented domains remain [gaps](../../implementation-status/generation.md).

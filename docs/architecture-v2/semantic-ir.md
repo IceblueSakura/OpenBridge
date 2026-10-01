@@ -1,123 +1,167 @@
-# Responses-first IR 与扩展设计
+# Agent-first、协议中立的 IR 设计
 
-这是 Generation IR 的设计基线，不是当前 Rust 类型已完整落地的声明。主要依据为 [Responses 标准语义](../references/responses-standard.md)及[固定上游来源](../references/upstream-sync.md)。当前缺口由[能力与边界](../implementation-status/generation.md)维护，不以旧版本为功能对等目标。
+这是跨协议语义的设计基线，不是当前 Rust 类型、codec 或执行能力已完整落地的声明。项目尚未上线，处于设计探索阶段；稳定目标是概念、所有权和不变量，不是现有 struct 或 SDK DTO。当前实现边界见[Generation 缺口](../implementation-status/generation.md)，设计推进顺序见[next-goal](../implementation-plans/next-goal.md)。
 
-## 1. 核心决定
+## 1. 设计目标与参考边界
 
-**以 OpenAI Responses 的有序 item、content、tool、reasoning、状态与 event 定义作为 Generation 的语义主干，结合显式、受约束的扩展表达特殊能力。**
+**以一套语义权威表达 Agent 交互中的内容、行动请求、结果、控制转移与续轮依赖，再按目标协议投影。**
 
-- 不以 Chat 或多协议最小公分母限制 IR 表达力。
-- 不把 SDK DTO/原始 JSON 直接作为 IR；core 类型自行拥有验证、presence、identity 和变换不变量。
-- 标准已经定义的能力进入标准域；当前 codec 不支持不构成降格为 extension 的理由。
-- Chat、其他 wire 与 Provider profile 是对同一 IR 的映射；不可表示时明确拒绝或使用获准的命名转换，不能削减 IR。
-- 任务、上下文、交付、来源保真和真正的执行状态仍分层。Responses-first 不把所有字段塞进 Message，也不把全部任务强塞进 Generation。
+- OpenAI Responses、Google Gemini 和 Anthropic Messages 是设计参照与映射对象，没有一家协议决定 IR 的表达力上限。[Responses 固定来源](../references/upstream-sync.md)仍约束其 codec；其他协议入口见[官方来源](../references/providers/README.md)。参考资料不证明本地支持。
+- 保留有序异构 item、稳定 identity、显式状态与 Static/Event 一致性，不照搬任何一家的 envelope、union 或消息容器。
+- 不采用多协议最小交集、字段机械并集、任意 JSON 透传或第二套 Provider IR。一个目标不可表示时，拒绝或采用明确获准的具名转换，不能削弱共享语义。
+- Agent-first 表示交互，不实现通用 Agent 调度器。表示工具、continuation 或上下文编辑，不授权执行工具、自动续轮或管理远端状态。
+- 一套 IR 是共享原则与值类型下的 task family，不是所有任务共用一个万能请求。Generation、Embedding、ImageGeneration、Speech 等分别拥有请求、响应与事件合同；task、modality 与 wire 分开。
 
-## 2. “IR” 的范围与层次
+架构评审优先级：语义完整性与一致性 → 跨协议映射 → 变换及生命周期可验证性 → wire 和当前实现便利性。未发布类型可以在获准实现切片内替换，但不得以设计更新冒充实现完成，也不为未来能力预建空模块。
 
-内部请求表示由下列有明确 owner 的部分构成，具体 Rust facade 名称在实施切片中确定：
+## 2. 语义核心、能力域与扩展
+
+| 层次 | 归属原则 |
+|---|---|
+| 稳定共享语义 | identity、顺序、归属、调用与结果关联、生命周期、来源与依赖；概念必须能脱离某一 wire 独立定义 |
+| Typed 能力域 | reasoning、工具、媒体、Schema、cache、context 等有独立约束的子域；属于同一权威，不要求塞入一个大对象 |
+| Scoped extension | 仍具有特定 issuer/profile 含义的能力、opaque 值和资源规则；显式 attachment、类型、版本、生命周期与目标策略 |
+| Representation fidelity | 等价拼写/形式、wire identity、来源与依赖证明；不是第二份正文，也不承担未建模行为的透传 |
+| Execution | 凭据、已选 Endpoint/URL、socket、attempt/retry、downstream commit、实际工具及状态服务 |
+
+某概念是否进入共享域，取决于语义是否明确、能否验证，不取决于已有几家提供，也不取决于 OpenAI 是否公开了同名字段。字段同名不证明等价；语义等价也不要求 wire 同形。已有共享 owner 不因新协议缺少位置而降为扩展或复制一份。
+
+扩展仍是第一等 typed 表示，参与 validation、requirements、变换和 lowering。将扩展提升为共享能力前先证明含义、生命周期与 presence 等价，迁移到唯一 owner；不得只因另一家采用相同名称便合并。
+
+## 3. 表示范围与唯一所有权
+
+以下是概念职责，不是拟定的 Rust 文件树或公共序列化格式：
 
 ```text
-Generation request representation
-  standard task semantics
-    instructions + ordered input items
-    generation/reasoning/tool/output controls
-  standard request context
-    model binding label + state/resource intent
-    cache/service/safety/metadata hints
+Generation representation
+  task semantics
+    instructions + ordered interaction items
+    generation / reasoning / tool / output constraints
+    typed grouping and call / result / resource relations
+  request context
+    model binding label + state/resource intent + cache/service/safety hints
+  response semantics
+    ordered output + result/completeness + continuation requirements
+    reported usage/context
   delivery intent
-    JSON / SSE / WebSocket operation and lane intent
-  scoped extensions
-    task/item/part/resource capabilities
-    request/session context extensions
-  fidelity
-    equivalent spelling/form, wire identity, owner-bound opaque replay
+  owner-bound typed extensions
+  representation fidelity and provenance
 ```
 
-这些部分共同构成内部请求的权威表示。`session_id` 一类扩展可以属于 **IR 的上下文扩展层**，不再用“不是 task content”当理由将其整体排除在 IR 设计之外。
+请求 hints 与响应 reported facts 分开；不能复制请求设置来补响应事实。Instruction echo 不形成第二份正文。Logical session、thread、turn、cache affinity、response/resource reference 也不互为别名；Codex 等特定上下文的出处见[上下文来源](../references/extensions-and-context.md)。
 
-但这不包含运行时对象：真实 credential、选中的 upstream URL/EndpointId、socket、retry counter、downstream commit flag 和可执行脚本不进入 IR。Provider namespace、可信 origin label 与已经选定的路由/网络目标不是同一概念。
+真实 credential、credential locator、已选上游目标、retry counter、commit flag 和可执行脚本不进入语义表示。可信 provenance label 可以限制 replay，但不选择或授权网络目标；业务 JSON 不能自证 issuer。
 
-响应相应拥有标准 ordered output、status/details/usage、reported context 与 scoped output extensions。`semantic::context` 拥有标准 hints、reported context 与 delivery intent；instruction echo 的 wire fidelity 留在表示侧，不成为第二份正文。request hint 不能冒充实际 response fact。
+## 4. 有序交互与有限关联
 
-## 3. 标准语义域
+### 概念边界
 
-### Ordered items 与内容
-
-Message 保留 role、phase、item status、ordered content；Instruction authority 与位置不被统一拼接成一个 system 字符串。Tool call/result、Reasoning、approval、compaction、configuration update、resource reference 等按 Responses union 分别建模，不伪装成 message。
-
-`phase` 是标准 assistant 语义，不是单纯 UI 标签或 Codex 私有 metadata；`commentary` 与 `final_answer` 不能合并后丢失。标准 configuration update 是有序历史中的控制变化，影响后续 effective settings，不是任意 JSON 配置 patch。
-
-文本、refusal、image、file、引用/概率，以及标准工具结果保持各自类型。特殊音频/视频等经明确扩展表达；媒体来源值可以共享，但任务/用途/生命周期不折叠。
-
-### 控制与 presence
-
-按字段表达 Absent、Null、Value，以及显式空/false/default 的差别。等价规范化或兼容默认值必须有逐字段、明确作用域的 adapter 合同；不能全局把缺失当零。[ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md)允许有明确选择和条件的兼容默认值，记录其来源而不建立厂商 Usage 分支；具体规则由 adapter/codec 代码与注释拥有，该值不是上游实测报告。受验证的设置不能同时声明“容器不存在”与“子字段存在”；TextOptions 的 presence=false 必须同时要求 format 和 verbosity 为 Absent，包括不能隐藏显式 Null。
-
-Schema 不是通用无序 JSON：保留定义的属性顺序、strictness、固定方言、局部引用和有界图结构；当前共享验证与默认模式见 [schema profile](schema-profile.md)。不在 pure codec 下载 `$ref` 或执行 schema 程序。声明结构验证、目标 strict 子集准入与最终输出 adherence 各有独立责任。
-
-Reported Usage 由共享 typed owner 持有实际报告的总量与细分，不建立 Provider 专属 Usage。文本、reasoning、cache、prediction 可以是重叠视图，不能相加猜测总量或可见正文长度；缺省/null 的未报告值与显式零分开。某个目标 wire 缺少细分位置时应拒绝投影，不能因此削减共享语义或用 fidelity 恢复/隐藏计数。具体字段与验证边界见 [Chat usage 合同](chat-text-profile.md#reported-token-details)。
-
-### State 与资源意图
-
-无状态完整历史、previous response、conversation、store/background、prompt、compaction 等标准意图应有可表达的位置，不永久用 unit/null stub 代表。纯 codec 不解析远程 state，也不隐式开启存储；实际操作需要对应执行/权限 owner。
-
-“当前只支持 stateless profile”是阶段性实现限制，不是标准目标设计边界。
-
-## 4. Identity 与依赖
-
-稳定 local ItemId/PartId/ResourceId、wire item ID、call ID、response ID、conversation、session/thread/turn 与 WS stream ID 分别建模。索引是 wire 坐标，不是语义 identity。
-
-- 重排保持 identity；新对象获得新 identity，不能继承旧位置的 metadata。
-- 删除 owner 就删除相关输出，fidelity/extension 不可恢复旧值。
-- 修改正文会使旧 annotation offsets、probabilities 或 signature 失效，除非有明确可验证的保持规则。
-- output item done 和 response terminal 是不同事实；完整上游对象缺必填 id/status 不可通过合成掩盖。
-- 明确自主构造输出时可分配新 wire ID，但应视为合成表示，不伪称保留了上游 ID。
-
-## 5. 扩展合同
-
-扩展是标准域之外的第一等内部表示，但默认不可随意迁移。每一项至少具有：
-
-| 维度 | 要求 |
+| 概念 | 含义与边界 |
 |---|---|
-| 身份 | namespace、kind、schema version；不覆盖标准字段 |
-| Attachment | request context、item、part、resource、event 的明确 owner |
-| Payload | typed 内容或已定义 schema 的有界 opaque value，不是任意 `extra_body` |
-| 来源 | 可信 origin、profile/scope 与信任来源；客户端不能自证 issuer |
-| 生命周期 | session/thread/turn/response/item、partial/final、replayable 或不可 replay |
-| 可迁移性 | 显式目标映射、同 scope 保留或拒绝；不能只凭两个 Provider 都叫 Responses |
-| 安全 | visibility、敏感性、预算、禁止 auth/target/script override |
-| 变换 | requirements、owner 修改/删除、fallback/重试的失效规则 |
+| Item | 有独立语义和生命周期的有序单元，例如 Message、Reasoning、ToolCall、ToolResult 或有合同的控制项 |
+| Message / Part | 发言的语义角色及有序内容；不是工具、reasoning 或控制项的万能容器 |
+| Response | 一次生成操作报告的输出和状态；不等于 HTTP 连接，也不保证逻辑 turn 已结束 |
+| Logical turn | 与当前任务有关的交互连续性范围，可跨多个 response 和工具交换；不是网关 session 对象 |
+| Group | 协议或能力要求共同投影/回放的一组 owner；不因相邻或 role 相同就自动建立 |
+| Call / Result | 明确身份与关联的行动请求/结果；执行方、调用者与 wire role 分别表达 |
+| Resource | 有独立来源、用途与生命周期的内容或引用，不是可自由迁移的字符串 ID |
 
-已理解的特殊能力以 typed extension 建模；未知字段不是自动可执行 extension。受限诊断保留与重新发往 Provider 是不同权限。起步使用编译期闭合类型/注册合同，不建立通用动态插件平台。
+采用**有序记录 + 必要的 typed 关系**，不采用任意可执行 DAG。分组只在存在具体语义依据时建立；不得假设三家的 message、step、item 与 turn 一一对应。工具结果装在 user message 中不改变它的结果身份；文本和调用装在同一 Part 数组中也不应丢失各自 owner。
 
-当扩展语义被标准化，迁到标准 owner；兼容 wire spelling 留在 profile codec，不保留双份语义或 legacy alias。
+保留 instruction authority、作用位置、assistant phase 与 item status。不能将 system/developer 及中途指令任意拼接为一个字符串，也不能以 role 推断执行者。Configuration update 和 compaction 是有序控制含义，不是任意设置 patch 或普通摘要文字；其有效范围与历史替代关系须由对应能力合同定义。
 
-## 6. Codex 与特殊多模态
+稳定 local ItemId/PartId/ResourceId、wire item ID、call ID、response ID、turn/session 与 stream lane identity 分开。索引是坐标，不是 identity。不要求每个协议提供 turn ID；未知身份不伪造为上游报告。必要的本地合成身份必须与上游 identity 区分，不能修复缺失的 wire 必填字段。
 
-Codex context 至少区分 logical session、cache affinity、thread、context window、turn-state 和 agent lineage。`session-id` 在固定 ChatGPT profile 上可能是 cache affinity 的投影，不能直接等同内部 logical session。
+## 5. 响应结果、控制转移与续轮
 
-turn-state 是 server-issued opaque context，有同 turn、auth owner 与来源限制；不由 session UUID/hash 派生。body `client_metadata` 和 headers 是同一上下文的投影，而非多个独立权威。没有真实 owner 时不伪造 thread/turn 字段。详细事实见[上下文基线](../references/extensions-and-context.md)。
+至少分别建模并校验：
 
-多模态标准 image/file 优先进入标准 content；Provider-specific speech/video/config 进入对应 task/part/resource 扩展。专用 Speech、Embedding、ImageGeneration 仍是 task family，不因 wire 使用 Chat/Responses 改成聊天任务。来源安全与验收见[媒体基线](../references/multimodal-and-resources.md)。
+- **响应生命周期**：当前 response 的开始、进行、闭合；transport 是否正确终止另外验证。
+- **产物结果与完整性**：完整、截断、失败、取消及相应原因；refusal 内容/决定与传输错误不混同。
+- **交互进度**：逻辑 turn 已结束、等待外部结果、需要继续生成，或协议未报告。未报告不能推断为完成。
 
-## 7. Reasoning 与 opaque 值
+这些不是可以任意组合的布尔值，必须有合法组合约束。一个正常闭合的响应可以要求工具结果或 continuation；一个完整的工具调用描述不证明工具已执行。工具执行错误可以作为有效结果供模型继续使用，不自动升级为 response failure。
 
-request effort/summary/context/mode、readable reasoning/summary、reported reasoning usage、encrypted/signature replay 分开。标准允许值与具体模型支持分开，不以 Chat 的可表示性收窄 Responses。
+Continuation 表示下一次交互的要求和依赖，例如待回应 call、必须保留的内容组/opaque 值、有效 scope、工具或设置约束。它不是自动发送请求的命令、重试许可或脚本。语义层验证这些要求；执行/调用方另行决定是否继续、预算与权限。
 
-Opaque 是有类型且受约束的值，不必全部塞进任意扩展：标准 encrypted reasoning 保持标准字段的所有权，纯表示来源约束由 sidecar 记录；其他 Provider signature 由 scoped extension 持有。核心不能解密、重签或用旧来源恢复被删除值。
+单 response reducer 终止后不可复活。后继 response 可以延续同一逻辑 turn，但应以显式关系关联，不能拼接进前一个 response 伪装成一次成功，也不能借 continuation 绕过提交后的禁止 fallback 边界。无状态完整历史、远端 response/conversation 引用、store/background 分别建模；表示它们不隐式启用存储或远端状态解析。
 
-当前 encrypted replay 采用 [reasoning ownership](decisions/0006-reasoning-ownership.md) 的 owner/origin/finality 规则；其他 opaque 类型需逐项建立合同，不机械共用 token 字符串。
+## 6. Reasoning 与 source-bound replay
 
-## 8. Static / Event 与 transport
+Reasoning 分为独立维度：启用/自适应等模式、effort、数值预算、公开内容的显示/摘要意图、实际可读内容、reported usage，以及 opaque continuation。预算不是 effort 别名；隐藏摘要不等于未推理，也不意味着没有续轮数据。
 
-同一标准分支的 request、response、event 要闭合。Event IR 表达 typed transition，不存 raw SSE envelope 作为权威。纯 reducer 管理单 response 的 identity、partial state、usage、terminal 和 materialization。
+Readable reasoning/summary 与普通 assistant text 分开。Opaque 值可以没有可读伴随内容；回放 attachment 也不只限于 reasoning，可能属于 part、call、resource 或有明确合同的内容组。不同协议的 encrypted reasoning、signature、redacted block 与 turn-state 保留不同类型，不能因都是字符串而互换。
 
-HTTP framing 与 WS multiplex/steering 在外层：每个 lane/response 分派到对应 reducer。连接还活着不等于当前 response 未结束；当前 response incomplete 后继新 response 不允许复活已经终止的 reducer。
+共享的是 replay 约束：owner、可信来源/兼容 scope、生命周期、partial/final、可见性、大小预算，以及对正文、顺序、分组或设置的依赖。只绑定单个 owner 不足时，依赖必须覆盖所要求的关系；不能声称本地 fingerprint 已验证 issuer 的密码学真实性。
 
-支持标准 hosted-tool progress 不等于 Gateway 执行工具；表示中保留执行者与生命周期，实际 tool orchestration 单独授权和实现。
+Opaque 值由一个 owner 持有，来源/依赖 sidecar 不得另存一份可覆盖它的权威值。删除或修改依赖后旧值失效；编码不得从 fidelity 恢复。只有 owner 和 token 都满足最终性与目标合同才允许 replay。下游交付→客户端保留→下一请求必须能闭合；只在本次请求内保存 sidecar 不构成无状态续轮支持。
 
-## 9. 验收与实施边界
+现有 Responses encrypted replay 的实现归[ADR 0006](decisions/0006-reasoning-ownership.md)及对应 profile；其他 opaque 种类需独立设计，而非套用 Responses 的事件最终性规则。
 
-按照 [验收基线](../references/conformance-baseline.md)逐域实现，先建立独立 wire/IR oracle，再实现与变换、失败反例。测试覆盖不足只能说明验收缺口，不能成为永久缩减 IR 表达力的理由。
+## 7. 内容、工具、资源与引用
 
-downstream 扩展的 wire 位置/namespace 版本、Codex turn 管理模式、特殊多模态具体 profile、完整 state 解析执行需在对应实现切片前定稿。设计目标不代表类型、codec 或执行已经实现；具体缺口由[能力与边界](../implementation-status/generation.md)维护，当前切片及完成条件由 [current-focus](../implementation-plans/current-focus.md)维护。
+文本、refusal、reasoning、媒体和结构化结果分别有类型。共享媒体来源值不抹平 user perception、tool result、reasoning artifact 与生成媒体的不同用途。资源身份、inline/URL/issuer-bound reference、MIME/编码、所需描述与处理意图分别归属；细节见[资源边界](../references/multimodal-and-resources.md)。
+
+工具声明、选择策略、调用、执行结果与进度分开。Client-executed 和 upstream-executed 工具保留执行方；结果按 call identity 关联而不是按名称或邻接位置猜测。不同种类 hosted/custom/function tool 的专有含义不能强制降成普通函数。工具内容可为文本、结构化值或有序媒体，但只接受所选能力的闭合类型，不允许任意递归容器或嵌套可执行调用。
+
+工具参数区分原始文本/语法输入、结构化值与尚未完整的片段。原始参数字符串若是协议的权威值，就不能被 SDK parsed view 覆盖或重序列化替换；结构化输入同样保留精度和其合同要求的顺序。解析视图与原值不能独立修改形成双份权威；从片段转为完整值需要相应能力的验证，不猜测补齐。
+
+引用同时描述**输出 owner/claim 与来源位置**。来源使用稳定 resource identity；字符、字节、页码、时间或内容块坐标必须带明确定义，不能混用输出偏移与源文档偏移。Wire 文档索引由最终顺序投影；源删除、替换或内容编辑后，引用须重验或失效。不能凭缺失位置猜测精确范围。
+
+下载、redirect、上传、转码、扫描、资源授权与保留由资源/执行服务拥有。纯 codec 不获取资源，不将 transcript 当作原媒体的无损替代，也不因已有资源 ID 而假定另一目标能访问。
+
+## 8. 控制、Schema、缓存与计量
+
+### Presence 与 Schema
+
+逐字段定义 Absent、Null、Value 及空/false/default 的区别。外层缺失不能隐藏有效子字段；协议省略默认值只有在含义等价时才可归一化。数值保留精度，不以通用 float 或零填补未知。
+
+Schema 是带方言、顺序、严格性和有界引用关系的约束，不是无序 JSON。区分声明结构有效性、目标可表示性与生成结果 adherence；工具输入约束与最终输出约束不混同。同名 strict 不保证相同含义。目标不支持时不得删除约束或暗改 required。当前实现规则由[schema profile](schema-profile.md)维护，不是未来共享域的永久上限。
+
+### 缓存意图
+
+区分自动缓存亲和提示、前缀断点/策略、远端缓存资源引用和实际命中事实。已理解的缓存意图有 typed context/attachment owner，不只作为可丢弃 fidelity 保存；具体 TTL、前缀范围、投影顺序和可省略条件属于对应能力/profile。
+
+缓存断点可能依赖整个先行前缀，而不只依赖被标记 part；前缀内容、工具/Schema 顺序和有效设置的变化必须反映到投影及依赖检查。不能把缓存 key、logical session、资源 ID 相互派生。Provider-owned cache 不变成网关回答缓存、负载均衡或粘性路由，见[ADR 0011](decisions/0011-stable-admission-provider-cache.md)。
+
+### Reported usage
+
+共享计量语义应明确计数单位、范围、总量/细分关系、重叠或独立性、报告最终性及缺省含义，不维护 Provider 专属 Usage。Token、工具次数、费用及可见正文长度不是同一种计量。
+
+原始报告与合法派生视图只能有一个权威来源；派生需有命名公式、完整前提和 provenance，不能双存可独立修改的 totals。不存在跨协议通用的原始字段加法公式。累计快照不能逐事件相加；缺省/null 未报告值与显式零分开。来源不足时保留未知或拒绝所需投影，不从正文、请求或重叠细分猜测总量。当前 `Usage` 的字段与校验只是实现 profile，不证明所有计量关系已可表达。
+
+## 9. 变换与依赖合同
+
+最终 typed 值始终是编码权威。每种变换须规定依赖影响，而不是任意保留 source JSON：
+
+| 变换 | 必须维护的约束 |
+|---|---|
+| 插入 | 新 owner 获得新 identity；检查分组、前缀及引用关系，不继承旧坐标的 metadata |
+| 重排 | 保留 local identity，重算 wire 坐标；重验顺序/分组依赖，必要时拒绝 replay |
+| 替换正文/资源/参数 | 使依赖旧内容的 signature、annotation、probability 或引用失效，除非有明确可证明的保持规则 |
+| 删除 | 删除 owner 附着值；悬空调用、引用或组约束须显式修复或拒绝，不偷偷恢复或级联丢弃其他语义 |
+| 修改控制/上下文 | 重算 effective settings、continuation/cache/resource 要求，不能把旧 reported fact 当新设置 |
+
+变换后重新验证整体语义并派生 requirements；每个固定候选从相同不可变输入独立 lowering。若需损失转换，必须具名、限定前提、显式获准并说明可观察后果；没有泛化 `best_effort`。
+
+## 10. Static / Event 与交付
+
+每个准入能力同时定义 request/history、static response 和适用的 event 合同。Event 表达 typed transition，不复制 raw SSE/WS envelope 为权威。值内容停止产生、值完整、类型有效、item 完成、response 终止及 replay 就绪是不同事实，不能互相推断。
+
+部分工具参数允许处于尚未完成的表示状态，但不能被视为可执行值；需要完整结构的目标须拒绝不完整投影。流结束不能修补 JSON，terminal snapshot 不能掩盖缺失的必需事件或推翻已交付语义；合同允许仅在终态出现的报告不属于补救缺失。Signature、citation 和 usage 的增量/最终报告各自按所属合同累积与封闭。
+
+合法事件 materialization 与静态语义一致；错误后的 reducer 不可继续。SSE framing、WebSocket lane multiplexing、backpressure、取消和 I/O commit 在外层。表达 hosted-tool progress 不授权网关执行工具。
+
+## 11. Scoped extension 合同
+
+每项扩展至少定义 namespace/kind/version、typed payload 或有 schema 的 bounded opaque value、attachment、可信来源、生命周期、partial/final、可见性/敏感性、资源预算、依赖与失效规则，以及目标映射/拒绝条件。未知 JSON 不自动成为扩展；诊断保留和发送给 Provider 是不同权限。
+
+不允许覆盖已有 owner、注入 auth/target/script，或仅因目标同名便跨 issuer replay。起步用编译期闭合合同，不预建动态插件平台。具体 downstream carrier 和客户端回传合同须在相应实现切片前定稿。
+
+## 12. 设计定稿与实施边界
+
+评审一个能力时，必须能指出：唯一 owner、概念/类型边界、合法状态组合、依赖集合、presence、Static/Event 关系、变换后行为、目标可表示性和执行权限边界。未知事项显式保留，不先造万能类型。
+
+优先定稿交互/continuation 与 replay 依赖，再展开内容/资源/工具结果、cache/usage 和上下文演进；具体产物和待选边界由[next-goal](../implementation-plans/next-goal.md)维护。独立映射、变换与失败证据的方法归[验收基线](../references/conformance-baseline.md)，不以同一 encoder 的 round trip 自证。
+
+当前 Chat/Responses/Schema profiles 与源码是现有准入边界；本设计不自动扩大它们，也不将它们的限制提升为架构上限。实现新 slice 前固定相关官方 API/schema/SDK 版本与具体 carrier，更新受影响类型、序列化、profile、独立预期和必要公共合同，再按[current-focus](../implementation-plans/current-focus.md)推进。文档定稿不授权 live 调用、工具执行、凭据操作或服务部署。

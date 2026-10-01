@@ -39,7 +39,8 @@ Report revision, scope and unverified layers in the current conversation. Creden
 
 ## Implementation Discipline
 
-- Keep one Responses-first semantic authority, with typed scoped extensions rather than a Chat/common subset, raw SDK DTOs or a second Provider IR. Standard fields retain standard owners even when codecs are incomplete.
+- Keep one Agent-first, protocol-neutral semantic authority, with typed capability domains and scoped extensions rather than a protocol/common subset, mechanical field union, raw SDK DTOs or a second Provider IR. OpenAI, Google and Anthropic are design references, not expressiveness ceilings. Shared concepts retain one owner even when codecs are incomplete; existing wire profiles remain binding until explicitly changed.
+- Treat the project as pre-release design exploration: stabilize concepts and invariants before Rust shapes. Keep response closure, artifact completeness, logical-turn progress and continuation requirements distinct. Owner/group/prefix dependencies govern transforms and replay; representing control transfer does not authorize orchestration.
 - Keep task, wire and modality separate. Pure codecs/lowering cannot access registry, credentials or network. Runtime target/retry/commit state is not semantic data. Check the actual call path and affected ADR before changing ownership.
 - Final typed semantics govern encoding. Fidelity cannot restore deleted values or attach to another owner. Preserve field-specific absent/null/empty/default distinctions, numeric precision, resource meaning and source-bound replay.
 - Validate request/response closure and Static/Event consistency. Derive requirements after transforms; project each fixed candidate independently from immutable input, without route reordering or capability unions.

@@ -1,6 +1,6 @@
 # Codec 与扩展验收基线
 
-本页定义验证方法，不记录执行结果。协议预期依据[Responses 标准基线](responses-standard.md)和[固定来源](upstream-sync.md)；外部测试与模型 benchmark 不自动成为本地 oracle。引入资产或升级 SDK/profile 时重核版本、许可与独立预期。
+本页定义验证方法，不记录执行结果。语义不变量依据[Agent-first 设计](../architecture-v2/semantic-ir.md)，协议预期分别依据所选官方合同；现有 Responses 依据[标准基线](responses-standard.md)和[固定来源](upstream-sync.md)，其他协议查[官方入口](providers/README.md)后另行固定版本。外部测试与模型 benchmark 不自动成为本地 oracle。引入资产或升级 SDK/profile 时重核版本、许可与独立预期。
 
 ## 1. 准入表必须按语义分支
 
@@ -12,12 +12,12 @@
 | Owner | task、request/response context、delivery、fidelity 或 scoped extension；只有一个值权威 |
 | Presence | required/optional、absent/null/empty/default 的等价或区别；依赖其他字段的合法组合 |
 | 双向映射 | 独立 wire→IR 和 IR→wire 预期；必要的 profile 差异 |
-| Transform | 插入/替换/删除/重排；requirements 更新；dependent metadata 的保留或失效 |
-| State | item/call/part/response、continuation、scope、finality 与 terminal |
+| Transform | 插入/替换/删除/重排；requirements 更新；owner/group/prefix/resource 依赖的保留或失效，悬空关系的显式修复或拒绝 |
+| State | item/call/part/response、产物完整性、逻辑 turn、continuation、scope、finality 与 terminal；合法组合与未知值 |
 | 拒绝 | unknown、错类型、身份/状态冲突、不可表示目标、跨 issuer 或错误后恢复 |
 | 资源 | bytes、items、深度/nodes、schema references、padding、partial payload 与总状态预算 |
 
-标准全景不等于每轮实现全部，但每轮完成的范围必须真正闭合。媒体和状态服务缺实现不是删掉标准目标的理由。
+设计全景不等于每轮实现全部，但每轮完成的范围必须真正闭合。媒体和状态服务缺实现不是删掉语义目标的理由；一个协议能接收请求不证明它能交付并回传所需 continuation。
 
 ## 2. 四个独立验证层
 
@@ -38,6 +38,14 @@
 - 每种 SDK derived view 都需要独立的回放准入与一致性规则；一种派生 view 通过不证明另一种也支持。
 - 标准 phase、configuration update、媒体、工具与 state 必须分支验收，不靠一个两轮 fixture 声明完整。
 
+新交互设计还须独立审查以下边界，未实现前不能视作现有测试覆盖：
+
+- 正常 response 终止但仍等待工具结果或 continuation；后继 response 不复活旧 reducer，工具失败不冒充生成失败。
+- Opaque-only 内容、非 reasoning attachment、成组回放与跨响应关联；缺失载体、变换失效或 scope 不匹配时拒绝，不自动丢失历史。
+- 流停止但参数未完整/无效；只收到 signature 的部分值；静态与事件最终性一致，不能修补成成功。
+- 工具媒体结果及引用的双端依赖；源文档重排只改变 wire 坐标，删除源后不得继续输出旧引用。
+- 缓存前缀变化与标记 owner 生存分别检查；reported usage、累计快照和合法派生分开，不重复计数或猜测缺失值。
+
 独立反例由 [semantic](../../tests/semantic.rs) 和 [transport](../../tests/transport.rs) 测试维护；剩余审计范围见[实施缺口](../implementation-status/generation.md#验收缺口)。新发现的问题须区分违反合同、未准入与缺少验收，不能从测试存在推断已经通过。
 
 ## 4. 属性顺序、JSON 与 Schema
@@ -57,9 +65,9 @@ SDK 宽松解析成功不证明完整 wire 正确；严格模型验证也不证�
 - 合法 namespace + 错误 attachment/schema/version 拒绝；
 - final token 与 owner、origin、principal scope 不匹配拒绝；
 - 同 turn 重放允许，跨 turn/auth owner 不沿用 Codex sticky state；
-- 扩展不得覆盖标准字段或传入上游地址/认证；
+- 扩展不得覆盖已有共享字段或传入上游地址/认证；
 - 稳定 local identity 不因排序变化被重建；删除 owner 后不回填旧 signature/annotation；
-- 标准化后的字段不再双写标准 owner 和 extension owner；
+- 提升为共享语义后不再双写共享 owner 和 extension owner；协议同名不构成等价证明；
 - 不可迁移的 media/resource 引用不在 fallback 中自动跨目标转移。
 
 ## 7. 资产与证据卫生

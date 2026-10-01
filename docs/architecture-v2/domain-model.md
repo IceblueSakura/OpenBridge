@@ -28,9 +28,9 @@ Task identity is determined from the trusted public contract before semantic dec
 
 ### Task IR
 
-Each Task owns request, response, and where applicable event semantics. Generation follows the OpenAI Responses standard semantic surface, not the intersection of supported wire protocols; other tasks retain their own contracts.
+Each Task owns request, response, and where applicable event semantics. Generation is Agent-first and protocol-neutral: ordered interaction records plus typed ownership, grouping, call/result and resource relations, not a protocol DTO, field union or intersection. One IR family does not imply one universal request type.
 
-The overall internal representation includes task semantics, typed request/response context, delivery intent, scoped extensions and fidelity as defined in [semantic-ir.md](semantic-ir.md). Task content does not own sockets, selected routes/endpoints, credentials, retry state or downstream commit state. Context extensions may own session/thread/turn facts without becoming runtime handles.
+The overall internal representation includes task semantics, typed request/response context, delivery intent, scoped extensions and fidelity as defined in [semantic-ir.md](semantic-ir.md). That document owns the distinction between response, logical turn, content group and continuation: closing one response does not prove the turn finished, and continuation requirements do not authorize orchestration. Task content does not own sockets, selected routes/endpoints, credentials, retry state or downstream commit state. Context extensions may own session/thread/turn facts without becoming runtime handles.
 
 Shared value types are allowed only where they preserve task invariants: bounded text, resources, media descriptors, stable identities, schema values, usage and extensions.
 
@@ -38,7 +38,7 @@ There is no universal request struct with optional fields for every task.
 
 ### Protocol
 
-A Protocol defines a wire language and its codec/profile rules. Examples include OpenAI Chat Completions and OpenAI Responses.
+A Protocol defines a wire language and its codec/profile rules. OpenAI Chat Completions/Responses, Google Gemini and Anthropic Messages provide reference contracts, not a local support inventory. Their envelopes, roles and item/block shapes do not determine semantic ownership.
 
 Protocol codecs translate between a known Task contract and Task IR. A protocol is not a provider and does not select a route.
 
@@ -111,7 +111,7 @@ Public Model
 
 For every meaningful datum, the architecture must be able to answer exactly one of:
 
-- standard task semantics own it;
+- shared task semantics own it;
 - typed request/response context or an owner-bound extension owns it;
 - source/fidelity metadata owns its representation-only preservation;
 - target lowering owns target-specific representation;

@@ -1,12 +1,36 @@
 # 下一步目标
 
-**以文本 Generation 主链为基础，按选定的图片输入→文本输出 slice 继续扩展 IR 化网关；后续媒体按资源来源、content owner 与任务分别准入。** 产品方向见 [v2 目标](../architecture-v2/README.md)，当前 `main` 基于原 `semantic-v2` 独立演进，不以迁移、追平或恢复旧版为目标；语义实现与产品目标的差距由[当前能力与边界](../implementation-status/generation.md)维护。
+**下一步设计重点是 Agent-first、协议中立的 Generation 交互与依赖合同，而不是先追齐某家 API 的字段。** 项目尚未上线，允许在明确设计与获准实现切片中替换现有类型；一套 IR 指共享原则和 task family，不是万能请求。产品方向见 [v2 目标](../architecture-v2/README.md)，详细设计只由[semantic IR](../architecture-v2/semantic-ir.md)维护；实现缺口归[当前能力与边界](../implementation-status/generation.md)。不以迁移、追平或恢复旧版为目标。
 
-**当前 `main` 的下一步明确推进 Codex / SuperGrok 的 OAuth2 登录：先进一步调研授权合同与 credential 生命周期，再分别形成实现切片。** Codex 的旧资料可作技术定位；SuperGrok 的实际认证机制及第三方接入资格仍待核实，目标名称不构成已支持 OAuth2 的声明。来源与采用边界见 [OAuth 登录来源](../references/oauth-login.md)。
+**既有 Codex / SuperGrok OAuth2 登录方向保留：先进一步调研授权合同与 credential 生命周期，再分别形成实现切片。** 它是独立的 credential/execution 工作，不以新 IR 的全部落地为前置，也不替代下述设计顺序。Codex 的旧资料可作技术定位；SuperGrok 的实际认证机制及第三方接入资格仍待核实，目标名称不构成已支持 OAuth2 的声明。来源与采用边界见 [OAuth 登录来源](../references/oauth-login.md)。
 
 最小 HTTP 入口的职责和运行边界见 [HTTP 指南](../http-gateway.md)。当前 Provider/模型与协议准入按 [AGENTS.md](../../AGENTS.md#current-provider-model-and-compatibility-information)现场查询；本页不维护支持清单、实测结果或临时账号阻塞。
 
-## 优先顺序
+## IR 设计优先顺序
+
+以下是设计产物与定稿门槛，不是自动获准的代码任务。跨模块合同在现有 semantic IR/ADR owner 内维护，不新增协议比较报告；具体 wire 字段与测试场景留给获准实现切片。
+
+| 优先级 | 设计主题 | 定稿产物与边界 |
+|---|---|---|
+| P0 | 交互、结果与控制转移 | 明确 item/message/response/turn/group/call/result；响应闭合、产物完整性与 turn 进度的合法组合；continuation 要求与实际调度、重试的边界 |
+| P0 | Identity、分组与 replay 依赖 | 明确稳定 identity、wire 坐标、单 owner 与组/前缀依赖；opaque 类型的 scope/finality、编辑失效及客户端交付→回传合同 |
+| P1 | 内容、工具结果与资源 | 明确媒体值和用途、结构化结果及工具错误、资源来源/权限边界、引用的输出 owner 与来源坐标；不建任意嵌套可执行容器 |
+| P1 | 控制、Schema、cache 与 usage | 区分模式/预算/显示、声明约束/目标保证、亲和提示/前缀策略/资源引用、报告计数/有前提的派生视图；避免同名即等价 |
+| P2 | 上下文演进 | 定义配置变化、compaction、远端 continuation 资源的作用范围与依赖；不据此引入 session 服务或自动 Agent loop |
+
+### 定稿方法与下一片选择
+
+1. 先定义概念、唯一 owner、presence、合法状态及关系，不先承诺 Rust struct 或兼容 alias。
+2. 用 OpenAI、Google、Anthropic 的独立官方合同检查请求/history、响应与事件；记录不可表示及有条件映射，不以协议名称或类型存在推定能力。来源入口见[references](../references/README.md)。
+3. 对插入、替换、删除、重排明确依赖失效和目标拒绝；评审方法归[验收基线](../references/conformance-baseline.md)。
+4. 在相应能力内选定具体协议/API 版本、下游 carrier、scope 构造、资源边界及是否允许损失转换。未知事项不以万能 metadata/JSON 字段填补。
+5. 只有选定端到端行为后，才在[current-focus](current-focus.md)写入获准实现 slice；同步类型、codec/lowering、序列化与适用公共合同。设计文档不扩大现有 Chat/Responses profile，不证明 SDK、上游或生产可用。
+
+优先选择能检验工具续轮、响应/turn 分离与 replay 依赖的最小场景，再扩展媒体宽度；无需先实现所有 Provider、所有任务或通用工作流引擎。后续每片应列明已定稿合同和仍待选择的边界，不能以本设计授权真实调用或凭据操作。
+
+## 保留的实施方向
+
+下表保留既有工作顺序，不表示这些代码任务已获准或已实现。IR 相关行为变化需先完成上面的对应设计，而非等待全部设计域结束。
 
 | 优先级 | 建议切片 | 退出条件 |
 |---|---|---|
@@ -18,9 +42,9 @@
 
 不以重复成功矩阵代替问题定位，也不根据过期结果固定下一轮目标。新发现先区分上游输出、字段投影、I/O 生命周期和客户端差异；稳定结论进入 owning code 注释与独立 synthetic 回归，运行结果只在当次交付和授权 run 中保留。
 
-可读 reasoning 与 opaque continuation 分别按实际合同验收：前者核对正文/推理归属、历史和变换保真，不要求密文；后者需要明确格式、owner、origin 与 finality。不为尚未选定的模型预建通用透传，不静默修改请求控制来通过测试。
+可读 reasoning 与 opaque continuation 分别按实际合同验收：可读内容检查归属、历史和变换保真，不能替代所需 signature 的回放验证；opaque 值需要明确格式、owner、origin、依赖与 finality。无 opaque 合同的场景不强造密文；有回放要求时不能只保留可读内容。不为尚未选定的模型预建通用透传，不静默修改请求控制来通过测试。
 
-缓存亲和范围限定为 Provider 自动缓存与明确的 cache key/session carrier 投影，不在本项目实现负载均衡、回答缓存、会话管理或跨请求粘性路由。稳定公开接入与扩展 owner 见 [ADR 0011](../architecture-v2/decisions/0011-stable-admission-provider-cache.md)。
+现有缓存投影从 Provider 自动缓存与明确的 cache key/session carrier 起步；新设计中的前缀策略和资源引用需另行定稿与准入。不在本项目实现负载均衡、回答缓存、会话管理或跨请求粘性路由。稳定公开接入与扩展 owner 见 [ADR 0011](../architecture-v2/decisions/0011-stable-admission-provider-cache.md)。
 
 ## OAuth 登录调研与实现前置条件
 

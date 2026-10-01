@@ -6,9 +6,9 @@ Accepted. Provider cache projection is refined by [ADR 0011](0011-stable-admissi
 
 ## Decision
 
-- Standard cache hints, identity hints and reported response context have separate typed owners. Codecs do not synthesize echoes, derive one identifier from another or treat different cache policies as aliases.
+- Cache intent, identity hints and reported response context have separate typed owners. Affinity hints, prefix breakpoints/policies and remote cache-resource references are not aliases. Behavioral cache controls require typed context/attachment and declared prefix dependencies, not representation-only fidelity. Codecs do not synthesize echoes or derive one identifier from another.
 - Logical session, cache affinity, thread, context window and turn state are distinct facts. No universal session ID or fabricated sticky token substitutes for a real owner.
-- Provider-private headers/body sections use explicit protocol-layer carriers, outside Task IR. Typed lifecycle fields and bounded opaque values require declared admission and target mappings; arbitrary header/body passthrough is forbidden.
+- Header/body placement is a protocol projection of typed context or scoped extension owners, not another semantic authority. Existing protocol-layer carriers do not define the architecture ceiling. Typed lifecycle fields and bounded opaque values require declared admission and target mappings; arbitrary header/body passthrough is forbidden.
 - Credential, account-locator and transport fields never enter context carriers. Server-issued turn state is opaque and codec-inert; extending or replaying it across turns requires an explicit lifecycle owner.
 
 ## Rationale and consequences

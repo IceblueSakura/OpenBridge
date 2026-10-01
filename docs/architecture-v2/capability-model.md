@@ -15,13 +15,14 @@ v2 keeps these dimensions separate.
 
 A task semantic contract describes meaningful supported behavior independent of wire syntax.
 
-Generation starts from the fixed OpenAI Responses standard plus declared task extensions, rather than a common subset inferred from currently implemented codecs. Standard expressiveness, local implementation and model support are separately tracked. This includes:
+Generation follows the [Agent-first semantic design](semantic-ir.md), using multiple protocol contracts as evidence rather than a common subset or mechanical field union. Semantic expressiveness, local implementation and model support are separately tracked. This includes:
 
 - input resource kinds;
 - tool kinds and tool-choice semantics;
 - structured output semantics;
 - reasoning semantics;
-- state semantics;
+- response completeness, turn progress and continuation dependencies;
+- grouping, source-bound replay and state/resource semantics;
 - generation controls;
 - output modalities.
 
@@ -38,7 +39,7 @@ Examples:
 - supports same-provider opaque reasoning replay;
 - can encode image URL but not inline bytes.
 
-Representation support may include explicit mappings and named conversion policies.
+Representation support may include explicit mappings and named conversion policies. It must cover request/history, response and applicable events, including required continuation carriers through downstream delivery and the next request; accepting the first prompt alone is insufficient.
 
 ## Execution contract
 
@@ -98,4 +99,4 @@ Every lossy or normalizing conversion is named and typed. Examples include:
 
 There is no generic `best_effort=true`.
 
-A conversion must declare its semantic precondition and observable consequence.
+A conversion must declare its semantic precondition, dependency effects and observable consequence. Semantic representability does not authorize execution, and a continuation is not an implicit retry. Exact derivation of usage must declare accounting scope and prerequisites; unknown counts cannot be repaired to fit a target's arithmetic.

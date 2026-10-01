@@ -6,10 +6,11 @@ Accepted. Field-specific compatibility defaults are allowed under explicit rules
 
 ## Decision
 
-- Keep one Responses-first semantic core. A different wire spelling changes an adapter; a genuinely missing capability may extend shared semantics. Do not create Provider-specific Generation or Usage types.
+- Keep one Agent-first, protocol-neutral semantic core. A different wire spelling changes an adapter; a genuinely missing capability may extend shared semantics or a scoped typed domain. Do not create Provider-specific Generation or Usage types.
 - Trusted client and Provider adapters compose shared protocol codecs. Business JSON cannot select dialect, origin or target; no generic body hooks or dynamic plugin framework are introduced.
 - Named rules may map aliases, validate/discard derived views, exactly derive values or supply field-specific compatibility defaults. Defaults are not reported observations: preserve valid reports, reject malformed values, retain absence unless the named rule explicitly permits normalization, and record provenance outside task semantics.
-- Encoding consumes final semantics without reapplying intake defaults. Never fabricate call identities, arguments, a whole missing usage object or a successful terminal.
+- Encoding consumes final semantics without reapplying intake defaults. Never fabricate reported call identities, arguments, a whole missing usage object or a successful terminal. Local identity allocation must remain distinct from upstream identity and cannot repair missing required wire fields.
+- Usage mappings declare scope, overlapping/disjoint relationships and prerequisites for exact derivation; no universal arithmetic rule is inferred from wire field names. Derived views never compete with reported values, and cumulative snapshots are not summed as deltas.
 - Fidelity is bounded, source/profile/owner-dependent representation, not a second task payload. Classified extras use the authoritative terminal snapshot; incompatible or stale extras cannot restore edited semantics. Opaque replay keeps its stricter rejection contract.
 - SSE intake/projection remains incremental and bounded. One delivery binds to one execution attempt, not a reusable wire response ID. Encoding is not commit; late failures abort rather than splice another attempt or synthesize success.
 

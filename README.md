@@ -1,14 +1,14 @@
 # OpenBridge
 
-OpenBridge 的最终目标是**支持多模态、兼容 Chat Completions / Responses、Agent 友好且缓存亲和性强的 IR 化网关**。现阶段在文本 Generation 主链上扩展选定的图片输入→文本输出 slice，再逐步推进其他多模态；不是长期只做文本 codec。产品判据见 [v2 目标](docs/architecture-v2/README.md#产品目标与阶段判据)。
+OpenBridge 的最终目标是**以一套 Agent-first、协议中立的 IR 兼容多种 API 协议，支持多模态与 Provider 原生缓存的网关**。项目尚未上线，处于设计探索阶段；稳定目标是语义、所有权和交互不变量，不是现有类型。当前实现从 Chat Completions / Responses 的文本 Generation 与选定图片输入起步，不是长期只做文本 codec。产品判据见 [v2 目标](docs/architecture-v2/README.md#产品目标与阶段判据)。
 
 当前 `main` 以原 `semantic-v2` 实现为基线，独立推进产品目标；不以迁移、追平或恢复旧版本为目标。旧版只作为 Git refs 与[历史参考](docs/archive.md)保留，主线定位不等于完整标准或生产就绪。
 
-Generation IR **以 OpenAI Responses 标准语义为主干，结合有明确归属和生命周期的扩展字段**，而非多协议最小公分母。设计依据见[决策与语义设计](docs/architecture-v2/README.md)，外部出处见[来源入口](docs/references/README.md)。**当前工作区包含 Rust 语义库与最小 loopback Generation 网关，不是完整标准实现或生产就绪服务。**
+Generation IR **以有序交互、行动与结果、控制转移和续轮依赖为设计主线**。OpenAI Responses、Google Gemini、Anthropic Messages 是共同参考，不是表达力上限；既不取最小公分母，也不机械合并各家字段。设计依据见[决策与语义设计](docs/architecture-v2/README.md)，外部出处见[来源入口](docs/references/README.md)。**当前工作区包含 Rust 语义库与最小 loopback Generation 网关，不是完整标准实现或生产就绪服务。**
 
 旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。库构造不读取私有配置；`openbridge` binary 通过显式环境变量启动认证的 loopback HTTP 入口，不读取旧配置。启动方式、限制与接口见 [HTTP 网关指南](docs/http-gateway.md)。受控 `examples/live_probe.rs` 仍有独立运行授权与凭据边界，不属于默认验证。
 
-下一步优先推进 **Codex / SuperGrok OAuth2 登录**，目前仍待进一步调研、未接入当前网关。顺序和实现前置条件由 [next-goal](docs/implementation-plans/next-goal.md) 维护；从 `v0.1` 整理的标准与固定源码入口见 [OAuth 登录来源](docs/references/oauth-login.md)。
+下一步 IR 设计优先定稿**交互与续轮、分组及 replay 依赖**，再展开资源/工具结果、cache/usage 与上下文演进。既有 **Codex / SuperGrok OAuth2 登录**方向保留，仍待调研且未接入当前网关；设计顺序、保留的实施方向与前置条件分别由 [next-goal](docs/implementation-plans/next-goal.md) 维护。旧资料定位见 [OAuth 登录来源](docs/references/oauth-login.md)。
 
 ## 当前范围
 
@@ -30,7 +30,7 @@ Chat / Responses wire
 - `src/gateway/`、`src/transport/http.rs`、`src/bin/openbridge.rs`：认证入口、可信预算变换、HTTP I/O 与实际 body handoff；无同候选重试，只有显式受信 Route 策略允许提交前有界 fallback。
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/gateway.rs`、`tests/sdk_loopback.rs`：语义、transport、真实 Router/binary 与固定 SDK 验收；HTTP 测试只使用 synthetic loopback。
 
-**当前范围是受限的无状态文本 Generation，以及选定的 user URL/inline 图片输入→文本输出；不是完整多模态标准实现或生产就绪服务。** 图片语义与明确拒绝范围见[图片输入合同](docs/architecture-v2/responses-text-profile.md#user-image-input)，实际模型/Endpoint 准入仍须现场查询。 Responses 为语义主干，单候选 Chat 是同一 IR 的第二协议投影，跨协议不可表示时拒绝。尚未闭合的语义、接线与验收范围见[实施边界与缺口](docs/implementation-status/generation.md)；推进方向见[下一步目标](docs/implementation-plans/next-goal.md)，获准行为切片由[当前焦点](docs/implementation-plans/current-focus.md)维护。
+**当前范围是受限的无状态文本 Generation，以及选定的 user URL/inline 图片输入→文本输出；不是完整多模态标准实现或生产就绪服务。** 图片语义与明确拒绝范围见[图片输入合同](docs/architecture-v2/responses-text-profile.md#user-image-input)，实际模型/Endpoint 准入仍须现场查询。当前类型和 codec 仍以 Responses/单候选 Chat 切片为实现基础；新的协议中立设计不代表额外协议已接入，跨协议不可表示时仍拒绝。尚未闭合的语义、接线与验收范围见[实施边界与缺口](docs/implementation-status/generation.md)；推进方向见[下一步目标](docs/implementation-plans/next-goal.md)，获准行为切片由[当前焦点](docs/implementation-plans/current-focus.md)维护。
 
 缓存亲和只利用 Provider 原生自动缓存和明确字段，维护稳定前缀；不实现网关负载均衡、回答缓存或会话管理。稳定合同与扩展 owner 见 [ADR 0011](docs/architecture-v2/decisions/0011-stable-admission-provider-cache.md)。
 
