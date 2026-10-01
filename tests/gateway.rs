@@ -16,7 +16,16 @@ use axum::{
     response::Response,
     routing::post,
 };
-use openbridge::{gateway::Limits, protocol::openai::Profile};
+use openbridge::{
+    adapter::{Adapter, Dialect},
+    gateway::Limits,
+    lowering::generation::GenerationRepresentationContract,
+    protocol::openai::{DecodedResponse, Profile, sse::ResponsesSseDecoder},
+    semantic::{
+        task::generation::{Continuation, Outcome},
+        value::ReplayOrigin,
+    },
+};
 use serde_json::{Value, json};
 use std::{
     sync::{Arc, Mutex},
@@ -92,6 +101,24 @@ async fn answer(
     } else {
         1
     };
+    if !chat && request.to_string().contains("function_call_output") {
+        let history = request["input"].as_array().unwrap();
+        for expected in [
+            json!({"type":"function_call_output","call_id":"c_lookup","output":"{\"n\":1}"}),
+            json!({"type":"custom_tool_call_output","call_id":"c_sql","output":"1"}),
+        ] {
+            assert!(history.contains(&expected));
+        }
+        assert!(
+            history
+                .iter()
+                .any(|i| i["type"] == "reasoning"
+                    && i["encrypted_content"] == "synthetic-final-token")
+        );
+        assert!(history.iter().any(|i| i["type"] == "function_call"
+            && i["call_id"] == "c_lookup"
+            && i["arguments"] == "{\"n\":1}"));
+    }
     state.0.lock().unwrap().push(request.clone());
     let stream = request["stream"] == true;
     let mut output = if chat {
@@ -166,6 +193,27 @@ async fn answer(
         .body(Body::from(bytes))
         .unwrap()
 }
+fn responses_delivery(body: &[u8], streaming: bool) -> DecodedResponse {
+    let scope = Some(ReplayOrigin::new("fixture").unwrap());
+    if !streaming {
+        return Adapter::new(Profile::Responses, Dialect::Standard, scope)
+            .decode_response(body)
+            .unwrap();
+    }
+    let mut decoder =
+        ResponsesSseDecoder::new(200, "text/event-stream", Default::default(), scope).unwrap();
+    for fragment in body.chunks(13) {
+        let mut rest = fragment;
+        while !rest.is_empty() {
+            let (used, _) = decoder.consume(rest).unwrap();
+            assert!(used > 0);
+            rest = &rest[used..];
+        }
+    }
+    decoder.finish().unwrap();
+    decoder.materialize().unwrap()
+}
+
 #[tokio::test]
 async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
     let upstream = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -244,6 +292,58 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
                         "response.completed"
                     })
                 );
+            }
+            if profile == Profile::Responses {
+                let decoded = responses_delivery(&body, stream);
+                assert_eq!(decoded.semantic.outcome(), Outcome::Completed);
+                let Continuation::ToolResults(calls) = decoded.semantic.continuation() else {
+                    panic!("completed tool response still needs results")
+                };
+                assert_eq!(
+                    calls.iter().map(|c| c.call_id).collect::<Vec<_>>(),
+                    ["c_sql", "c_lookup"]
+                );
+                let contract = GenerationRepresentationContract {
+                    replay_origin: Some(ReplayOrigin::new("fixture").unwrap()),
+                    ..GenerationRepresentationContract::full()
+                };
+                let projected = Adapter::new(Profile::Responses, Dialect::Standard, None)
+                    .encode_response(&decoded, &contract)
+                    .unwrap();
+                let mut history = vec![json!({"role":"user","content":"lookup"})];
+                history.extend(projected["output"].as_array().unwrap().iter().cloned());
+                for call in calls {
+                    // Synthetic results only; call arguments never execute code.
+                    history.push(match call.call_id {
+                        "c_sql" => json!({"type":"custom_tool_call_output","call_id":call.call_id,"output":"1"}),
+                        "c_lookup" => json!({"type":"function_call_output","call_id":call.call_id,"output":"{\"n\":1}"}),
+                        _ => panic!("unexpected call identity"),
+                    });
+                }
+                let followup = client
+                    .post(format!("{url}{path}"))
+                    .bearer_auth(support::CLIENT_KEY)
+                    .json(&json!({"model":"public-model","input":history,"stream":stream}))
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(followup.status(), 200);
+                let finished = responses_delivery(&followup.bytes().await.unwrap(), stream);
+                assert_eq!(finished.semantic.outcome(), Outcome::Completed);
+                assert_eq!(finished.semantic.continuation(), Continuation::Unreported);
+                assert_eq!(finished.semantic.usage().unwrap().total_tokens, 8);
+
+                let before = observed.0.lock().unwrap().len();
+                history.last_mut().unwrap()["call_id"] = json!("unmatched-call");
+                let rejected = client
+                    .post(format!("{url}{path}"))
+                    .bearer_auth(support::CLIENT_KEY)
+                    .json(&json!({"model":"public-model","input":history,"stream":stream}))
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(rejected.status(), 400);
+                assert_eq!(observed.0.lock().unwrap().len(), before);
             }
         }
     }

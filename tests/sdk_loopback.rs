@@ -28,7 +28,9 @@ use openbridge::{
         sse::{Obfuscation, ResponsesSseDecoder, ResponsesSseEncoder, SseLimits, encode_frame},
     },
     semantic::{
-        task::generation::{ContentPart, Item, StreamEvent},
+        task::generation::{
+            ContentPart, Continuation, GenerationResponse, Item, Outcome, StreamEvent,
+        },
         value::{Presence, ReplayOrigin, Text},
     },
 };
@@ -64,6 +66,21 @@ fn response_fixture(turn: u8) -> Value {
     response["created_at"] = 1.into();
     response["completed_at"] = 2.into();
     response
+}
+
+fn assert_continuation(response: &GenerationResponse, turn: usize) {
+    assert_eq!(response.outcome(), Outcome::Completed);
+    if turn == 1 {
+        let Continuation::ToolResults(calls) = response.continuation() else {
+            panic!("completed response requires tool results")
+        };
+        assert_eq!(
+            calls.iter().map(|c| c.call_id).collect::<Vec<_>>(),
+            ["c_sql", "c_lookup"]
+        );
+    } else {
+        assert_eq!(response.continuation(), Continuation::Unreported);
+    }
 }
 
 async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> Response {
@@ -157,6 +174,7 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
             return failure(StatusCode::INTERNAL_SERVER_ERROR, "response decode", &state);
         };
         decoded.fidelity.bind_replay_origin(&origin()).unwrap();
+        assert_continuation(&decoded.semantic, turn);
         if turn == 2 {
             let mut items = decoded.semantic.items().to_vec();
             let Item::Message(message) = &mut items[0].1 else {
@@ -228,6 +246,7 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
     if decoder.finish().is_err() {
         return failure(StatusCode::INTERNAL_SERVER_ERROR, "event closure", &state);
     }
+    assert_continuation(&decoder.materialize().unwrap().semantic, turn);
     let Ok(mut encoder) = ResponsesSseEncoder::new(
         decoder.metadata().unwrap().clone(),
         contract(),
