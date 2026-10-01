@@ -64,6 +64,8 @@ mod text_events;
 mod text_profile;
 #[path = "semantic/tools.rs"]
 mod tools;
+#[path = "semantic/turn_continuation.rs"]
+mod turn_continuation;
 #[path = "semantic/unreported_event_probabilities.rs"]
 mod unreported_event_probabilities;
 #[path = "semantic/usage.rs"]

@@ -84,6 +84,8 @@ Generation representation
 
 Continuation 表示下一次交互的要求和依赖，例如待回应 call、必须保留的内容组/opaque 值、有效 scope、工具或设置约束。它不是自动发送请求的命令、重试许可或脚本。语义层验证这些要求；执行/调用方另行决定是否继续、预算与权限。
 
+[显式 response 续轮检查](../../src/semantic/task/generation/turn.rs)以调用方提供的 local `TurnId` / `ResponseId` 关联不可变 response，不将它们冒充上游报告。它检查最终 history 中同一 owner 的调用值、kind、顺序及对应结果；进行中结果保持未知，齐备仅报告 `ResultsComplete`，不报告工具成功、产物完整、turn 完成或整体执行就绪。显式后继关联只校验当前及直接前驱 identity，不管理全局 identity、session 或调度；调用方负责全链唯一性及其他依赖。既有 wire 不承载这些本地关联，也不因这项只读 API 扩大准入。
+
 单 response reducer 终止后不可复活。后继 response 可以延续同一逻辑 turn，但应以显式关系关联，不能拼接进前一个 response 伪装成一次成功，也不能借 continuation 绕过提交后的禁止 fallback 边界。无状态完整历史、远端 response/conversation 引用、store/background 分别建模；表示它们不隐式启用存储或远端状态解析。
 
 ## 6. Reasoning 与 source-bound replay

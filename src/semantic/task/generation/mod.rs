@@ -16,6 +16,10 @@ mod response;
 mod schema;
 mod text;
 mod tool;
+mod turn;
+pub use turn::{
+    ContinuationError, ResponseContinuation, ResponseId, ResponseRelation, ResultReadiness, TurnId,
+};
 mod validate;
 pub use output::{OutputConstraint, TextOptions, Verbosity};
 pub use reasoning::{
