@@ -26,6 +26,8 @@ mod turn;
 pub use turn::{
     ContinuationError, ResponseContinuation, ResponseId, ResponseRelation, ResultReadiness, TurnId,
 };
+mod usage_views;
+pub use usage_views::{DerivedTokenCount, UsageFormula};
 mod validate;
 pub use output::{OutputConstraint, TextOptions, Verbosity};
 pub use reasoning::{

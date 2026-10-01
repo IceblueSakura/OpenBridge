@@ -8,6 +8,8 @@ mod wire;
 mod adapters;
 #[path = "semantic/billing_modal_usage.rs"]
 mod billing_modal_usage;
+#[path = "semantic/cache_prefix.rs"]
+mod cache_prefix;
 #[path = "semantic/cache_projection.rs"]
 mod cache_projection;
 #[path = "semantic/chat_logprobs.rs"]
@@ -74,5 +76,7 @@ mod turn_continuation;
 mod unreported_event_probabilities;
 #[path = "semantic/usage.rs"]
 mod usage;
+#[path = "semantic/usage_views.rs"]
+mod usage_views;
 #[path = "semantic/vendor_shapes.rs"]
 mod vendor_shapes;

@@ -126,13 +126,15 @@ Schema 是带方言、顺序、严格性和有界引用关系的约束，不是�
 
 区分自动缓存亲和提示、前缀断点/策略、远端缓存资源引用和实际命中事实。已理解的缓存意图有 typed context/attachment owner，不只作为可丢弃 fidelity 保存；具体 TTL、前缀范围、投影顺序和可省略条件属于对应能力/profile。
 
+[库级前缀 intent 与证明](../../src/semantic/cache.rs)选择完整 item/group 边界，绑定 typed 前缀和 settings，并保守绑定显式 model/context/grouping 与独立的缓存兼容 scope。尾后 append 不影响所选前缀；边界内编辑、成员或设置/Schema/工具顺序变化以及 context/scope 改变均拒绝旧证明。Adapter Request 的便利入口检查当前 public binding；针对具体候选必须用最终 model/context 和该表示合同的受信 scope 检查。证明不注入 wire 缓存字段，不保证序列化字节相同、Provider 命中或收益；既有 hints、实际缓存策略、资源引用与所选前缀不是别名。
+
 缓存断点可能依赖整个先行前缀，而不只依赖被标记 part；前缀内容、工具/Schema 顺序和有效设置的变化必须反映到投影及依赖检查。不能把缓存 key、logical session、资源 ID 相互派生。Provider-owned cache 不变成网关回答缓存、负载均衡或粘性路由，见[ADR 0011](decisions/0011-stable-admission-provider-cache.md)。
 
 ### Reported usage
 
 共享计量语义应明确计数单位、范围、总量/细分关系、重叠或独立性、报告最终性及缺省含义，不维护 Provider 专属 Usage。Token、工具次数、费用及可见正文长度不是同一种计量。
 
-原始报告与合法派生视图只能有一个权威来源；派生需有命名公式、完整前提和 provenance，不能双存可独立修改的 totals。不存在跨协议通用的原始字段加法公式。累计快照不能逐事件相加；缺省/null 未报告值与显式零分开。来源不足时保留未知或拒绝所需投影，不从正文、请求或重叠细分猜测总量。当前 `Usage` 的字段与校验只是实现 profile，不证明所有计量关系已可表达。
+原始报告与合法派生视图只能有一个权威来源；派生需有命名公式、完整前提和 provenance，不能双存可独立修改的 totals。不存在跨协议通用的原始字段加法公式。累计快照不能逐事件相加；缺省/null 未报告值与显式零分开。来源不足时保留未知或拒绝所需投影，不从正文、请求或重叠细分猜测总量。当前 `Usage` 的字段与校验只是实现 profile，不证明所有计量关系已可表达。[命名派生视图](../../src/semantic/task/generation/usage_views.rs)仅支持已验证报告的 `input - cache-read` 与 `output - reasoning`：对应子计数缺失则未知，显式零保留，借用原报告而不另存总量。cache-write、模态、预测计数不参与这些公式；余量不是费用或可见文本计数，视图也不证明快照最终性，不允许累加累计报告。
 
 ## 9. 变换与依赖合同
 
