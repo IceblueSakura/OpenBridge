@@ -204,7 +204,9 @@ fn non_success_terminals_keep_partial_output_and_error_is_not_materializable() {
         for v in wire {
             d.push(&v).unwrap();
         }
-        assert!(d.materialize().unwrap().semantic.completion().is_none());
+        let response = d.materialize().unwrap().semantic;
+        assert_ne!(response.outcome(), Outcome::Completed);
+        assert_eq!(response.continuation(), Continuation::Unreported);
     }
     let mut d = EventDecoder::new(Profile::Responses);
     d.push(&json!({"type":"error","code":"server_error","message":"synthetic error","param":null}))
@@ -236,7 +238,14 @@ fn chat_usage_tail_requires_actual_done_and_closes_to_same_function_semantics() 
     d.done().unwrap();
     let r = d.materialize().unwrap().semantic;
     assert_eq!(r.usage().unwrap().total_tokens, 5);
-    assert_eq!(r.completion(), Some(Completion::ToolCalls));
+    assert_eq!(r.outcome(), Outcome::Completed);
+    assert_eq!(
+        r.continuation(),
+        Continuation::ToolResults(vec![CallReference {
+            item: ItemId::new(2),
+            call_id: "c",
+        }])
+    );
 }
 #[test]
 fn event_encoder_rejects_duplicate_terminal_and_unrepresentable_chat_grouping() {

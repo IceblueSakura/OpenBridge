@@ -27,7 +27,7 @@ use openbridge::{
     provider::{ErrorClass, ProviderDefinition, SecretMaterial},
     semantic::{
         context::StreamOptions,
-        task::generation::{Completion, ContentPart, Item, Outcome, Usage},
+        task::generation::{ContentPart, Continuation, GenerationResponse, Item, Outcome, Usage},
     },
     topology::{Endpoint, EndpointId, ProtocolProfile, PublicModel, catalog as topology_catalog},
 };
@@ -365,10 +365,12 @@ fn chat_stream_options() -> StreamOptions {
     }
 }
 
-fn outcome_label(outcome: Outcome) -> String {
-    match outcome {
-        Outcome::Completed(Completion::Stop) => "completed:stop".into(),
-        Outcome::Completed(Completion::ToolCalls) => "completed:tool_calls".into(),
+fn outcome_label(response: &GenerationResponse) -> String {
+    match response.outcome() {
+        Outcome::Completed => match response.continuation() {
+            Continuation::Unreported => "completed:stop".into(),
+            Continuation::ToolResults(_) => "completed:tool_calls".into(),
+        },
         Outcome::Incomplete => "incomplete".into(),
         Outcome::Failed => "failed".into(),
         Outcome::Cancelled => "cancelled".into(),
@@ -868,11 +870,13 @@ async fn run_call_inner(
     let scenario_ok = finished.semantic.outcome()
         == if ctx.case == Case::Length {
             Outcome::Incomplete
-        } else if ctx.case == Case::Tool && round == 1 {
-            Outcome::Completed(Completion::ToolCalls)
         } else {
-            Outcome::Completed(Completion::Stop)
+            Outcome::Completed
         }
+        && matches!(
+            finished.semantic.continuation(),
+            Continuation::ToolResults(_)
+        ) == (ctx.case == Case::Tool && round == 1)
         && match ctx.case {
             Case::Length => tool_call.is_none(),
             Case::Text => text.trim() == "pong",
@@ -896,7 +900,7 @@ async fn run_call_inner(
             }
             Case::Tool => tool_call.is_none() && text.contains("42"),
         };
-    report.outcome = Some(outcome_label(finished.semantic.outcome()));
+    report.outcome = Some(outcome_label(&finished.semantic));
     report.usage = finished.semantic.usage().map(|u| usage_value(&u));
     report.normalizations = finished
         .fidelity

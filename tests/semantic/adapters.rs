@@ -125,7 +125,7 @@ fn extras_require_matching_source_and_surviving_response_dependencies() {
     );
     decoded.semantic = openbridge::semantic::task::generation::GenerationResponse::new(
         vec![],
-        openbridge::semantic::task::generation::Completion::Stop,
+        openbridge::semantic::task::generation::Outcome::Completed,
     )
     .unwrap();
     let output = source.encode_response(&decoded, &Contract::full()).unwrap();

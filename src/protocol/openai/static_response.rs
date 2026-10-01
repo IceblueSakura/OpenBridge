@@ -360,8 +360,7 @@ pub(crate) fn decode_chat_with(
         return Err(CodecError::Unsupported("candidate index".into()));
     }
     let outcome = match string(c, "finish_reason")? {
-        "stop" => Outcome::Completed(Completion::Stop),
-        "tool_calls" => Outcome::Completed(Completion::ToolCalls),
+        "stop" | "tool_calls" => Outcome::Completed,
         "length" | "content_filter" => Outcome::Incomplete,
         _ => {
             return Err(CodecError::Unsupported("finish reason".into()));
@@ -401,6 +400,11 @@ pub(crate) fn decode_chat_with(
             TerminalDetails::default()
         },
     )?;
+    // Chat's finish label must agree with content even though response outcome
+    // no longer encodes a call/no-call distinction.
+    if chat_finish(&semantic)? != string(c, "finish_reason")? {
+        return Err(CodecError::Invalid("finish reason conflicts with output"));
+    }
     let metadata = metadata(o, Profile::Chat)?;
     b.fidelity.capture_routing_extras(
         Profile::Chat,
@@ -430,10 +434,10 @@ pub(crate) fn decode_responses_with(
         return Err(CodecError::Invalid("response object"));
     }
     let outcome = match string(o, "status")? {
-        "completed" => None,
-        "incomplete" => Some(Outcome::Incomplete),
-        "failed" => Some(Outcome::Failed),
-        "cancelled" => Some(Outcome::Cancelled),
+        "completed" => Outcome::Completed,
+        "incomplete" => Outcome::Incomplete,
+        "failed" => Outcome::Failed,
+        "cancelled" => Outcome::Cancelled,
         _ => return Err(CodecError::Unsupported("response status".into())),
     };
     let output = o
@@ -441,17 +445,12 @@ pub(crate) fn decode_responses_with(
         .and_then(Value::as_array)
         .ok_or(CodecError::Invalid("output"))?;
     let mut b = Items::default();
-    let item_status = if outcome.is_none() {
+    let item_status = if outcome == Outcome::Completed {
         "completed"
     } else {
         "incomplete"
     };
     responses::decode_items(&mut b, output, true, item_status)?;
-    let outcome = outcome.unwrap_or(if b.items.iter().any(|(_, i)| i.is_call()) {
-        Outcome::Completed(Completion::ToolCalls)
-    } else {
-        Outcome::Completed(Completion::Stop)
-    });
     let usage = usage(
         o.get("usage"),
         Profile::Responses,
@@ -486,10 +485,7 @@ fn response_with_usage(
     outcome: Outcome,
     usage: Option<Usage>,
 ) -> Result<GenerationResponse, CodecError> {
-    let response = match outcome {
-        Outcome::Completed(completion) => GenerationResponse::new(items, completion)?,
-        outcome => GenerationResponse::unfinished(items, outcome)?,
-    };
+    let response = GenerationResponse::new(items, outcome)?;
     Ok(match usage {
         Some(usage) => response.with_usage(usage)?,
         None => response,
@@ -554,7 +550,7 @@ pub fn encode_responses(target: &ResponseRepresentation<'_>) -> Result<Value, Co
         return Err(CodecError::ProfileMismatch);
     }
     let status = match target.semantic.outcome() {
-        Outcome::Completed(_) => "completed",
+        Outcome::Completed => "completed",
         Outcome::Incomplete => "incomplete",
         Outcome::Failed => "failed",
         Outcome::Cancelled => "cancelled",

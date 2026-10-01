@@ -75,8 +75,11 @@ fn chat_tool_text_arrays_preserve_parts_and_project_only_final_ir() {
         assert_eq!(values.len(), parts.as_array().unwrap().len());
         // Tool results are request history, not assistant response output.
         assert!(
-            GenerationResponse::new(vec![decoded.semantic.items()[5].clone()], Completion::Stop)
-                .is_err()
+            GenerationResponse::new(
+                vec![decoded.semantic.items()[5].clone()],
+                Outcome::Completed
+            )
+            .is_err()
         );
         if !values.is_empty() {
             let mut cached = r.clone();
@@ -584,7 +587,20 @@ fn responses_response() -> Value {
 #[test]
 fn static_response_encodes_independent_expectations_and_replays_into_history() {
     let a = chat::decode_response(&chat_response()).unwrap();
-    assert_eq!(a.semantic.completion(), Some(Completion::ToolCalls));
+    assert_eq!(a.semantic.outcome(), Outcome::Completed);
+    assert_eq!(
+        a.semantic.continuation(),
+        Continuation::ToolResults(vec![
+            CallReference {
+                item: ItemId::new(2),
+                call_id: "call_a"
+            },
+            CallReference {
+                item: ItemId::new(3),
+                call_id: "call_b"
+            },
+        ])
+    );
     let t = lower_response(
         &a.semantic,
         &a.fidelity,
@@ -649,7 +665,7 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
             context: CallContext::default(),
         }),
     );
-    let ir = GenerationResponse::new(vec![item], Completion::ToolCalls).unwrap();
+    let ir = GenerationResponse::new(vec![item], Outcome::Completed).unwrap();
     let metadata = ResponseMetadata {
         id: "r".into(),
         model: "fixture".into(),
@@ -674,21 +690,18 @@ fn independently_constructed_static_ir_and_mutation_determine_all_response_wire(
         json!([{"id":"source_item","type":"function_call","call_id":"c","name":"f","arguments":"{broken","status":"completed"}])
     );
     let ir = ir
-        .with_items(
-            vec![(
-                ItemId::new(8),
-                Item::Message(Message {
-                    phase: None,
-                    status: ItemLifecycle::Completed,
-                    role: MessageRole::Assistant,
-                    parts: vec![Part {
-                        id: PartId::new(1),
-                        content: ContentPart::Text(text("replaced").into()),
-                    }],
-                }),
-            )],
-            Completion::Stop,
-        )
+        .with_items(vec![(
+            ItemId::new(8),
+            Item::Message(Message {
+                phase: None,
+                status: ItemLifecycle::Completed,
+                role: MessageRole::Assistant,
+                parts: vec![Part {
+                    id: PartId::new(1),
+                    content: ContentPart::Text(text("replaced").into()),
+                }],
+            }),
+        )])
         .unwrap();
     for profile in [Profile::Chat, Profile::Responses] {
         let t = lower_response(&ir, &fidelity, &metadata, profile, Contract::full()).unwrap();
@@ -1114,7 +1127,7 @@ fn program_items_have_no_chat_projection() {
     ));
     let r = GenerationResponse::new(
         vec![(ItemId::new(1), program_items()[0].1.clone())],
-        Completion::ToolCalls,
+        Outcome::Completed,
     )
     .unwrap();
     assert!(matches!(
@@ -1206,7 +1219,8 @@ fn program_event_stream_decodes_and_changed_or_unfinished_snapshots_fail() {
     d.push(&json!({"type":"response.completed","response":envelope("completed",out)}))
         .unwrap();
     let r = d.materialize().unwrap().semantic;
-    assert_eq!(r.outcome(), Outcome::Completed(Completion::ToolCalls));
+    assert_eq!(r.outcome(), Outcome::Completed);
+    assert_eq!(r.continuation(), Continuation::Unreported);
     assert_eq!(r.items()[1].1, program_items()[1].1);
     let mut d = events::EventDecoder::new(Profile::Responses);
     d.push(&created()).unwrap();

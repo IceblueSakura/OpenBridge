@@ -139,8 +139,7 @@ pub(super) async fn handle(
                         .unwrap(),
                 ),
             );
-            let completion = d.semantic.completion().unwrap();
-            d.semantic = d.semantic.with_items(items, completion).unwrap();
+            d.semantic = d.semantic.with_items(items).unwrap();
         }
         let out = envelope::encode_response(
             &lower_response(

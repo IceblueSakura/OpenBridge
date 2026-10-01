@@ -157,8 +157,13 @@ fn nullable_reasoning_effort_and_optional_function_headers_follow_their_own_sche
             .is_none()
     );
     assert_eq!(
-        decoded.semantic.completion(),
-        Some(openbridge::semantic::task::generation::Completion::ToolCalls)
+        decoded.semantic.continuation(),
+        openbridge::semantic::task::generation::Continuation::ToolResults(vec![
+            openbridge::semantic::task::generation::CallReference {
+                item: openbridge::semantic::task::generation::ItemId::new(1),
+                call_id: "call",
+            },
+        ])
     );
 }
 

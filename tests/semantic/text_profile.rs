@@ -605,8 +605,7 @@ fn annotated_output_and_probabilities_are_owned_by_the_current_text() {
         b"{\"ok\":false}"
     );
     m.parts[0].content = ContentPart::Text(t.clone().replace_text(text("{\"ok\":true}")));
-    let completion = d.semantic.completion().unwrap();
-    d.semantic = d.semantic.with_items(items, completion).unwrap();
+    d.semantic = d.semantic.with_items(items).unwrap();
     let out = envelope::encode_response(
         &lower_response(
             &d.semantic,

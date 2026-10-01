@@ -99,7 +99,7 @@ fn router_facts_are_scoped_and_reasoning_and_usage_are_typed() {
             );
         }
         let mut changed = original.clone();
-        changed.semantic = GenerationResponse::new(items, Completion::Stop).unwrap();
+        changed.semantic = GenerationResponse::new(items, Outcome::Completed).unwrap();
         let output = source.encode_response(&changed, &Contract::full()).unwrap();
         assert_eq!(
             output["choices"][0]["message"].get("reasoning"),
@@ -129,7 +129,7 @@ fn router_facts_are_scoped_and_reasoning_and_usage_are_typed() {
     assert!(out.get("provider").is_none());
     assert!(out["usage"].get("cost").is_none());
     let mut deleted = original;
-    deleted.semantic = GenerationResponse::new(vec![], Completion::Stop).unwrap();
+    deleted.semantic = GenerationResponse::new(vec![], Outcome::Completed).unwrap();
     let responses = adapter(Profile::Responses, Dialect::OpenRouter, "source")
         .encode_response(&deleted, &Contract::full())
         .unwrap();

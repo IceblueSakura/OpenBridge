@@ -578,7 +578,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             {
                 return Err(EventError::Lifecycle);
             }
-            let outcome = outcome(terminal, &state.items)?;
+            let outcome = outcome(terminal);
             details.validate(outcome)?;
             state.charge(details.bytes())?;
             state.details = details;
@@ -609,19 +609,13 @@ fn metadata_cost(
     }
     Ok(total)
 }
-fn outcome(terminal: StreamTerminal, items: &[StreamItem]) -> Result<Outcome, EventError> {
-    Ok(match terminal {
-        StreamTerminal::Completed => {
-            Outcome::Completed(if items.iter().any(|i| i.kind.call_id().is_some()) {
-                Completion::ToolCalls
-            } else {
-                Completion::Stop
-            })
-        }
+fn outcome(terminal: StreamTerminal) -> Outcome {
+    match terminal {
+        StreamTerminal::Completed => Outcome::Completed,
         StreamTerminal::Incomplete => Outcome::Incomplete,
         StreamTerminal::Failed | StreamTerminal::Error => Outcome::Failed,
         StreamTerminal::Cancelled => Outcome::Cancelled,
-    })
+    }
 }
 pub fn end_of_stream(state: &StreamState) -> Result<(), EventError> {
     if state.terminal.is_some() {
@@ -739,9 +733,8 @@ pub fn materialize(state: &StreamState) -> Result<GenerationResponse, EventError
     if terminal == StreamTerminal::Error {
         return Err(EventError::TerminalFailure(terminal));
     }
-    let mut response =
-        GenerationResponse::from_outcome(snapshot_items(state)?, outcome(terminal, &state.items)?)?
-            .with_details(state.details.clone())?;
+    let mut response = GenerationResponse::new(snapshot_items(state)?, outcome(terminal))?
+        .with_details(state.details.clone())?;
     if let Some(usage) = state.usage {
         response = response.with_usage(usage)?;
     }

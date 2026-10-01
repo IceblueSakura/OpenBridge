@@ -250,10 +250,7 @@ fn chat_content_and_refusal_probabilities_close_static_and_event_paths() {
                     .into(),
             )
         };
-        changed.semantic = changed
-            .semantic
-            .with_items(items, Completion::Stop)
-            .unwrap();
+        changed.semantic = changed.semantic.with_items(items).unwrap();
         let encoded = adapter(Profile::Chat)
             .encode_response(&changed, &Contract::full())
             .unwrap();
@@ -382,7 +379,7 @@ fn independent_probability_owners_encode_and_text_edits_invalidate_only_their_fa
             }],
         });
         let response =
-            GenerationResponse::new(vec![(ItemId::new(7), message)], Completion::Stop).unwrap();
+            GenerationResponse::new(vec![(ItemId::new(7), message)], Outcome::Completed).unwrap();
         let lowered = openbridge::lowering::generation::lower_response(
             &response,
             &fidelity,
@@ -465,7 +462,7 @@ fn independent_probability_owners_encode_and_text_edits_invalidate_only_their_fa
             }
             _ => unreachable!(),
         };
-        let edited = response.with_items(items, Completion::Stop).unwrap();
+        let edited = response.with_items(items).unwrap();
         let lowered = openbridge::lowering::generation::lower_response(
             &edited,
             &fidelity,

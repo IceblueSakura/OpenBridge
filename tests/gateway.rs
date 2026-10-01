@@ -387,9 +387,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
             };
             assert_eq!(
                 decoded.semantic.outcome(),
-                openbridge::semantic::task::generation::Outcome::Completed(
-                    openbridge::semantic::task::generation::Completion::Stop
-                )
+                openbridge::semantic::task::generation::Outcome::Completed
             );
             let openbridge::semantic::task::generation::Item::Message(message) =
                 &decoded.semantic.items()[0].1

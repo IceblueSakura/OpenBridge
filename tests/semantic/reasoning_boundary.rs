@@ -177,7 +177,7 @@ fn chat_ciphertext_requires_both_final_value_and_completed_owner() {
         fidelity
             .record_replay(ItemId::new(1), replay.clone(), &reasoning)
             .unwrap();
-        let semantic = GenerationResponse::unfinished(
+        let semantic = GenerationResponse::new(
             vec![
                 (ItemId::new(1), Item::Reasoning(reasoning)),
                 (

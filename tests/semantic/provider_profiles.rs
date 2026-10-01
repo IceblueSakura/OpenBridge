@@ -888,9 +888,7 @@ fn terminal_reasoning_snapshot_closes_only_received_text_and_projects_standard_e
         events::EventEncoder,
         sse::{ResponsesSseDecoder, SseLimits},
     };
-    use openbridge::semantic::task::generation::{
-        Completion, Item, ItemKind, ReasoningContent, StreamEvent,
-    };
+    use openbridge::semantic::task::generation::{Item, ItemKind, ReasoningContent, StreamEvent};
     let provider = Adapter::new(Profile::Responses, Dialect::Nvidia, None);
     let (mut snapshot, source) = terminal_reasoning_fixture();
     let static_value = provider
@@ -954,7 +952,7 @@ fn terminal_reasoning_snapshot_closes_only_received_text_and_projects_standard_e
     edited.semantic = edited
         .semantic
         .clone()
-        .with_items(edited.semantic.items()[1..].to_vec(), Completion::Stop)
+        .with_items(edited.semantic.items()[1..].to_vec())
         .unwrap();
     let projected = provider
         .encode_response(&edited, &Contract::full())
@@ -1082,7 +1080,7 @@ fn response_billing_view_is_checked_not_a_second_usage_authority() {
     assert!(projected.get("frequency_penalty").is_none());
     edited.semantic = openbridge::semantic::task::generation::GenerationResponse::new(
         edited.semantic.items().to_vec(),
-        edited.semantic.completion().unwrap(),
+        edited.semantic.outcome(),
     )
     .unwrap();
     let projected = provider
@@ -1257,13 +1255,7 @@ fn request_diagnostics_are_source_bound_not_public_facts() {
         })
         .cloned()
         .collect();
-    edited.semantic = edited
-        .semantic
-        .with_items(
-            items,
-            openbridge::semantic::task::generation::Completion::Stop,
-        )
-        .unwrap();
+    edited.semantic = edited.semantic.with_items(items).unwrap();
     assert!(
         provider
             .encode_response(&edited, &Contract::full())

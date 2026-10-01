@@ -14,6 +14,8 @@ mod cache_projection;
 mod chat_logprobs;
 #[path = "semantic/chat_wire.rs"]
 mod chat_wire;
+#[path = "semantic/continuation.rs"]
+mod continuation;
 #[path = "semantic/contract_ownership.rs"]
 mod contract_ownership;
 #[path = "semantic/extensions.rs"]

@@ -169,8 +169,7 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
                 text.clone()
                     .replace_text(Text::new("{\"ok\":true}", "synthetic", 100).unwrap()),
             );
-            let completion = decoded.semantic.completion().unwrap();
-            decoded.semantic = decoded.semantic.with_items(items, completion).unwrap();
+            decoded.semantic = decoded.semantic.with_items(items).unwrap();
         }
         let Ok(lowered) = lower_response(
             &decoded.semantic,

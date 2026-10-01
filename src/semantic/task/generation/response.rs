@@ -2,14 +2,10 @@
 use super::{GenerationError, Item, ItemId, ItemLifecycle, MAX_TEXT_BYTES};
 use crate::semantic::value::Text;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Completion {
-    Stop,
-    ToolCalls,
-}
+/// Result of one response, not completion of the logical turn or tool execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Outcome {
-    Completed(Completion),
+    Completed,
     Incomplete,
     Failed,
     Cancelled,
@@ -131,33 +127,14 @@ pub struct GenerationResponse {
     details: TerminalDetails,
 }
 impl GenerationResponse {
-    pub fn new(
-        items: Vec<(ItemId, Item)>,
-        completion: Completion,
-    ) -> Result<Self, GenerationError> {
-        Self::from_outcome(items, Outcome::Completed(completion))
-    }
-    pub fn unfinished(
-        items: Vec<(ItemId, Item)>,
-        outcome: Outcome,
-    ) -> Result<Self, GenerationError> {
-        if matches!(outcome, Outcome::Completed(_)) {
-            return Err(GenerationError::InvalidResponse);
-        }
-        Self::from_outcome(items, outcome)
-    }
-    pub fn from_outcome(
-        items: Vec<(ItemId, Item)>,
-        outcome: Outcome,
-    ) -> Result<Self, GenerationError> {
+    pub fn new(items: Vec<(ItemId, Item)>, outcome: Outcome) -> Result<Self, GenerationError> {
         if !items.is_empty() {
             super::validate::items(&items, true)?;
         }
-        if let Outcome::Completed(completion) = outcome
-            && (items.iter().any(|(_, i)| i.is_call()) != (completion == Completion::ToolCalls)
-                || items
-                    .iter()
-                    .any(|(_, i)| i.lifecycle().is_some_and(|s| s != ItemLifecycle::Completed)))
+        if outcome == Outcome::Completed
+            && items
+                .iter()
+                .any(|(_, i)| i.lifecycle().is_some_and(|s| s != ItemLifecycle::Completed))
         {
             return Err(GenerationError::InvalidResponse);
         }
@@ -195,24 +172,15 @@ impl GenerationResponse {
     pub const fn outcome(&self) -> Outcome {
         self.outcome
     }
-    pub const fn completion(&self) -> Option<Completion> {
-        match self.outcome {
-            Outcome::Completed(c) => Some(c),
-            _ => None,
-        }
-    }
     pub const fn usage(&self) -> Option<Usage> {
         self.usage
     }
     pub fn details(&self) -> &TerminalDetails {
         &self.details
     }
-    pub fn with_items(
-        self,
-        items: Vec<(ItemId, Item)>,
-        completion: Completion,
-    ) -> Result<Self, GenerationError> {
-        let mut response = Self::new(items, completion)?;
+    /// Editing content never changes response outcome or discards terminal details.
+    pub fn with_items(self, items: Vec<(ItemId, Item)>) -> Result<Self, GenerationError> {
+        let mut response = Self::new(items, self.outcome)?.with_details(self.details)?;
         response.usage = self.usage;
         Ok(response)
     }

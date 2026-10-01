@@ -88,7 +88,7 @@ fn incomplete_and_failed_responses_do_not_encode_as_success() {
     chat_wire["choices"][0]["finish_reason"] = json!("length");
     let decoded = chat::decode_response(&chat_wire).unwrap();
     assert_eq!(decoded.semantic.outcome(), Outcome::Incomplete);
-    assert!(decoded.semantic.completion().is_none());
+    assert_eq!(decoded.semantic.continuation(), Continuation::Unreported);
     let fidelity = openbridge::protocol::fidelity::FidelityRecords::default();
     let metadata = metadata();
     let encoded = lower_response(
@@ -234,7 +234,7 @@ fn chat_finish_cannot_replace_mixed_message_and_call_status() {
         panic!("call");
     };
     call.message = Some(owner);
-    let response = GenerationResponse::unfinished(items, Outcome::Incomplete).unwrap();
+    let response = GenerationResponse::new(items, Outcome::Incomplete).unwrap();
     assert!(matches!(
         lower_response(&response, &d.fidelity, &m, Profile::Chat, Contract::full()),
         Err(RepresentationError::Terminal)
@@ -266,7 +266,7 @@ fn empty_message_wire_identity_cannot_collide_with_another_item() {
             }),
         ),
     ];
-    let response = GenerationResponse::new(items, Completion::Stop).unwrap();
+    let response = GenerationResponse::new(items, Outcome::Completed).unwrap();
     let mut f = openbridge::protocol::fidelity::FidelityRecords::default();
     f.record_response_item_id(ItemId::new(2), "item_1").unwrap();
     assert!(

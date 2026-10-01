@@ -1,5 +1,7 @@
 //! Generation semantic IR.
+mod continuation;
 mod contract;
+pub use continuation::{CallReference, Continuation};
 pub use contract::{GenerationFeature, GenerationSemanticContract};
 mod event;
 mod output;
@@ -43,7 +45,6 @@ pub use event::{
     StreamTerminal, end_of_stream, materialize, reduce, snapshot_items,
 };
 pub use response::{
-    Completion, GenerationResponse, IncompleteReason, Outcome, ResponseError, TerminalDetails,
-    Usage,
+    GenerationResponse, IncompleteReason, Outcome, ResponseError, TerminalDetails, Usage,
 };
 pub use validate::{MAX_ITEMS, MAX_TEXT_BYTES, MAX_TOOLS, MAX_TOTAL_BYTES};
