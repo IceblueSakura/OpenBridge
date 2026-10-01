@@ -624,7 +624,7 @@ pub fn end_of_stream(state: &StreamState) -> Result<(), EventError> {
         Err(EventError::EofBeforeTerminal)
     }
 }
-/// Partial snapshots preserve item order and unfinished status; opaque replay stays in the sidecar.
+/// Partial snapshots preserve item order, unfinished status and typed opaque values.
 pub fn snapshot_items(state: &StreamState) -> Result<Vec<(ItemId, Item)>, EventError> {
     state
         .items
@@ -692,6 +692,7 @@ impl StreamItem {
             }),
             ItemKind::Reasoning => Item::Reasoning(ReasoningItem {
                 status,
+                encrypted: i.replay.as_ref().map(|r| r.value.clone()),
                 parts: i
                     .parts
                     .iter()

@@ -40,6 +40,8 @@ mod provider_profiles;
 mod reasoning;
 #[path = "semantic/reasoning_boundary.rs"]
 mod reasoning_boundary;
+#[path = "semantic/replay_ownership.rs"]
+mod replay_ownership;
 #[path = "semantic/response.rs"]
 mod response;
 #[path = "semantic/router_adapter.rs"]

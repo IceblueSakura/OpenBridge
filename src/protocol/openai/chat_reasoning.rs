@@ -130,25 +130,22 @@ pub(super) fn decode_static(
         } else {
             vec![]
         };
+        let encrypted = if let Some((wire_id, data)) = details.encrypted {
+            b.fidelity.record_response_item_id(id, &wire_id)?;
+            Some(EncryptedReasoning::Final(text(
+                &data,
+                "encrypted reasoning",
+                MAX_TEXT_BYTES,
+            )?))
+        } else {
+            None
+        };
         let item = ReasoningItem {
             parts,
             status: ItemLifecycle::Completed,
+            encrypted,
         };
-        if let Some((wire_id, data)) = details.encrypted {
-            b.fidelity.record_response_item_id(id, &wire_id)?;
-            b.fidelity.record_replay(
-                id,
-                ReasoningReplay {
-                    value: EncryptedReasoning::Final(text(
-                        &data,
-                        "encrypted reasoning",
-                        MAX_TEXT_BYTES,
-                    )?),
-                    origin: a.scope.clone(),
-                },
-                &item,
-            )?;
-        }
+        b.fidelity.record_replay(id, &item, a.scope.clone())?;
         b.items.push((id, Item::Reasoning(item)));
         clean.shift_remove("reasoning");
         clean.shift_remove("reasoning_content");
@@ -177,7 +174,11 @@ pub(super) fn wire(id: ItemId, item: &ReasoningItem, fidelity: &FidelityRecords)
         }
         details.push(value);
     }
-    if let Some(token) = fidelity.encrypted_reasoning_replay(id) {
+    if let Some(token) = item
+        .encrypted
+        .as_ref()
+        .and_then(EncryptedReasoning::replay_token)
+    {
         details.push(json!({"format":"openai-responses-v1","index":details.len(),"type":"reasoning.encrypted","data":token,"id":fidelity.response_item_id(id).map(str::to_owned).unwrap_or_else(||format!("item_{}",id.get()))}));
     }
     details

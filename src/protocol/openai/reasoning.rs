@@ -1,15 +1,12 @@
 //! Responses reasoning object and readable reasoning items.
 use super::{
     CodecError, Profile,
-    common::{fields, object, put_presence, read_presence, string},
+    common::{fields, object, put_presence, read_presence, string, text},
 };
-use crate::{
-    protocol::fidelity::FidelityRecords,
-    semantic::task::generation::{
-        ItemId, ItemLifecycle, MAX_TEXT_BYTES, PartId, ReasoningContent, ReasoningContext,
-        ReasoningEffort, ReasoningItem, ReasoningMode, ReasoningPresence, ReasoningRequest,
-        ReasoningSummary,
-    },
+use crate::semantic::task::generation::{
+    EncryptedReasoning, ItemLifecycle, MAX_TEXT_BYTES, PartId, ReasoningContent, ReasoningContext,
+    ReasoningEffort, ReasoningItem, ReasoningMode, ReasoningPresence, ReasoningRequest,
+    ReasoningSummary,
 };
 use serde_json::{Map, Value, json};
 
@@ -136,7 +133,7 @@ pub(super) fn decode_item(
     o: &Map<String, Value>,
     next_part: &mut impl FnMut() -> Result<PartId, CodecError>,
     allow_incomplete: bool,
-) -> Result<(ReasoningItem, Option<String>), CodecError> {
+) -> Result<ReasoningItem, CodecError> {
     fields(
         o,
         &[
@@ -207,17 +204,23 @@ pub(super) fn decode_item(
     }
     let encrypted = match o.get("encrypted_content") {
         None | Some(Value::Null) => None,
-        Some(Value::String(value)) if !value.is_empty() => Some(value.clone()),
+        Some(Value::String(value)) if !value.is_empty() => {
+            let value = text(value, "encrypted reasoning", MAX_TEXT_BYTES)?;
+            Some(if status == ItemLifecycle::InProgress {
+                EncryptedReasoning::Partial(value)
+            } else {
+                EncryptedReasoning::Final(value)
+            })
+        }
         _ => return Err(CodecError::Invalid("encrypted reasoning")),
     };
-    Ok((ReasoningItem { parts, status }, encrypted))
+    Ok(ReasoningItem {
+        parts,
+        status,
+        encrypted,
+    })
 }
-pub(super) fn encode_item(
-    id: ItemId,
-    item: &ReasoningItem,
-    fidelity: &FidelityRecords,
-    response: bool,
-) -> Value {
+pub(super) fn encode_item(item: &ReasoningItem, response: bool) -> Value {
     let summary: Vec<_> = item
         .parts
         .iter()
@@ -243,9 +246,11 @@ pub(super) fn encode_item(
         value["content"] = json!(content);
     }
     let encrypted = if response {
-        fidelity.replay(id).map(|r| r.value.as_str())
+        item.encrypted.as_ref().map(EncryptedReasoning::as_str)
     } else {
-        fidelity.encrypted_reasoning_replay(id)
+        item.encrypted
+            .as_ref()
+            .and_then(EncryptedReasoning::replay_token)
     };
     if let Some(encrypted) = encrypted {
         value["encrypted_content"] = json!(encrypted);

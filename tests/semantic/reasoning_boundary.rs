@@ -55,12 +55,7 @@ fn readable_only_output_is_reasoning_not_fabricated_assistant_text_and_replays()
         matches!(&decoded.semantic.items()[0].1,Item::Reasoning(r) if r.parts[0].1==ReasoningContent::Text(text("检查 alpha")))
     );
     assert!(matches!(&decoded.semantic.items()[1].1,Item::Message(m) if m.parts.is_empty()));
-    assert!(
-        decoded
-            .fidelity
-            .replay(decoded.semantic.items()[0].0)
-            .is_none()
-    );
+    assert!(matches!(&decoded.semantic.items()[0].1, Item::Reasoning(r) if r.encrypted.is_none()));
     let output = client.encode_response(&decoded, &Contract::full()).unwrap();
     assert_eq!(
         output["choices"][0]["message"],
@@ -168,6 +163,7 @@ fn chat_ciphertext_requires_both_final_value_and_completed_owner() {
                 ReasoningContent::Summary(text("partial summary")),
             )],
             status: ItemLifecycle::Incomplete,
+            encrypted: Some(value.clone()),
         };
         let replay = ReasoningReplay {
             value,
@@ -175,7 +171,7 @@ fn chat_ciphertext_requires_both_final_value_and_completed_owner() {
         };
         let mut fidelity = FidelityRecords::default();
         fidelity
-            .record_replay(ItemId::new(1), replay.clone(), &reasoning)
+            .record_replay(ItemId::new(1), &reasoning, Some(origin()))
             .unwrap();
         let semantic = GenerationResponse::new(
             vec![
@@ -275,8 +271,13 @@ fn chat_event_final_value_replaces_or_removes_stale_ciphertext() {
         encoder.finish().unwrap();
         decoder.done().unwrap();
         let decoded = decoder.materialize().unwrap();
+        let Item::Reasoning(r) = &decoded.semantic.items()[0].1 else {
+            panic!("reasoning")
+        };
         assert_eq!(
-            decoded.fidelity.encrypted_reasoning_replay(ItemId::new(1)),
+            r.encrypted
+                .as_ref()
+                .and_then(EncryptedReasoning::replay_token),
             replacement
         );
         assert!(
@@ -292,7 +293,6 @@ fn chat_replay_edits_deletion_and_origin_are_checked_independently_of_plain_text
     let mut request = source
         .decode_request(history.to_string().as_bytes())
         .unwrap();
-    let owner = request.task.semantic.items()[0].0;
     let mut other = contract();
     other.replay_origin = Some(ReplayOrigin::new("different-issuer").unwrap());
     assert!(source.encode_request(&request, "m", &other).is_err());
@@ -303,7 +303,12 @@ fn chat_replay_edits_deletion_and_origin_are_checked_independently_of_plain_text
     reason.parts[0].1 = ReasoningContent::Summary(text("changed summary"));
     request.task.semantic = request.task.semantic.clone().with_items(items).unwrap();
     assert!(source.encode_request(&request, "m", &contract()).is_err());
-    request.task.fidelity.remove_replay(owner);
+    let mut items = request.task.semantic.items().to_vec();
+    let Item::Reasoning(reason) = &mut items[0].1 else {
+        panic!("reasoning")
+    };
+    reason.encrypted = None;
+    request.task.semantic = request.task.semantic.clone().with_items(items).unwrap();
     let edited = source.encode_request(&request, "m", &contract()).unwrap();
     assert_eq!(
         edited["messages"][0]["reasoning_details"],

@@ -161,6 +161,10 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
             }
             Item::Reasoning(r) => {
                 active_owner = None;
+                if let Some(value) = &r.encrypted {
+                    value.validate()?;
+                    add(&mut bytes, value.as_str())?;
+                }
                 for (id, p) in &r.parts {
                     part_id(&mut parts, *id)?;
                     let (ReasoningContent::Summary(t) | ReasoningContent::Text(t)) = p;

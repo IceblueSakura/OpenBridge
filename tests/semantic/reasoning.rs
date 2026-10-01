@@ -128,7 +128,9 @@ fn independent_reasoning_stream_closes_and_preserves_both_part_domains_and_token
     assert_eq!(r.parts[1].1, ReasoningContent::Text(text("reasoning")));
     assert_ne!(r.parts[0].0, r.parts[1].0);
     assert_eq!(
-        decoded.fidelity.encrypted_reasoning_replay(ItemId::new(1)),
+        r.encrypted
+            .as_ref()
+            .and_then(EncryptedReasoning::replay_token),
         Some("final-synthetic")
     );
     let encoded = encode(&events, Profile::Responses, &decoded.fidelity);
@@ -234,31 +236,26 @@ fn partial_final_phases_and_resource_limits_fail_without_panics() {
         .is_err()
     );
     let mut f = FidelityRecords::default();
-    let owner = ReasoningItem {
+    let mut owner = ReasoningItem {
         parts: vec![],
         status: ItemLifecycle::Completed,
+        encrypted: Some(EncryptedReasoning::Final(text("x"))),
     };
     for i in 0..MAX_ITEMS {
-        f.record_replay(ItemId::new(i as u64), token("x", true), &owner)
+        f.record_replay(ItemId::new(i as u64), &owner, Some(origin()))
             .unwrap();
     }
     assert!(
-        f.record_replay(ItemId::new(MAX_ITEMS as u64), token("x", true), &owner)
+        f.record_replay(ItemId::new(MAX_ITEMS as u64), &owner, Some(origin()))
             .is_err()
     );
-    let mut f = FidelityRecords::default();
-    for i in 0..4 {
-        f.record_replay(
-            ItemId::new(i),
-            token(&"x".repeat(MAX_TEXT_BYTES), true),
-            &owner,
-        )
-        .unwrap();
-    }
+    owner.encrypted = Some(EncryptedReasoning::Partial(text("partial")));
     assert!(
-        f.record_replay(ItemId::new(4), token("x", true), &owner)
+        f.record_replay(ItemId::new(0), &owner, Some(origin()))
             .is_err()
     );
+    owner.encrypted = Some(EncryptedReasoning::Final(text("final")));
+    assert!(f.record_replay(ItemId::new(0), &owner, None).is_err());
 }
 #[test]
 fn unsupported_snapshot_content_is_not_silently_dropped() {
@@ -373,6 +370,7 @@ fn wire_reasoning_identity_is_required_and_fresh_items_assign_request_ids() {
                 Item::Reasoning(ReasoningItem {
                     parts: vec![(PartId::new(1), ReasoningContent::Summary(text("plan")))],
                     status: ItemLifecycle::Completed,
+                    encrypted: None,
                 }),
             ),
             (

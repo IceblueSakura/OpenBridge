@@ -195,6 +195,7 @@ pub(super) fn decode_message(
             Item::Reasoning(ReasoningItem {
                 parts: vec![(part_id, ReasoningContent::Text(text))],
                 status: ItemLifecycle::Completed,
+                encrypted: None,
             }),
         ));
     }
@@ -435,7 +436,7 @@ pub(super) fn encode_items_with(
                 // Chat carries readable reasoning text on its carrier message.
                 standalone_calls = false;
                 if structured
-                    && (fidelity.replay(*id).is_some()
+                    && (r.encrypted.is_some()
                         || r.parts
                             .iter()
                             .any(|(_, p)| matches!(p, ReasoningContent::Summary(_))))

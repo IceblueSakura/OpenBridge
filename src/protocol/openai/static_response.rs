@@ -372,13 +372,18 @@ pub(crate) fn decode_chat_with(
     chat::decode_message(&mut b, &message, false)?;
     super::chat_logprobs::attach(&mut b.items, c.get("logprobs"))?;
     if matches!(outcome, Outcome::Incomplete) {
-        for (id, item) in &mut b.items {
+        for (_, item) in &mut b.items {
             match item {
                 Item::ToolCall(call) => call.status = ItemLifecycle::Incomplete,
                 Item::Message(m) => m.status = ItemLifecycle::Incomplete,
                 // A complete encrypted detail already closed its owner. The
                 // carrier can truncate later without making that token partial.
-                Item::Reasoning(r) if b.fidelity.encrypted_reasoning_replay(*id).is_none() => {
+                Item::Reasoning(r)
+                    if r.encrypted
+                        .as_ref()
+                        .and_then(EncryptedReasoning::replay_token)
+                        .is_none() =>
+                {
                     r.status = ItemLifecycle::Incomplete;
                 }
                 _ => {}

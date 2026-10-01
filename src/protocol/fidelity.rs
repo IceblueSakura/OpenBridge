@@ -37,12 +37,20 @@ struct ResponseExtras {
     values: BTreeMap<String, Value>,
 }
 
+/// A bounded proof of intake association, not a token store or issuer verification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReplayBinding {
+    origin: Option<ReplayOrigin>,
+    dependency: [u8; 32],
+    final_value: bool,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FidelityRecords {
     response_item_ids: BTreeMap<ItemId, Text>,
     cache_breakpoints: std::collections::BTreeSet<PartId>,
     input_text_forms: std::collections::BTreeSet<PartId>,
-    encrypted_reasoning: BTreeMap<ItemId, (ReasoningReplay, [u8; 32])>,
+    reasoning_replay: BTreeMap<ItemId, ReplayBinding>,
     response_extras: Option<ResponseExtras>,
     routing_extras: Option<ResponseExtras>,
     normalizations: std::collections::BTreeSet<Normalization>,
@@ -91,64 +99,65 @@ impl FidelityRecords {
     pub fn response_item_id(&self, owner: ItemId) -> Option<&str> {
         self.response_item_ids.get(&owner).map(Text::as_str)
     }
+    /// Capture at trusted decode/event boundaries, never to bless a transformed value.
     pub fn record_replay(
         &mut self,
         owner: ItemId,
-        value: ReasoningReplay,
         semantic: &ReasoningItem,
+        origin: Option<ReplayOrigin>,
     ) -> Result<(), CodecError> {
+        let Some(value) = &semantic.encrypted else {
+            self.remove_replay(owner);
+            return Ok(());
+        };
         value.validate()?;
-        if !self.encrypted_reasoning.contains_key(&owner)
-            && self.encrypted_reasoning.len() >= MAX_ITEMS
-        {
+        if !self.reasoning_replay.contains_key(&owner) && self.reasoning_replay.len() >= MAX_ITEMS {
             return Err(CodecError::Limit);
         }
-        if self
-            .encrypted_reasoning
-            .get(&owner)
-            .is_some_and(|(old, _)| {
-                old.value.replay_token().is_some() && value.value.replay_token().is_none()
-            })
-        {
-            return Err(CodecError::Invalid("encrypted reasoning phase"));
+        let final_value = value.replay_token().is_some();
+        if let Some(old) = self.reasoning_replay.get(&owner) {
+            if old.final_value && !final_value {
+                return Err(CodecError::Invalid("encrypted reasoning phase"));
+            }
+            if old.origin.is_some() && old.origin != origin {
+                return Err(CodecError::Invalid("replay origin rebinding"));
+            }
         }
-        let bytes: usize = self
-            .encrypted_reasoning
-            .iter()
-            .filter(|(id, _)| **id != owner)
-            .map(|(_, (r, _))| r.value.as_str().len())
-            .sum();
-        if bytes.saturating_add(value.value.as_str().len()) > MAX_TOTAL_BYTES {
-            return Err(CodecError::Limit);
-        }
-        self.encrypted_reasoning
-            .insert(owner, (value, fingerprint(semantic)));
+        self.reasoning_replay.insert(
+            owner,
+            ReplayBinding {
+                origin,
+                dependency: fingerprint(semantic),
+                final_value,
+            },
+        );
         Ok(())
     }
-    pub fn replay(&self, owner: ItemId) -> Option<&ReasoningReplay> {
-        self.encrypted_reasoning.get(&owner).map(|(r, _)| r)
-    }
-    pub fn replay_matches(&self, owner: ItemId, semantic: &ReasoningItem) -> bool {
-        self.encrypted_reasoning
-            .get(&owner)
-            .is_none_or(|(_, binding)| *binding == fingerprint(semantic))
+    pub fn replay_matches(
+        &self,
+        owner: ItemId,
+        semantic: &ReasoningItem,
+        target: Option<&ReplayOrigin>,
+    ) -> bool {
+        self.reasoning_replay.get(&owner).is_some_and(|binding| {
+            binding.origin.is_some()
+                && binding.origin.as_ref() == target
+                && binding.dependency == fingerprint(semantic)
+        })
     }
     pub fn remove_replay(&mut self, owner: ItemId) {
-        self.encrypted_reasoning.remove(&owner);
-    }
-    pub fn encrypted_reasoning_replay(&self, owner: ItemId) -> Option<&str> {
-        self.replay(owner).and_then(|r| r.value.replay_token())
+        self.reasoning_replay.remove(&owner);
     }
     /// Bind origin only at a trusted decode boundary, never from business JSON.
     pub fn bind_replay_origin(&mut self, origin: &ReplayOrigin) -> Result<(), CodecError> {
         if self
-            .encrypted_reasoning
+            .reasoning_replay
             .values()
-            .any(|(r, _)| r.origin.as_ref().is_some_and(|old| old != origin))
+            .any(|r| r.origin.as_ref().is_some_and(|old| old != origin))
         {
             return Err(CodecError::Invalid("replay origin rebinding"));
         }
-        for (replay, _) in self.encrypted_reasoning.values_mut() {
+        for replay in self.reasoning_replay.values_mut() {
             replay.origin = Some(origin.clone());
         }
         Ok(())
@@ -289,7 +298,7 @@ impl FidelityRecords {
     pub fn retain_owners(&mut self, items: &[(ItemId, Item)]) {
         self.response_item_ids
             .retain(|id, _| items.iter().any(|(owner, _)| owner == id));
-        self.encrypted_reasoning.retain(|id, _| {
+        self.reasoning_replay.retain(|id, _| {
             items
                 .iter()
                 .any(|(owner, item)| owner == id && matches!(item, Item::Reasoning(_)))
@@ -300,7 +309,18 @@ impl FidelityRecords {
 // Hashing the complete typed response conservatively invalidates extras after edits.
 fn response_dependency(response: &GenerationResponse) -> [u8; 32] {
     use sha2::{Digest, Sha256};
-    Sha256::digest(format!("{response:?}").as_bytes()).into()
+    let mut hash = Sha256::new();
+    hash.update(format!("{response:?}").as_bytes());
+    // Opaque Debug is redacted; bind its bytes separately without formatting them.
+    for (id, item) in response.items() {
+        if let Item::Reasoning(r) = item
+            && let Some(value) = &r.encrypted
+        {
+            hash.update(id.get().to_le_bytes());
+            hash.update(value.fingerprint());
+        }
+    }
+    hash.finalize().into()
 }
 
 // A digest binds replay to its typed owner without retaining a second readable payload.
@@ -312,6 +332,13 @@ fn fingerprint(item: &ReasoningItem) -> [u8; 32] {
         ItemLifecycle::Incomplete => 1,
         ItemLifecycle::InProgress => 2,
     }]);
+    match &item.encrypted {
+        None => hash.update([0]),
+        Some(value) => {
+            hash.update([1]);
+            hash.update(value.fingerprint());
+        }
+    }
     for (id, part) in &item.parts {
         hash.update(id.get().to_le_bytes());
         let (kind, text) = match part {

@@ -1,7 +1,8 @@
 //! Responses reasoning controls and readable reasoning items.
 //!
 //! An absent object, an omitted child, and explicit `none` are distinct.
-//! Opaque encrypted replay stays in fidelity records, not in these parts.
+//! Opaque Responses values belong to their typed item, never to readable parts.
+//! Source records bind provenance and dependencies without owning another payload.
 use super::PartId;
 use crate::semantic::value::Text;
 
@@ -104,14 +105,36 @@ impl ReasoningRequest {
 ///
 /// SSE has no encrypted-content delta event. `output_item.added` may carry a
 /// partial value, and only `output_item.done` carries the replayable token.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum EncryptedReasoning {
     /// Incomplete value from `response.output_item.added`. Not replayable.
     Partial(Text),
     /// Final value from `response.output_item.done`. This is the only replay token.
     Final(Text),
 }
+impl std::fmt::Debug for EncryptedReasoning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Partial(_) => "Partial([REDACTED])",
+            Self::Final(_) => "Final([REDACTED])",
+        })
+    }
+}
 impl EncryptedReasoning {
+    pub fn validate(&self) -> Result<(), super::GenerationError> {
+        if self.as_str().is_empty() || self.as_str().len() > super::MAX_TEXT_BYTES {
+            return Err(super::GenerationError::Limit);
+        }
+        Ok(())
+    }
+    // Dependency hashing must not use redacted Debug output as a value identity.
+    pub(crate) fn fingerprint(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update([u8::from(matches!(self, Self::Final(_)))]);
+        hash.update(self.as_str().as_bytes());
+        hash.finalize().into()
+    }
     pub fn replay_token(&self) -> Option<&str> {
         match self {
             Self::Partial(_) => None,
@@ -124,7 +147,8 @@ impl EncryptedReasoning {
         }
     }
 }
-/// Representation-side replay state. It is never a readable reasoning part.
+/// Event-owned value and trusted intake scope. Materialization moves the value
+/// into its reasoning item; fidelity retains only a source/dependency binding.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReasoningReplay {
     pub value: EncryptedReasoning,
@@ -132,10 +156,7 @@ pub struct ReasoningReplay {
 }
 impl ReasoningReplay {
     pub fn validate(&self) -> Result<(), super::GenerationError> {
-        if self.value.as_str().is_empty() || self.value.as_str().len() > super::MAX_TEXT_BYTES {
-            return Err(super::GenerationError::Limit);
-        }
-        Ok(())
+        self.value.validate()
     }
     pub fn permits(&self, target: Option<&crate::semantic::value::ReplayOrigin>) -> bool {
         self.origin.is_some() && self.origin.as_ref() == target
@@ -151,4 +172,5 @@ pub enum ReasoningContent {
 pub struct ReasoningItem {
     pub parts: Vec<(PartId, ReasoningContent)>,
     pub status: super::ItemLifecycle,
+    pub encrypted: Option<EncryptedReasoning>,
 }

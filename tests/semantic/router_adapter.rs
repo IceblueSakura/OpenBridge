@@ -87,6 +87,7 @@ fn router_facts_are_scoped_and_reasoning_and_usage_are_typed() {
                     ItemId::new(99),
                     Item::Reasoning(ReasoningItem {
                         status: ItemLifecycle::Completed,
+                        encrypted: None,
                         parts: vec![(
                             PartId::new(99),
                             ReasoningContent::Text(
@@ -282,8 +283,13 @@ fn structured_reasoning_stream_binds_late_identity_and_rejects_duplicate_replay(
         assert_eq!(decoded.semantic, decoder.materialize().unwrap().semantic);
         let id = decoded.semantic.items()[0].0;
         assert_eq!(decoded.fidelity.response_item_id(id), Some("rs-late"));
+        let Item::Reasoning(r) = &decoded.semantic.items()[0].1 else {
+            panic!("reasoning")
+        };
         assert_eq!(
-            decoded.fidelity.encrypted_reasoning_replay(id),
+            r.encrypted
+                .as_ref()
+                .and_then(EncryptedReasoning::replay_token),
             Some("synthetic-replay")
         );
         let mut broken = source.event_decoder();

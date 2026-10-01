@@ -119,7 +119,7 @@ fn sync_replays(
                 let Item::Reasoning(semantic) = item.snapshot()? else {
                     unreachable!("reasoning owner")
                 };
-                fidelity.record_replay(item.id, replay.clone(), &semantic)?;
+                fidelity.record_replay(item.id, &semantic, replay.origin.clone())?;
             } else {
                 fidelity.remove_replay(item.id);
             }

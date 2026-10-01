@@ -134,6 +134,59 @@ fn sse_reasoning_snapshots_cannot_drop_required_identity() {
     }
 }
 #[test]
+fn opaque_replay_cannot_be_promoted_by_missing_done_conflicting_terminal_or_eof() {
+    for failure in ["missing_item_done", "conflicting_token", "missing_terminal"] {
+        let mut values = wire::events(1);
+        match failure {
+            "missing_item_done" => values.retain(|v| {
+                !(v["type"] == "response.output_item.done" && v["item"]["type"] == "reasoning")
+            }),
+            "conflicting_token" => {
+                values.last_mut().unwrap()["response"]["output"][0]["encrypted_content"] =
+                    json!("different-synthetic-token")
+            }
+            _ => {
+                values.pop();
+            }
+        }
+        let bytes: Vec<_> = values
+            .iter_mut()
+            .enumerate()
+            .flat_map(|(n, v)| {
+                v["sequence_number"] = json!(n);
+                encode_frame(v, SseLimits::default().max_event_bytes).unwrap()
+            })
+            .collect();
+        for size in [1, 17, bytes.len()] {
+            let mut d = decoder(SseLimits::default());
+            let mut rejected = false;
+            'input: for chunk in bytes.chunks(size) {
+                let mut rest = chunk;
+                while !rest.is_empty() {
+                    match d.consume(rest) {
+                        Ok((used, _)) => {
+                            assert!(used > 0);
+                            rest = &rest[used..];
+                        }
+                        Err(_) => {
+                            rejected = true;
+                            break 'input;
+                        }
+                    }
+                }
+            }
+            assert!(d.finish().is_err(), "{failure}");
+            assert!(d.materialize().is_err(), "{failure}");
+            assert!(
+                d.consume(&wire_events()).is_err(),
+                "rejected streams cannot resume"
+            );
+            assert_eq!(rejected, failure != "missing_terminal");
+        }
+    }
+}
+
+#[test]
 fn complete_sse_message_snapshots_cannot_default_missing_identity_or_status() {
     for kind in [
         "response.output_item.added",

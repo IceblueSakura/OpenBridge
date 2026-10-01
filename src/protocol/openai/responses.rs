@@ -321,33 +321,12 @@ pub(super) fn decode_items(
             Some("reasoning") => {
                 // Wire reasoning items carry required identity; it is never invented.
                 text(string(o, "id")?, "reasoning id", 256)?;
-                let (r, encrypted) = super::reasoning::decode_item(
+                let r = super::reasoning::decode_item(
                     o,
                     &mut || b.part_id(),
                     !response || item_status != "completed",
                 )?;
-                if let Some(t) = encrypted {
-                    b.fidelity.record_replay(
-                        id,
-                        ReasoningReplay {
-                            value: if r.status == ItemLifecycle::InProgress {
-                                EncryptedReasoning::Partial(text(
-                                    &t,
-                                    "encrypted reasoning",
-                                    MAX_TEXT_BYTES,
-                                )?)
-                            } else {
-                                EncryptedReasoning::Final(text(
-                                    &t,
-                                    "encrypted reasoning",
-                                    MAX_TEXT_BYTES,
-                                )?)
-                            },
-                            origin: None,
-                        },
-                        &r,
-                    )?;
-                }
+                b.fidelity.record_replay(id, &r, None)?;
                 Item::Reasoning(r)
             }
             Some("message") | None => {
@@ -584,7 +563,7 @@ pub(super) fn encode_items(
             Item::ProgramOutput(o) => {
                 json!({"type":"program_output","call_id":o.call_id.as_str(),"result":o.result,"status":status_label(o.status)})
             }
-            Item::Reasoning(r) => super::reasoning::encode_item(*id, r, fidelity, response),
+            Item::Reasoning(r) => super::reasoning::encode_item(r, response),
         };
         if response {
             v["id"] = json!(
