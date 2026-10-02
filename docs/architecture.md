@@ -22,6 +22,7 @@ Authenticated bounded HTTP input
 | [protocol](../src/protocol/mod.rs) | 共用语法、envelope/event codecs、strict JSON、具名适配和来源保真 |
 | [lowering](../src/lowering/generation.rs) | 最终不可变语义的目标可表示性；不选择 Provider、不恢复删除值 |
 | [provider](../src/provider/mod.rs) | 可信 origin/path、认证材料和 HTTP 错误分类 |
+| [credential](../src/credential/mod.rs) | profile-neutral manager、显式授权 drivers 与逐账户文件 store；管理生命周期和认证 I/O，不接入 Gateway 数据面 |
 | [topology](../src/topology/mod.rs) | canonical/public model、Route、Endpoint 的固定关系与编译 |
 | [execution](../src/execution/mod.rs) | 候选计划、请求准备、增量 intake、响应投影和显式交付生命周期 |
 | [SSE transport](../src/transport/sse.rs) / [HTTP transport](../src/transport/http.rs) | 有界 framing / 对已准备可信请求执行 I/O；不解释或改写 IR |

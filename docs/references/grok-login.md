@@ -55,7 +55,7 @@ pi 内置请求的 scope 为 `openid profile email offline_access grok-cli:acces
 5. 个人 OIDC 分支校验 ID-token 签名、issuer、client audience、expiry 和 nonce，然后保存 credential；team 分支可能没有个人 ID token，按具体 principal 合同处理，不能强造个人身份。
 6. 结束 listener、输入等待和临时授权状态。浏览器页面收到 code 不等于 exchange、身份校验和持久化已经成功。
 
-官方快照提供 loopback 与手动粘贴两条路径，并允许裸 authorization code 在没有 state 时跳过 state 检查。补充插件的浏览器路径只接受带匹配 state 的完整 redirect URL，并固定第一方 discovery/JWKS 与 ES256/S256 策略。OpenBridge 不应采用裸 code 绕过 state；错误 callback 也须先验证其事务绑定，不覆盖另一登录尝试。PKCE、state、nonce 分别约束不同边界，不能相互替代。
+官方快照提供 loopback 与手动粘贴两条路径，并允许裸 authorization code 在没有 state 时跳过 state 检查。补充插件的浏览器路径只接受带匹配 state 的完整 redirect URL，并固定第一方 discovery/JWKS 与 ES256/S256 策略。OpenBridge 的 [callback owner](../../src/credential/callback.rs)不接受裸 code 或手动 URL 绕过；错误 callback 也先验证其事务绑定，不覆盖另一登录尝试。PKCE、state、nonce 分别约束不同边界，不能相互替代。
 
 ## 标准设备授权
 
@@ -110,10 +110,10 @@ pi 的 [xai OAuth][pi-xai-oauth]采用此 grant，支持 `verification_uri_compl
 ## 采用前需要定稿的事项
 
 1. xAI 对 OpenBridge 的合法 client/redirect/scope、第三方客户端及网关用途的接入合同。
-2. 选定个人或 team principal、其身份验证方式与订阅 inference contract，不能只用登录 UI 文案判断权限。
-3. xAI 自有 secret store、实际 rotation/revocation 与可采用的 inference/cache carrier；共用存储、验证和操作授权归 [OAuth 采用边界](oauth-login.md#共用采用边界)，不重复建立通用运行时。
+2. OpenBridge 选定个人账户、公共 Responses 方向；设备与显式浏览器 wire、nonce/ES256/UserInfo 一致性与总期限由 [Grok authority](../../src/credential/grok.rs)拥有，callback 注册资格仍需操作者确认；自有 store 与生命周期由 [共用池 ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)及 [credential owner](../../src/credential/mod.rs)拥有，按认证类型与 Codex 隔离，不实现 team 或数据面账户调度。UserInfo identity 不证明订阅 inference contract，不能只用登录 UI 文案判断权限。
+3. Gateway 的 credential 借用、订阅准入与 inference/cache carrier 仍需自己的执行切片；共用存储、验证和操作授权归 [OAuth 采用边界](oauth-login.md#共用采用边界)，不重复建立通用运行时。
 
-这些来源不定稿上述选择，也不改变当前 [Generation 缺口](../implementation-status/generation.md)。
+外部来源不能替代 OpenBridge 的采用决策，也不补齐当前 [Generation 缺口](../implementation-status/generation.md)中的 Gateway 接线与执行合同。
 
 [grok-auth-doc]: https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md
 [grok-enterprise]: https://docs.x.ai/build/enterprise

@@ -12,7 +12,7 @@ getrandom = "0.4"
 httpdate = "1.0"
 reqwest = { version = "0.13", default-features = false, features = ["stream", "rustls"] }
 subtle = "2.6"
-tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"], default-features = false }
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "io-util"], default-features = false }
 bytes = "1.12"
 base64 = "0.22"
 url = "2.5"
@@ -22,6 +22,12 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 sha2 = "0.11"
 thiserror = "2.0"
 strum = { version = "0.28", features = ["derive"] }
+
+[target.'cfg(unix)'.dependencies]
+errno = "0.3"
+libc = "0.2"
+ring = "0.17"
+httparse = "1"
 
 [dev-dependencies]
 reqwest = { version = "0.13", default-features = false, features = ["json"] }

@@ -14,6 +14,7 @@
 | [当前焦点](implementation-plans/current-focus.md) / [下一步目标](implementation-plans/next-goal.md) | 获准行为切片 / 推进方向；不是授权来源 |
 | [开发指南](development.md) | 本地检查方法与验证层级，不记录执行结果 |
 | [HTTP 指南](http-gateway.md) / [OpenAPI](openapi.json) | 启动与公共 HTTP 接口 |
+| [凭据管理](credentials.md) | 多 profile 文件授权组件的登录、refresh、退出与存储恢复边界 |
 | [Probe 指南](probes.md) | 显式计划、预算、执行和诊断边界 |
 | [来源入口](references/README.md) | 必要标准出处、固定版本和许可；动态信息按需重查 |
 | [归档定位](archive.md) | 旧源码的 Git 定位，不是当前兼容要求 |

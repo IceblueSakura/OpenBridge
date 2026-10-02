@@ -1,0 +1,29 @@
+# ADR 0012: Profile-neutral authorization credential management
+
+## Status
+
+Accepted. Authorization management does not authorize live login, credential migration, discovery or inference.
+
+## Decision
+
+- One [manager](../../../src/credential/manager.rs) owns account lifecycle, login tickets, identity binding, refresh coordination and publication. Explicitly registered [drivers](../../../src/credential/driver.rs) own authority/client contracts, supported methods, wire encoding, identity verification, token-field inheritance and revocation. The manager, file store and HTTP transport do not branch on Provider identity.
+- Auth profiles are distinct from inference Providers. A profile binds one authorization contract; equal aliases, subjects or Bearer syntax do not make registrations or tokens interchangeable. Grok personal authorization and Codex product authorization remain separate. Codex is not public SIWC.
+- Share bounded OAuth mechanisms, PKCE, callback validation and OIDC cryptography, not a universal token-response schema or configurable workflow engine. Driver-specific claims remain typed at their owner. JWT headers never select trusted issuers, algorithms or key URLs. A verified principal scope is part of identity, not arbitrary metadata.
+- Record revision, credential generation and operation ticket have separate meanings. Session lifecycle and access-token freshness are separate; unknown expiry stays unknown. Failed/cancelled reauthorization does not overwrite a previous usable session. Login results must match the current ticket, client and bound principal before publication.
+- Authorization information uses readable, deterministically formatted files: one account document in each profile directory. Identity, session state and tokens are published together. The [Unix store](../../../src/credential/store.rs) owns protected directory-relative I/O, advisory locks and durable atomic replacement, not authority validation. The new format deliberately breaks old snapshots; no implicit conversion, legacy aliases or auth-cache import is provided.
+- Account operation locks exclude competing mutations of the same account; the store-wide transaction lock is held only for bounded local reads/checks/writes, never across authority I/O or human interaction. Publication reloads current records and enforces identity uniqueness under that short lock. Contention returns busy rather than silently waiting, retrying or changing accounts.
+- Before sending a rotating refresh grant, durably remove reusable secrets and invalidate old login tickets. Cancellation, rejection or uncertain completion requires reauthorization; no blind refresh replay. Every file publication has a durable pending marker before replacement. A marker left by interrupted/uncertain publication quarantines that account on reopen; list cannot report its tokens usable. Explicit login or local logout can replace the quarantined record. Confirmed snapshot durability and marker-cleanup durability are distinguished: a stale marker may conservatively require recovery, but never authorizes use of an older token.
+- Local logout clears the chosen record before optional remote revocation. The remote result is separately acknowledged or unconfirmed; cancellation or a missing handle cannot claim remote logout. The driver decides whether revocation is supported; no generic fallback or inferred endpoint.
+- CLI is a presentation/cancellation adapter over the same manager API. Trusted explicit proxy configuration is allowed; ambient proxies, redirects and automatic retries remain disabled. Business data cannot select an authority, proxy, credential, auth header or script. Secrets and complete identity bundles are never status/log output.
+
+## Rationale and consequences
+
+The reusable boundary is the authorization lifecycle, not a mechanical union of product wire fields. New drivers compose shared mechanisms and register explicitly without adding Provider branches to the manager or storage. A new shared semantic requirement may still evolve the contract; no dynamic plugin, database, generic metadata bag or speculative Muse flow is introduced.
+
+Files favor local inspection and debugging; owner-only permissions are still required, and JSON contains secrets. This design does not protect against malicious same-UID processes, promise secure erasure, or support multi-host coordination. No real credential files are read, deleted or migrated by a source refactor. Filesystem support for advisory locking, atomic rename and fsync is required.
+
+Grok requires an operator-approved client and uses trusted UserInfo; browser login additionally validates ES256 ID-token nonce and subject agreement. Codex uses its pinned product client and RS256 subject/principal-scope validation. Its product metadata and absent-field rules remain at the [Codex owner](../../../src/credential/codex.rs), not in common HTTP or storage.
+
+Gateway credential borrowing, replay/session identity across token rotation, subscription admission and backend execution remain separate slices. The manager is not an account scheduler, quota service or cross-account fallback mechanism. Tokens, locators and refresh state do not enter task IR.
+
+Protocol sources: [Grok](../../references/grok-login.md), [ChatGPT](../../references/chatgpt-login.md). Operations: [credential guide](../../credentials.md). Exact schemas, resource budgets and failure cases belong to owning code and independent tests, not duplicated tables here.

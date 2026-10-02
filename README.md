@@ -6,9 +6,9 @@ OpenBridge 的最终目标是**以一套 Agent-first、协议中立的 IR 兼容
 
 Generation IR **以有序交互、行动与结果、控制转移和续轮依赖为设计主线**。OpenAI Responses、Google Gemini、Anthropic Messages 是共同参考，不是表达力上限；既不取最小公分母，也不机械合并各家字段。设计依据见[决策与语义设计](docs/architecture-v2/README.md)，外部出处见[来源入口](docs/references/README.md)。**当前工作区包含 Rust 语义库与最小 loopback Generation 网关，不是完整标准实现或生产就绪服务。**
 
-旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。库构造不读取私有配置；`openbridge` binary 通过显式环境变量启动认证的 loopback HTTP 入口，不读取旧配置。启动方式、限制与接口见 [HTTP 网关指南](docs/http-gateway.md)。受控 `examples/live_probe.rs` 仍有独立运行授权与凭据边界，不属于默认验证。
+旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。语义库构造不隐式读取私有配置；独立 auth CLI 只访问操作者明确提供的自有 store。`openbridge` binary 通过显式环境变量启动认证的 loopback HTTP 入口，不读取旧配置。启动方式、限制与接口见 [HTTP 网关指南](docs/http-gateway.md)。受控 `examples/live_probe.rs` 仍有独立运行授权与凭据边界，不属于默认验证。
 
-下一步 IR 设计优先定稿**交互与续轮、分组及 replay 依赖**，再展开资源/工具结果、cache/usage 与上下文演进。既有 **Codex / SuperGrok OAuth2 登录**方向保留，协议来源已有独立参考；接入资格、credential owner 与执行合同仍须定稿，未接入当前网关；设计顺序、保留的实施方向与前置条件分别由 [next-goal](docs/implementation-plans/next-goal.md) 维护。登录合同来源与必要旧资料定位见 [账户登录参考](docs/references/oauth-login.md)。
+下一步 IR 设计优先定稿**交互与续轮、分组及 replay 依赖**，再展开资源/工具结果、cache/usage 与上下文演进。账户登录与模型交互独立推进：Grok 选定个人账户、公共 Responses 方向，ChatGPT 选定 Codex 产品登录与订阅用途；独立 [共用凭据管理 CLI](docs/credentials.md) 按认证类型隔离 Grok 设备/浏览器、Codex 设备交互、刷新与退出，使用可读的逐账户文件、独立操作协调与显式 driver 注册，拒绝旧 snapshot 且不自动迁移，不接入当前网关、不自动选择或切换账户。合法 client、部署用途与订阅推理执行合同仍需独立确认，不将 Codex token 当作公开 SIWC 或 API key。设计顺序与保留的实施方向由 [next-goal](docs/implementation-plans/next-goal.md) 维护，登录合同来源见 [账户登录参考](docs/references/oauth-login.md)。
 
 ## 当前范围
 
@@ -53,6 +53,7 @@ git diff --check
 
 - [文档索引](docs/README.md)
 - [HTTP 网关启动与接口](docs/http-gateway.md)
+- [Grok / Codex 共用凭据管理](docs/credentials.md)
 - [受控 Probe 计划、预算与诊断](docs/probes.md)
 - [当前结构](docs/architecture.md)
 - [v2 设计](docs/architecture-v2/README.md)

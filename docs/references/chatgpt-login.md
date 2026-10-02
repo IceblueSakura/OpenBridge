@@ -10,6 +10,7 @@
 |---|---|---|
 | Codex 官方产品文档 | [Authentication][codex-auth-doc]、[Access tokens][codex-access-doc] | 浏览器/设备入口、workspace 管理、存储和独立 automation 认证 |
 | Codex 官方源码 | `openai/codex@d25c114d494ddb693290b76bf5e5f64ecbdb38fc`，[Apache-2.0][codex-license] | [浏览器 server][codex-server]、[私有设备交互][codex-device]、[OAuth 协议][codex-oauth-client]、[callback 绑定][codex-authorization]、[auth manager][codex-manager]、[token claims][codex-token-data]、[存储][codex-storage]、[撤销][codex-revoke] |
+| OpenBridge Codex 设备凭据池 wire 来源 | 稳定 CLI [`0.160.0`][codex-pool-release]，`openai/codex@a956835d020762cb2b570053af06f643a11c0ecc`，[Apache-2.0][codex-pool-license] | [私有设备交互][codex-pool-device]、[code/refresh 编码][codex-pool-oauth]、[refresh owner][codex-pool-manager]、[JSON revocation][codex-pool-revoke]、[默认与 raw auth client][codex-pool-client]；不是 SIWC 或旧语义基线升级 |
 | pi coding agent / pi-ai | `0.99.2`，`earendil-works/pi@005af57d88ee23b33778f343a9595b32e67ff788`，[MIT][pi-license] | [公开 SIWC 登录][pi-siwc]、[Codex 登录][pi-codex]、[OpenAI Provider][pi-openai-provider]、[Codex Provider][pi-codex-provider]、[刷新协调][pi-resolve] |
 | 公开 SIWC 官方合同 | [Overview][siwc-overview]、[Registration and sign-in][siwc-sign-in]、[Accounts and sessions][siwc-sessions]、[Token reference][siwc-tokens]、[Models and inference][siwc-inference] | 第三方本地/开源应用的动态 registration、identity、consent、refresh 和 Responses 路径 |
 | 公开 authority 元数据 | [OIDC discovery][openai-discovery]、[JWKS][openai-jwks] | SIWC issuer、端点与签名验证来源；不能覆盖 Codex 固定产品端点 |
@@ -41,7 +42,7 @@
 
 ## Codex 设备交互不是标准 device grant
 
-固定 [device_code_auth][codex-device] 与 [pi Codex OAuth][pi-codex]使用以下产品私有步骤：
+设备凭据池采用固定 CLI 0.160.0 的 [device_code_auth][codex-pool-device] 与 [OAuth client][codex-pool-oauth]；既有 [pi Codex OAuth][pi-codex]只作补充参考。产品私有步骤为：
 
 ```text
 POST /api/accounts/deviceauth/usercode
@@ -156,12 +157,19 @@ pi Codex 固定 redirect URI 使用 `http://localhost:1455/auth/callback`，与�
 
 通用 secret ownership、单 writer/原子发布、取消、重试/commit 与真实操作授权归 [OAuth 采用边界](oauth-login.md#共用采用边界)。本页另需定稿：
 
-1. 选择合法的公开 SIWC 用途或另行获准的 Codex 产品 backend/client，不能按同一账户或 model label 混用。
-2. 将 verified identity、issued registration、host 和 grant 与选定 execution profile 绑定；opaque replay scope 不从 canonical model 相同推定可迁移。
+1. OpenBridge 用户选定 Codex 产品登录与订阅用途，共用管理合同归 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)，操作归 [凭据管理指南](../credentials.md)。所选 CLI client/metadata 是固定兼容参考，不证明第三方 backend/client 用途已获准；公开 SIWC 是另一合同，不按账户或 model label 混用。
+2. Codex 的 verified subject/workspace、product client 和 credential generation 由 [credential owner](../../src/credential/mod.rs)绑定；signature/issuer/audience 校验归 [JWT owner](../../src/credential/jwt.rs)。SIWC 独立需要 issued registration/host/grant 合同，不能自动套在 Codex 上。opaque replay scope 不从 canonical model 相同推定可迁移。
 3. 单独选择 streaming delivery 与需要的 cache/continuation 子集；有 credential 或低层 carrier 不表示 Gateway 已拥有 Agent turn 或 WebSocket runtime。
 
 上述资料不选择或授权具体实现；待选边界由 [next-goal](../implementation-plans/next-goal.md)维护，获准行为 slice 才进入 [current-focus](../implementation-plans/current-focus.md)。
 
+[codex-pool-release]: https://github.com/openai/codex/releases/tag/rust-v0.160.0
+[codex-pool-license]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/LICENSE
+[codex-pool-device]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/device_code_auth.rs
+[codex-pool-oauth]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/oauth/client.rs
+[codex-pool-manager]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/auth/manager.rs
+[codex-pool-revoke]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/auth/revoke.rs
+[codex-pool-client]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/auth/default_client.rs
 [codex-auth-doc]: https://learn.chatgpt.com/docs/auth
 [codex-access-doc]: https://learn.chatgpt.com/codex/enterprise/access-tokens
 [codex-license]: https://github.com/openai/codex/blob/d25c114d494ddb693290b76bf5e5f64ecbdb38fc/LICENSE

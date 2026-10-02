@@ -6,6 +6,8 @@
 //! on loopback; library construction never reads private configuration.
 
 pub mod adapter;
+#[cfg(unix)]
+pub mod credential;
 pub mod execution;
 pub mod gateway;
 pub mod lowering;
