@@ -6,8 +6,10 @@
 |---|---|
 | [固定上游来源](upstream-sync.md) | OpenAI SDK、Codex 的固定提交、许可和官方页面入口 |
 | [Responses 标准基线](responses-standard.md) | Responses codec 的固定公开语义；不是共享 IR 的上限，也不等于本地准入 |
-| [扩展与上下文](extensions-and-context.md) | 固定 Codex 来源与生命周期边界 |
-| [Codex / SuperGrok 登录来源](oauth-login.md) | OAuth 标准、从 `v0.1` 整理的固定源码入口与待核实边界；不是已支持登录的声明 |
+| [扩展与上下文](extensions-and-context.md) | session/cache/turn、存储与连接状态；固定 Codex/pi 投影，与认证 owner 分开 |
+| [账户登录来源与采用边界](oauth-login.md) | 共用 OAuth/OIDC 标准、授权边界与必要归档导航 |
+| [Grok Build / xAI 登录](grok-login.md) | 官方浏览器/标准设备授权、pi 内置与补充参考、credential/backend 边界 |
+| [ChatGPT 登录：Codex 与 pi](chatgpt-login.md) | Codex 产品流程与公开 SIWC 动态 registration；身份、账户、refresh 和推理隔离 |
 | [多模态与资源](multimodal-and-resources.md) | task、wire、资源与媒体的语义边界 |
 | [Codec 验收方法](conformance-baseline.md) | 独立 oracle、变换和失败/资源边界；不是执行记录 |
 | [OpenAI operation 参考](openai/README.md) | 按 operation 定位标准资料；不代表本地支持 |

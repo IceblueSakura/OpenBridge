@@ -20,7 +20,7 @@
 
 工作区不保留历史分析、审计或测试报告。[协议来源](references/README.md)仅保留仍使用的标准出处、版本和许可；历史问题可显式查询 Git，但不能用旧记录代替当前绑定、行为或可用性查询。
 
-`v0.1` OAuth 资料中仍有用的标准和固定源码导航已集中到 [Codex / SuperGrok 登录来源](references/oauth-login.md)。该入口单独固定选定的 `v0.1` 参考，不将其与上面的旧路线参考点混同，也不恢复旧配置或登录能力。
+旧 OAuth 与客户端缓存资料只在 Git 中定位；仍需维护的标准和认证来源归 [账户登录入口](references/oauth-login.md)，session/cache/turn 边界归 [扩展与上下文](references/extensions-and-context.md)。认证入口单独固定选定的 `v0.1` 参考，不与上面的旧路线参考点混同；具体协议以现行参考为准，不恢复旧配置、自动 key 派生、粘性路由或登录能力。
 
 ## 只读查看
 

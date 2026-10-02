@@ -1,47 +1,51 @@
-# Codex / SuperGrok 登录来源与边界
+# 账户登录来源与采用边界
 
-本页从 `v0.1` 的旧资料提取必要标准出处、固定源码入口和采用边界，不恢复历史调研报告、比较表、测试结果或旧实现合同。下一步方向由 [next-goal](../implementation-plans/next-goal.md) 维护；当前凭据种类和启动路径查 [auth](../../src/provider/auth.rs) 与 [bootstrap](../../src/gateway/bootstrap.rs)。资料存在不代表当前 Gateway 已支持 OAuth 登录。
+本页是登录参考的导航与共用标准 owner，不维护认证实现、模型/账号状态、研究过程或运行报告。具体 authority、flow、固定客户端版本和采用差异分别由下列参考维护：
 
-## 标准来源
+- [Grok Build / xAI 账户登录](grok-login.md)：官方浏览器 OIDC、标准设备授权、企业路径、pi 内置登录与补充插件。
+- [ChatGPT 登录：Codex 与 pi](chatgpt-login.md)：Codex 产品浏览器/私有设备交互、公开 SIWC 动态 registration、refresh 与账户边界。
+- [扩展与上下文](extensions-and-context.md#2-codex-session_id-的实际含义)：logical session、cache affinity、thread/turn、连接级 continuation 和选定客户端投影；不是登录协议的第二份定义。
 
-- [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html)：OAuth 2.0 authorization-code 与 refresh grant。
-- [RFC 7636](https://www.rfc-editor.org/rfc/rfc7636.html)：PKCE，防止 authorization code 被截获后滥用。
-- [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628.html)：标准设备授权及 pending、slow-down、拒绝和过期语义。
-- [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html)：OAuth 2.0 安全最佳实践，含 refresh-token rotation 与重放风险。
+方向归 [next-goal](../implementation-plans/next-goal.md)，有效决策归 [ADRs](../architecture-v2/README.md#架构决策)，获准行为切片归 [current-focus](../implementation-plans/current-focus.md)。这些文档均不授予登录、凭据操作、网络调用或部署权限。
 
-标准不能替代具体 Provider 的 client registration、scope、audience、账号绑定和产品使用政策。设备交互不必然使用 RFC 8628 token polling；必须按目标合同区分。
+## 共用标准
 
-## Codex / ChatGPT
+- [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html)：authorization-code 与 refresh grant。
+- [RFC 7636](https://www.rfc-editor.org/rfc/rfc7636.html)：PKCE，约束 authorization code 被截获后的使用。
+- [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html)：native app、系统浏览器与 loopback callback；仍受具体 client registration 约束。
+- [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628.html)：标准设备授权、pending、slow-down、拒绝与过期。设备交互不必然采用此 grant。
+- [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html)：OAuth 安全最佳实践、refresh rotation 与重放风险。
+- [OpenID Connect Core](https://openid.net/specs/openid-connect-core-1_0.html)、[Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html)：issuer/metadata、ID-token 验证及 nonce；JWT payload decode 不是签名验证。
+- [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009.html)：token revocation；本地清理、远端撤销与删除 registration 不是同一操作。
+- [RFC 8707](https://www.rfc-editor.org/rfc/rfc8707.html)：resource indicators；scope、resource/audience 和推理 backend 必须分别绑定。
 
-这里的目标是 Codex 使用的 ChatGPT 账户登录，不是给普通 OpenAI API key 增加刷新，也不把 Codex executable 或本机 auth cache 作为依赖。旧资料的官方产品入口为 [Codex authentication](https://learn.chatgpt.com/docs/auth)，采用前需重核当前内容。
+标准不决定具体产品的 client registration、订阅资格、scope、账户/workspace、redirect URI 或 endpoint。公开源码中的 client ID 不是 secret，也不是第三方复用资格的授权。
 
-旧资料固定的认证定位快照为 `openai/codex@ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff`，许可证为 [Apache-2.0](https://github.com/openai/codex/blob/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/LICENSE)：
+## 共用采用边界
 
-- [device login](https://github.com/openai/codex/blob/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/codex-rs/login/src/device_code_auth.rs)：私有设备交互先轮询取得 authorization code 和 PKCE 材料，再进行 authorization-code exchange；不是标准设备 grant 的直接 token 返回。
-- [auth manager](https://github.com/openai/codex/blob/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/codex-rs/login/src/auth/manager.rs)：定位使用时刷新、guarded reload、账户边界和有界认证恢复。
-- [login module](https://github.com/openai/codex/tree/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/codex-rs/login)：定位浏览器 authorization-code + PKCE、state 和 loopback callback，以及 credential backend。
-- [device login tests](https://github.com/openai/codex/blob/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/codex-rs/login/tests/suite/device_code_login.rs)：核对该快照的设备交互与失败边界，不作为 OpenBridge 的执行证据。
+1. **协议与用途分开**：登录成功不证明模型/operation 准入、订阅推理、计费或 SDK/Agent 闭环。API key、产品 session 和公开 SIWC token 不按同名 Bearer 混用。
+2. **secret 与 runtime 分开**：凭据、locator、选定账户、refresh/retry state 属于独立认证/执行 owner，不进入 Task IR；纯 codec/lowering 不访问 credential、registry 或网络。业务 JSON 不选择 authority、账户、认证 headers 或脚本。
+3. **事务与生命周期闭合**：授权事务、credential generation、registration、host identity 及 replay scope 分开。secret owner 在锁内重读并检查 source version，成功 rotation 原子发布整套 credential；并发更新或结果不确定不能盲目复用旧 refresh token。数据面只借用短生命周期、账户绑定的 credential 视图，不取得 locator/完整 bundle。取消、失败或晚到结果不覆盖另一登录或 generation。
+4. **来源与可执行证据分开**：公开 metadata、固定源码和 synthetic 验证不证明真实登录或上游接受。真实登录、refresh、revocation、credential-bearing 发现和推理分别取得目标、效果与预算授权。
+5. **独立存储**：不自动发现、读取、导入或修改 Codex、Grok、pi、Hermes、LiteLLM、浏览器或 OS 的真实 auth cache。默认拥有自己的 store；凭据迁移需另外授权。
+6. **不恢复旧运行时**：不从参考客户端照搬账号池、脚本加载、动态 registry、隐式 API-key fallback 或业务请求 retry。publication/commit 后不能认证恢复重放，不根据 canonical model 相同允许跨 credential replay。
 
-该旧认证快照只用于源码导航，不替换 [upstream-sync](upstream-sync.md) 的主线语义基线。该入口不声明已重新核验官方网页、当前 Codex 源码、client registration 或真实 token flow。实现前应重新固定认证来源，并在 owning code 保留必要出处；不从旧资料复制 endpoint、client ID、scope、header 或超时常量作为新合同。
+若存在方案选择，先固定具体 authority/client/resource、secret store、权限与失败边界，再在 owning ADR/行为切片内定稿；本入口不选择 Rust 类型或配置格式。
 
-Codex 产品实现和其他客户端复现私有 flow 不保证第三方复用资格。账户登录、OAuth authority 与订阅推理 backend 是不同边界，取得 token 不等于获得任意 API/模型/自动化用途的访问权。
+## pi 公用 credential 生命周期
 
-## SuperGrok
+固定 pi-ai `0.99.2`、`earendil-works/pi@005af57d88ee23b33778f343a9595b32e67ff788`（[MIT](https://github.com/earendil-works/pi/blob/005af57d88ee23b33778f343a9595b32e67ff788/LICENSE)）的 [resolver](https://github.com/earendil-works/pi/blob/005af57d88ee23b33778f343a9595b32e67ff788/packages/ai/src/auth/resolve.ts)通过 credential-store `modify` 在锁内重读、判断有效期、限定 refresh timeout 并持久化，存储 OAuth credential 的 refresh 失败不会静默退回环境 API key。各 authority 的 token 字段、rotation 与 adjusted expiry 仍由各自模块拥有，不能统一缺省 TTL 或机械叠加余量。
 
-SuperGrok 是待调研的账户/订阅接入目标，不等同于通过 OpenRouter 调用 Grok，也不等同于 xAI API-key 接入。
+pi `/logout` 清理自身 stored credential，不撤销 Provider credential，也不移除环境变量或其他配置认证；产品端的 revocation 合同见各自参考。源码定位为 [credential store](https://github.com/earendil-works/pi/blob/005af57d88ee23b33778f343a9595b32e67ff788/packages/coding-agent/src/core/auth-storage.ts)，实际 store 必须单独核对跨进程协调和发布保证，不能从一次 `modify` 调用推定多主机锁或事务 durability。
 
-`v0.1` 的 [Hermes 插件资料](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/docs/references/hermes/hermes-provider-plugin-capabilities.md) 仅提供 `xai-oauth` 的定位线索，没有充分说明其 authority、grant、client registration、token exchange 或 refresh 合同。不能据此认定 SuperGrok 的当前登录就是标准 OAuth2、与 Codex 共用设备流程，或可通过读取其他应用 cache 接入。
+## 归档与补充源码导航
 
-下一次专项调研必须先确认官方支持的登录方式和订阅推理用途，再定位合法客户端及其固定源码；未取得充分证据的字段和流程保持未定，不预造端点或把 Cookie/session 登录包装为 OAuth2。
+以下只用于来源定位，不代替上面两份参考或当前产品合同，也不恢复旧配置、实现或研究报告：
 
-## 旧 OpenBridge 与补充客户端来源
+- [OpenBridge v0.1](https://github.com/IceblueSakura/OpenBridge/tree/adff062e3412760ce5a66ae2e7506d22b142e0b1)，固定 `adff062e3412760ce5a66ae2e7506d22b142e0b1`，[MIT](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/LICENSE)：[旧登录入口](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/src/bin/openbridge-auth.rs)、[旧 refresh owner](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/src/oauth2_credentials/manager/refresh.rs)；[归档说明](../archive.md)拥有历史定位。
+- [Codex 旧认证定位](https://github.com/openai/codex/tree/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/codex-rs/login)，固定 `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff`，[Apache-2.0](https://github.com/openai/codex/blob/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/LICENSE)：只保留旧引用的可追溯性，不作为新的认证基线，也不改写 [upstream-sync](upstream-sync.md)。
+- [Hermes auth](https://github.com/NousResearch/hermes-agent/blob/470cf66b039c73bdd2c21d43094ce41a4db74eae/hermes_cli/auth.py)，固定 `470cf66b039c73bdd2c21d43094ce41a4db74eae`，[MIT](https://github.com/NousResearch/hermes-agent/blob/470cf66b039c73bdd2c21d43094ce41a4db74eae/LICENSE)：credential ownership 与协调入口。
+- [LiteLLM ChatGPT authenticator](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/llms/chatgpt/authenticator.py)，固定 `23de7a15d9d40006ee596e617475ba101d60c5e9`，[许可入口](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/LICENSE)：采用具体文件前核对许可范围。
+- [CLIProxyAPI device login](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/sdk/auth/codex_device.go)、[refresh scheduler](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/sdk/cliproxy/auth/auto_refresh_loop.go)，固定 `bc71c77f5cc42f3fbe1bf040cf14d4f166894835`，[MIT](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/LICENSE)：来源导航，不采用其账号池或 fallback 为默认策略。
 
-选定旧参考为 [`OpenBridge v0.1@adff062e3412760ce5a66ae2e7506d22b142e0b1`](https://github.com/IceblueSakura/OpenBridge/tree/adff062e3412760ce5a66ae2e7506d22b142e0b1)，许可证为 [MIT](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/LICENSE)。只通过 Git 查阅受版本管理的旧资料，不读取私有配置或真实授权文件。
-
-- [旧 OAuth 生命周期合同](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/docs/functional-requirements/configuration-credentials.md#chatgpt-oauth-credential-生命周期)：定位显式登录、文件所有权、短期 lease、refresh/rotation、账户隔离与提交前恢复边界；不是当前主线的配置格式或已接受设计。
-- [旧登录入口](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/src/bin/openbridge-auth.rs)、[设备登录 transport](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/src/oauth2_credentials/login/transport.rs)、[refresh manager](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/src/oauth2_credentials/manager/refresh.rs)：定位原实现的职责分工，不直接移植旧 registry、配置、文件 schema 或 retry 策略。
-- [Hermes auth](https://github.com/NousResearch/hermes-agent/blob/470cf66b039c73bdd2c21d43094ce41a4db74eae/hermes_cli/auth.py)，[MIT](https://github.com/NousResearch/hermes-agent/blob/470cf66b039c73bdd2c21d43094ce41a4db74eae/LICENSE)：补充 credential-store ownership 与同文件系统并发协调的源码入口。
-- [LiteLLM ChatGPT authenticator](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/llms/chatgpt/authenticator.py)，[许可证](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/LICENSE)：补充 token resolution 与持久化的源码入口；采用具体文件前核对许可范围。
-- [CLIProxyAPI device login](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/sdk/auth/codex_device.go)、[refresh scheduler](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/sdk/cliproxy/auth/auto_refresh_loop.go)，[MIT](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/LICENSE)：补充登录与后台刷新 owner 的源码入口，不采用其账号池或 fallback 策略作为主线默认值。
-
-这些入口不组成兼容矩阵。具体授权合同必须重新核实；登录、凭据操作和真实请求仍需明确授权。未来实现必须保持纯 codec/lowering 不访问网络或秘密、认证绑定不进入 Task IR、客户端不能选择账户/Provider，以及 publication/commit 后不能认证恢复重放的边界。
+不据此建立客户端兼容矩阵或宣称已成功执行。具体 OpenBridge 实现查 [provider auth](../../src/provider/auth.rs)、[bootstrap](../../src/gateway/bootstrap.rs)和 [Generation 缺口](../implementation-status/generation.md)。

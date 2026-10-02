@@ -8,7 +8,7 @@ Generation IR **以有序交互、行动与结果、控制转移和续轮依赖�
 
 旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。库构造不读取私有配置；`openbridge` binary 通过显式环境变量启动认证的 loopback HTTP 入口，不读取旧配置。启动方式、限制与接口见 [HTTP 网关指南](docs/http-gateway.md)。受控 `examples/live_probe.rs` 仍有独立运行授权与凭据边界，不属于默认验证。
 
-下一步 IR 设计优先定稿**交互与续轮、分组及 replay 依赖**，再展开资源/工具结果、cache/usage 与上下文演进。既有 **Codex / SuperGrok OAuth2 登录**方向保留，仍待调研且未接入当前网关；设计顺序、保留的实施方向与前置条件分别由 [next-goal](docs/implementation-plans/next-goal.md) 维护。旧资料定位见 [OAuth 登录来源](docs/references/oauth-login.md)。
+下一步 IR 设计优先定稿**交互与续轮、分组及 replay 依赖**，再展开资源/工具结果、cache/usage 与上下文演进。既有 **Codex / SuperGrok OAuth2 登录**方向保留，协议来源已有独立参考；接入资格、credential owner 与执行合同仍须定稿，未接入当前网关；设计顺序、保留的实施方向与前置条件分别由 [next-goal](docs/implementation-plans/next-goal.md) 维护。登录合同来源与必要旧资料定位见 [账户登录参考](docs/references/oauth-login.md)。
 
 ## 当前范围
 
