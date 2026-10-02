@@ -72,6 +72,63 @@ fn attached_calls_fail_responses_request_and_static_projection_without_changing_
 }
 
 #[test]
+fn native_chat_delivery_and_history_replay_keep_explicit_groups() {
+    let decoded = chat::decode_response(&source(json!("Checking."), "tool_calls")).unwrap();
+    let target = lower_response(
+        &decoded.semantic,
+        &decoded.fidelity,
+        &decoded.metadata,
+        Profile::Chat,
+        Contract::full(),
+    )
+    .unwrap();
+    let delivered = chat::encode_response(&target).unwrap();
+    let expected = json!({"messages":[
+        {"role":"user","content":"lookup"},
+        {"role":"assistant","content":"Checking.","tool_calls":[{"id":"c","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
+        {"role":"tool","tool_call_id":"c","content":"done"},
+        {"role":"assistant","content":null,"tool_calls":[{"id":"next","type":"function","function":{"name":"lookup","arguments":"{\"n\":2}"}}]},
+        {"role":"tool","tool_call_id":"next","content":"second"}
+    ]});
+    let mut replay = expected.clone();
+    replay["messages"][1] = delivered["choices"][0]["message"].clone();
+    let history = chat::decode_generation(&replay).unwrap();
+    let groups: Vec<_> = history.semantic.message_groups().collect();
+    assert_eq!(groups.len(), 2);
+    assert_eq!(
+        groups[0].calls().map(|c| c.call_id).collect::<Vec<_>>(),
+        ["c"]
+    );
+    assert_eq!(
+        groups[1].calls().map(|c| c.call_id).collect::<Vec<_>>(),
+        ["next"]
+    );
+    assert_ne!(
+        groups[0].owner(),
+        decoded.semantic.message_groups().next().unwrap().owner()
+    );
+    assert_eq!(history.semantic.continuation(), Continuation::Unreported);
+    let native = lower_request(
+        &history.semantic,
+        &history.fidelity,
+        Profile::Chat,
+        Contract::full(),
+    )
+    .unwrap();
+    assert_eq!(chat::encode_generation(&native).unwrap(), expected);
+    assert_eq!(
+        lower_request(
+            &history.semantic,
+            &history.fidelity,
+            Profile::Responses,
+            Contract::full()
+        )
+        .err(),
+        Some(RepresentationError::MessageGrouping),
+    );
+}
+
+#[test]
 fn grouping_checks_follow_final_membership_after_insert_replace_reorder_and_delete() {
     let decoded = chat::decode_generation(&json!({"messages":[
         {"role":"assistant","content":null,"tool_calls":[{"id":"a","type":"function","function":{"name":"lookup","arguments":"{}"}}]},

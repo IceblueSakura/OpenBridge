@@ -116,6 +116,8 @@ impl FidelityRecords {
             return Err(CodecError::Limit);
         }
         let final_value = value.replay_token().is_some();
+        let dependency = fingerprint(semantic);
+        let mut history = None;
         if let Some(old) = self.reasoning_replay.get(&owner) {
             if old.final_value && !final_value {
                 return Err(CodecError::Invalid("encrypted reasoning phase"));
@@ -123,14 +125,20 @@ impl FidelityRecords {
             if old.origin.is_some() && old.origin != origin {
                 return Err(CodecError::Invalid("replay origin rebinding"));
             }
+            // Repeated intake cannot downgrade an explicit dependency contract.
+            // Changed owners need a separately admitted binding, not recapture.
+            if old.history.is_some() && old.dependency != dependency {
+                return Err(CodecError::Invalid("replay dependency rebinding"));
+            }
+            history = old.history.clone();
         }
         self.reasoning_replay.insert(
             owner,
             ReplayBinding {
                 origin,
-                dependency: fingerprint(semantic),
+                dependency,
                 final_value,
-                history: None,
+                history,
             },
         );
         Ok(())

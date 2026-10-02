@@ -275,6 +275,62 @@ fn prefix_bound_replay_lowers_only_unchanged_final_history() {
 }
 
 #[test]
+fn repeating_a_bound_report_cannot_erase_history_dependencies() {
+    let origin = ReplayOrigin::new("synthetic-scope").unwrap();
+    let owner = ItemId::new(1);
+    let reasoning = ReasoningItem {
+        status: ItemLifecycle::Completed,
+        parts: vec![],
+        encrypted: Some(EncryptedReasoning::Final(text("synthetic-token"))),
+    };
+    let source = history(vec![(owner, Item::Reasoning(reasoning.clone()))]);
+    let mut fidelity = FidelityRecords::default();
+    fidelity
+        .record_replay(owner, &reasoning, Some(origin.clone()))
+        .unwrap();
+    let proof =
+        RequestDependencyProof::capture(&source, HistoryDependency::PrefixThrough(owner), true)
+            .unwrap();
+    fidelity
+        .bind_replay_dependency(owner, proof, &source)
+        .unwrap();
+    fidelity
+        .record_replay(owner, &reasoning, Some(origin.clone()))
+        .unwrap();
+    assert!(!fidelity.replay_matches(owner, &reasoning, Some(&origin)));
+    assert!(fidelity.replay_matches_request(owner, &reasoning, Some(&origin), &source));
+    let inserted = history(vec![message(2, "inserted"), source.items()[0].clone()]);
+    assert!(!fidelity.replay_matches_request(owner, &reasoning, Some(&origin), &inserted));
+    let mut settings = source.settings().clone();
+    settings.controls.max_output_tokens = Some(100);
+    assert!(!fidelity.replay_matches_request(
+        owner,
+        &reasoning,
+        Some(&origin),
+        &source.clone().with_settings(settings).unwrap(),
+    ));
+    let old = fidelity.clone();
+    let mut changed = reasoning.clone();
+    changed.encrypted = Some(EncryptedReasoning::Final(text("synthetic-replacement")));
+    assert!(
+        fidelity
+            .record_replay(owner, &changed, Some(origin.clone()))
+            .is_err()
+    );
+    assert_eq!(fidelity, old);
+    changed = reasoning.clone();
+    changed
+        .parts
+        .push((PartId::new(9), ReasoningContent::Summary(text("changed"))));
+    assert!(
+        fidelity
+            .record_replay(owner, &changed, Some(origin))
+            .is_err()
+    );
+    assert_eq!(fidelity, old);
+}
+
+#[test]
 fn group_bound_replay_cannot_bypass_final_history_checks() {
     let origin = ReplayOrigin::new("synthetic-scope").unwrap();
     let reasoning = ReasoningItem {
