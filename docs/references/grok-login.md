@@ -9,7 +9,8 @@
 | 来源 | 固定版本 / 入口 | 用途 |
 |---|---|---|
 | Grok Build 官方文档 | [Authentication][grok-auth-doc]、[Enterprise deployments][grok-enterprise]、[CLI reference][grok-cli-doc] | 登录入口、企业策略与网络边界 |
-| Grok Build 官方源码 | `xai-org/grok-build@2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`，[Apache-2.0][grok-license] | [默认 client/scopes][grok-config]、[浏览器编排][grok-browser]、[OIDC 协议][grok-oidc]、[设备授权][grok-device]、[存储][grok-storage]、[刷新][grok-refresh] |
+| Grok Build 官方源码 | `xai-org/grok-build@2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`，[Apache-2.0][grok-license] | [默认 client/scopes][grok-config]、[浏览器编排][grok-browser]、[OIDC 协议][grok-oidc]、[设备授权][grok-device]、[HTTP metadata][grok-http]、[版本注入][grok-version]、[存储][grok-storage]、[刷新][grok-refresh] |
+| Grok 客户端发布 metadata 参考 | 官方 [`@xai-official/grok@1.0.46`][grok-release-metadata]；[stable 指针][grok-stable-pointer]提供发布导航 | 固定 UA/version header 的版本参考；与 wire 源码提交独立，不声称该提交就是此发布的构建 revision，不在运行时查询或自动升级 |
 | pi coding agent / pi-ai | `0.99.2`，`earendil-works/pi@005af57d88ee23b33778f343a9595b32e67ff788`，[MIT][pi-license] | [内置 xAI OAuth][pi-xai-oauth]、[设备轮询][pi-device]、[刷新协调][pi-resolve]、[xAI Provider][pi-xai-provider] |
 | pi-xai-oauth，补充参考 | `1.6.0`，`BlockedPath/pi-xai-oauth@f2408b0dc108103e0568e6ab02ee0b30644254bb`，[MIT][plugin-license] | [浏览器/刷新][plugin-oauth]、[OIDC 校验][plugin-oidc]、[有界设备授权][plugin-device]、[proxy headers][plugin-wire] |
 | 公开 authority 元数据 | [OIDC discovery][xai-discovery]、[JWKS][xai-jwks] | authority 声明；不是账户授权或成功推理的证据 |
@@ -40,9 +41,11 @@
 
 Discovery 声明 authorization-code、refresh 和 `urn:ietf:params:oauth:grant-type:device_code`，PKCE 为 `S256`；当前第一方 ID-token 签名策略由 discovery/JWKS 核对，不能从任意 JWT header 接受算法、key 或 key URL。浏览器进入的账户 UI 可以位于 `accounts.x.ai`，不因此改变 token authority。
 
-固定官方 CLI 与 pi 内置实现使用同一公开 client ID：`b1a00492-073a-47ea-816f-4c329264a828`。它不是 client secret；源码公开或第三方使用不证明 OpenBridge 已获准复用此 registration、所有 redirect URI 或全部订阅用途。xAI 第三方 client registration / 接入资格仍须确认。
+固定官方 CLI 与 pi 内置实现使用同一公开 client ID：`b1a00492-073a-47ea-816f-4c329264a828`。本项目选定它作为默认产品 client，并保留显式 override；已有账户不自动换绑。它不是 client secret；源码公开或第三方使用不证明本项目已获准复用此 registration、所有 redirect URI 或全部订阅用途。xAI 第三方 client registration / 接入资格仍须确认。
 
 pi 内置请求的 scope 为 `openid profile email offline_access grok-cli:access api:access`，`referrer` 为 `pi`。官方 Grok Build 个人默认 scope 在此基础上还包含 conversations/workspaces 的 read/write；team 分支的 scope 与 principal 另有合同。第三方插件也有自己的选定 scope。以具体用途选择最小权限，不机械复制官方 CLI 的完整工作区权限；`grok-cli:access` 与 `api:access` 不互为别名。
+
+官方 [HTTP owner][grok-http] 由 origin product/version、`grok-shell` agent product/version 和 OS/architecture 构造 UA；generic origin 与 agent 相同且版本一致时合并为一个 product token。官方 [VERSION][grok-version] 由发布构建的 `GROK_VERSION` 注入，开发 crate 的 package version 不能冒充发布版本。本项目选定固定 generic UA 与 `referrer=grok-build`，不追加项目名或读取 origin/version 环境 override；采用边界与精确值归 [metadata owner](../../src/credential/grok_metadata.rs)。浏览器 code exchange 发送版本 header，但 refresh/UserInfo/JWKS/revoke 不泛化设备 surface 或 exchange 版本 header。产品 metadata 是兼容参考，不证明上游准入。
 
 ## 浏览器 authorization-code + PKCE
 
@@ -68,7 +71,7 @@ pi 内置请求的 scope 为 `openid profile email offline_access grok-cli:acces
 受信 CLI → 自己的 credential store：保存 token 与生命周期
 ```
 
-- 申请使用 form-encoded POST，包含 client ID、scope 和 truthful referrer；官方 CLI 另发送 client version/surface 元数据。
+- 申请使用 form-encoded POST，包含 client ID、scope 和 referrer；固定官方 CLI 在申请和轮询均发送 `x-grok-client-version`、`x-grok-client-surface`。非 TUI CLI 的 surface 按 stderr 是否为 TTY 选择 `cli`/`headless`，不是根据登录授权结果或网关业务 JSON 选择。
 - `device_code` 是只供 token polling 使用的秘密，`user_code` 是人需要确认的短码。只展示可信验证网址及 user code，不将 device code 放入浏览器 URL、日志或诊断。
 - polling 使用 `grant_type=urn:ietf:params:oauth:grant-type:device_code`、client ID 和 device code，成功直接返回 token，不再交换 authorization code。
 - `authorization_pending` 继续等待；`slow_down` 调整后续 polling interval；拒绝、过期、取消和不可恢复错误结束当前尝试。第一轮等待、整体 deadline、单次 HTTP timeout 和响应预算分别控制，不能靠无界轮询等待人完成授权。
@@ -104,7 +107,7 @@ pi 的 [xai OAuth][pi-xai-oauth]采用此 grant，支持 `verification_uri_compl
 
 - 相同 authority、client ID 或 token 字符串不证明两条推理路径、全部模型、额度或计费等价。
 - 账户模型发现是独立的 credential-bearing 请求，不属于登录完成的隐式许可；结果只描述所选账户的上游准入，不直接成为 OpenBridge 注册或激活。
-- 不模拟 Grok CLI 身份、版本或 UI 模式来绕过资格/版本检查。网关应如实标识自身，必要 header 与 origin 由受信 profile 选择，业务 JSON 不能覆盖。
+- 固定产品 client/metadata 只作为显式兼容参考，不授予订阅资格，也不允许伪造 UI surface 绕过资格/版本检查。必要 header 与 origin 由受信 profile 选择，业务 JSON 不能覆盖；Gateway 接线与部署用途仍须独立确认。
 - CLI 请求中的 conversation/session metadata、Provider prompt cache、credential session 和服务器签发的 continuation 不互为别名；不能从相同 header 名复制 Codex 生命周期或生成上游身份。共同分类归 [扩展与上下文](extensions-and-context.md#缓存存储与连接状态)，xAI 的具体 carrier 仍需自己的固定 profile。
 
 ## 采用前需要定稿的事项
@@ -125,6 +128,10 @@ pi 的 [xai OAuth][pi-xai-oauth]采用此 grant，支持 `verification_uri_compl
 [grok-device]: https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-login/src/device_code.rs
 [grok-storage]: https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-login/src/storage.rs
 [grok-refresh]: https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-login/src/refresh/oidc_refresher.rs
+[grok-http]: https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-http/src/lib.rs
+[grok-version]: https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-version/src/lib.rs
+[grok-release-metadata]: https://registry.npmjs.org/@xai-official/grok/1.0.46
+[grok-stable-pointer]: https://x.ai/cli/stable
 [pi-license]: https://github.com/earendil-works/pi/blob/005af57d88ee23b33778f343a9595b32e67ff788/LICENSE
 [pi-xai-oauth]: https://github.com/earendil-works/pi/blob/005af57d88ee23b33778f343a9595b32e67ff788/packages/ai/src/auth/oauth/xai.ts
 [pi-device]: https://github.com/earendil-works/pi/blob/005af57d88ee23b33778f343a9595b32e67ff788/packages/ai/src/auth/oauth/device-code.ts

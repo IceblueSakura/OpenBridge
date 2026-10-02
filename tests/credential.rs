@@ -262,7 +262,14 @@ mod unix {
                 "--client-id",
                 "unrelated-client",
             ],
-            vec!["grok", "login", "--method", "browser"],
+            vec![
+                "grok",
+                "login",
+                "--method",
+                "browser",
+                "--client-id",
+                "invalid client",
+            ],
         ] {
             let mut args: Vec<&std::ffi::OsStr> = flags.iter().map(AsRef::as_ref).collect();
             args.extend([
@@ -295,8 +302,6 @@ mod unix {
                 "login",
                 "--account",
                 "personal",
-                "--client-id",
-                "synthetic-cli-client",
                 "--method",
                 "browser",
                 "--callback-port",
@@ -313,10 +318,14 @@ mod unix {
             .spawn()
             .unwrap();
         let mut stderr = BufReader::new(child.stderr.take().unwrap().take(8192));
+        let mut authorization = None;
         let redirect = timeout(Duration::from_secs(5), async {
             for _ in 0..4 {
                 let mut line = String::new();
                 assert!(stderr.read_line(&mut line).await.unwrap() > 0);
+                if line.starts_with("https://auth.x.ai/") {
+                    authorization = Some(url::Url::parse(line.trim()).unwrap());
+                }
                 if let Some(uri) = line.strip_prefix("Callback: ") {
                     return uri.trim().to_owned();
                 }
@@ -325,6 +334,15 @@ mod unix {
         })
         .await
         .unwrap();
+        let authorization = authorization.unwrap();
+        let fields: std::collections::BTreeMap<_, _> =
+            authorization.query_pairs().into_owned().collect();
+        assert_eq!(fields["client_id"], "b1a00492-073a-47ea-816f-4c329264a828");
+        assert_eq!(fields["referrer"], "grok-build");
+        assert_eq!(
+            fields["scope"],
+            "openid profile email offline_access grok-cli:access api:access"
+        );
         let uri = url::Url::parse(&redirect).unwrap();
         assert_eq!(uri.scheme(), "http");
         assert_eq!(uri.host_str(), Some("127.0.0.1"));

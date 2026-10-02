@@ -100,6 +100,7 @@ impl BrowserGrant {
         mut self,
         http: &AuthHttp,
         token_path: &str,
+        metadata: &[(&str, &str)],
     ) -> Result<BrowserResponse, Error> {
         let code = self
             .callback
@@ -117,6 +118,7 @@ impl BrowserGrant {
                 redirect: &self.prompt.redirect_uri,
                 verifier: self.verifier.expose(),
             },
+            metadata,
             self.deadline,
         )
         .await?;

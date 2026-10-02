@@ -32,9 +32,10 @@ pub(super) async fn exchange_code(
     http: &super::http::AuthHttp,
     path: &str,
     exchange: CodeExchange<'_>,
+    metadata: &[(&str, &str)],
     deadline: tokio::time::Instant,
 ) -> Result<(u16, Vec<u8>), Error> {
-    http.request(
+    http.request_with_metadata(
         path,
         &[
             ("grant_type", "authorization_code"),
@@ -44,6 +45,7 @@ pub(super) async fn exchange_code(
             ("code_verifier", exchange.verifier),
         ],
         None,
+        metadata,
         deadline,
     )
     .await

@@ -56,7 +56,7 @@ fn inspect(prompt: &BrowserPrompt) -> (SocketAddr, BTreeMap<String, String>) {
     assert_eq!(fields["redirect_uri"], prompt.redirect_uri);
     assert_eq!(fields["id_token_add_organizations"], "true");
     assert_eq!(fields["codex_cli_simplified_flow"], "true");
-    assert_eq!(fields["originator"], "openbridge");
+    assert_eq!(fields["originator"], "codex_cli_rs");
     assert_ne!(fields["state"], fields["nonce"]);
     let redirect = url::Url::parse(&prompt.redirect_uri).unwrap();
     assert_eq!(redirect.scheme(), "http");

@@ -22,11 +22,11 @@ cargo build --locked --offline --bin openbridge-auth
 STORE="$HOME/.local/share/openbridge/credentials"
 mkdir -p -- "$(dirname "$STORE")"
 
+target/debug/openbridge-auth grok login --store "$STORE" --account personal
+target/debug/openbridge-auth grok login --store "$STORE" --account personal --method browser
+# 如需另一获准 registration，显式覆盖 client；已有账户不自动换绑。
 target/debug/openbridge-auth grok login \
-  --store "$STORE" --account personal --client-id "<approved-xai-client-id>"
-target/debug/openbridge-auth grok login \
-  --store "$STORE" --account personal --client-id "<approved-xai-client-id>" \
-  --method browser
+  --store "$STORE" --account other --client-id "<approved-xai-client-id>"
 target/debug/openbridge-auth codex login --store "$STORE" --account personal
 target/debug/openbridge-auth codex login --store "$STORE" --account personal --method browser
 
@@ -40,7 +40,7 @@ target/debug/openbridge-auth codex logout --store "$STORE" --account personal --
 
 login/refresh/revoke 联系真实 authority，需明确授权后执行；示例不会自动执行。本地 alias 不是 email 或已验证身份；允许不同 profile 使用相同 alias，不允许在同 profile/client/principal 下重复登记另一 alias。退出保留身份绑定，不隐式换人、换 client 或重绑定。
 
-Grok 必须提供获准 client，CLI 不默认复用第一方 registration。Codex 使用固定来源的产品 client；公开源码不证明第三方用途已获准，不能用它代替 SIWC registration。设备入口不可用时明确失败，不自动改用浏览器或另一 client。
+Grok 默认使用固定来源的官方产品 client，允许显式 `--client-id` override；Codex 使用固定来源的产品 client，不接受 override。已有账户始终绑定其原 client，省略或更改选项不自动重绑定。公开源码与 metadata 兼容不证明第三方用途已获准，也不能代替 SIWC registration。设备入口不可用时明确失败，不自动改用浏览器或另一 client。
 
 如需代理，显式增加 `--proxy http://127.0.0.1:<port>`；只能是无 userinfo/query/fragment 的受信 HTTP(S) 代理 URL。无环境代理继承、proxy fallback 或自动 retry。代理配置不写入账户文件，也不能由业务 JSON 或 authority 响应选择。
 
@@ -56,7 +56,9 @@ callback 校验 method/path/Host、query 唯一性、state 和资源预算；OAu
 
 Grok browser 的 ES256/P-256 ID token 验证 issuer/audience/expiry/nonce，并与 UserInfo subject 对齐；设备身份由固定 HTTPS UserInfo 验证。Codex 的 RS256 ID token 绑定 subject/workspace，browser 额外验证本次 nonce；device 与 refresh 不套用 browser nonce。JWT payload decode 不是身份验证。浏览器事务的 state/nonce/code/verifier 不单独持久化；Codex 按产品合同保留 ID token 作为 secret，其中可含已经验证的 nonce claim。两家的 claims、scope 与缺字段继承规则互不套用。
 
-Codex browser 使用固定产品 client，只请求 `openid profile email offline_access`，不申请 connectors 权限，不从 ID token 派生 API key；authorization query 的 `originator=openbridge` 如实标识本应用。相对固定官方参考，OpenBridge 增加并严格验证 nonce；实际 authority 对这些选定参数的接受仍需真实授权验收。
+Codex browser 使用固定产品 client，只请求 `openid profile email offline_access`，不申请 connectors 权限，不从 ID token 派生 API key。authorization query 与 refresh/revoke 的 `originator` 采用固定 CLI 默认值；设备申请/轮询与 code exchange 不带默认 UA/originator，refresh/revoke 的 UA 按固定 CLI 的系统版本、架构和终端格式构造，不追加项目名，也不读取官方环境 override 或 managed residency/cookie。精确 metadata 归 [Codex owner](../src/credential/codex_metadata.rs)。相对固定官方参考，浏览器 driver 增加并严格验证 nonce；实际 authority 对选定参数的接受及订阅推理资格仍需真实授权验收。
+
+Grok 的默认 client、`grok-build` referrer 与 generic `grok-shell` UA 采用固定官方参考，不追加项目名；版本取独立核实的固定发布参考，不使用源码 crate 的开发版本。设备申请/轮询携带版本及按 stderr TTY 判定的 `cli`/`headless` surface；浏览器 code exchange 只携带版本，refresh/UserInfo/JWKS/revoke 不泛化这些 headers。不读取官方身份环境 override、不冒充 TUI，scope 仍仅六项、不增加 conversations/workspaces 权限。精确 metadata 归 [Grok owner](../src/credential/grok_metadata.rs)。这不是上游登录、推理或合法 registration 用途已验收的声明。
 
 ## 生命周期与故障
 

@@ -104,7 +104,7 @@ async fn run_browser(
     assert_eq!(fields["client_id"], CLIENT);
     assert_eq!(fields["scope"], SCOPES);
     assert_eq!(fields["response_type"], "code");
-    assert_eq!(fields["referrer"], "openbridge");
+    assert_eq!(fields["referrer"], "grok-build");
     assert_eq!(fields["code_challenge_method"], "S256");
     assert_eq!(fields["redirect_uri"], redirect);
     assert_ne!(fields["nonce"], fields["state"]);

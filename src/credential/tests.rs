@@ -139,6 +139,27 @@ pub(super) struct Authority {
     pub forms: Arc<Mutex<Vec<FormCall>>>,
     task: tokio::task::JoinHandle<()>,
 }
+fn assert_grok_headers(headers: &axum::http::HeaderMap, stage: Option<&str>) {
+    let agent = headers["user-agent"].to_str().unwrap();
+    assert!(agent.starts_with("grok-shell/1.0.46 (") && agent.ends_with(')'));
+    assert!(agent.contains("; ") && !agent.contains("OpenBridge") && !agent.contains("openbridge"));
+    assert!(!headers.contains_key("originator"));
+    match stage {
+        Some("device" | "urn:ietf:params:oauth:grant-type:device_code") => {
+            assert_eq!(headers["x-grok-client-version"], "1.0.46");
+            assert_eq!(headers["x-grok-client-surface"], "headless");
+        }
+        Some("authorization_code") => {
+            assert_eq!(headers["x-grok-client-version"], "1.0.46");
+            assert!(!headers.contains_key("x-grok-client-surface"));
+        }
+        Some("refresh_token" | "plain") => {
+            assert!(!headers.contains_key("x-grok-client-version"));
+            assert!(!headers.contains_key("x-grok-client-surface"));
+        }
+        _ => {}
+    }
+}
 impl Authority {
     pub async fn new(steps: Vec<Step>) -> Self {
         let steps = Arc::new(Mutex::new(VecDeque::from(steps)));
@@ -168,11 +189,21 @@ impl Authority {
                         .pop_front()
                         .expect("unexpected authority request");
                     assert_eq!(path, next.path);
+                    if path.starts_with("/oauth2/") {
+                        assert_grok_headers(&headers, None);
+                    }
                     if path == "/oauth2/userinfo" {
+                        assert_grok_headers(&headers, Some("plain"));
                         assert_eq!(headers["authorization"], next.expected[0].1);
                     } else if path == "/.well-known/jwks.json" {
                         assert!(!headers.contains_key("authorization"));
                         assert!(!headers.contains_key("originator"));
+                        // The shared JWKS path serves independent RSA (Codex) and EC (Grok) fixtures.
+                        if next.body["keys"][0]["kty"] == "RSA" {
+                            assert!(!headers.contains_key("user-agent"));
+                        } else {
+                            assert_grok_headers(&headers, Some("plain"));
+                        }
                         assert!(body.is_empty());
                     } else if path.starts_with("/api/accounts/deviceauth")
                         || path == "/oauth/revoke"
@@ -186,22 +217,32 @@ impl Authority {
                         if path.starts_with("/oauth/") {
                             assert_eq!(headers["originator"], "codex_cli_rs");
                             let agent = headers["user-agent"].to_str().unwrap();
-                            assert!(agent.starts_with("codex_cli_rs/0.160.0 "));
-                            assert!(agent.contains("OpenBridge/"));
+                            assert!(agent.starts_with("codex_cli_rs/0.160.0 ("));
+                            assert!(agent.contains("; ") && agent.contains(") "));
+                            assert!(!agent.contains("OpenBridge") && !agent.contains("openbridge"));
                         } else {
                             assert!(!headers.contains_key("originator"));
-                            assert!(
-                                headers["user-agent"]
-                                    .to_str()
-                                    .unwrap()
-                                    .starts_with("OpenBridge/")
-                            );
+                            assert!(!headers.contains_key("user-agent"));
                         }
                     } else {
                         assert_eq!(headers["content-type"], "application/x-www-form-urlencoded");
                         assert!(!headers.contains_key("originator"));
+                        if path == "/oauth/token" {
+                            assert!(!headers.contains_key("user-agent"));
+                        }
                         let actual: std::collections::BTreeMap<_, _> =
                             url::form_urlencoded::parse(&body).into_owned().collect();
+                        if path.starts_with("/oauth2/") {
+                            let stage = if path == "/oauth2/device/code" {
+                                Some("device")
+                            } else {
+                                actual
+                                    .get("grant_type")
+                                    .map(String::as_str)
+                                    .or(Some("plain"))
+                            };
+                            assert_grok_headers(&headers, stage);
+                        }
                         forms.lock().unwrap().push(FormCall {
                             path: path.clone(),
                             fields: actual.clone(),
@@ -259,7 +300,7 @@ fn device() -> Step {
         "/oauth2/device/code",
         vec![
             ("client_id", "synthetic-client"),
-            ("referrer", "openbridge"),
+            ("referrer", "grok-build"),
             ("scope", TEST_SCOPES),
         ],
         json!({"device_code":"secret-device", "user_code":"ABCD-1234",
@@ -300,6 +341,45 @@ pub(super) async fn login(pool: &CredentialManager, account: &str) -> AccountSta
     })
     .await
     .unwrap()
+}
+
+#[tokio::test]
+async fn official_default_client_login_is_bound_and_never_silently_replaced() {
+    const CLIENT: &str = "b1a00492-073a-47ea-816f-4c329264a828";
+    let mut steps = login_steps("person-a");
+    for step in &mut steps[..2] {
+        for (key, value) in &mut step.expected {
+            if *key == "client_id" {
+                *value = CLIENT;
+            }
+        }
+    }
+    let authority = Authority::new(steps).await;
+    let dir = Directory::new();
+    let pool = authority.pool(&dir);
+    let status = pool
+        .login("grok", "personal", LoginOptions::default(), |_| {})
+        .await
+        .unwrap();
+    assert_eq!(status.state, AccountState::Active);
+    let account = pool
+        .store
+        .transaction()
+        .unwrap()
+        .load("grok", "personal")
+        .unwrap()
+        .account
+        .unwrap();
+    assert_eq!(account.client_id, CLIENT);
+    assert_eq!(
+        pool.login_grok("personal", "different-client", |_| panic!(
+            "must not start authority I/O"
+        ))
+        .await
+        .unwrap_err(),
+        CredentialError::IdentityMismatch
+    );
+    authority.done();
 }
 
 #[tokio::test]

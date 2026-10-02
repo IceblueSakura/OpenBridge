@@ -6,6 +6,7 @@ use super::model::VerifiedIdentity;
 use super::{
     CredentialError as Error,
     browser::{BrowserGrant, BrowserProfile},
+    grok_metadata::{CLIENT_ID, REFERRER, VERSION, device_surface, user_agent},
     model::DevicePrompt,
     model::{Credential, Secret, now},
     oauth::{self, present},
@@ -21,6 +22,7 @@ const LOGIN_TIMEOUT: Duration = Duration::from_secs(900);
 #[derive(Clone)]
 pub(super) struct GrokAuthority {
     http: AuthHttp,
+    surface: &'static str,
 }
 #[derive(Debug)]
 pub(super) struct DeviceGrant {
@@ -62,13 +64,15 @@ struct IdentityWire {
 impl GrokAuthority {
     pub fn new(proxy: Option<&str>) -> Result<Self, Error> {
         Ok(Self {
-            http: AuthHttp::new(ORIGIN, proxy)?,
+            http: AuthHttp::with_user_agent(ORIGIN, proxy, &user_agent())?,
+            surface: device_surface(),
         })
     }
     #[cfg(test)]
     pub fn synthetic(origin: &str) -> Result<Self, Error> {
         Ok(Self {
-            http: AuthHttp::synthetic(origin)?,
+            http: AuthHttp::synthetic(origin, &user_agent())?,
+            surface: "headless",
         })
     }
     pub async fn browser(&self, client: &str, port: u16) -> Result<BrowserGrant, Error> {
@@ -78,7 +82,7 @@ impl GrokAuthority {
                 client,
                 scopes: SCOPES,
                 callback_path: "/callback",
-                extra: &[("referrer", "openbridge")],
+                extra: &[("referrer", REFERRER)],
                 timeout: LOGIN_TIMEOUT,
             },
             port,
@@ -91,7 +95,13 @@ impl GrokAuthority {
     ) -> Result<(Credential, VerifiedIdentity), Error> {
         let deadline = grant.deadline;
         oauth::login_deadline(deadline, async {
-            let response = grant.exchange(&self.http, "/oauth2/token").await?;
+            let response = grant
+                .exchange(
+                    &self.http,
+                    "/oauth2/token",
+                    &[("x-grok-client-version", VERSION)],
+                )
+                .await?;
             if response.status != 200 {
                 return Err(failure(response.status, &response.body));
             }
@@ -135,14 +145,18 @@ impl GrokAuthority {
         let started = Instant::now();
         let (status, body) = self
             .http
-            .request(
+            .request_with_metadata(
                 "/oauth2/device/code",
                 &[
                     ("client_id", client),
                     ("scope", SCOPES),
-                    ("referrer", "openbridge"),
+                    ("referrer", REFERRER),
                 ],
                 None,
+                &[
+                    ("x-grok-client-version", VERSION),
+                    ("x-grok-client-surface", self.surface),
+                ],
                 started + REQUEST_TIMEOUT,
             )
             .await?;
@@ -181,7 +195,7 @@ impl GrokAuthority {
             super::oauth::wait_for_poll(device.interval, device.deadline).await?;
             let (status, body) = self
                 .http
-                .request(
+                .request_with_metadata(
                     "/oauth2/token",
                     &[
                         ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
@@ -189,6 +203,10 @@ impl GrokAuthority {
                         ("device_code", device.device_code.expose()),
                     ],
                     None,
+                    &[
+                        ("x-grok-client-version", VERSION),
+                        ("x-grok-client-surface", self.surface),
+                    ],
                     device.deadline,
                 )
                 .await
@@ -381,7 +399,7 @@ impl super::AuthDriver for GrokAuthority {
         if options.method != super::LoginMethod::Browser && options.callback_port.is_some() {
             return Err(Error::InvalidInput);
         }
-        let client = options.client_id.as_deref().ok_or(Error::InvalidInput)?;
+        let client = options.client_id.as_deref().unwrap_or(CLIENT_ID);
         super::model::valid_client(client)?;
         Ok(client.into())
     }

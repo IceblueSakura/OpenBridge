@@ -26,6 +26,7 @@ strum = { version = "0.28", features = ["derive"] }
 [target.'cfg(unix)'.dependencies]
 errno = "0.3"
 libc = "0.2"
+os_info = { version = "=3.14.0", default-features = false }
 ring = "0.17"
 httparse = "1"
 

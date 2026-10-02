@@ -13,16 +13,26 @@ pub(super) struct AuthHttp {
     origin: String,
 }
 impl AuthHttp {
-    pub fn new(origin: &'static str, proxy: Option<&str>) -> Result<Self, Error> {
-        Self::build(origin.into(), proxy)
+    pub fn with_user_agent(
+        origin: &'static str,
+        proxy: Option<&str>,
+        agent: &str,
+    ) -> Result<Self, Error> {
+        Self::build(origin.into(), proxy, Some(agent))
     }
-    fn build(origin: String, proxy: Option<&str>) -> Result<Self, Error> {
+    /// Raw product auth clients have no application User-Agent or default metadata.
+    pub fn raw(origin: &'static str, proxy: Option<&str>) -> Result<Self, Error> {
+        Self::build(origin.into(), proxy, None)
+    }
+    fn build(origin: String, proxy: Option<&str>, agent: Option<&str>) -> Result<Self, Error> {
         let mut builder = Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())
-            .connect_timeout(Duration::from_secs(10))
-            .user_agent(concat!("OpenBridge/", env!("CARGO_PKG_VERSION")));
+            .connect_timeout(Duration::from_secs(10));
+        if let Some(agent) = agent {
+            builder = builder.user_agent(agent);
+        }
         if let Some(proxy) = proxy {
             let url = url::Url::parse(proxy).map_err(|_| Error::InvalidInput)?;
             if !matches!(url.scheme(), "http" | "https")
@@ -42,7 +52,15 @@ impl AuthHttp {
         Ok(Self { client, origin })
     }
     #[cfg(test)]
-    pub fn synthetic(origin: &str) -> Result<Self, Error> {
+    pub fn synthetic(origin: &str, agent: &str) -> Result<Self, Error> {
+        Self::synthetic_with_agent(origin, Some(agent))
+    }
+    #[cfg(test)]
+    pub fn synthetic_raw(origin: &str) -> Result<Self, Error> {
+        Self::synthetic_with_agent(origin, None)
+    }
+    #[cfg(test)]
+    fn synthetic_with_agent(origin: &str, agent: Option<&str>) -> Result<Self, Error> {
         let url = url::Url::parse(origin).map_err(|_| Error::InvalidInput)?;
         if url.scheme() != "http"
             || url.host_str() != Some("127.0.0.1")
@@ -54,7 +72,7 @@ impl AuthHttp {
         {
             return Err(Error::InvalidInput);
         }
-        Self::build(origin.into(), None)
+        Self::build(origin.into(), None, agent)
     }
     pub async fn request(
         &self,
@@ -63,8 +81,19 @@ impl AuthHttp {
         bearer: Option<&str>,
         deadline: Instant,
     ) -> Result<(u16, Vec<u8>), Error> {
+        self.request_with_metadata(path, fields, bearer, &[], deadline)
+            .await
+    }
+    pub async fn request_with_metadata(
+        &self,
+        path: &str,
+        fields: &[(&str, &str)],
+        bearer: Option<&str>,
+        metadata: &[(&str, &str)],
+        deadline: Instant,
+    ) -> Result<(u16, Vec<u8>), Error> {
         if let Some(token) = bearer {
-            return self.send(path, None, Some(token), &[], deadline).await;
+            return self.send(path, None, Some(token), metadata, deadline).await;
         }
         let body = {
             let mut form = url::form_urlencoded::Serializer::new(String::new());
@@ -75,7 +104,7 @@ impl AuthHttp {
             path,
             Some(("application/x-www-form-urlencoded", body)),
             None,
-            &[],
+            metadata,
             deadline,
         )
         .await
@@ -184,7 +213,7 @@ mod tests {
             "http://127.0.0.1:1/#fragment",
         ] {
             assert!(matches!(
-                AuthHttp::new("https://authority.invalid", Some(proxy)),
+                AuthHttp::raw("https://authority.invalid", Some(proxy)),
                 Err(Error::InvalidInput)
             ));
         }
@@ -195,7 +224,7 @@ mod tests {
         let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
         let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", target.local_addr().unwrap());
-        let http = AuthHttp::build(origin.clone(), Some(&proxy_url)).unwrap();
+        let http = AuthHttp::build(origin.clone(), Some(&proxy_url), None).unwrap();
         let exchange = async {
             let call = http.get("/jwks", Instant::now() + Duration::from_secs(2));
             let serve = async {

@@ -4,6 +4,7 @@
 use super::{
     CredentialError as Error,
     browser::{BrowserGrant, BrowserProfile},
+    codex_metadata::{ORIGINATOR, user_agent},
     http::{AuthHttp, REQUEST_TIMEOUT},
     model::DevicePrompt,
     model::{Credential, Secret, VerifiedIdentity, now},
@@ -18,16 +19,6 @@ const ORIGIN: &str = "https://auth.openai.com";
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(900);
 // Minimal identity/renewal grant; connector permissions are not login prerequisites.
 const BROWSER_SCOPES: &str = "openid profile email offline_access";
-/// Only refresh/revoke use the pinned CLI default metadata. Device auth/code
-/// exchange use a raw auth client in the source. Keep our attribution explicit.
-pub(super) fn user_agent() -> String {
-    format!(
-        "codex_cli_rs/0.160.0 ({}; {}) (OpenBridge/{})",
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-        env!("CARGO_PKG_VERSION")
-    )
-}
 #[derive(Clone)]
 pub(super) struct CodexAuthority {
     http: AuthHttp,
@@ -78,14 +69,14 @@ struct TokenWire {
 impl CodexAuthority {
     pub fn new(proxy: Option<&str>) -> Result<Self, Error> {
         Ok(Self {
-            http: AuthHttp::new(ORIGIN, proxy)?,
+            http: AuthHttp::raw(ORIGIN, proxy)?,
             browser_port: 1455,
         })
     }
     #[cfg(test)]
     pub fn synthetic(origin: &str) -> Result<Self, Error> {
         Ok(Self {
-            http: AuthHttp::synthetic(origin)?,
+            http: AuthHttp::synthetic_raw(origin)?,
             // Isolated callback sockets for the synthetic authority only.
             browser_port: 0,
         })
@@ -109,7 +100,7 @@ impl CodexAuthority {
                 extra: &[
                     ("id_token_add_organizations", "true"),
                     ("codex_cli_simplified_flow", "true"),
-                    ("originator", "openbridge"),
+                    ("originator", ORIGINATOR),
                 ],
                 timeout: LOGIN_TIMEOUT,
             },
@@ -123,7 +114,7 @@ impl CodexAuthority {
     ) -> Result<(Credential, VerifiedIdentity), Error> {
         let deadline = grant.deadline;
         oauth::login_deadline(deadline, async {
-            let response = grant.exchange(&self.http, "/oauth/token").await?;
+            let response = grant.exchange(&self.http, "/oauth/token", &[]).await?;
             self.accept_login(
                 response.status,
                 &response.body,
@@ -213,6 +204,7 @@ impl CodexAuthority {
                 redirect: "https://auth.openai.com/deviceauth/callback",
                 verifier: &code.code_verifier,
             },
+            &[],
             grant.deadline,
         )
         .await?;
@@ -257,7 +249,7 @@ impl CodexAuthority {
         }
         let (status, body) = self.http.json("/oauth/token", &serde_json::json!({
             "grant_type":"refresh_token", "client_id":client, "refresh_token":previous.refresh.as_ref().ok_or(Error::LoginRequired)?.expose()
-        }), &[("originator", "codex_cli_rs"), ("user-agent", &user_agent())], Instant::now() + REQUEST_TIMEOUT).await?;
+        }), &[("originator", ORIGINATOR), ("user-agent", user_agent())], Instant::now() + REQUEST_TIMEOUT).await?;
         if status != 200 {
             return Err(failure(status, &body));
         }
@@ -282,10 +274,7 @@ impl CodexAuthority {
                 &serde_json::json!({
                     "client_id":client, "token":refresh, "token_type_hint":"refresh_token"
                 }),
-                &[
-                    ("originator", "codex_cli_rs"),
-                    ("user-agent", &user_agent()),
-                ],
+                &[("originator", ORIGINATOR), ("user-agent", user_agent())],
                 Instant::now() + REQUEST_TIMEOUT,
             )
             .await?;

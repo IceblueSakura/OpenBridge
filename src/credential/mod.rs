@@ -2,8 +2,10 @@
 mod browser;
 mod callback;
 mod codex;
+mod codex_metadata;
 mod driver;
 mod grok;
+mod grok_metadata;
 mod http;
 mod jwt;
 mod manager;

@@ -16,7 +16,7 @@ Usage:
   openbridge-auth [PROFILE] list --store DIR
 
 Registered profiles: grok, codex. Supported methods are validated by the driver.
-Grok requires an approved --client-id; device is the default, browser is explicit.
+Grok defaults to its pinned product client; --client-id is an explicit override.\nDevice is the default, browser is explicit. Product metadata does not prove registration eligibility.
 Codex supports private device and explicit browser login with its product client, NOT SIWC.
 Browser callback is literal loopback. Grok defaults to an OS port; Codex defaults to 1455.
 Codex also accepts explicit --callback-port 1457; no random port or automatic fallback.
@@ -289,7 +289,10 @@ Ctrl-C cancels the operation; interrupted refresh requires login.";
             let drivers = builtin_drivers(None).unwrap();
             let grok = drivers.iter().find(|d| d.profile() == "grok").unwrap();
             let codex = drivers.iter().find(|d| d.profile() == "codex").unwrap();
-            assert!(grok.login_client(&LoginOptions::default()).is_err());
+            assert_eq!(
+                grok.login_client(&LoginOptions::default()).unwrap(),
+                "b1a00492-073a-47ea-816f-4c329264a828"
+            );
             assert!(
                 codex
                     .login_client(&LoginOptions {

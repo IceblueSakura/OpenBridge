@@ -38,7 +38,7 @@ OpenBridge 浏览器 wire 与设备入口采用同一固定 CLI 0.160.0 的 [ser
 
 固定官方 scope 包含 `openid profile email offline_access api.connectors.read api.connectors.invoke`；pi Codex 参考实现只请求前四项。它们是不同固定客户端的选择，不应自动扩大第三方权限或将 connectors 权限视为推理必需。
 
-OpenBridge 选定最小四项 scope 与 `originator=openbridge`；复用产品 client，但不声称是官方 CLI。相比固定 server 仅使用 state/PKCE，浏览器 driver 额外发送并严格验证 OIDC nonce、RS256 签名及绑定的 workspace。端口仅默认 1455 或显式 1457，不照搬取消其他进程、端口 fallback、特殊 onboarding state 后缀或 API-key 派生；操作边界见 [凭据指南](../credentials.md#交互与身份)。这些采用约束不是已通过真实 authority 验收的声明。
+本项目选定最小四项 scope，避免申请 connectors 权限；client 与 originator 采用固定 CLI 的产品默认值，不在授权 wire 中追加项目名。相比固定 server 仅使用 state/PKCE，浏览器 driver 额外发送并严格验证 OIDC nonce、RS256 签名及绑定的 workspace。端口仅默认 1455 或显式 1457，不照搬取消其他进程、端口 fallback、特殊 onboarding state 后缀或 API-key 派生；操作边界见 [凭据指南](../credentials.md#交互与身份)。这些采用约束不是已通过真实 authority 验收或已获第三方复用资格的声明。
 
 [Codex token_data][codex-token-data]解析 JWT 中的产品 claims；payload decode 不是签名验证或通用 identity proof。第三方网关不能把这种便利读取直接用于建立本地可信账户；公开 SIWC 的 ID-token 验证要求见后文。
 
@@ -69,6 +69,7 @@ POST /oauth/token，authorization_code grant
 
 固定 [auth manager][codex-manager]向产品 `/oauth/token`发送 `refresh_token` grant，使用对应产品 client ID；官方客户端的 refresh 为 JSON 编码，pi Codex 分支使用 form 编码。这是需要按实际 endpoint/profile 选定的 wire 差异，不是重写 token 语义的理由。
 
+- 固定 [默认与 raw auth client][codex-pool-client] 区分请求阶段：设备申请/轮询与 authorization-code exchange 不带 Codex 默认 UA/originator；refresh/revoke 使用默认 originator 与由 OS 类型/版本、架构和[终端 token][codex-pool-terminal]构造的 UA。本项目按该格式实现，不追加项目名或读取官方 originator/suffix override，不继承 managed residency/cookie；实现归 [metadata owner](../../src/credential/codex_metadata.rs)。
 - 先获取 refresh 协调锁并 guarded reload；只在预期 account/workspace 匹配时采用存储中的新 credential。源头已刷新时不再消费旧 refresh token；账号改变时不能将原请求静默转到新账号。
 - 区分过期、refresh token reused、revoked/invalidated 和瞬态失败，失败预算与 credential generation 绑定，不永久污染重新登录后的 credential。
 - 官方产品可以更新有报告的 token 字段并保留未报告字段；pi Codex token 解析要求 access、refresh 和 expires_in 完整。不能把这些消费者要求当作所有 authority 的统一返回 schema。
@@ -174,6 +175,7 @@ pi Codex 固定 redirect URI 使用 `http://localhost:1455/auth/callback`，与�
 [codex-pool-manager]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/auth/manager.rs
 [codex-pool-revoke]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/auth/revoke.rs
 [codex-pool-client]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/auth/default_client.rs
+[codex-pool-terminal]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/terminal-detection/src/lib.rs
 [codex-auth-doc]: https://learn.chatgpt.com/docs/auth
 [codex-access-doc]: https://learn.chatgpt.com/codex/enterprise/access-tokens
 [codex-license]: https://github.com/openai/codex/blob/d25c114d494ddb693290b76bf5e5f64ecbdb38fc/LICENSE
