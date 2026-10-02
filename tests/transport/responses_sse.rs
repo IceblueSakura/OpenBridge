@@ -187,6 +187,56 @@ fn opaque_replay_cannot_be_promoted_by_missing_done_conflicting_terminal_or_eof(
 }
 
 #[test]
+fn tool_value_and_item_closure_cannot_be_repaired_by_a_terminal_snapshot() {
+    for (kind, item_kind) in [
+        ("response.function_call_arguments.done", ""),
+        ("response.custom_tool_call_input.done", ""),
+        ("response.output_item.done", "function_call"),
+        ("response.output_item.done", "custom_tool_call"),
+    ] {
+        let mut events = wire::events(1);
+        let index = events
+            .iter()
+            .position(|e| {
+                e["type"] == kind && (item_kind.is_empty() || e["item"]["type"] == item_kind)
+            })
+            .unwrap();
+        events.remove(index);
+        let bytes: Vec<_> = events
+            .iter_mut()
+            .enumerate()
+            .flat_map(|(n, event)| {
+                event["sequence_number"] = json!(n);
+                encode_frame(event, SseLimits::default().max_event_bytes).unwrap()
+            })
+            .collect();
+        for size in [1, 17, bytes.len()] {
+            let mut d = decoder(SseLimits::default());
+            let mut rejected = false;
+            'input: for chunk in bytes.chunks(size) {
+                let mut rest = chunk;
+                while !rest.is_empty() {
+                    match d.consume(rest) {
+                        Ok((used, _)) => {
+                            assert!(used > 0);
+                            rest = &rest[used..];
+                        }
+                        Err(_) => {
+                            rejected = true;
+                            break 'input;
+                        }
+                    }
+                }
+            }
+            assert!(rejected, "{kind}/{item_kind}");
+            assert!(d.finish().is_err());
+            assert!(d.materialize().is_err());
+            assert!(d.consume(&wire_events()).is_err());
+        }
+    }
+}
+
+#[test]
 fn complete_sse_message_snapshots_cannot_default_missing_identity_or_status() {
     for kind in [
         "response.output_item.added",

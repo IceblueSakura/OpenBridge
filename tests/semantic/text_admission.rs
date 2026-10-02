@@ -50,6 +50,106 @@ fn text_delta_and_done_require_probability_arrays_at_both_event_boundaries() {
 }
 
 #[test]
+fn function_and_custom_event_payloads_keep_branch_specific_admission_after_fragmentation() {
+    use openbridge::protocol::openai::sse::SseError;
+    fn feed(decoder: &mut ResponsesSseDecoder, frame: &[u8], size: usize) -> Result<(), SseError> {
+        for chunk in frame.chunks(size) {
+            let mut rest = chunk;
+            while !rest.is_empty() {
+                let (used, _) = decoder.consume(rest)?;
+                assert!(used > 0);
+                rest = &rest[used..];
+            }
+        }
+        Ok(())
+    }
+    for (kind, payload, foreign) in [
+        (
+            "response.function_call_arguments.delta",
+            "delta",
+            "logprobs",
+        ),
+        (
+            "response.function_call_arguments.done",
+            "arguments",
+            "input",
+        ),
+        ("response.custom_tool_call_input.delta", "delta", "logprobs"),
+        ("response.custom_tool_call_input.done", "input", "arguments"),
+    ] {
+        let events = wire::events(1);
+        let index = events.iter().position(|v| v["type"] == kind).unwrap();
+        let original = &events[index];
+        let mut invalid_events = Vec::new();
+        for key in ["item_id", "output_index", payload] {
+            for invalid in [None, Some(Value::Null), Some(json!(false))] {
+                let mut event = original.clone();
+                if let Some(value) = invalid {
+                    event[key] = value;
+                } else {
+                    event.as_object_mut().unwrap().shift_remove(key);
+                }
+                invalid_events.push(event);
+            }
+        }
+        let mut foreign_field = original.clone();
+        foreign_field[foreign] = if foreign == "logprobs" {
+            json!([])
+        } else {
+            json!("")
+        };
+        invalid_events.push(foreign_field);
+        let mut wrong_kind = original.clone();
+        wrong_kind["type"] = json!(kind.replace(
+            if kind.contains("function_call_arguments") {
+                "function_call_arguments"
+            } else {
+                "custom_tool_call_input"
+            },
+            if kind.contains("function_call_arguments") {
+                "custom_tool_call_input"
+            } else {
+                "function_call_arguments"
+            },
+        ));
+        invalid_events.push(wrong_kind);
+        for invalid in invalid_events {
+            let mut decoder = EventDecoder::new(Profile::Responses);
+            for prefix in &events[..index] {
+                decoder.push(prefix).unwrap();
+            }
+            assert!(decoder.push(&invalid).is_err(), "{kind}: {invalid}");
+            assert!(decoder.push(original).is_err());
+            assert!(decoder.finish().is_err());
+            assert!(decoder.materialize().is_err());
+            let frame = encode_frame(&invalid, 1 << 20).unwrap();
+            for size in [1, 17, frame.len()] {
+                let mut decoder =
+                    ResponsesSseDecoder::new(200, "text/event-stream", SseLimits::default(), None)
+                        .unwrap();
+                for prefix in &events[..index] {
+                    feed(&mut decoder, &encode_frame(prefix, 1 << 20).unwrap(), size).unwrap();
+                }
+                assert!(
+                    feed(&mut decoder, &frame, size).is_err(),
+                    "{kind}: {invalid}"
+                );
+                assert!(
+                    feed(
+                        &mut decoder,
+                        &encode_frame(events.last().unwrap(), 1 << 20).unwrap(),
+                        size
+                    )
+                    .is_err()
+                );
+                assert!(decoder.finish().is_err());
+                assert!(decoder.materialize().is_err());
+            }
+        }
+    }
+}
+
+#[test]
 fn chat_nullable_continuation_fields_do_not_replace_call_identity_or_arguments() {
     let adapter = Adapter::new(Profile::Chat, Dialect::Standard, None);
     let chunk = |delta: Value, finish: Value| json!({"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":delta,"finish_reason":finish}]});

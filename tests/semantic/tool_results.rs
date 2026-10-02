@@ -397,6 +397,118 @@ fn tool_and_user_images_share_target_limits_and_edits_remove_media() {
 }
 
 #[test]
+fn result_history_requires_payload_and_call_identity_but_preserves_explicit_empty_values() {
+    use openbridge::adapter::{Adapter, Dialect};
+    let adapter = Adapter::new(Profile::Responses, Dialect::Standard, None);
+    for custom in [false, true] {
+        let call = if custom {
+            json!({"type":"custom_tool_call","call_id":"c","name":"lookup","input":"query"})
+        } else {
+            json!({"type":"function_call","call_id":"c","name":"lookup","arguments":"{}"})
+        };
+        let result = json!({"type":if custom { "custom_tool_call_output" } else { "function_call_output" },"call_id":"c","output":""});
+        for key in ["call_id", "output"] {
+            for invalid in [None, Some(json!(null)), Some(json!(false))] {
+                let mut broken = result.clone();
+                if let Some(value) = invalid {
+                    broken[key] = value;
+                } else {
+                    broken.as_object_mut().unwrap().shift_remove(key);
+                }
+                let request = json!({"model":"m","input":[call.clone(),broken]});
+                assert!(
+                    adapter
+                        .decode_request(request.to_string().as_bytes())
+                        .is_err(),
+                    "{custom} {key}"
+                );
+            }
+        }
+        for payload in [json!(""), json!([])] {
+            let mut result = result.clone();
+            result["output"] = payload.clone();
+            let expected = json!({"model":"m","input":[call.clone(),result],"store":false});
+            let decoded = adapter
+                .decode_request(expected.to_string().as_bytes())
+                .unwrap();
+            let r = match &decoded.task.semantic.items()[1].1 {
+                Item::ToolResult(r) | Item::CustomResult(r) => r,
+                _ => panic!("result"),
+            };
+            assert!(match &r.output {
+                ToolOutput::Text(text) => payload.is_string() && text.is_empty(),
+                ToolOutput::Parts(parts) => payload.is_array() && parts.is_empty(),
+                _ => false,
+            });
+            assert_eq!(
+                adapter
+                    .encode_request(&decoded, "m", &Contract::full())
+                    .unwrap(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn replacing_inserting_reordering_and_deleting_tool_parts_never_revives_old_media() {
+    use openbridge::protocol::openai::responses;
+    let source = responses::decode_generation(&json!({"input":[
+        {"type":"function_call","call_id":"c","name":"lookup","arguments":"{}"},
+        {"type":"function_call_output","call_id":"c","output":[
+            {"type":"input_text","text":"old"},
+            {"type":"input_image","image_url":"https://example.invalid/old.png","detail":"auto"}
+        ]}
+    ]}))
+    .unwrap();
+    let mut items = source.semantic.items().to_vec();
+    let Item::ToolResult(result) = &mut items[1].1 else {
+        panic!("result")
+    };
+    let ToolOutput::Parts(parts) = &mut result.output else {
+        panic!("parts")
+    };
+    let old_owner = parts[1].0;
+    parts[1].1 = ToolResultPart::Resource(image("https://example.invalid/new.png"));
+    parts[0].1 = ToolResultPart::Text(text("new caption"));
+    parts.swap(0, 1);
+    parts.insert(1, (PartId::new(90), ToolResultPart::Text(text("inserted"))));
+    assert_eq!(parts[0].0, old_owner);
+    let edited = source.semantic.with_items(items).unwrap();
+    let target = lower_request(
+        &edited,
+        &source.fidelity,
+        Profile::Responses,
+        Contract::full(),
+    )
+    .unwrap();
+    assert_eq!(
+        responses::encode_generation(&target).unwrap()["input"][1]["output"],
+        json!([
+            {"type":"input_image","image_url":"https://example.invalid/new.png"},
+            {"type":"input_text","text":"inserted"},
+            {"type":"input_text","text":"new caption"}
+        ])
+    );
+    let removed = edited
+        .retain_items(|_, item| !matches!(item, Item::ToolResult(_)))
+        .unwrap();
+    let target = lower_request(
+        &removed,
+        &source.fidelity,
+        Profile::Responses,
+        Contract::full(),
+    )
+    .unwrap();
+    assert_eq!(
+        responses::encode_generation(&target).unwrap()["input"],
+        json!([
+            {"type":"function_call","call_id":"c","name":"lookup","arguments":"{}"}
+        ])
+    );
+}
+
+#[test]
 fn structured_and_error_results_fail_lowering_without_a_carrier() {
     let outputs = [
         ToolOutput::Structured(StructuredToolOutput::new(json!({"answer":42})).unwrap()),
