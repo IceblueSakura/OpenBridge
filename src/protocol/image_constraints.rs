@@ -1,7 +1,7 @@
 //! Value-sensitive target restrictions, independent of the model's vision semantics.
 use crate::semantic::task::generation::{
     ContentPart, GenerationRequest, ImageDetail, ImageFormat, Item, MAX_IMAGE_DECODED_BYTES,
-    ResourceLocation,
+    Resource, ResourceLocation, ToolOutput, ToolResultPart,
 };
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImageConstraints {
@@ -55,36 +55,50 @@ impl ImageConstraints {
         request: &GenerationRequest,
     ) -> Result<(), crate::semantic::task::generation::GenerationError> {
         let mut count = 0;
+        let mut check = |resource: &Resource| {
+            count += 1;
+            let source_ok = match &resource.location {
+                ResourceLocation::Url(_) => self.urls,
+                ResourceLocation::Inline { media_type, .. } => {
+                    media_type
+                        .as_str()
+                        .parse::<ImageFormat>()
+                        .is_ok_and(|format| self.inline_formats.contains(&format))
+                        && resource
+                            .inline_decoded_bytes()?
+                            .is_some_and(|n| n <= self.max_inline_bytes)
+                }
+                ResourceLocation::OpaqueReference(_) => false,
+            };
+            if count > self.max_images
+                || !source_ok
+                || resource
+                    .image_detail
+                    .is_some_and(|d| !self.details.contains(&d))
+            {
+                return Err(crate::semantic::task::generation::GenerationError::InvalidResource);
+            }
+            Ok(())
+        };
         for (_, item) in request.items() {
-            if let Item::Message(message) = item {
-                for part in &message.parts {
-                    if let ContentPart::Resource(resource) = &part.content {
-                        count += 1;
-                        let source_ok = match &resource.location {
-                            ResourceLocation::Url(_) => self.urls,
-                            ResourceLocation::Inline { media_type, .. } => {
-                                media_type
-                                    .as_str()
-                                    .parse::<ImageFormat>()
-                                    .is_ok_and(|format| self.inline_formats.contains(&format))
-                                    && resource
-                                        .inline_decoded_bytes()?
-                                        .is_some_and(|n| n <= self.max_inline_bytes)
-                            }
-                            ResourceLocation::OpaqueReference(_) => false,
-                        };
-                        if count > self.max_images
-                            || !source_ok
-                            || resource
-                                .image_detail
-                                .is_some_and(|d| !self.details.contains(&d))
-                        {
-                            return Err(
-                                crate::semantic::task::generation::GenerationError::InvalidResource,
-                            );
+            match item {
+                Item::Message(message) => {
+                    for part in &message.parts {
+                        if let ContentPart::Resource(resource) = &part.content {
+                            check(resource)?;
                         }
                     }
                 }
+                Item::ToolResult(result) | Item::CustomResult(result) => {
+                    if let ToolOutput::Parts(parts) = &result.output {
+                        for (_, part) in parts {
+                            if let ToolResultPart::Resource(resource) = part {
+                                check(resource)?;
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
         Ok(())

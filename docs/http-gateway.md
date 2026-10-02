@@ -31,7 +31,7 @@ cargo run --locked --offline --bin openbridge
 | `POST /v1/responses` | [无状态 Responses text profile](architecture-v2/responses-text-profile.md)；JSON 或 SSE |
 
 - 所有路由先检查唯一的 `Authorization: Bearer …`，认证通过后才进行应用层 body 收集。其他认证 header 不替代该字段，重复 Authorization 拒绝。
-- Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单文本 part 编码规范化为字符串，多 part 保序。user content 另可包含有序 `image_url` 图片 parts，Responses 使用 `input_image`；只准入 URL/inline 图片输入，且 Public Model/Endpoint 必须声明可表示。详细边界见[图片输入 slice](architecture-v2/responses-text-profile.md#user-image-input)。工具结果支持字符串或有序纯文本数组，保留空数组和单/多 part，不拼接。function-only `allowed_tools` 使用 Chat 的嵌套 shell；实际目标支持仍须独立核对。
+- Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单文本 part 编码规范化为字符串，多 part 保序。user content 另可包含有序 `image_url` 图片 parts，Responses 使用 `input_image`；只准入 URL/inline 图片输入，且 Public Model/Endpoint 必须声明可表示。详细边界见[图片输入 slice](architecture-v2/responses-text-profile.md#user-image-input)。工具结果支持字符串或有序纯文本数组，保留空数组和单/多 part，不拼接。Responses function/custom 结果数组另可承载选定 URL/inline 图片，须独立声明 `tool_result_images` 准入；与 user 图片共用目标资源限制，不意味着现有 catalog/实例已启用。Chat 工具图片投影仍在 I/O 前拒绝。function-only `allowed_tools` 使用 Chat 的嵌套 shell；实际目标支持仍须独立核对。
 - 请求要求 JSON Content-Type，仅 UTF-8；不接受 Content-Encoding。严格 JSON 解析拒绝重复 key。先解析 envelope 中的 public model，绑定受信 task，再进行语义 decode。
 - 每个 `(public model, client protocol)` 在启动时显式激活 Route 成员；多个不同 Endpoint 的 Entry 合并并保持编译 Route 顺序，不按激活输入顺序排序。重复或路由外成员拒绝。默认 bootstrap 仍激活单个相同 wire family 成员；没有对应入口返回 `model_not_found`，不从 Chat 激活推导 Responses。请求按完整最终 IR 和 Route 的候选策略独立预检；无兼容成员在 I/O 前失败。默认选择首个兼容成员。只有显式 `RoutePolicy.fallback = BeforeCommit` 允许提交前顺序前移，最多 `max_attempts` 个不同成员；无同成员重试/竞速/运行时改序，也不允许业务 JSON 指定目标。多成员入口不共用 issuer scope，当前拒绝 opaque replay/加密输出请求。
 - 标准 Responses 缺少 message-call 归属 carrier：带显式分组的 Chat 工具 history 无法投影到 Responses 候选，在 I/O 前拒绝；Chat Provider 的 tool-only/text+tool 输出也无法无损交付给 Responses 客户端。静态投影失败返回 502；SSE 在首次 attached-call 事件拒绝，若前缀已发布则中止 body，不伪造成功终态或前移候选。独立 calls、原生 Responses history 和 Chat 同协议分组不因此禁用。不存在私有分组字段或邻接恢复，详见[分组合同](architecture-v2/responses-text-profile.md#message-owners-and-cross-protocol-grouping)与[缺失项目](implementation-status/generation.md#语义与表示缺口)。
@@ -62,7 +62,7 @@ cargo run --locked --offline --bin openbridge
 {"model":"configured-public-model","input":[{"role":"user","content":[{"type":"input_text","text":"Describe the image."},{"type":"input_image","image_url":"https://example.test/synthetic.png"}]}],"max_output_tokens":64}
 ```
 
-Chat 对应图片 part 为 `{"type":"image_url","image_url":{"url":"https://example.test/synthetic.png"}}`，前后的文本 part 用 `type:text`。不以图片作为普通字符串转发；file_id、工具图片结果与非 user 图片仍拒绝。库验证单资源 encoded/decoded 和总请求预算，HTTP 默认 256 KiB body 限制仍适用；不会为媒体自动放宽。URL 获取/尺寸/图像内容有效性由上游另行验证，网关不代为下载或转码。
+Chat 对应图片 part 为 `{"type":"image_url","image_url":{"url":"https://example.test/synthetic.png"}}`，前后的文本 part 用 `type:text`。不以图片作为普通字符串转发；file_id、非 user 消息图片和 Chat 工具图片仍拒绝；Responses 工具图片 history 的独立准入见[工具图片结果合同](architecture-v2/responses-text-profile.md#tool-image-results)。库验证单资源 encoded/decoded 和总请求预算，HTTP 默认 256 KiB body 限制仍适用；不会为媒体自动放宽。URL 获取/尺寸/图像内容有效性由上游另行验证，网关不代为下载或转码。
 
 厂商 routing policy 和 wire 扩展由[所选 adapter](../src/adapter/mod.rs)及 owning codec 维护；客户端不得覆盖上游路由、认证或可信 scope。示例不表示任一模型支持全部请求选项。
 

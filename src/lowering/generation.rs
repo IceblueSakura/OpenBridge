@@ -164,6 +164,14 @@ pub fn lower_request<'a>(
         if profile == Profile::Chat && parts.iter().any(|id| fidelity.cache_breakpoint(*id)) {
             return Err(RepresentationError::Controls);
         }
+        if matches!(item, Item::ToolResult(result) | Item::CustomResult(result)
+            if matches!(&result.output, ToolOutput::Parts(parts)
+                if parts.iter().any(|(id, part)| matches!(part, ToolResultPart::Resource(_)) && fidelity.cache_breakpoint(*id))))
+        {
+            // Image breakpoints need an explicit image-carrier admission;
+            // the text-only breakpoint path cannot silently omit one.
+            return Err(RepresentationError::Controls);
+        }
         if let Item::Message(m)=item && m.parts.iter().any(|p|matches!(&p.content,ContentPart::Text(t) if !t.is_plain() && (m.role==MessageRole::User || fidelity.cache_breakpoint(p.id)))){return Err(RepresentationError::TextMetadata);}
     }
     validate_wire_ids(r.items(), fidelity, false)?;
@@ -427,9 +435,11 @@ fn text_items(
     request: bool,
 ) -> Result<(), RepresentationError> {
     for (_, i) in items {
-        // New result semantics require an explicit wire contract; stringifying
-        // structured/error/media values would silently erase their meaning.
-        if matches!(i, Item::ToolResult(result) | Item::CustomResult(result) if !result.output.is_text_only())
+        // Structured/error values still lack a carrier. Standard Responses
+        // admits image result parts in request history only; Chat does not.
+        if matches!(i, Item::ToolResult(result) | Item::CustomResult(result)
+            if matches!(result.output, ToolOutput::Structured(_) | ToolOutput::Error(_))
+                || (!request || profile == Profile::Chat) && !result.output.is_text_only())
         {
             return Err(RepresentationError::Tools);
         }

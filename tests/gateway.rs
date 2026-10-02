@@ -70,7 +70,22 @@ async fn answer(
         assert_eq!(request["top_logprobs"], 1);
     }
     let probability = |token: &str| json!({"token":token,"logprob":-0.5,"bytes":token.as_bytes(),"top_logprobs":[]});
-    let image_case = request.to_string().contains("data:image/png;base64,AQID");
+    let tool_image_case = request["metadata"]["case"] == "tool-images";
+    if tool_image_case {
+        assert!(!chat);
+        assert_eq!(
+            request["input"],
+            json!([
+                {"type":"function_call","call_id":"media-call","name":"lookup","arguments":"{}"},
+                {"type":"function_call_output","call_id":"media-call","output":[
+                    {"type":"input_text","text":"caption"},
+                    {"type":"input_image","image_url":"data:image/png;base64,AQID"},
+                    {"type":"input_image","image_url":"https://example.test/tool.png","detail":"low"}
+                ]}
+            ])
+        );
+    }
+    let image_case = !tool_image_case && request.to_string().contains("data:image/png;base64,AQID");
     if image_case {
         let expected = if chat {
             json!([
@@ -101,7 +116,7 @@ async fn answer(
     } else {
         1
     };
-    if !chat && request.to_string().contains("function_call_output") {
+    if !chat && !tool_image_case && request.to_string().contains("function_call_output") {
         let history = request["input"].as_array().unwrap();
         for expected in [
             json!({"type":"function_call_output","call_id":"c_lookup","output":"{\"n\":1}"}),
@@ -527,6 +542,41 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
                 matches!(&message.parts[0].content,openbridge::semantic::task::generation::ContentPart::Text(text) if text.as_str()==expected)
             );
         }
+    }
+    // Tool image results are a Responses history carrier, not a user message
+    // or a Chat tool-result extension. No URL/inline bytes are fetched locally.
+    for stream in [false, true] {
+        let request = json!({"model":"public-model","metadata":{"case":"tool-images"},"stream":stream,"input":[
+            {"type":"function_call","call_id":"media-call","name":"lookup","arguments":"{}"},
+            {"type":"function_call_output","call_id":"media-call","output":[
+                {"type":"input_text","text":"caption"},
+                {"type":"input_image","image_url":"data:image/png;base64,AQID"},
+                {"type":"input_image","image_url":"https://example.test/tool.png","detail":"low"}
+            ]}
+        ]});
+        let before = observed.0.lock().unwrap().len();
+        let response = client
+            .post(format!("{url}/v1/responses"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&request)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let decoded = responses_delivery(&response.bytes().await.unwrap(), stream);
+        assert_eq!(decoded.semantic.outcome(), Outcome::Completed);
+        assert_eq!(observed.0.lock().unwrap().len(), before + 1);
+        let mut unrepresentable = request;
+        unrepresentable["model"] = json!("cross-model");
+        let response = client
+            .post(format!("{url}/v1/responses"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&unrepresentable)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+        assert_eq!(observed.0.lock().unwrap().len(), before + 1);
     }
     // A standard Responses target cannot flatten a Chat message-call group.
     // Static projection fails before publication; SSE may have published an

@@ -106,7 +106,7 @@ Opaque 值由一个 owner 持有，来源/依赖 sidecar 不得另存一份可�
 
 工具声明、选择策略、调用、执行结果与进度分开。Client-executed 和 upstream-executed 工具保留执行方；结果按 call identity 关联而不是按名称或邻接位置猜测。不同种类 hosted/custom/function tool 的专有含义不能强制降成普通函数。工具内容可为文本、结构化值或有序媒体，但只接受所选能力的闭合类型，不允许任意递归容器或嵌套可执行调用。
 
-[工具结果值](../../src/semantic/task/generation/tool_result.rs)以同一 `ToolOutput` 表达文本、有界 `StructuredToolOutput`、`ToolExecutionError` 和有序 typed parts。结构化结果只有一份 JSON authority，不与原始字符串双存；构造保留已有 JSON 值的整数精度和对象顺序，不证明 Schema adherence。工具错误是有效的终态结果，不更改 generation outcome；artifact lifecycle 仍独立。选定媒体 parts 仅接受共享 URL/inline 图片值，来源验证不等于网络授权；opaque ID、音视频及资源服务仍不准入。现有 Chat/Responses 只承载文本结果，新语义必须在 lowering 与低层 request 编码拒绝，不隐式 stringify 或丢弃错误/资源意义。
+[工具结果值](../../src/semantic/task/generation/tool_result.rs)以同一 `ToolOutput` 表达文本、有界 `StructuredToolOutput`、`ToolExecutionError` 和有序 typed parts。结构化结果只有一份 JSON authority，不与原始字符串双存；构造保留已有 JSON 值的整数精度和对象顺序，不证明 Schema adherence。工具错误是有效的终态结果，不更改 generation outcome；artifact lifecycle 仍独立。选定媒体 parts 仅接受共享 URL/inline 图片值，来源验证不等于网络授权；opaque ID、音视频及资源服务仍不准入。Responses request/history 可承载选定 text/image parts，工具图片语义准入独立于 user 图片，共用目标图片格式/数量/字节/detail 限制；Chat 仍只承载文本结果。结构化/错误值、file ID、图片 cache breakpoint 和媒体输出/events 仍无准入 carrier，在 lowering 与低层 request 编码拒绝，不隐式 stringify 或丢弃错误/资源意义。
 
 工具参数区分原始文本/语法输入、结构化值与尚未完整的片段。原始参数字符串若是协议的权威值，就不能被 SDK parsed view 覆盖或重序列化替换；结构化输入同样保留精度和其合同要求的顺序。解析视图与原值不能独立修改形成双份权威；从片段转为完整值需要相应能力的验证，不猜测补齐。
 

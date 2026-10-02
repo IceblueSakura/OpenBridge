@@ -158,19 +158,29 @@ fn output(b: &mut Items, v: &Value) -> Result<ToolOutput, CodecError> {
     let mut p = vec![];
     for v in a {
         let o = object(v)?;
-        fields(o, &["type", "text", "prompt_cache_breakpoint"])?;
-        if string(o, "type")? != "input_text" {
-            return Err(CodecError::Unsupported("tool result media".into()));
-        }
-        let id = b.part_id()?;
-        record_input_form(b, id, o)?;
-        p.push((
-            id,
-            ToolResultPart::Text(
-                Text::allowing_empty(string(o, "text")?, "tool output", MAX_TEXT_BYTES)
-                    .map_err(|_| CodecError::Limit)?,
+        let part = match string(o, "type")? {
+            "input_text" => {
+                fields(o, &["type", "text", "prompt_cache_breakpoint"])?;
+                let id = b.part_id()?;
+                record_input_form(b, id, o)?;
+                (
+                    id,
+                    ToolResultPart::Text(
+                        Text::allowing_empty(string(o, "text")?, "tool output", MAX_TEXT_BYTES)
+                            .map_err(|_| CodecError::Limit)?,
+                    ),
+                )
+            }
+            // The pinned function/custom result union includes standard image
+            // content. File IDs still require an issuer/resource lifecycle.
+            // https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_function_call_output_item_list_param.py
+            "input_image" => (
+                b.part_id()?,
+                ToolResultPart::Resource(super::image::read(o, Profile::Responses)?),
             ),
-        ));
+            _ => return Err(CodecError::Unsupported("tool result media".into())),
+        };
+        p.push(part);
     }
     Ok(ToolOutput::Parts(p))
 }
@@ -509,7 +519,11 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     if target.profile != Profile::Responses {
         return Err(CodecError::ProfileMismatch);
     }
-    if target.semantic.items().iter().any(|(_, item)| matches!(item, Item::ToolResult(result) | Item::CustomResult(result) if !result.output.is_text_only())) {
+    target.semantic.validate()?;
+    if target.semantic.items().iter().any(|(_, item)| matches!(item, Item::ToolResult(result) | Item::CustomResult(result)
+        if matches!(result.output, ToolOutput::Structured(_) | ToolOutput::Error(_))
+            || matches!(&result.output, ToolOutput::Parts(parts)
+                if parts.iter().any(|(id, part)| matches!(part, ToolResultPart::Resource(_)) && target.fidelity.cache_breakpoint(*id))))) {
         return Err(CodecError::Unsupported("tool result semantics".into()));
     }
     let mut v = json!({"input":encode_items(target.semantic.items(),target.fidelity,false)});
@@ -525,11 +539,11 @@ fn output_wire(o: &ToolOutput, fidelity: &FidelityRecords) -> Value {
         ToolOutput::Text(s) => json!(s),
         ToolOutput::Parts(p) => json!(
             p.iter()
-                .map(|(id, t)| input_part(
-                    *id,
-                    t.as_text().expect("lowering admits text-only tool parts"),
-                    fidelity
-                ))
+                .map(|(id, part)| match part {
+                    ToolResultPart::Text(text) => input_part(*id, text.as_str(), fidelity),
+                    ToolResultPart::Resource(resource) =>
+                        super::image::write(resource, Profile::Responses),
+                })
                 .collect::<Vec<_>>()
         ),
         ToolOutput::Structured(_) | ToolOutput::Error(_) => {

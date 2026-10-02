@@ -30,7 +30,7 @@ Chat / Responses wire
 - `src/gateway/`、`src/transport/http.rs`、`src/bin/openbridge.rs`：认证入口、可信预算变换、HTTP I/O 与实际 body handoff；无同候选重试，只有显式受信 Route 策略允许提交前有界 fallback。
 - `tests/semantic.rs`、`tests/transport.rs`、`tests/gateway.rs`、`tests/sdk_loopback.rs`：语义、transport、真实 Router/binary 与固定 SDK 验收；HTTP 测试只使用 synthetic loopback。
 
-**当前范围是受限的无状态文本 Generation，以及选定的 user URL/inline 图片输入→文本输出；不是完整多模态标准实现或生产就绪服务。** 图片语义与明确拒绝范围见[图片输入合同](docs/architecture-v2/responses-text-profile.md#user-image-input)，实际模型/Endpoint 准入仍须现场查询。当前类型和 codec 仍以 Responses/单候选 Chat 切片为实现基础；新的协议中立设计不代表额外协议已接入，跨协议不可表示时仍拒绝。尚未闭合的语义、接线与验收范围见[实施边界与缺口](docs/implementation-status/generation.md)；推进方向见[下一步目标](docs/implementation-plans/next-goal.md)，获准行为切片由[当前焦点](docs/implementation-plans/current-focus.md)维护。
+**当前范围是受限的无状态文本 Generation，以及选定的 user / Responses 工具结果 URL/inline 图片输入→文本输出；不是完整多模态标准实现或生产就绪服务。** 工具图片的语义准入独立于 user 图片，codec 支持不代表 catalog 或实际实例已启用；具体边界见[工具图片结果合同](docs/architecture-v2/responses-text-profile.md#tool-image-results)。 图片语义与明确拒绝范围见[图片输入合同](docs/architecture-v2/responses-text-profile.md#user-image-input)，实际模型/Endpoint 准入仍须现场查询。当前类型和 codec 仍以 Responses/单候选 Chat 切片为实现基础；新的协议中立设计不代表额外协议已接入，跨协议不可表示时仍拒绝。尚未闭合的语义、接线与验收范围见[实施边界与缺口](docs/implementation-status/generation.md)；推进方向见[下一步目标](docs/implementation-plans/next-goal.md)，获准行为切片由[当前焦点](docs/implementation-plans/current-focus.md)维护。
 
 缓存亲和只利用 Provider 原生自动缓存和明确字段，维护稳定前缀；不实现网关负载均衡、回答缓存或会话管理。稳定合同与扩展 owner 见 [ADR 0011](docs/architecture-v2/decisions/0011-stable-admission-provider-cache.md)。
 

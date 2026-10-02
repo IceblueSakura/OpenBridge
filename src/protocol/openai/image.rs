@@ -1,4 +1,4 @@
-//! Standard user image parts. File IDs need issuer/resource ownership before admission.
+//! Standard input image values. File IDs need issuer/resource ownership before admission.
 use super::{CodecError, Profile, common::*};
 use crate::semantic::{task::generation::*, value::Text};
 use serde_json::{Map, Value, json};
