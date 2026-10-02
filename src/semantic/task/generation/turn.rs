@@ -1,5 +1,8 @@
 //! Caller-declared local response relations; no wire inference or Agent scheduler.
-use super::{CallReference, GenerationRequest, GenerationResponse, Item, ItemLifecycle, Outcome};
+use super::{
+    CallReference, GenerationRequest, GenerationResponse, Item, ItemLifecycle, MAX_ITEMS, Outcome,
+    RequestDependencyProof,
+};
 
 /// Local identity, not an upstream response ID or stream lane.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -52,7 +55,10 @@ impl ResponseRelation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResultReadiness<'a> {
     Unreported,
-    Awaiting(Vec<CallReference<'a>>),
+    Awaiting {
+        missing: Vec<CallReference<'a>>,
+        in_progress: Vec<CallReference<'a>>,
+    },
     ResultsComplete,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
@@ -63,6 +69,8 @@ pub enum ContinuationError {
     ChangedResponse,
     #[error("this response's tool results are not completely reported")]
     ResultsNotComplete,
+    #[error("declared continuation dependencies changed or exceed the item budget")]
+    ChangedDependency,
     #[error("successor response identity conflicts with the current relation")]
     ConflictingResponse,
 }
@@ -72,10 +80,21 @@ pub enum ContinuationError {
 pub struct ResponseContinuation<'a> {
     relation: ResponseRelation,
     response: &'a GenerationResponse,
+    dependencies: &'a [RequestDependencyProof],
 }
 impl<'a> ResponseContinuation<'a> {
     pub const fn new(relation: ResponseRelation, response: &'a GenerationResponse) -> Self {
-        Self { relation, response }
+        Self {
+            relation,
+            response,
+            dependencies: &[],
+        }
+    }
+    /// Trusted caller-declared requirements, not inferred wire dependencies.
+    /// A successor needs its own declarations; these apply only to this response.
+    pub const fn with_dependencies(mut self, dependencies: &'a [RequestDependencyProof]) -> Self {
+        self.dependencies = dependencies;
+        self
     }
     pub const fn relation(&self) -> ResponseRelation {
         self.relation
@@ -98,9 +117,17 @@ impl<'a> ResponseContinuation<'a> {
                 return Err(ContinuationError::ChangedResponse);
             }
         }
+        if self.dependencies.len() > MAX_ITEMS
+            || self
+                .dependencies
+                .iter()
+                .any(|proof| proof.check(history).is_err())
+        {
+            return Err(ContinuationError::ChangedDependency);
+        }
         let mut pending = Vec::new();
+        let mut in_progress = Vec::new();
         let mut calls = 0;
-        let mut partial = false;
         let mut previous_position = None;
         for (owner, item) in self.response.items() {
             let position = history
@@ -140,16 +167,22 @@ impl<'a> ResponseContinuation<'a> {
                     item: *owner,
                     call_id,
                 }),
-                Some(Some(ItemLifecycle::InProgress)) => partial = true,
+                Some(Some(ItemLifecycle::InProgress)) => in_progress.push(CallReference {
+                    item: *owner,
+                    call_id,
+                }),
                 Some(_) => {}
             }
         }
-        Ok(if calls == 0 || partial {
+        Ok(if calls == 0 {
             ResultReadiness::Unreported
-        } else if pending.is_empty() {
+        } else if pending.is_empty() && in_progress.is_empty() {
             ResultReadiness::ResultsComplete
         } else {
-            ResultReadiness::Awaiting(pending)
+            ResultReadiness::Awaiting {
+                missing: pending,
+                in_progress,
+            }
         })
     }
     /// Explicit successor association, not a request dispatch. The caller must

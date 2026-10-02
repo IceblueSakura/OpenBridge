@@ -40,15 +40,16 @@ fn parallel_exchange_distinguishes_pending_partial_and_complete_results() {
     let exchange = ResponseContinuation::new(relation(), &response);
     let request = history(response.items().to_vec());
     assert!(
-        matches!(exchange.inspect(&request).unwrap(), ResultReadiness::Awaiting(ref calls) if calls.len() == 2)
+        matches!(exchange.inspect(&request).unwrap(), ResultReadiness::Awaiting { ref missing, ref in_progress } if missing.len() == 2 && in_progress.is_empty())
     );
     let mut items = request.items().to_vec();
     items.push(result(3, "b", ItemLifecycle::InProgress));
     let partial = history(items.clone());
-    assert_eq!(
+    assert!(matches!(
         exchange.inspect(&partial).unwrap(),
-        ResultReadiness::Unreported
-    );
+        ResultReadiness::Awaiting { ref missing, ref in_progress }
+            if missing[0].call_id == "a" && in_progress[0].call_id == "b"
+    ));
     assert!(
         exchange
             .advance(&partial, ResponseId::new(11), &response)
@@ -60,7 +61,7 @@ fn parallel_exchange_distinguishes_pending_partial_and_complete_results() {
     r.status = Some(ItemLifecycle::Incomplete);
     let request = history(items.clone());
     assert!(
-        matches!(exchange.inspect(&request).unwrap(), ResultReadiness::Awaiting(ref calls) if calls[0].call_id == "a")
+        matches!(exchange.inspect(&request).unwrap(), ResultReadiness::Awaiting { ref missing, ref in_progress } if missing[0].call_id == "a" && in_progress.is_empty())
     );
     items.push(result(4, "a", ItemLifecycle::Completed));
     let request = history(items);
@@ -81,7 +82,7 @@ fn parallel_exchange_distinguishes_pending_partial_and_complete_results() {
     let mut items = request.items().to_vec();
     items.extend_from_slice(next_response.items());
     assert!(
-        matches!(next.inspect(&history(items)).unwrap(), ResultReadiness::Awaiting(ref calls) if calls[0].call_id == "c")
+        matches!(next.inspect(&history(items)).unwrap(), ResultReadiness::Awaiting { ref missing, .. } if missing[0].call_id == "c")
     );
     assert!(
         next.advance(&request, ResponseId::new(10), &next_response)
@@ -132,6 +133,45 @@ fn scope_binds_final_call_values_and_does_not_infer_turn_completion() {
             .inspect(&request)
             .unwrap(),
         ResultReadiness::Unreported
+    );
+}
+
+#[test]
+fn declared_dependencies_are_checked_even_after_results_arrive() {
+    let response = GenerationResponse::new(vec![call(1, "a")], Outcome::Completed).unwrap();
+    let source = history(response.items().to_vec());
+    let proofs = [RequestDependencyProof::capture(
+        &source,
+        HistoryDependency::PrefixThrough(ItemId::new(1)),
+        true,
+    )
+    .unwrap()];
+    let exchange = ResponseContinuation::new(relation(), &response).with_dependencies(&proofs);
+    let complete = history(vec![call(1, "a"), result(2, "a", ItemLifecycle::Completed)]);
+    assert_eq!(
+        exchange.inspect(&complete).unwrap(),
+        ResultReadiness::ResultsComplete
+    );
+    exchange
+        .advance(&complete, ResponseId::new(11), &response)
+        .unwrap();
+    let mut settings = complete.settings().clone();
+    settings.controls.max_output_tokens = Some(100);
+    let changed = complete.with_settings(settings).unwrap();
+    assert_eq!(
+        exchange.inspect(&changed).unwrap_err(),
+        ContinuationError::ChangedDependency
+    );
+    assert_eq!(
+        exchange
+            .advance(&changed, ResponseId::new(11), &response)
+            .unwrap_err(),
+        ContinuationError::ChangedDependency
+    );
+    let inserted = history(vec![call(3, "earlier"), call(1, "a")]);
+    assert_eq!(
+        exchange.inspect(&inserted).unwrap_err(),
+        ContinuationError::ChangedDependency
     );
 }
 
