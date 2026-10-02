@@ -63,7 +63,7 @@ impl CredentialManager {
             LoginOptions {
                 client_id: Some(client.into()),
                 method: LoginMethod::Browser,
-                callback_port: port,
+                callback_port: Some(port),
             },
             |prompt| {
                 let LoginPrompt::Browser(prompt) = prompt else {

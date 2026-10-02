@@ -71,7 +71,7 @@ fn browser_steps(subject: &str) -> Vec<Step> {
         ),
     ]
 }
-async fn request(address: SocketAddr, target: &str) -> String {
+pub(super) async fn request(address: SocketAddr, target: &str) -> String {
     let mut stream = TcpStream::connect(address).await.unwrap();
     let request = format!("GET {target} HTTP/1.1\r\nHost: {address}\r\n\r\n");
     stream.write_all(request.as_bytes()).await.unwrap();
@@ -252,7 +252,7 @@ fn es256_nonce_issuer_audience_and_key_policy_are_independent_of_codex() {
     let identity = grok::verify_identity(&good, &keys(), CLIENT, "expected").unwrap();
     assert_eq!(identity.subject, "person-a");
     assert_eq!(identity.scope, None);
-    assert!(codex::verify_identity(&good, &keys(), CLIENT).is_err());
+    assert!(codex::verify_identity(&good, &keys(), CLIENT, None).is_err());
     assert!(grok::verify_identity(&good, &keys(), CLIENT, "wrong").is_err());
     for field in ["nonce", "iss", "aud", "exp"] {
         let mut bad = claims("expected");
@@ -449,4 +449,37 @@ async fn device_unavailable_zero_interval_and_identity_deadline_are_closed() {
         AccountState::SignedOut
     );
     authority.done();
+}
+
+#[tokio::test]
+async fn shared_browser_mechanism_rejects_overrides_and_never_falls_back_from_an_occupied_port() {
+    use super::browser::{BrowserGrant, BrowserProfile};
+    let occupied = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = occupied.local_addr().unwrap().port();
+    let profile = || BrowserProfile {
+        authorize: "https://authority.invalid/authorize",
+        client: "synthetic-client",
+        scopes: "openid",
+        callback_path: "/auth/callback",
+        extra: &[],
+        timeout: Duration::from_secs(1),
+    };
+    assert!(matches!(
+        BrowserGrant::begin(profile(), port).await,
+        Err(CredentialError::Callback)
+    ));
+    let mut invalid = profile();
+    invalid.extra = &[("state", "injected")];
+    assert!(matches!(
+        BrowserGrant::begin(invalid, 0).await,
+        Err(CredentialError::Protocol)
+    ));
+    drop(occupied);
+    let grant = BrowserGrant::begin(profile(), port).await.unwrap();
+    assert_eq!(
+        grant.prompt.redirect_uri,
+        format!("http://127.0.0.1:{port}/auth/callback")
+    );
+    drop(grant);
+    drop(TcpListener::bind(("127.0.0.1", port)).await.unwrap());
 }

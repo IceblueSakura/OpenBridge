@@ -19,7 +19,7 @@ Rust/Cargo 由根 `rust-toolchain.toml` 固定；rustfmt/clippy 随该工具链�
 | Target | 模块与边界 |
 |---|---|
 | `semantic` | `tests/semantic/`：instructions、phase、tools、reasoning、schema、parsed replay、extensions、text profile/events/admission、function events、response、response/history continuation、chat wire/概率 owner、adapter profile 隔离、usage 缺省规则与来源/依赖保真；纯语义与 codec/lowering |
-| `credential` | `tests/credential.rs`：实际独立 auth CLI 的自有 synthetic 账户文件、非秘密输出、本地退出、quarantine 与跨进程账户锁；不执行真实登录或访问上游。profile-neutral manager/第三 driver 与文件发布故障归 `src/credential/{manager_tests,storage_tests}.rs`；Grok/Codex wire、签名身份、rotation/隔离与失败用例归 `src/credential/{tests,codex_tests,browser_tests}.rs`；`tests/fixtures/auth/` 的 RSA/EC key/JWK 仅为本地生成的公开 synthetic fixture，不是上游或用户凭据 |
+| `credential` | `tests/credential.rs`：实际独立 auth CLI 的自有 synthetic 账户文件、非秘密输出、本地退出、quarantine 与跨进程账户锁；不执行真实登录或访问上游。profile-neutral manager/第三 driver 与文件发布故障归 `src/credential/{manager_tests,storage_tests}.rs`；Grok/Codex wire、签名身份、rotation/隔离与失败用例归 `src/credential/{tests,codex_tests,browser_tests,codex_browser_tests}.rs`；`tests/fixtures/auth/` 的 RSA/EC key/JWK 仅为本地生成的公开 synthetic fixture，不是上游或用户凭据 |
 | `transport` | `tests/transport/`：framing、Responses/Chat SSE、Chat envelope、body lifecycle；基础 framer、增量 Attempt/ResponseDelivery、实际 I/O commit 边界和 synthetic body I/O 各自验证 |
 | `gateway` | 一个真实 Router→synthetic HTTP Provider smoke；另一个隔离环境 binary bootstrap gate，使用 synthetic keys 与拒绝出站的 loopback 代理，不调用真实 Provider |
 | `sdk_loopback` | 显式 ignored 的固定 Python SDK codec fixture gates，以及真实 Gateway Router→synthetic Provider 的双协议 JSON/SSE 续轮 gate，不进入默认外部依赖检查 |

@@ -11,10 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const CLIENT: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 const CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
-fn keys() -> Value {
+pub(super) fn keys() -> Value {
     json!({"keys":[serde_json::from_str::<Value>(include_str!("../../tests/fixtures/auth/codex-test-jwk.json")).unwrap()]})
 }
-fn claims(workspace: &str) -> Value {
+pub(super) fn claims(workspace: &str) -> Value {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -22,7 +22,7 @@ fn claims(workspace: &str) -> Value {
     json!({"iss":"https://auth.openai.com", "aud":CLIENT, "sub":"person-a", "exp":timestamp+3600,
         "https://api.openai.com/auth":{"chatgpt_account_id":workspace}})
 }
-fn sign(header: Value, claims: Value) -> String {
+pub(super) fn sign(header: Value, claims: Value) -> String {
     let pair = ring::signature::RsaKeyPair::from_pkcs8(include_bytes!(
         "../../tests/fixtures/auth/codex-test-rsa.pk8"
     ))
@@ -42,7 +42,7 @@ fn sign(header: Value, claims: Value) -> String {
     .unwrap();
     format!("{message}.{}", B64.encode(signature))
 }
-fn id_token(workspace: &str) -> String {
+pub(super) fn id_token(workspace: &str) -> String {
     sign(
         json!({"alg":"RS256","kid":"synthetic-codex-key"}),
         claims(workspace),
@@ -100,9 +100,19 @@ async fn login(pool: &CredentialManager) -> AccountStatus {
 }
 
 #[test]
+fn browser_is_an_explicit_supported_product_login_method() {
+    let driver = codex::CodexAuthority::new(None).unwrap();
+    let options = LoginOptions {
+        method: LoginMethod::Browser,
+        ..LoginOptions::default()
+    };
+    assert_eq!(driver.login_client(&options).unwrap(), CLIENT);
+}
+
+#[test]
 fn signed_id_tokens_enforce_claims_algorithm_keys_and_workspace() {
     let valid = id_token("workspace-a");
-    let identity = codex::verify_identity(&valid, &keys(), CLIENT).unwrap();
+    let identity = codex::verify_identity(&valid, &keys(), CLIENT, None).unwrap();
     assert_eq!(identity.subject, "person-a");
     assert_eq!(identity.scope.as_deref(), Some("workspace-a"));
     for field in ["iss", "aud", "sub", "exp", "https://api.openai.com/auth"] {
@@ -116,7 +126,7 @@ fn signed_id_tokens_enforce_claims_algorithm_keys_and_workspace() {
         }
         let token = sign(json!({"alg":"RS256","kid":"synthetic-codex-key"}), value);
         assert_eq!(
-            codex::verify_identity(&token, &keys(), CLIENT).unwrap_err(),
+            codex::verify_identity(&token, &keys(), CLIENT, None).unwrap_err(),
             CredentialError::Protocol
         );
     }
@@ -129,7 +139,7 @@ fn signed_id_tokens_enforce_claims_algorithm_keys_and_workspace() {
     ] {
         let token = sign(header, claims("workspace-a"));
         assert_eq!(
-            codex::verify_identity(&token, &keys(), CLIENT).unwrap_err(),
+            codex::verify_identity(&token, &keys(), CLIENT, None).unwrap_err(),
             CredentialError::Protocol
         );
     }
@@ -137,26 +147,27 @@ fn signed_id_tokens_enforce_claims_algorithm_keys_and_workspace() {
     let index = valid.rfind('.').unwrap() + 8;
     forged[index] = if forged[index] == b'A' { b'B' } else { b'A' };
     assert!(
-        codex::verify_identity(std::str::from_utf8(&forged).unwrap(), &keys(), CLIENT).is_err()
+        codex::verify_identity(std::str::from_utf8(&forged).unwrap(), &keys(), CLIENT, None)
+            .is_err()
     );
     let mut duplicate = keys();
     let key = duplicate["keys"][0].clone();
     duplicate["keys"].as_array_mut().unwrap().push(key);
-    assert!(codex::verify_identity(&valid, &duplicate, CLIENT).is_err());
+    assert!(codex::verify_identity(&valid, &duplicate, CLIENT, None).is_err());
     let mut audience = claims("workspace-a");
     audience["aud"] = json!([CLIENT, "another-client"]);
     let token = sign(
         json!({"alg":"RS256","kid":"synthetic-codex-key"}),
         audience.clone(),
     );
-    assert!(codex::verify_identity(&token, &keys(), CLIENT).is_err());
+    assert!(codex::verify_identity(&token, &keys(), CLIENT, None).is_err());
     audience["azp"] = json!(CLIENT);
     let token = sign(
         json!({"alg":"RS256","kid":"synthetic-codex-key","jku":"https://untrusted.test/key"}),
         audience,
     );
     // Header key URLs are never fetched or used as authority.
-    assert!(codex::verify_identity(&token, &keys(), CLIENT).is_ok());
+    assert!(codex::verify_identity(&token, &keys(), CLIENT, None).is_ok());
 }
 
 #[tokio::test]

@@ -2,13 +2,14 @@
 //! Sources: https://auth.x.ai/.well-known/openid-configuration and
 //! https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-login/src/device_code.rs
 use super::http::{AuthHttp, REQUEST_TIMEOUT};
+use super::model::VerifiedIdentity;
 use super::{
     CredentialError as Error,
-    model::{BrowserPrompt, DevicePrompt},
+    browser::{BrowserGrant, BrowserProfile},
+    model::DevicePrompt,
     model::{Credential, Secret, now},
-    oauth::{challenge, present, random_token},
+    oauth::{self, present},
 };
-use super::{callback::Callback, model::VerifiedIdentity};
 use serde::Deserialize;
 use std::{collections::BTreeSet, time::Duration};
 use tokio::time::Instant;
@@ -17,15 +18,6 @@ pub(super) const SCOPES: &str = "openid profile email offline_access grok-cli:ac
 const ORIGIN: &str = "https://auth.x.ai";
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(900);
 
-pub(super) struct BrowserGrant {
-    pub prompt: BrowserPrompt,
-    callback: Callback,
-    verifier: Secret,
-    state: Secret,
-    nonce: Secret,
-    client: String,
-    deadline: Instant,
-}
 #[derive(Clone)]
 pub(super) struct GrokAuthority {
     http: AuthHttp,
@@ -80,80 +72,45 @@ impl GrokAuthority {
         })
     }
     pub async fn browser(&self, client: &str, port: u16) -> Result<BrowserGrant, Error> {
-        let started = Instant::now();
-        let callback = Callback::bind(port, "/callback").await?;
-        let redirect_uri = callback.redirect_uri();
-        let verifier = random_token()?;
-        let state = random_token()?;
-        let nonce = random_token()?;
-        let mut url =
-            url::Url::parse("https://auth.x.ai/oauth2/authorize").map_err(|_| Error::Protocol)?;
-        url.query_pairs_mut().extend_pairs([
-            ("response_type", "code"),
-            ("client_id", client),
-            ("scope", SCOPES),
-            ("redirect_uri", redirect_uri.as_str()),
-            ("code_challenge_method", "S256"),
-            ("code_challenge", challenge(verifier.expose()).as_str()),
-            ("state", state.expose()),
-            ("nonce", nonce.expose()),
-            ("referrer", "openbridge"),
-        ]);
-        Ok(BrowserGrant {
-            prompt: BrowserPrompt {
-                authorization_url: url.to_string(),
-                redirect_uri,
+        BrowserGrant::begin(
+            BrowserProfile {
+                authorize: "https://auth.x.ai/oauth2/authorize",
+                client,
+                scopes: SCOPES,
+                callback_path: "/callback",
+                extra: &[("referrer", "openbridge")],
+                timeout: LOGIN_TIMEOUT,
             },
-            callback,
-            verifier,
-            state,
-            nonce,
-            client: client.into(),
-            deadline: started + LOGIN_TIMEOUT,
-        })
+            port,
+        )
+        .await
     }
     pub async fn complete_browser(
         &self,
-        mut grant: BrowserGrant,
+        grant: BrowserGrant,
     ) -> Result<(Credential, VerifiedIdentity), Error> {
-        let code = grant
-            .callback
-            .wait(grant.state.expose(), grant.deadline)
-            .await?;
-        // Release callback sockets before any authority I/O, on success and on
-        // cancellation. The browser acknowledgement is not a credential commit.
-        drop(grant.callback);
-        let (status, body) = super::oauth::exchange_code(
-            &self.http,
-            "/oauth2/token",
-            super::oauth::CodeExchange {
-                client: &grant.client,
-                code: code.expose(),
-                redirect: &grant.prompt.redirect_uri,
-                verifier: grant.verifier.expose(),
-            },
-            grant.deadline,
-        )
-        .await?;
-        if status != 200 {
-            return Err(failure(status, &body));
-        }
-        let wire: TokenWire = serde_json::from_slice(&body).map_err(|_| Error::Protocol)?;
-        let id = wire.id_token.as_deref().ok_or(Error::Protocol)?;
-        let (status, keys) = self
-            .http
-            .get("/.well-known/jwks.json", grant.deadline)
-            .await?;
-        if status != 200 {
-            return Err(failure(status, &keys));
-        }
-        let keys = serde_json::from_slice(&keys).map_err(|_| Error::Protocol)?;
-        let identity = verify_identity(id, &keys, &grant.client, grant.nonce.expose())?;
-        let credential = parse_token(&body, None, SCOPES)?;
-        if self.identity(&credential, grant.deadline).await? != identity.subject {
-            return Err(Error::IdentityMismatch);
-        }
-        Ok((credential, identity))
+        let deadline = grant.deadline;
+        oauth::login_deadline(deadline, async {
+            let response = grant.exchange(&self.http, "/oauth2/token").await?;
+            if response.status != 200 {
+                return Err(failure(response.status, &response.body));
+            }
+            let wire: TokenWire =
+                serde_json::from_slice(&response.body).map_err(|_| Error::Protocol)?;
+            let id = wire.id_token.as_deref().ok_or(Error::Protocol)?;
+            let (status, keys) = self.http.get("/.well-known/jwks.json", deadline).await?;
+            if status != 200 {
+                return Err(failure(status, &keys));
+            }
+            let keys = serde_json::from_slice(&keys).map_err(|_| Error::Protocol)?;
+            let identity = verify_identity(id, &keys, &response.client, response.nonce.expose())?;
+            let credential = parse_token(&response.body, None, SCOPES)?;
+            if self.identity(&credential, deadline).await? != identity.subject {
+                return Err(Error::IdentityMismatch);
+            }
+            Ok((credential, identity))
+        })
+        .await
     }
     pub async fn complete_device(
         &self,
@@ -161,24 +118,18 @@ impl GrokAuthority {
         grant: DeviceGrant,
     ) -> Result<(Credential, VerifiedIdentity), Error> {
         let deadline = grant.deadline;
-        let credential = self.poll(client, grant).await?;
-        let subject = self
-            .identity(&credential, deadline)
-            .await
-            .map_err(|error| {
-                if error == Error::Timeout && Instant::now() >= deadline {
-                    Error::Expired
-                } else {
-                    error
-                }
-            })?;
-        Ok((
-            credential,
-            VerifiedIdentity {
-                subject,
-                scope: None,
-            },
-        ))
+        oauth::login_deadline(deadline, async {
+            let credential = self.poll(client, grant).await?;
+            let subject = self.identity(&credential, deadline).await?;
+            Ok((
+                credential,
+                VerifiedIdentity {
+                    subject,
+                    scope: None,
+                },
+            ))
+        })
+        .await
     }
     pub async fn device(&self, client: &str) -> Result<DeviceGrant, Error> {
         let started = Instant::now();
@@ -427,7 +378,7 @@ impl super::AuthDriver for GrokAuthority {
         "grok"
     }
     fn login_client(&self, options: &super::LoginOptions) -> Result<String, Error> {
-        if options.method != super::LoginMethod::Browser && options.callback_port != 0 {
+        if options.method != super::LoginMethod::Browser && options.callback_port.is_some() {
             return Err(Error::InvalidInput);
         }
         let client = options.client_id.as_deref().ok_or(Error::InvalidInput)?;
@@ -466,7 +417,9 @@ impl super::AuthDriver for GrokAuthority {
                     self.complete_device(client, grant).await?
                 }
                 super::LoginMethod::Browser => {
-                    let grant = self.browser(client, options.callback_port).await?;
+                    let grant = self
+                        .browser(client, options.callback_port.unwrap_or(0))
+                        .await?;
                     notify(&super::LoginPrompt::Browser(grant.prompt.clone()));
                     self.complete_browser(grant).await?
                 }

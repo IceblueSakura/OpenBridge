@@ -2,7 +2,7 @@
 
 独立 `openbridge-auth` 通过同一个 profile-neutral 管理器执行账户登录、显式刷新、本地退出、可选远端撤销和非秘密状态查询。设计归 [ADR 0012](architecture-v2/decisions/0012-grok-personal-credential-pool.md)；具体授权合同归 [Grok](references/grok-login.md)、[ChatGPT/Codex](references/chatgpt-login.md)来源和各自 driver。
 
-Grok 支持个人账户标准设备授权和显式浏览器 PKCE/OIDC；Codex 使用产品私有设备交互，不是公开 SIWC。登录不证明订阅推理资格。本组件不接 Gateway、不发现模型/额度、不自动选择账户，也不读取第三方 auth cache 或环境凭据。
+Grok 支持个人账户标准设备授权和显式浏览器 PKCE/OIDC；Codex 支持产品私有设备交互和显式浏览器 PKCE/OIDC，不是公开 SIWC。两家缺省仍为 device，browser 必须明确选择。登录不证明订阅推理资格。本组件不接 Gateway、不发现模型/额度、不自动选择账户，也不读取第三方 auth cache 或环境凭据。
 
 ## 显式自有文件目录
 
@@ -28,6 +28,7 @@ target/debug/openbridge-auth grok login \
   --store "$STORE" --account personal --client-id "<approved-xai-client-id>" \
   --method browser
 target/debug/openbridge-auth codex login --store "$STORE" --account personal
+target/debug/openbridge-auth codex login --store "$STORE" --account personal --method browser
 
 target/debug/openbridge-auth list --store "$STORE"
 target/debug/openbridge-auth grok list --store "$STORE"
@@ -47,11 +48,15 @@ Grok 必须提供获准 client，CLI 不默认复用第一方 registration。Cod
 
 设备方法只展示可信第一方验证网址和 user code，不展示 device secret。浏览器方法只展示第一方授权 URL 与准确 redirect，不自动打开浏览器。请只批准自己发起的登录。
 
-Grok 浏览器监听 literal `127.0.0.1`，默认 OS 选择空闲端口；可用 `--callback-port <registered-port>` 指定获准端口。该选项仅适用于 browser 方法。准确 URI 绑定 authorize 与 exchange，监听成功不证明 registration 允许。没有裸 code 或手动 URL 绕过。
+两家的浏览器 callback 都只监听 literal `127.0.0.1`。Grok 使用 `/callback`，未指定端口或显式 `--callback-port 0` 时由 OS 选择，可指定其他获准端口。Codex 使用 `/auth/callback`，默认 1455，也允许显式 `--callback-port 1457`；0 和其他端口拒绝。端口占用明确失败，不自动换端口、不取消其他登录进程。
+
+`--callback-port` 仅用于 browser；库级 `LoginOptions.callback_port` 的 `None` 使用 profile 默认，`Some(0)` 是明确请求随机端口，并非缺省。准确 URI 绑定 authorize 与 exchange，监听成功不证明 registration 允许。没有裸 code 或手动 URL 绕过。
 
 callback 校验 method/path/Host、query 唯一性、state 和资源预算；OAuth error 也先校验 state。页面只确认接收 callback，不声明 token 验证或持久化成功。listener/连接由本次 operation future 拥有，在取消、拒绝和超时释放。
 
-Grok browser 的 ES256/P-256 ID token 验证 issuer/audience/expiry/nonce，并与 UserInfo subject 对齐；设备身份由固定 HTTPS UserInfo 验证。Codex 的 RS256 ID token 绑定 subject/workspace；JWT payload decode 不是身份验证。临时 state/nonce/code/verifier 不持久化。两家的 claims、scope 与缺字段继承规则互不套用。
+Grok browser 的 ES256/P-256 ID token 验证 issuer/audience/expiry/nonce，并与 UserInfo subject 对齐；设备身份由固定 HTTPS UserInfo 验证。Codex 的 RS256 ID token 绑定 subject/workspace，browser 额外验证本次 nonce；device 与 refresh 不套用 browser nonce。JWT payload decode 不是身份验证。浏览器事务的 state/nonce/code/verifier 不单独持久化；Codex 按产品合同保留 ID token 作为 secret，其中可含已经验证的 nonce claim。两家的 claims、scope 与缺字段继承规则互不套用。
+
+Codex browser 使用固定产品 client，只请求 `openid profile email offline_access`，不申请 connectors 权限，不从 ID token 派生 API key；authorization query 的 `originator=openbridge` 如实标识本应用。相对固定官方参考，OpenBridge 增加并严格验证 nonce；实际 authority 对这些选定参数的接受仍需真实授权验收。
 
 ## 生命周期与故障
 

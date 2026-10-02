@@ -10,7 +10,7 @@
 |---|---|---|
 | Codex 官方产品文档 | [Authentication][codex-auth-doc]、[Access tokens][codex-access-doc] | 浏览器/设备入口、workspace 管理、存储和独立 automation 认证 |
 | Codex 官方源码 | `openai/codex@d25c114d494ddb693290b76bf5e5f64ecbdb38fc`，[Apache-2.0][codex-license] | [浏览器 server][codex-server]、[私有设备交互][codex-device]、[OAuth 协议][codex-oauth-client]、[callback 绑定][codex-authorization]、[auth manager][codex-manager]、[token claims][codex-token-data]、[存储][codex-storage]、[撤销][codex-revoke] |
-| OpenBridge Codex 设备凭据池 wire 来源 | 稳定 CLI [`0.160.0`][codex-pool-release]，`openai/codex@a956835d020762cb2b570053af06f643a11c0ecc`，[Apache-2.0][codex-pool-license] | [私有设备交互][codex-pool-device]、[code/refresh 编码][codex-pool-oauth]、[refresh owner][codex-pool-manager]、[JSON revocation][codex-pool-revoke]、[默认与 raw auth client][codex-pool-client]；不是 SIWC 或旧语义基线升级 |
+| OpenBridge Codex 授权 wire 来源 | 稳定 CLI [`0.160.0`][codex-pool-release]，`openai/codex@a956835d020762cb2b570053af06f643a11c0ecc`，[Apache-2.0][codex-pool-license] | [浏览器 server][codex-pool-server]、[authorization 参数][codex-pool-authorization]、[私有设备交互][codex-pool-device]、[code/refresh 编码][codex-pool-oauth]、[refresh owner][codex-pool-manager]、[JSON revocation][codex-pool-revoke]、[默认与 raw auth client][codex-pool-client]；不是 SIWC 或旧语义基线升级 |
 | pi coding agent / pi-ai | `0.99.2`，`earendil-works/pi@005af57d88ee23b33778f343a9595b32e67ff788`，[MIT][pi-license] | [公开 SIWC 登录][pi-siwc]、[Codex 登录][pi-codex]、[OpenAI Provider][pi-openai-provider]、[Codex Provider][pi-codex-provider]、[刷新协调][pi-resolve] |
 | 公开 SIWC 官方合同 | [Overview][siwc-overview]、[Registration and sign-in][siwc-sign-in]、[Accounts and sessions][siwc-sessions]、[Token reference][siwc-tokens]、[Models and inference][siwc-inference] | 第三方本地/开源应用的动态 registration、identity、consent、refresh 和 Responses 路径 |
 | 公开 authority 元数据 | [OIDC discovery][openai-discovery]、[JWKS][openai-jwks] | SIWC issuer、端点与签名验证来源；不能覆盖 Codex 固定产品端点 |
@@ -28,15 +28,17 @@
 
 ## Codex 浏览器登录
 
-固定 [server][codex-server] 使用 `https://auth.openai.com`，其产品路径为 `/oauth/authorize`、`/oauth/token`，默认 client ID 为 `app_EMoamEEZ73f0CkXaXp7hrann`。这是公开产品 client ID，不是 client secret，也不自动授予第三方复用资格。
+OpenBridge 浏览器 wire 与设备入口采用同一固定 CLI 0.160.0 的 [server][codex-pool-server] 和 [authorization][codex-pool-authorization]。它使用 `https://auth.openai.com`，其产品路径为 `/oauth/authorize`、`/oauth/token`，默认 client ID 为 `app_EMoamEEZ73f0CkXaXp7hrann`。这是公开产品 client ID，不是 client secret，也不自动授予第三方复用资格。
 
-1. 生成随机 state 与 PKCE S256 verifier/challenge，启动 loopback callback。默认端口为 1455，浏览器 redirect URI 使用 `http://127.0.0.1:<port>/auth/callback`，端口占用时源码有 fallback；准确 URI 仍须逐次绑定，不从端口相同推定与另一 flow 等价。
+1. 生成随机 state 与 PKCE S256 verifier/challenge，启动 loopback callback。默认端口为 1455，浏览器 redirect URI 使用 `http://127.0.0.1:<port>/auth/callback`，端口占用时固定源码可 fallback 到登记端口 1457；准确 URI 仍须逐次绑定，不从端口相同推定与另一 flow 等价。
 2. authorization 请求带 client ID、scope、准确 redirect URI、challenge 和 state；产品参数另有 `id_token_add_organizations=true`、`codex_cli_simplified_flow=true`、originator 及可选 workspace 约束。
 3. callback 的 state 与本次事务绑定，在使用 code 或 OAuth error 前校验；预选 workspace 不代替最终 workspace 检查。
 4. 使用 form-encoded authorization-code grant，把 code、client ID、相同 redirect URI 和 verifier 发送到产品 token endpoint；没有内置 client secret。
 5. 按官方产品 token/workspace 合同处理 `id_token`、access token、refresh token，验证受管理 workspace 限制后保存；结束 listener、登录取消句柄和临时授权状态。
 
 固定官方 scope 包含 `openid profile email offline_access api.connectors.read api.connectors.invoke`；pi Codex 参考实现只请求前四项。它们是不同固定客户端的选择，不应自动扩大第三方权限或将 connectors 权限视为推理必需。
+
+OpenBridge 选定最小四项 scope 与 `originator=openbridge`；复用产品 client，但不声称是官方 CLI。相比固定 server 仅使用 state/PKCE，浏览器 driver 额外发送并严格验证 OIDC nonce、RS256 签名及绑定的 workspace。端口仅默认 1455 或显式 1457，不照搬取消其他进程、端口 fallback、特殊 onboarding state 后缀或 API-key 派生；操作边界见 [凭据指南](../credentials.md#交互与身份)。这些采用约束不是已通过真实 authority 验收的声明。
 
 [Codex token_data][codex-token-data]解析 JWT 中的产品 claims；payload decode 不是签名验证或通用 identity proof。第三方网关不能把这种便利读取直接用于建立本地可信账户；公开 SIWC 的 ID-token 验证要求见后文。
 
@@ -166,6 +168,8 @@ pi Codex 固定 redirect URI 使用 `http://localhost:1455/auth/callback`，与�
 [codex-pool-release]: https://github.com/openai/codex/releases/tag/rust-v0.160.0
 [codex-pool-license]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/LICENSE
 [codex-pool-device]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/device_code_auth.rs
+[codex-pool-server]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/server.rs
+[codex-pool-authorization]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/oauth/authorization.rs
 [codex-pool-oauth]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/oauth/client.rs
 [codex-pool-manager]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/auth/manager.rs
 [codex-pool-revoke]: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/auth/revoke.rs

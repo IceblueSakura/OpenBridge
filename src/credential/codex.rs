@@ -1,12 +1,13 @@
-//! Codex product device/refresh wire, pinned to CLI 0.160.0 (Apache-2.0 source).
+//! Codex product browser/device/refresh wire, pinned to CLI 0.160.0 (Apache-2.0 source).
 //! https://github.com/openai/codex/tree/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login
 //! This is not SIWC, an API-key derivation path or evidence of subscription admission.
 use super::{
     CredentialError as Error,
+    browser::{BrowserGrant, BrowserProfile},
     http::{AuthHttp, REQUEST_TIMEOUT},
     model::DevicePrompt,
     model::{Credential, Secret, VerifiedIdentity, now},
-    oauth::present,
+    oauth::{self, present},
 };
 use serde::Deserialize;
 use std::time::Duration;
@@ -15,6 +16,8 @@ use tokio::time::Instant;
 pub(super) const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const ORIGIN: &str = "https://auth.openai.com";
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(900);
+// Minimal identity/renewal grant; connector permissions are not login prerequisites.
+const BROWSER_SCOPES: &str = "openid profile email offline_access";
 /// Only refresh/revoke use the pinned CLI default metadata. Device auth/code
 /// exchange use a raw auth client in the source. Keep our attribution explicit.
 pub(super) fn user_agent() -> String {
@@ -28,6 +31,7 @@ pub(super) fn user_agent() -> String {
 #[derive(Clone)]
 pub(super) struct CodexAuthority {
     http: AuthHttp,
+    browser_port: u16,
 }
 #[derive(Debug)]
 pub(super) struct DeviceGrant {
@@ -75,13 +79,60 @@ impl CodexAuthority {
     pub fn new(proxy: Option<&str>) -> Result<Self, Error> {
         Ok(Self {
             http: AuthHttp::new(ORIGIN, proxy)?,
+            browser_port: 1455,
         })
     }
     #[cfg(test)]
     pub fn synthetic(origin: &str) -> Result<Self, Error> {
         Ok(Self {
             http: AuthHttp::synthetic(origin)?,
+            // Isolated callback sockets for the synthetic authority only.
+            browser_port: 0,
         })
+    }
+    // Fixed CLI source: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/server.rs
+    // Admit only registered ports; never cancel another listener or switch ports.
+    fn callback_port(&self, requested: Option<u16>) -> Result<u16, Error> {
+        match requested {
+            None => Ok(self.browser_port),
+            Some(port @ (1455 | 1457)) => Ok(port),
+            Some(_) => Err(Error::InvalidInput),
+        }
+    }
+    pub async fn browser(&self, requested: Option<u16>) -> Result<BrowserGrant, Error> {
+        BrowserGrant::begin(
+            BrowserProfile {
+                authorize: "https://auth.openai.com/oauth/authorize",
+                client: CLIENT_ID,
+                scopes: BROWSER_SCOPES,
+                callback_path: "/auth/callback",
+                extra: &[
+                    ("id_token_add_organizations", "true"),
+                    ("codex_cli_simplified_flow", "true"),
+                    ("originator", "openbridge"),
+                ],
+                timeout: LOGIN_TIMEOUT,
+            },
+            self.callback_port(requested)?,
+        )
+        .await
+    }
+    pub async fn complete_browser(
+        &self,
+        grant: BrowserGrant,
+    ) -> Result<(Credential, VerifiedIdentity), Error> {
+        let deadline = grant.deadline;
+        oauth::login_deadline(deadline, async {
+            let response = grant.exchange(&self.http, "/oauth/token").await?;
+            self.accept_login(
+                response.status,
+                &response.body,
+                Some(response.nonce.expose()),
+                deadline,
+            )
+            .await
+        })
+        .await
     }
     pub async fn device(&self) -> Result<DeviceGrant, Error> {
         let started = Instant::now();
@@ -125,6 +176,12 @@ impl CodexAuthority {
         &self,
         grant: DeviceGrant,
     ) -> Result<(Credential, VerifiedIdentity), Error> {
+        oauth::login_deadline(grant.deadline, self.complete_device(grant)).await
+    }
+    async fn complete_device(
+        &self,
+        grant: DeviceGrant,
+    ) -> Result<(Credential, VerifiedIdentity), Error> {
         let code = loop {
             if Instant::now() >= grant.deadline {
                 return Err(Error::Expired);
@@ -159,18 +216,28 @@ impl CodexAuthority {
             grant.deadline,
         )
         .await?;
+        self.accept_login(status, &body, None, grant.deadline).await
+    }
+    async fn accept_login(
+        &self,
+        status: u16,
+        body: &[u8],
+        nonce: Option<&str>,
+        deadline: Instant,
+    ) -> Result<(Credential, VerifiedIdentity), Error> {
         if status != 200 {
-            return Err(failure(status, &body));
+            return Err(failure(status, body));
         }
-        let wire: TokenWire = serde_json::from_slice(&body).map_err(|_| Error::Protocol)?;
+        let wire: TokenWire = serde_json::from_slice(body).map_err(|_| Error::Protocol)?;
         let id = wire.id_token.as_ref().ok_or(Error::Protocol)?;
-        let identity = self.identity(id, CLIENT_ID, grant.deadline).await?;
+        let identity = self.identity(id, CLIENT_ID, nonce, deadline).await?;
         Ok((credential(wire, None)?, identity))
     }
     async fn identity(
         &self,
         token: &str,
         client: &str,
+        nonce: Option<&str>,
         deadline: Instant,
     ) -> Result<VerifiedIdentity, Error> {
         let (status, body) = self.http.get("/.well-known/jwks.json", deadline).await?;
@@ -178,7 +245,7 @@ impl CodexAuthority {
             return Err(failure(status, &body));
         }
         let keys = serde_json::from_slice(&body).map_err(|_| Error::Protocol)?;
-        verify_identity(token, &keys, client)
+        verify_identity(token, &keys, client, nonce)
     }
     pub async fn refresh(
         &self,
@@ -197,7 +264,7 @@ impl CodexAuthority {
         let wire: TokenWire = serde_json::from_slice(&body).map_err(|_| Error::Protocol)?;
         let identity = match &wire.id_token {
             Some(token) => Some(
-                self.identity(token, client, Instant::now() + REQUEST_TIMEOUT)
+                self.identity(token, client, None, Instant::now() + REQUEST_TIMEOUT)
                     .await?,
             ),
             None => None,
@@ -233,6 +300,7 @@ pub(super) fn verify_identity(
     token: &str,
     keys: &serde_json::Value,
     client: &str,
+    nonce: Option<&str>,
 ) -> Result<VerifiedIdentity, Error> {
     let verified = super::jwt::verify(
         token,
@@ -241,7 +309,7 @@ pub(super) fn verify_identity(
             issuer: ORIGIN,
             client,
             algorithm: super::jwt::Algorithm::Rs256,
-            nonce: None,
+            nonce,
         },
     )?;
     let claims: CodexClaims =
@@ -325,11 +393,17 @@ impl super::AuthDriver for CodexAuthority {
         "codex"
     }
     fn login_client(&self, options: &super::LoginOptions) -> Result<String, Error> {
-        if options.method != super::LoginMethod::Device {
-            return Err(Error::Unsupported);
-        }
-        if options.client_id.is_some() || options.callback_port != 0 {
+        if options.client_id.is_some() {
             return Err(Error::InvalidInput);
+        }
+        match options.method {
+            super::LoginMethod::Device if options.callback_port.is_some() => {
+                return Err(Error::InvalidInput);
+            }
+            super::LoginMethod::Browser => {
+                self.callback_port(options.callback_port)?;
+            }
+            super::LoginMethod::Device => {}
         }
         Ok(CLIENT_ID.into())
     }
@@ -354,13 +428,22 @@ impl super::AuthDriver for CodexAuthority {
     fn login<'a>(
         &'a self,
         _client: &'a str,
-        _options: &'a super::LoginOptions,
+        options: &'a super::LoginOptions,
         notify: super::LoginObserver<'a>,
     ) -> super::DriverFuture<'a, super::Grant> {
         Box::pin(async move {
-            let grant = self.device().await?;
-            notify(&super::LoginPrompt::Device(grant.prompt.clone()));
-            let (credential, identity) = self.complete(grant).await?;
+            let (credential, identity) = match options.method {
+                super::LoginMethod::Device => {
+                    let grant = self.device().await?;
+                    notify(&super::LoginPrompt::Device(grant.prompt.clone()));
+                    self.complete(grant).await?
+                }
+                super::LoginMethod::Browser => {
+                    let grant = self.browser(options.callback_port).await?;
+                    notify(&super::LoginPrompt::Browser(grant.prompt.clone()));
+                    self.complete_browser(grant).await?
+                }
+            };
             Ok(super::Grant {
                 identity,
                 credential,

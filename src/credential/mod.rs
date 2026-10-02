@@ -1,4 +1,5 @@
 //! Account-bound OAuth ownership; never imported by semantic codecs or lowering.
+mod browser;
 mod callback;
 mod codex;
 mod driver;
@@ -72,6 +73,8 @@ pub enum CredentialError {
 
 #[cfg(test)]
 mod browser_tests;
+#[cfg(test)]
+mod codex_browser_tests;
 #[cfg(test)]
 mod codex_tests;
 #[cfg(test)]

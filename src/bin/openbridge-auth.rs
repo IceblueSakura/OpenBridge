@@ -17,8 +17,9 @@ Usage:
 
 Registered profiles: grok, codex. Supported methods are validated by the driver.
 Grok requires an approved --client-id; device is the default, browser is explicit.
-Codex uses its pinned product client and private device flow, NOT public SIWC.
-Browser callback is literal loopback; port 0 is OS-assigned. Match your registration.
+Codex supports private device and explicit browser login with its product client, NOT SIWC.
+Browser callback is literal loopback. Grok defaults to an OS port; Codex defaults to 1455.
+Codex also accepts explicit --callback-port 1457; no random port or automatic fallback.
 The explicit DIR is your own private store, never another application's auth cache.
 Readable account JSON files contain secrets. Old accounts.json snapshots are rejected.
 Proxy must be explicit HTTP(S), without credentials; no ambient proxy or retry/fallback.
@@ -115,8 +116,7 @@ Ctrl-C cancels the operation; interrupted refresh requires login.";
         }
         let callback_port = port
             .map(|v| v.parse::<u16>().map_err(|_| "invalid callback port"))
-            .transpose()?
-            .unwrap_or(0);
+            .transpose()?;
         match command {
             Command::List if account.is_some() || proxy.is_some() => {
                 return Err("list only accepts --store");
@@ -259,10 +259,12 @@ Ctrl-C cancels the operation; interrupted refresh requires login.";
             .unwrap();
             assert_eq!(options.profile.as_deref(), Some("third"));
             assert_eq!(options.login.method, LoginMethod::Browser);
-            assert_eq!(options.login.callback_port, 1456);
+            assert_eq!(options.login.callback_port, Some(1456));
             for input in [
                 "list --store private",
                 "codex login --store private --account one",
+                "codex login --store private --account one --method browser",
+                "codex login --store private --account one --method browser --callback-port 1457",
                 "grok login --store private --account one --client-id approved --proxy http://127.0.0.1:1234",
                 "codex logout --store private --account one --revoke",
             ] {
@@ -294,7 +296,7 @@ Ctrl-C cancels the operation; interrupted refresh requires login.";
                         method: LoginMethod::Browser,
                         ..LoginOptions::default()
                     })
-                    .is_err()
+                    .is_ok()
             );
             assert!(
                 codex

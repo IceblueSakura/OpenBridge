@@ -77,14 +77,15 @@ pub enum LoginMethod {
 pub struct LoginOptions {
     pub method: LoginMethod,
     pub client_id: Option<String>,
-    pub callback_port: u16,
+    /// None uses the driver's registered default; explicit zero is not absence.
+    pub callback_port: Option<u16>,
 }
 impl Default for LoginOptions {
     fn default() -> Self {
         Self {
             method: LoginMethod::Device,
             client_id: None,
-            callback_port: 0,
+            callback_port: None,
         }
     }
 }

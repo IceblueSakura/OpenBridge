@@ -232,4 +232,137 @@ mod unix {
         assert!(read(&dir.0, "codex", "one")["credential"].is_null());
         assert!(!dir.0.join("codex/one.pending").exists());
     }
+
+    #[tokio::test]
+    async fn browser_registration_errors_are_rejected_before_store_creation() {
+        let dir = Directory::new();
+        let store = dir.0.join("not-created");
+        for flags in [
+            vec![
+                "codex",
+                "login",
+                "--method",
+                "browser",
+                "--callback-port",
+                "0",
+            ],
+            vec![
+                "codex",
+                "login",
+                "--method",
+                "browser",
+                "--callback-port",
+                "1456",
+            ],
+            vec![
+                "codex",
+                "login",
+                "--method",
+                "browser",
+                "--client-id",
+                "unrelated-client",
+            ],
+            vec!["grok", "login", "--method", "browser"],
+        ] {
+            let mut args: Vec<&std::ffi::OsStr> = flags.iter().map(AsRef::as_ref).collect();
+            args.extend([
+                "--store".as_ref(),
+                store.as_os_str(),
+                "--account".as_ref(),
+                "personal".as_ref(),
+            ]);
+            let result = command(&args).await;
+            assert!(!result.status.success());
+            assert!(result.stdout.is_empty());
+            assert!(!store.exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn binary_browser_callback_and_ctrl_c_are_owned_without_authority_traffic() {
+        use std::process::Stdio;
+        use tokio::{
+            io::{AsyncBufReadExt, AsyncReadExt, BufReader},
+            net::TcpListener,
+        };
+        let dir = Directory::new();
+        let store = dir.0.join("sessions");
+        let egress = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy = format!("http://{}", egress.local_addr().unwrap());
+        let mut child = Command::new(env!("CARGO_BIN_EXE_openbridge-auth"))
+            .args([
+                "grok",
+                "login",
+                "--account",
+                "personal",
+                "--client-id",
+                "synthetic-cli-client",
+                "--method",
+                "browser",
+                "--callback-port",
+                "0",
+                "--store",
+            ])
+            .arg(&store)
+            .args(["--proxy", &proxy])
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut stderr = BufReader::new(child.stderr.take().unwrap().take(8192));
+        let redirect = timeout(Duration::from_secs(5), async {
+            for _ in 0..4 {
+                let mut line = String::new();
+                assert!(stderr.read_line(&mut line).await.unwrap() > 0);
+                if let Some(uri) = line.strip_prefix("Callback: ") {
+                    return uri.trim().to_owned();
+                }
+            }
+            panic!("browser callback prompt missing");
+        })
+        .await
+        .unwrap();
+        let uri = url::Url::parse(&redirect).unwrap();
+        assert_eq!(uri.scheme(), "http");
+        assert_eq!(uri.host_str(), Some("127.0.0.1"));
+        assert_eq!(uri.path(), "/callback");
+        let address = std::net::SocketAddr::from(([127, 0, 0, 1], uri.port().unwrap()));
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap()
+            .get(format!("{redirect}?state=unrelated&error=access_denied"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+        assert!(child.try_wait().unwrap().is_none());
+        // This PID belongs to the child above; kill_on_drop is the failure-path guard.
+        assert_eq!(
+            unsafe { libc::kill(child.id().unwrap() as libc::pid_t, libc::SIGINT) },
+            0
+        );
+        assert!(
+            !timeout(Duration::from_secs(5), child.wait())
+                .await
+                .unwrap()
+                .unwrap()
+                .success()
+        );
+        let account = read(&store, "grok", "personal");
+        assert!(account["login_attempt"].is_null());
+        assert!(account["credential"].is_null());
+        assert_eq!(account["state"], "signed_out");
+        drop(TcpListener::bind(address).await.unwrap());
+        assert!(
+            timeout(Duration::from_millis(20), egress.accept())
+                .await
+                .is_err()
+        );
+    }
 }

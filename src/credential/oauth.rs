@@ -62,6 +62,19 @@ pub(super) async fn wait_for_poll(
     tokio::time::sleep_until(wake).await;
     Ok(())
 }
+/// One deadline covers human interaction, exchange and identity verification.
+pub(super) async fn login_deadline<T>(
+    deadline: tokio::time::Instant,
+    operation: impl std::future::Future<Output = Result<T, Error>>,
+) -> Result<T, Error> {
+    let result = tokio::time::timeout_at(deadline, operation)
+        .await
+        .map_err(|_| Error::Expired)?;
+    if tokio::time::Instant::now() >= deadline {
+        return Err(Error::Expired);
+    }
+    result
+}
 pub(super) fn validate_pkce(verifier: &str, expected: &str) -> Result<(), Error> {
     if !(43..=128).contains(&verifier.len())
         || !verifier
