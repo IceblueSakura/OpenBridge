@@ -1,6 +1,10 @@
 """Fixed live selections. Never discover credentials, models or endpoints at runtime."""
 
+OAUTH_PROVIDERS = {"codex", "grok"}
+
 BINDINGS = (
+    ("codex", "gpt-6.1-sol", None, "OPENBRIDGE_CODEX_ACCOUNT", ("responses",)),
+    ("grok", "grok-4.7", None, "OPENBRIDGE_GROK_ACCOUNT", ("responses",)),
     (
         "nvidia",
         "nemotron-3-super",
@@ -83,7 +87,10 @@ def select_bindings(selection=None, *, models=None):
     names = (
         selection.split(",")
         if selection is not None
-        else [name for name in available if name not in ("aliyun-tokenplan-cn", "opencode-go")]
+        else [
+            name for name in available
+            if name not in ("aliyun-tokenplan-cn", "opencode-go", *OAUTH_PROVIDERS)
+        ]
     )
     if (
         not names

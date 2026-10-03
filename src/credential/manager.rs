@@ -40,7 +40,12 @@ impl CredentialManager {
             .map(AsRef::as_ref)
             .ok_or(Error::UnknownProfile)
     }
-    fn load(&self, tx: &Transaction<'_>, profile: &str, alias: &str) -> Result<Loaded, Error> {
+    pub(super) fn load(
+        &self,
+        tx: &Transaction<'_>,
+        profile: &str,
+        alias: &str,
+    ) -> Result<Loaded, Error> {
         let mut loaded = tx.load(profile, alias)?;
         if let Some(account) = &mut loaded.account {
             if loaded.recovery {

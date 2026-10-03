@@ -134,7 +134,8 @@ impl EndpointPath {
 pub struct ProviderDefinition {
     pub id: ProviderId,
     pub origin: TrustedOrigin,
-    pub chat_completions: EndpointPath,
+    /// Absent when this provider has no admitted native Chat entry.
+    pub chat_completions: Option<EndpointPath>,
     /// Absent when this provider has no admitted native Responses entry.
     pub responses: Option<EndpointPath>,
     pub auth: AuthScheme,

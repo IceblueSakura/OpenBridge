@@ -296,6 +296,8 @@ pub(crate) fn decode<'a>(
         && !adaptation.rules.responses_billing_view
         && !adaptation.rules.null_response_billing
         && !adaptation.rules.responses_inactive_state
+        && !adaptation.rules.responses_product_accounting
+        && !adaptation.rules.responses_context_accounting
     {
         return Ok((Cow::Borrowed(value), Extras::new()));
     }
@@ -339,6 +341,15 @@ pub(crate) fn decode<'a>(
     } else {
         Extras::new()
     };
+    if profile == Profile::Responses {
+        if adaptation.rules.responses_product_accounting {
+            super::accounting_shapes::product(o, &mut extras)?;
+        }
+        if adaptation.rules.responses_context_accounting {
+            super::accounting_shapes::context(o, &mut extras)?;
+        }
+        check_budget(&extras)?;
+    }
     if profile == Profile::Chat {
         if adaptation.rules.inactive_chat_fields
             && let Some(choices) = o.get_mut("choices").and_then(Value::as_array_mut)
@@ -490,10 +501,17 @@ pub(crate) fn encode_message(value: &mut Value) {
 pub(crate) fn write_extras(o: &mut Map<String, Value>, values: &Extras) {
     for (path, value) in values {
         match path.as_str() {
-            "/provider" | "/request_id" => {
+            "/provider" | "/request_id" | "/access_programs" | "/moderation" | "/tool_usage" => {
                 o.insert(path.trim_start_matches('/').into(), value.clone());
             }
-            "/usage/cost" | "/usage/is_byok" | "/usage/cost_details" => {
+            "/usage/cost"
+            | "/usage/is_byok"
+            | "/usage/cost_details"
+            | "/usage/attribution"
+            | "/usage/num_sources_used"
+            | "/usage/num_server_side_tools_used"
+            | "/usage/cost_in_usd_ticks"
+            | "/usage/context_details" => {
                 if let Some(usage) = o.get_mut("usage").and_then(Value::as_object_mut) {
                     usage.insert(
                         path.rsplit('/').next().expect("fixed path").into(),

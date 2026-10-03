@@ -1,10 +1,10 @@
 //! Startup-only resolution of immutable entry, contract and credential ownership.
-use super::{BoundCandidate, BoundEntry, Gateway, Runtime, auth, family};
+use super::{BoundCandidate, BoundEntry, Credentials, Gateway, Runtime, auth, family};
 use crate::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract,
     protocol::openai::Profile,
-    provider::{CredentialBindingId, SecretMaterial},
+    provider::SecretMaterial,
     semantic::value::ReplayOrigin,
     topology::{CompiledTopology, EndpointId},
     transport::http::HttpTransport,
@@ -18,7 +18,6 @@ pub struct Entry {
     pub protocol: Profile,
     pub endpoint: EndpointId,
 }
-pub type Credentials = BTreeMap<CredentialBindingId, Arc<SecretMaterial>>;
 #[derive(Clone, Debug)]
 pub struct Limits {
     pub request_bytes: usize,
@@ -94,11 +93,12 @@ impl Gateway {
     pub fn new(
         topology: CompiledTopology,
         entries: Vec<Entry>,
-        credentials: Credentials,
+        credentials: impl Into<Credentials>,
         client_key: SecretMaterial,
         limits: Limits,
         proxy: Option<&str>,
     ) -> Result<Self, StartupError> {
+        let credentials = credentials.into();
         if !limits.validate() {
             return Err(StartupError::Limits);
         }
@@ -126,12 +126,14 @@ impl Gateway {
                 .get(&endpoint.credential)
                 .ok_or(StartupError::Credentials)?
                 .clone();
+            secret.check(endpoint.execution.credential_kind)?;
+            let provenance = secret.provenance();
             // Length prefixes avoid ambiguous concatenation. Internal provenance
             // is neither a credential locator nor attestation of token issuance.
             let mut hash = Sha256::new();
             hash.update(auth.digest);
             for value in [
-                secret.expose(),
+                provenance.as_str(),
                 public.id.as_str(),
                 provider.id.as_str(),
                 endpoint.upstream_model.as_str(),

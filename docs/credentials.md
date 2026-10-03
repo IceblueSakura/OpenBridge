@@ -2,7 +2,15 @@
 
 独立 `openbridge-auth` 通过同一个 profile-neutral 管理器执行账户登录、显式刷新、本地退出、可选远端撤销和非秘密状态查询。设计归 [ADR 0012](architecture-v2/decisions/0012-grok-personal-credential-pool.md)；具体授权合同归 [Grok](references/grok-login.md)、[ChatGPT/Codex](references/chatgpt-login.md)来源和各自 driver。
 
-Grok 支持个人账户标准设备授权和显式浏览器 PKCE/OIDC；Codex 支持产品私有设备交互和显式浏览器 PKCE/OIDC，不是公开 SIWC。两家缺省仍为 device，browser 必须明确选择。登录不证明订阅推理资格。本组件不接 Gateway、不发现模型/额度、不自动选择账户，也不读取第三方 auth cache 或环境凭据。
+Grok 支持个人账户标准设备授权和显式浏览器 PKCE/OIDC；Codex 支持产品私有设备交互和显式浏览器 PKCE/OIDC，不是公开 SIWC。两家缺省仍为 device，browser 必须明确选择。登录不证明订阅推理资格。管理 CLI 不发现模型/额度、不自动选择账户，也不读取第三方 auth cache。Gateway 可通过显式自有 store 和账户绑定借用 access，见下节；普通推理不会发起登录或刷新。
+
+## Gateway access 绑定
+
+[Gateway 启动](http-gateway.md#启动)显式设置 `OPENBRIDGE_CREDENTIAL_STORE`，并通过 catalog 声明的账户变量指定 alias；不默认查找目录或账户，不从业务 JSON 选择凭据。测试仍沿用 [统一 probe](probes.md)，通过 provider/model 选择。
+
+[AccessBinding](../src/credential/access.rs)固定 profile/client/已验证 principal，每次请求读取最新 access snapshot；不把 refresh token 或 ID token 提供给推理层。token rotation 不改变 replay scope；过期、退出、quarantine 或身份改变使后续请求 fail closed。未知 expiry 仍为未知，最终效力由上游判定。读取不持有跨网络文件锁；已 dispatch 的请求可完成，logout 不保证撤销该次计算。
+
+凭据问题返回脱敏 `credential_unavailable`，不会自动刷新、换账户或重试。操作者需显式执行 refresh/login。Codex 产品 backend 与 Grok 公共 Responses 的准入仍由上游独立判断，不将登录成功当作模型授权。
 
 ## 显式自有文件目录
 

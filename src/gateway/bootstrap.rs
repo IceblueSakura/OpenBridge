@@ -59,6 +59,27 @@ impl Bootstrap {
             }
         }
         let proxy = get("OPENBRIDGE_PROXY")?;
+        let store = get("OPENBRIDGE_CREDENTIAL_STORE")?;
+        for binding in catalog::SUBSCRIPTION_BINDINGS {
+            if let Some(alias) = get(binding.variable)? {
+                let path = store.as_ref().ok_or(StartupError::Credentials)?;
+                let manager = crate::credential::CredentialManager::new(
+                    path,
+                    crate::credential::builtin_drivers(None)
+                        .map_err(|_| StartupError::Credentials)?,
+                )
+                .map_err(|_| StartupError::Credentials)?;
+                let account = manager
+                    .bind_access(binding.profile, &alias)
+                    .map_err(|_| StartupError::Credentials)?;
+                credentials.insert_account(binding.credential(), account);
+                entries.push(Entry {
+                    model: binding.model.into(),
+                    protocol: Profile::Responses,
+                    endpoint: binding.endpoint_id(),
+                });
+            }
+        }
         let gateway = Gateway::new(
             catalog::default_topology().map_err(|_| StartupError::Binding)?,
             entries,
@@ -143,7 +164,7 @@ mod tests {
         let prepared = crate::execution::prepare(
             &candidate.endpoint,
             &candidate.provider,
-            &candidate.secret,
+            candidate.secret.static_key(),
             &request,
         )
         .unwrap();
@@ -220,7 +241,7 @@ mod tests {
             let prepared = crate::execution::prepare(
                 &candidate.endpoint,
                 &candidate.provider,
-                &candidate.secret,
+                candidate.secret.static_key(),
                 &request,
             )
             .unwrap();
@@ -396,7 +417,7 @@ mod tests {
                     let prepared = crate::execution::prepare(
                         &candidate.endpoint,
                         &candidate.provider,
-                        &candidate.secret,
+                        candidate.secret.static_key(),
                         &request,
                     )
                     .unwrap();

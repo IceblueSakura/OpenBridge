@@ -2,7 +2,7 @@
 
 **下一步设计重点是 Agent-first、协议中立的 Generation 交互与依赖合同，而不是先追齐某家 API 的字段。** 项目尚未上线，允许在明确设计与获准实现切片中替换现有类型；一套 IR 指共享原则和 task family，不是万能请求。产品方向见 [v2 目标](../architecture-v2/README.md)，详细设计只由[semantic IR](../architecture-v2/semantic-ir.md)维护；实现缺口归[当前能力与边界](../implementation-status/generation.md)。不以迁移、追平或恢复旧版为目标。
 
-**既有 Codex / SuperGrok OAuth2 登录方向保留：依据独立协议参考定稿合法接入、credential 生命周期与执行合同，再分别形成实现切片。** 它是独立的 credential/execution 工作，不以新 IR 的全部落地为前置，也不替代下述设计顺序。[Grok Build / xAI 登录参考](../references/grok-login.md)区分官方 OAuth 与订阅推理资格；[ChatGPT 登录参考](../references/chatgpt-login.md)区分 Codex 产品流程与公开 SIWC。Grok 个人公共 Responses 与 ChatGPT Codex 产品登录共用的凭据管理 owner 由 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)维护，不接入 Gateway。ChatGPT 不采用公开 SIWC，合法 client/部署用途与具体订阅执行合同仍须确认；参考资料不构成可用推理的声明。共用标准与采用边界见 [OAuth 来源入口](../references/oauth-login.md)。
+**既有 Codex / SuperGrok OAuth2 登录方向保留：依据独立协议参考定稿合法接入、credential 生命周期与执行合同，再分别形成实现切片。** 它是独立的 credential/execution 工作，不以新 IR 的全部落地为前置，也不替代下述设计顺序。[Grok Build / xAI 登录参考](../references/grok-login.md)区分官方 OAuth 与订阅推理资格；[ChatGPT 登录参考](../references/chatgpt-login.md)区分 Codex 产品流程与公开 SIWC。Grok 个人公共 Responses 与 ChatGPT Codex 产品登录共用的凭据管理 owner 由 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)维护；Gateway 的固定 access 借用合同归该 ADR 与凭据指南。ChatGPT 不采用公开 SIWC，合法 client/部署用途与具体订阅执行合同仍须确认；参考资料不构成可用推理的声明。共用标准与采用边界见 [OAuth 来源入口](../references/oauth-login.md)。
 
 最小 HTTP 入口的职责和运行边界见 [HTTP 指南](../http-gateway.md)。当前 Provider/模型与协议准入按 [AGENTS.md](../../AGENTS.md#current-provider-model-and-compatibility-information)现场查询；本页不维护支持清单、实测结果或临时账号阻塞。
 
@@ -49,7 +49,7 @@
 ## OAuth 登录调研与实现前置条件
 
 1. **分别确认目标合同**：ChatGPT 已选 [Codex 产品 flow](../references/chatgpt-login.md)，不与公开 SIWC 或 Platform API key 混用；[Grok Build/xAI OAuth](../references/grok-login.md)的公开流程不证明全部 SuperGrok 订阅或网关用途已获准。按所选合同确认 authority、合法 client registration、scope/resource、callback/device flow、账户/workspace 和部署用途；缓存/上下文归 [独立 owner](../references/extensions-and-context.md#2-codex-session_id-的实际含义)，不把 Codex 私有映射推广为通用 adapter。
-2. **确定生命周期与 owner**：Grok / Codex 的共用管理边界由 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)固定；数据面短生命周期 credential 借用、replay scope 与 commit 边界仍需相应切片。明确显式登录/取消/重新授权、secret storage、access expiry、refresh rotation/revocation、并发协调、持久化一致性和不确定结果处理。认证 owner 与 Provider 执行边界协作，但 token、locator、选定账户、refresh/retry state 不进入 Task IR，纯 codec/lowering 不访问 credential 或网络。
+2. **确定生命周期与 owner**：Grok / Codex 的共用管理边界由 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)固定；数据面短生命周期 access 借用已纳入该 ADR；进一步的自动刷新、调度或 replay/session 扩展仍需独立切片。明确显式登录/取消/重新授权、secret storage、access expiry、refresh rotation/revocation、并发协调、持久化一致性和不确定结果处理。认证 owner 与 Provider 执行边界协作，但 token、locator、选定账户、refresh/retry state 不进入 Task IR，纯 codec/lowering 不访问 credential 或网络。
 3. **保持受信路由与失败边界**：业务请求只能提交 public model，不能指定 Provider、账户、authority 或凭据。区分共享 canonical 身份与具体 credential/replay scope；401 不自动授权跨账户切换或无界重试，publication/commit 后不重放。普通请求不能隐式发起交互登录；不搜索或导入 Codex、Hermes、LiteLLM 或浏览器的认证缓存。
 4. **先离线、后明确授权验收**：使用 synthetic authority/存储验证成功、拒绝、过期、取消、rotation、并发和写入失败。采用结果进入受影响的 ADR、owning code 和必要操作指南，不恢复旧报告或整个旧运行时。真实登录、token refresh、订阅推理和凭据写入须另行明确目标、效果与输出边界；若还需付费调用，另定请求和 token 预算。
 

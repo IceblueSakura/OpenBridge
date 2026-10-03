@@ -9,7 +9,7 @@ pub(super) struct Auth {
 }
 impl Auth {
     pub fn new(secret: SecretMaterial) -> Result<Self, StartupError> {
-        if secret.expose().len() < 32 {
+        if !(32..=4096).contains(&secret.expose().len()) {
             return Err(StartupError::Credentials);
         }
         Ok(Self {
@@ -35,6 +35,10 @@ impl Auth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ingress_key_limit_is_independent_of_oauth_access_size() {
+        assert!(Auth::new(SecretMaterial::new(&"x".repeat(4097)).unwrap()).is_err());
+    }
     #[test]
     fn rejects_duplicates_and_never_accepts_prefixes_or_alternate_headers() {
         let auth =

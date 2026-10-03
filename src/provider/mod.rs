@@ -9,6 +9,7 @@ pub mod auth;
 pub mod catalog;
 pub mod definition;
 pub mod errors;
+pub(crate) mod subscription;
 
 pub use auth::{AuthScheme, CredentialBindingId, CredentialKind, SecretMaterial};
 pub use definition::{EndpointPath, ProviderDefinition, ProviderId, TrustedOrigin};

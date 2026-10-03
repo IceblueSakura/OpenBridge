@@ -114,7 +114,7 @@ pi 的 [xai OAuth][pi-xai-oauth]采用此 grant，支持 `verification_uri_compl
 
 1. xAI 对 OpenBridge 的合法 client/redirect/scope、第三方客户端及网关用途的接入合同。
 2. OpenBridge 选定个人账户、公共 Responses 方向；设备与显式浏览器 wire、nonce/ES256/UserInfo 一致性与总期限由 [Grok authority](../../src/credential/grok.rs)拥有，callback 注册资格仍需操作者确认；自有 store 与生命周期由 [共用池 ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)及 [credential owner](../../src/credential/mod.rs)拥有，按认证类型与 Codex 隔离，不实现 team 或数据面账户调度。UserInfo identity 不证明订阅 inference contract，不能只用登录 UI 文案判断权限。
-3. Gateway 的 credential 借用、订阅准入与 inference/cache carrier 仍需自己的执行切片；共用存储、验证和操作授权归 [OAuth 采用边界](oauth-login.md#共用采用边界)，不重复建立通用运行时。
+3. Gateway 的固定 access 借用由 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)拥有；进一步的订阅准入与 inference/cache carrier 扩展仍需自己的执行切片；共用存储、验证和操作授权归 [OAuth 采用边界](oauth-login.md#共用采用边界)，不重复建立通用运行时。
 
 外部来源不能替代 OpenBridge 的采用决策，也不补齐当前 [Generation 缺口](../implementation-status/generation.md)中的 Gateway 接线与执行合同。
 

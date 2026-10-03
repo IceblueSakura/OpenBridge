@@ -157,7 +157,10 @@ pub fn compile(
             return Err(TopologyError::TargetMismatch);
         }
         let bound_path = match endpoint.protocol {
-            ProtocolProfile::OpenAiChat => &definition.chat_completions,
+            ProtocolProfile::OpenAiChat => definition
+                .chat_completions
+                .as_ref()
+                .ok_or(TopologyError::TargetMismatch)?,
             ProtocolProfile::OpenAiResponses => definition
                 .responses
                 .as_ref()
@@ -266,7 +269,7 @@ mod tests {
         ProviderDefinition {
             id: ProviderId::new("fixture").unwrap(),
             origin: TrustedOrigin::parse("http://127.0.0.1:39217").unwrap(),
-            chat_completions: EndpointPath::new("/chat/completions").unwrap(),
+            chat_completions: Some(EndpointPath::new("/chat/completions").unwrap()),
             responses: Some(EndpointPath::new("/responses").unwrap()),
             auth: AuthScheme::Bearer,
         }
@@ -275,7 +278,7 @@ mod tests {
     fn endpoint(protocol: ProtocolProfile) -> Endpoint {
         let definition = provider();
         let path = match protocol {
-            ProtocolProfile::OpenAiChat => definition.chat_completions,
+            ProtocolProfile::OpenAiChat => definition.chat_completions.expect("test Chat entry"),
             ProtocolProfile::OpenAiResponses => definition.responses.expect("test Responses entry"),
         };
         Endpoint {
@@ -340,6 +343,26 @@ mod tests {
             models,
             vec![canonical()],
         )
+    }
+
+    #[test]
+    fn responses_only_provider_cannot_compile_a_chat_endpoint() {
+        let mut responses_only = provider();
+        responses_only.chat_completions = None;
+        let build = |protocol| {
+            compile(
+                vec![responses_only.clone()],
+                vec![endpoint(protocol)],
+                vec![route()],
+                vec![model(GenerationRepresentationContract::full())],
+                vec![canonical()],
+            )
+        };
+        assert!(build(ProtocolProfile::OpenAiResponses).is_ok());
+        assert_eq!(
+            build(ProtocolProfile::OpenAiChat),
+            Err(TopologyError::TargetMismatch)
+        );
     }
 
     #[test]
@@ -555,7 +578,7 @@ mod tests {
         );
         // Wrong entry: a Responses endpoint cannot ride the chat entry path.
         let mut wrong_entry = endpoint(ProtocolProfile::OpenAiResponses);
-        wrong_entry.target.path = provider().chat_completions;
+        wrong_entry.target.path = provider().chat_completions.unwrap();
         assert_eq!(
             compile_fixture(
                 vec![wrong_entry],

@@ -41,7 +41,10 @@ impl HttpTransport {
         for (name, value) in prepared.safe_headers {
             let mut value = HeaderValue::from_str(&value).map_err(|_| ErrorClass::Upstream)?;
             // Session grouping is high-cardinality context, not ordinary observable metadata.
-            value.set_sensitive(name == "x-opencode-session");
+            value.set_sensitive(matches!(
+                name.as_str(),
+                "x-opencode-session" | "chatgpt-account-id"
+            ));
             request = request.header(name, value);
         }
         let name = HeaderName::from_bytes(prepared.auth_header.0.as_bytes())

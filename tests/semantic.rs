@@ -60,6 +60,10 @@ mod router_adapter;
 mod schema;
 #[path = "semantic/string_enums.rs"]
 mod string_enums;
+#[path = "semantic/subscription_accounting.rs"]
+mod subscription_accounting;
+#[path = "semantic/subscriptions.rs"]
+mod subscriptions;
 #[path = "semantic/text_admission.rs"]
 mod text_admission;
 #[path = "semantic/text_events.rs"]

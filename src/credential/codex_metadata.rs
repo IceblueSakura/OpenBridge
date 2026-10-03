@@ -5,10 +5,10 @@
 use reqwest::header::HeaderValue;
 use std::sync::LazyLock;
 
-pub(super) const ORIGINATOR: &str = "codex_cli_rs";
+pub(crate) const ORIGINATOR: &str = "codex_cli_rs";
 const CLI_VERSION: &str = "0.160.0";
 
-pub(super) fn user_agent() -> &'static str {
+pub(crate) fn user_agent() -> &'static str {
     // OS discovery may execute platform helpers; never repeat it per auth request.
     static AGENT: LazyLock<String> = LazyLock::new(|| {
         let os = os_info::get();

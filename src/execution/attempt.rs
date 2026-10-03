@@ -79,7 +79,12 @@ pub fn prepare(
     if provider.id != endpoint.provider || provider.origin != endpoint.target.origin {
         return Err(AttemptError::Protocol("provider/endpoint mismatch"));
     }
-    let streaming = request.delivery.streaming();
+    let streaming = request.delivery.streaming()
+        || endpoint
+            .representation
+            .adaptation
+            .rules
+            .responses_forced_stream;
     if streaming && !endpoint.execution.streaming {
         return Err(AttemptError::Delivery("endpoint cannot stream"));
     }

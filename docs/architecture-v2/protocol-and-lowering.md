@@ -97,6 +97,12 @@ Provider code may not perform arbitrary semantic JSON mutation after encoding.
 
 A provider quirk that changes meaning must be modeled as endpoint lowering or an explicit adapter rule, not a body hook. Mapping, validated derived views, scoped fidelity and field-specific compatibility defaults are defined in [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md). DeepSeek may default an unreported cache-write detail to zero in otherwise valid usage; that does not invent whole usage, mask malformed input or claim measured billing. Client and Provider adapters share these boundaries.
 
+### Event-owned terminal output
+
+A fixed product Responses adapter may declare that an explicitly empty `completed.output` is a terminal summary rather than a second output authority. Only actual, independently validated `output_item.done` snapshots with closed parts supply the final typed output; missing/null output, unfinished items and nonempty conflicting snapshots still fail. The standard profile retains full terminal-snapshot equality. This does not invent a terminal, tolerate EOF truncation or restore deleted request history. The rule and counterexamples belong to [event decoding](../../src/protocol/openai/events/decode.rs) and [independent tests](../../tests/semantic/subscription_accounting.rs).
+
+Closed product/accounting views remain bounded, source-bound fidelity: program-access reports do not authorize execution, hosted-tool counters must remain inactive in this slice, and context-window/per-coordinate attribution never substitutes for per-call billed token usage. Attribution coordinates remain issuer-owned, never local semantic item IDs or replay authority. Exact schema and rejection rules belong to [accounting shapes](../../src/protocol/openai/accounting_shapes.rs); another adapter or an edited semantic response cannot restore them.
+
 ## Native and cross-protocol
 
 There is no semantic distinction between Native and Bridge. The currently implemented protocol pairs illustrate the rule, not its architectural limit:

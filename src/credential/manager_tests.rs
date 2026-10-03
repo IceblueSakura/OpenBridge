@@ -58,6 +58,96 @@ impl AuthDriver for ThirdDriver {
         })
     }
 }
+#[tokio::test]
+async fn inference_binding_reloads_and_rejects_expired_logout_or_identity_change() {
+    let dir = tests::Directory::new();
+    let (manager, _, _) = manager(&dir);
+    assert!(manager.bind_access("third", "one").is_err());
+    manager
+        .login("third", "one", LoginOptions::default(), |_| {})
+        .await
+        .unwrap();
+    let binding = manager.bind_access("third", "one").unwrap();
+    let provenance = binding.provenance();
+    let mut credentials = crate::gateway::Credentials::new();
+    credentials.insert_account(
+        crate::provider::CredentialBindingId::new("codex-oauth").unwrap(),
+        binding.clone(),
+    );
+    assert!(matches!(
+        crate::gateway::Gateway::new(
+            crate::topology::catalog::default_topology().unwrap(),
+            vec![crate::gateway::Entry {
+                model: "gpt-6.1-sol".into(),
+                protocol: crate::protocol::openai::Profile::Responses,
+                endpoint: crate::topology::EndpointId::new("codex-responses").unwrap()
+            }],
+            credentials,
+            crate::provider::SecretMaterial::new("synthetic-client-credential-long-enough")
+                .unwrap(),
+            crate::gateway::Limits::default(),
+            None,
+        ),
+        Err(crate::gateway::StartupError::Credentials)
+    ));
+    assert_eq!(
+        binding.borrow().unwrap().access.expose(),
+        "synthetic-third-access"
+    );
+    assert!(!format!("{binding:?}").contains("third-subject"));
+    {
+        let tx = manager.store.transaction().unwrap();
+        let mut account = tx.load("third", "one").unwrap().account.unwrap();
+        account.credential.as_mut().unwrap().access = Secret::new("rotated-access".into()).unwrap();
+        tx.publish(&account).unwrap();
+    }
+    assert_eq!(binding.borrow().unwrap().access.expose(), "rotated-access");
+    assert_eq!(
+        manager.bind_access("third", "one").unwrap().provenance(),
+        provenance
+    );
+    {
+        let tx = manager.store.transaction().unwrap();
+        let mut account = tx.load("third", "one").unwrap().account.unwrap();
+        account.credential.as_mut().unwrap().expires_at = Some(1);
+        tx.publish(&account).unwrap();
+    }
+    assert!(matches!(binding.borrow(), Err(CredentialError::Expired)));
+    manager.logout("third", "one", false).await.unwrap();
+    assert!(matches!(
+        binding.borrow(),
+        Err(CredentialError::LoginRequired)
+    ));
+    manager
+        .login("third", "one", LoginOptions::default(), |_| {})
+        .await
+        .unwrap();
+    {
+        let tx = manager.store.transaction().unwrap();
+        let mut account = tx.load("third", "one").unwrap().account.unwrap();
+        account.identity.as_mut().unwrap().subject = "another-principal".into();
+        tx.publish(&account).unwrap();
+    }
+    assert!(matches!(
+        binding.borrow(),
+        Err(CredentialError::IdentityMismatch)
+    ));
+    let rebound = manager.bind_access("third", "one").unwrap();
+    assert_ne!(rebound.provenance(), provenance);
+    manager
+        .store
+        .fail_at(store::PublishStep::MarkerDirectorySync);
+    {
+        let tx = manager.store.transaction().unwrap();
+        let account = tx.load("third", "one").unwrap().account.unwrap();
+        assert!(tx.publish(&account).is_err());
+    }
+    assert!(matches!(
+        rebound.borrow(),
+        Err(CredentialError::LoginRequired)
+    ));
+}
+
 fn grant() -> Grant {
     Grant {
         identity: VerifiedIdentity {

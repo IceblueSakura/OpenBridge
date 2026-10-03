@@ -1,4 +1,5 @@
 //! Pure codecs for the explicitly supported Generation migration slice.
+mod accounting_shapes;
 pub(crate) mod adapter_shapes;
 pub mod chat;
 pub mod chat_envelope;

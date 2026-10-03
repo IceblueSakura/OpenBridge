@@ -69,13 +69,20 @@ pub(super) async fn produce_chain(
             } else {
                 let runtime = runtime.as_ref().ok_or(ApiError::upstream())?;
                 trace.stage(Stage::Prepare);
-                let prepared = crate::execution::prepare(
+                let (secret, grant) = candidate.secret.resolve()?;
+                let mut prepared = crate::execution::prepare(
                     &candidate.endpoint,
                     &candidate.provider,
-                    &candidate.secret,
+                    &secret,
                     request,
                 )
                 .map_err(|_| ApiError::invalid())?;
+                if let Some(grant) = grant {
+                    prepared.safe_headers.extend(
+                        crate::provider::subscription::headers(candidate.provider.auth, &grant)
+                            .map_err(|_| ApiError::upstream())?,
+                    );
+                }
                 trace.stage(Stage::Connect);
                 runtime
                     .transport

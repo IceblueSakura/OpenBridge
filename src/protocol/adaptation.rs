@@ -7,6 +7,19 @@ use serde_json::{Map, Value};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WireRules {
+    /// Product backend requires SSE regardless of downstream delivery.
+    /// Source: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/codex-api/src/common.rs
+    pub responses_forced_stream: bool,
+    /// Closed product access/zero-tool accounting, retained as scoped fidelity.
+    pub responses_product_accounting: bool,
+    /// Distinct billing ticks/context-window counters, never standard token usage.
+    pub responses_context_accounting: bool,
+    /// A completed stream may carry an empty terminal output summary after all
+    /// item.done snapshots. Only those fully closed items supply the output.
+    pub responses_event_owned_output: bool,
+    /// A fixed SSE-only backend may omit Content-Type. This does not permit
+    /// conflicting explicit media or bypass framing/terminal/EOF validation.
+    pub responses_sse_without_content_type: bool,
     /// Chat standard has auto/low/high; this profile additionally represents original.
     /// Source: <https://api-docs.deepseek.com/guides/vision>.
     pub chat_original_image_detail: bool,

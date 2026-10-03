@@ -302,7 +302,9 @@ impl FidelityRecords {
         } else {
             if !(adaptation.rules.routing_extras
                 || adaptation.rules.chat_stop_diagnostics
-                || adaptation.rules.reported_request_id)
+                || adaptation.rules.reported_request_id
+                || adaptation.rules.responses_product_accounting
+                || adaptation.rules.responses_context_accounting)
             {
                 return Err(CodecError::Unsupported("routing extras".into()));
             }
@@ -333,7 +335,9 @@ impl FidelityRecords {
             .filter(|r| {
                 (adaptation.rules.routing_extras
                     || adaptation.rules.chat_stop_diagnostics
-                    || adaptation.rules.reported_request_id)
+                    || adaptation.rules.reported_request_id
+                    || adaptation.rules.responses_product_accounting
+                    || adaptation.rules.responses_context_accounting)
                     && r.protocol == protocol
                     && r.profile == adaptation.profile_id
                     && Some(&r.origin) == adaptation.scope.as_ref()

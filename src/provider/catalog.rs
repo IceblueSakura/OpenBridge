@@ -14,7 +14,7 @@ pub fn deepseek() -> ProviderDefinition {
     ProviderDefinition {
         id: ProviderId::new("deepseek").expect("static identity"),
         origin: TrustedOrigin::parse("https://api.deepseek.com").expect("static origin"),
-        chat_completions: EndpointPath::new("/chat/completions").expect("static path"),
+        chat_completions: Some(EndpointPath::new("/chat/completions").expect("static path")),
         responses: Some(EndpointPath::new("/responses").expect("static path")),
         auth: AuthScheme::Bearer,
     }
@@ -26,7 +26,7 @@ pub fn xiaomi() -> ProviderDefinition {
     ProviderDefinition {
         id: ProviderId::new("xiaomi").expect("static identity"),
         origin: TrustedOrigin::parse("https://api.xiaomimimo.com").expect("static origin"),
-        chat_completions: EndpointPath::new("/v1/chat/completions").expect("static path"),
+        chat_completions: Some(EndpointPath::new("/v1/chat/completions").expect("static path")),
         responses: Some(EndpointPath::new("/v1/responses").expect("static path")),
         auth: AuthScheme::Bearer,
     }
@@ -48,7 +48,7 @@ pub fn openrouter() -> ProviderDefinition {
     ProviderDefinition {
         id: ProviderId::new("openrouter").expect("static identity"),
         origin: TrustedOrigin::parse("https://openrouter.ai").expect("static origin"),
-        chat_completions: EndpointPath::new("/api/v1/chat/completions").expect("static path"),
+        chat_completions: Some(EndpointPath::new("/api/v1/chat/completions").expect("static path")),
         responses: Some(EndpointPath::new("/api/v1/responses").expect("static path")),
         auth: AuthScheme::Bearer,
     }
@@ -58,7 +58,7 @@ fn chat_provider(id: &str, origin: &str, path: &str) -> ProviderDefinition {
     ProviderDefinition {
         id: ProviderId::new(id).expect("static identity"),
         origin: TrustedOrigin::parse(origin).expect("static origin"),
-        chat_completions: EndpointPath::new(path).expect("static path"),
+        chat_completions: Some(EndpointPath::new(path).expect("static path")),
         responses: None,
         auth: AuthScheme::Bearer,
     }
@@ -134,8 +134,32 @@ pub fn zhipu() -> ProviderDefinition {
     }
 }
 
+/// Product Responses backend, not the public SIWC or Platform API.
+/// Source: https://github.com/openai/codex/tree/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs
+pub fn codex() -> ProviderDefinition {
+    ProviderDefinition {
+        auth: AuthScheme::OAuthBearer("codex"),
+        responses: Some(EndpointPath::new("/backend-api/codex/responses").expect("static path")),
+        id: ProviderId::new("codex").expect("static identity"),
+        origin: TrustedOrigin::parse("https://chatgpt.com").expect("static origin"),
+        chat_completions: None,
+    }
+}
+/// Public Responses OAuth route; not the Grok CLI subscription proxy.
+/// Source: https://docs.x.ai/developers/model-capabilities/text/generate-text
+pub fn grok() -> ProviderDefinition {
+    ProviderDefinition {
+        auth: AuthScheme::OAuthBearer("grok"),
+        responses: Some(EndpointPath::new("/v1/responses").expect("static path")),
+        id: ProviderId::new("grok").expect("static identity"),
+        origin: TrustedOrigin::parse("https://api.x.ai").expect("static origin"),
+        chat_completions: None,
+    }
+}
 pub fn all() -> Vec<ProviderDefinition> {
     vec![
+        codex(),
+        grok(),
         deepseek(),
         xiaomi(),
         openrouter(),
@@ -158,14 +182,20 @@ mod tests {
         let deepseek = deepseek();
         assert_eq!(deepseek.id.as_str(), "deepseek");
         assert_eq!(deepseek.origin.as_str(), "https://api.deepseek.com");
-        assert_eq!(deepseek.chat_completions.as_str(), "/chat/completions");
+        assert_eq!(
+            deepseek.chat_completions.unwrap().as_str(),
+            "/chat/completions"
+        );
         assert_eq!(deepseek.responses.unwrap().as_str(), "/responses");
         assert_eq!(deepseek.auth, AuthScheme::Bearer);
 
         let xiaomi = xiaomi();
         assert_eq!(xiaomi.id.as_str(), "xiaomi");
         assert_eq!(xiaomi.origin.as_str(), "https://api.xiaomimimo.com");
-        assert_eq!(xiaomi.chat_completions.as_str(), "/v1/chat/completions");
+        assert_eq!(
+            xiaomi.chat_completions.unwrap().as_str(),
+            "/v1/chat/completions"
+        );
         assert_eq!(xiaomi.responses.unwrap().as_str(), "/v1/responses");
         assert_eq!(xiaomi.auth, AuthScheme::Bearer);
     }

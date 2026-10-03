@@ -9,26 +9,31 @@ use crate::provider::{errors::ProviderError, ident_ok};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialKind {
     ApiKey,
+    OAuth(&'static str),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthScheme {
     /// `Authorization: Bearer <secret>`.
     Bearer,
+    OAuthBearer(&'static str),
     /// A dedicated API key header, e.g. `api-key: <secret>`.
     ApiKeyHeader(&'static str),
 }
 
 impl AuthScheme {
     pub const fn kind(&self) -> CredentialKind {
-        CredentialKind::ApiKey
+        match self {
+            Self::OAuthBearer(profile) => CredentialKind::OAuth(profile),
+            _ => CredentialKind::ApiKey,
+        }
     }
 
     /// Sensitive header for exactly one attempt. The transport treats it as
     /// sensitive material: never logged, never forwarded to other origins.
     pub fn auth_header(&self, secret: &SecretMaterial) -> (String, String) {
         match self {
-            Self::Bearer => (
+            Self::Bearer | Self::OAuthBearer(_) => (
                 "authorization".into(),
                 format!("Bearer {}", secret.expose()),
             ),
@@ -63,7 +68,9 @@ pub struct SecretMaterial(String);
 
 impl SecretMaterial {
     pub fn new(secret: &str) -> Result<Self, ProviderError> {
-        if secret.is_empty() || secret.len() > 4096 || !secret.chars().all(|c| c.is_ascii_graphic())
+        if secret.is_empty()
+            || secret.len() > 16384
+            || !secret.chars().all(|c| c.is_ascii_graphic())
         {
             return Err(ProviderError::InvalidSecret);
         }

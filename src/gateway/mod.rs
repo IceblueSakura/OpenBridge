@@ -4,6 +4,7 @@ mod auth;
 mod body;
 pub mod bootstrap;
 mod config;
+mod credentials;
 mod diagnostics;
 mod error;
 mod exchange;
@@ -12,23 +13,28 @@ mod intake;
 #[cfg(test)]
 mod route_fallback_tests;
 #[cfg(test)]
+mod subscription_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+use crate::provider::SecretMaterial;
 use crate::{
     adapter::Adapter,
     lowering::generation::GenerationRepresentationContract,
     protocol::openai::Profile,
-    provider::{ProviderDefinition, SecretMaterial},
+    provider::ProviderDefinition,
     topology::{Endpoint, PublicModel},
     transport::http::HttpTransport,
 };
-pub use config::{Credentials, Entry, Limits, StartupError};
+pub use config::{Entry, Limits, StartupError};
+pub use credentials::Credentials;
 use error::ApiError;
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::{Semaphore, watch};
 struct BoundCandidate {
     endpoint: Endpoint,
     provider: ProviderDefinition,
-    secret: Arc<SecretMaterial>,
+    secret: credentials::Source,
 }
 struct BoundEntry {
     public: PublicModel,

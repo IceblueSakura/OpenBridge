@@ -1,8 +1,10 @@
 //! Account-bound OAuth ownership; never imported by semantic codecs or lowering.
+mod access;
+pub use access::{AccessBinding, AccessGrant};
 mod browser;
 mod callback;
 mod codex;
-mod codex_metadata;
+pub(crate) mod codex_metadata;
 mod driver;
 mod grok;
 mod grok_metadata;

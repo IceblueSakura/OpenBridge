@@ -92,12 +92,31 @@ pub(super) async fn produce_candidate(
         .get("content-type")
         .and_then(|h| h.to_str().ok())
         .unwrap_or_default();
+    let content_type = if !upstream.headers().contains_key("content-type")
+        && candidate
+            .endpoint
+            .representation
+            .adaptation
+            .rules
+            .responses_sse_without_content_type
+    {
+        "text/event-stream"
+    } else {
+        content_type
+    };
     let media: mime::Mime = content_type.parse().map_err(|_| ApiError::upstream())?;
     let stream = request.delivery.streaming();
     let is_stream = media.type_() == mime::TEXT && media.subtype() == "event-stream";
     let is_json = media.type_() == mime::APPLICATION
         && (media.subtype() == mime::JSON || media.suffix() == Some(mime::JSON));
-    if (stream && !is_stream) || (!stream && !is_json) {
+    let upstream_stream = stream
+        || candidate
+            .endpoint
+            .representation
+            .adaptation
+            .rules
+            .responses_forced_stream;
+    if (upstream_stream && !is_stream) || (!upstream_stream && !is_json) {
         return Err(ApiError::upstream());
     }
     let limit = limits

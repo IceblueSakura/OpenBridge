@@ -83,6 +83,8 @@ impl EventDecoder {
                 if let Some(snapshot) = payload.get("response")
                     && (self.adaptation.rules.routing_extras
                         || self.adaptation.rules.responses_billing_view
+                        || self.adaptation.rules.responses_product_accounting
+                        || self.adaptation.rules.responses_context_accounting
                         || self.adaptation.rules.null_response_billing
                         || self.adaptation.rules.responses_inactive_state
                         || self.adaptation.rules.responses_reasoning_text_shorthand)
@@ -1110,6 +1112,35 @@ impl EventDecoder {
     ) -> Result<(), CodecError> {
         event_fields(o, &["type", "response"])?;
         let r = o.get("response").ok_or(CodecError::Invalid("response"))?;
+        let mut summary;
+        let r = if self.adaptation.rules.responses_event_owned_output
+            && r.get("status").and_then(Value::as_str) == Some("completed")
+            && r.get("output")
+                .and_then(Value::as_array)
+                .is_some_and(Vec::is_empty)
+            && !self.state()?.items().is_empty()
+        {
+            if self.state()?.items().iter().any(|item| {
+                item.status != Some(ItemLifecycle::Completed)
+                    || item
+                        .parts
+                        .iter()
+                        .any(|part| !part.finished || !part.value_finished)
+            }) {
+                return Err(CodecError::Invalid("unfinished event-owned output"));
+            }
+            // Real item.done snapshots already checked every value and owner.
+            // Missing/null/nonempty conflicting terminal output never uses this rule.
+            summary = r.clone();
+            summary["output"] = json!(super::super::responses::encode_items(
+                &snapshot_items(self.state()?)?,
+                &self.fidelity,
+                true
+            ));
+            &summary
+        } else {
+            r
+        };
         let p = object(r)?;
         let status = string(p, "status")?;
         if string(o, "type")? != format!("response.{status}") {

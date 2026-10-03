@@ -1,6 +1,7 @@
 //! Compile explicit model declarations and deployment bindings. No alias inference.
 mod bindings;
 mod models;
+mod subscriptions;
 use crate::{
     adapter::Adapter,
     lowering::generation::{GenerationRepresentationContract, ReportedFactPolicy},
@@ -9,6 +10,7 @@ use crate::{
     topology::*,
 };
 pub use bindings::{API_KEY_BINDINGS, ApiKeyBinding};
+pub use subscriptions::{SUBSCRIPTION_BINDINGS, SubscriptionBinding};
 impl ApiKeyBinding {
     pub fn public_model(&self) -> PublicModel {
         PublicModel {
@@ -29,7 +31,7 @@ impl ApiKeyBinding {
         let (family, path, replay) = match protocol {
             ProtocolProfile::OpenAiChat => (
                 crate::protocol::openai::Profile::Chat,
-                provider.chat_completions.clone(),
+                provider.chat_completions.clone().expect("declared entry"),
                 self.replay_chat,
             ),
             ProtocolProfile::OpenAiResponses => (
@@ -97,6 +99,17 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
                 .collect(),
         });
         endpoints.extend(binding.protocols.iter().map(|&p| binding.endpoint(p)));
+        public_models.push(public);
+    }
+    for binding in SUBSCRIPTION_BINDINGS {
+        let public = binding.public_model();
+        routes.push(Route {
+            id: public.route.clone(),
+            task: public.task,
+            policy: RoutePolicy::default(),
+            endpoints: vec![binding.endpoint_id()],
+        });
+        endpoints.push(binding.endpoint());
         public_models.push(public);
     }
     compile(

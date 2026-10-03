@@ -72,7 +72,14 @@ pub fn representable(
     endpoint: &Endpoint,
     request: &crate::adapter::Request,
 ) -> Result<(), RejectionReason> {
-    if request.delivery.streaming() && !endpoint.execution.streaming {
+    if (request.delivery.streaming()
+        || endpoint
+            .representation
+            .adaptation
+            .rules
+            .responses_forced_stream)
+        && !endpoint.execution.streaming
+    {
         return Err(RejectionReason::Streaming);
     }
     let value = endpoint

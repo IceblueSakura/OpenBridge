@@ -17,6 +17,7 @@ import httpx2
 from openai import DefaultHttpxClient, OpenAI, __version__
 from .checks import require
 from .ledger import MODELS
+from .catalog import OAUTH_PROVIDERS
 from .wire import Wire
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -196,11 +197,12 @@ def gateway(run, models=None, *, synthetic=False, proxy=None):
         require(
             os.environ.get("OPENBRIDGE_PROBE_LIVE") == "1", "live_not_enabled", "setup"
         )
-        # Only select requested API keys; never follow OAuth references.
-        pools = tomllib.loads((ROOT / "config/upstream-credentials.toml").read_text())[
-            "credential_pools"
-        ]
-        pools = {p["id"]: p for p in pools}
+        pools = {}
+        if any(MODELS[model][0] not in OAUTH_PROVIDERS for model in models):
+            pools = tomllib.loads(
+                (ROOT / "config/upstream-credentials.toml").read_text()
+            )["credential_pools"]
+            pools = {p["id"]: p for p in pools}
     key = secrets.token_urlsafe(32)
     env = {
         "OPENBRIDGE_BIND": "127.0.0.1:0",
@@ -210,10 +212,22 @@ def gateway(run, models=None, *, synthetic=False, proxy=None):
         ),
     }
     for model in models:
-        _, _, pool, variable, _ = MODELS[model]
-        env[variable] = (
-            "synthetic-upstream-credential" if synthetic else pools[pool]["api_keys"][0]
-        )
+        provider, _, pool, variable, _ = MODELS[model]
+        if provider in OAUTH_PROVIDERS:
+            # The binary alone opens the explicitly supplied owned store. No auth
+            # cache discovery or token export through the probe process.
+            require(not synthetic, "oauth_requires_owned_store", "setup")
+            require(
+                bool(os.environ.get("OPENBRIDGE_CREDENTIAL_STORE"))
+                and bool(os.environ.get(variable)),
+                "oauth_binding", "setup",
+            )
+            env["OPENBRIDGE_CREDENTIAL_STORE"] = os.environ["OPENBRIDGE_CREDENTIAL_STORE"]
+            env[variable] = os.environ[variable]
+        else:
+            env[variable] = (
+                "synthetic-upstream-credential" if synthetic else pools[pool]["api_keys"][0]
+            )
     if proxy:
         env["OPENBRIDGE_PROXY"] = proxy
     elif not synthetic:

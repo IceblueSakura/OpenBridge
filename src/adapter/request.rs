@@ -264,6 +264,16 @@ impl Adapter {
                 )?
             }
         };
+        if self.adaptation.rules.responses_forced_stream {
+            if self.protocol != Profile::Responses {
+                return Err(CodecError::ProfileMismatch.into());
+            }
+            value["stream"] = Value::Bool(true);
+            // Empty instructions carry no new task instruction; never substitute a prompt.
+            if value.get("instructions").is_none() {
+                value["instructions"] = Value::String(String::new());
+            }
+        }
         if self.protocol == Profile::Chat
             && self.adaptation.rules.reasoning_alias
             && let Some(messages) = value.get_mut("messages").and_then(Value::as_array_mut)

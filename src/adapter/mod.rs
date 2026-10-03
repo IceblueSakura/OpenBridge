@@ -19,6 +19,8 @@ pub use request::Request;
 pub enum Dialect {
     #[default]
     Standard,
+    Codex,
+    Grok,
     OpenBridge,
     DeepSeek,
     Xiaomi,
@@ -34,6 +36,25 @@ impl Dialect {
     fn adaptation(self, scope: Option<ReplayOrigin>) -> Adaptation {
         let (profile_id, rules) = match self {
             Self::Standard => ("standard-v1", WireRules::default()),
+            Self::Codex => (
+                "codex-v1",
+                WireRules {
+                    response_extras: true,
+                    responses_product_accounting: true,
+                    responses_event_owned_output: true,
+                    responses_forced_stream: true,
+                    responses_sse_without_content_type: true,
+                    ..Default::default()
+                },
+            ),
+            Self::Grok => (
+                "grok-v1",
+                WireRules {
+                    response_extras: true,
+                    responses_context_accounting: true,
+                    ..Default::default()
+                },
+            ),
             Self::OpenBridge => (
                 "openbridge-v1",
                 WireRules {

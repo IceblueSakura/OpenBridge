@@ -79,7 +79,7 @@ async fn ordered_route_only_falls_back_before_visible_delivery() {
             let provider = ProviderDefinition {
                 id: ProviderId::new(id).unwrap(),
                 origin: TrustedOrigin::parse(&format!("http://{upstream_addr}")).unwrap(),
-                chat_completions: EndpointPath::new(&format!("/{id}")).unwrap(),
+                chat_completions: Some(EndpointPath::new(&format!("/{id}")).unwrap()),
                 responses: Some(EndpointPath::new(&format!("/{id}")).unwrap()),
                 auth: AuthScheme::Bearer,
             };

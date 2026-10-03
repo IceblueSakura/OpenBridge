@@ -10,10 +10,11 @@
 |---|---|
 | `OPENBRIDGE_CLIENT_KEY` | 必填：单一入口 Bearer token，32–4096 个可打印 ASCII 非空白字符；应使用高熵随机值 |
 | `OPENBRIDGE_BIND` | 可选：默认 `127.0.0.1:8080`；仅接受 literal loopback SocketAddr（也可 `[::1]:8080`） |
+| `OPENBRIDGE_CREDENTIAL_STORE` | 可选：显式 OpenBridge 自有凭据目录，配合 catalog 声明的账户 alias 变量启用 OAuth 绑定；无默认目录或自动登录/刷新 |
 | `OPENBRIDGE_PROXY` | 可选：受信启动配置中的显式出站代理 URL；不继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` |
 | `OPENBRIDGE_PROBE_DIAGNOSTICS` | 可选：操作者指定的新建私有 JSONL 文件；默认关闭，不覆盖已有文件，不记录 payload |
 
-至少提供一个已注册 Provider 的 key；设置为空不等于禁用，而是配置错误。不输出凭据值，不生成默认入口密钥。模型绑定由 [`src/topology/catalog.rs`](../src/topology/catalog.rs)维护，未提供对应 key 的模型不在入口中开放。不要从变量命名规则猜测支持项，也不要通过打印环境或私有配置来确认启用情况。
+至少提供一个已注册的 API key 或显式 OAuth 账户绑定；设置为空不等于禁用，而是配置错误。不输出凭据值，不生成默认入口密钥。模型绑定由 [`src/topology/catalog.rs`](../src/topology/catalog.rs)维护，未提供对应凭据绑定的模型不在入口中开放。OAuth 绑定固定 profile/client/principal，每次请求重新借用 access；过期、退出、quarantine 或身份改变返回 503 `credential_unavailable`。已 dispatch 的请求可能继续完成，普通请求不触发刷新或账户切换。详见[凭据管理](credentials.md#gateway-access-绑定)。不要从变量命名规则猜测支持项，也不要通过打印环境或私有配置来确认启用情况。
 
 在安全地提供上述环境变量后启动：
 
@@ -93,11 +94,11 @@ Chat 对应图片 part 为 `{"type":"image_url","image_url":{"url":"https://exam
 | 408 / 413 / 415 | 请求收集超时 / body 超限 / 媒体类型或编码不支持 |
 | 429 | `gateway_busy` 或上游 rate limit |
 | 502 / 504 | 上游状态、协议、投影或预算失败 / 上游交付超时 |
-| 503 / 500 | 服务关闭中 / 本地运行故障 |
+| 503 / 500 | 服务关闭中或绑定凭据不可用 / 本地运行故障 |
 
 未发布下游 frame 时，显式 BeforeCommit 策略可在 429/5xx、连接失败及有剩余总预算的尝试超时后前移；参数、auth/权限、HTTP 重定向、协议或投影错误终止。各尝试共享 permit 和绝对总 deadline，单成员 timeout 不重置总预算。可能重复上游计算/计费，不保证上游已停止处理。非成功模型终态不是 fallback 理由。最终失败返回 JSON 错误。首次下游 frame 发布时保守冻结候选以避免 recv/timeout 竞争，发布不等于 commit；HTTP response 已交出后不能更改状态：late error、取消、超时或缺失/错误终态会中止 body，不合成成功 `response.completed` / `[DONE]`，也不重试。已准入的模型非成功语义终态（如 incomplete）与 transport 错误不同，仍按语义合同交付。
 
-SSE 不收完整流再回放。每次最多消费一个上游 frame；下游 frame 在 HTTP body handoff 时确认，未确认不推进后续语义处理。仅编码或排队不算 commit。严格上游 EOF 后才释放终态；完成全部 handoff 后才完成 producer。这是服务 transport 边界，不声称已收到客户端/TCP acknowledgement。消费者不 poll body 时，deadline 仍能释放上游；drop/shutdown 同样取消资源。
+上游强制 SSE 的 profile 与下游交付独立：JSON 下游有界聚合至验证终态及 EOF，SSE 下游增量交付。仅具名 profile 可接受缺失 Content-Type 的固定 SSE；显式冲突媒体类型仍拒绝，不能以该规则绕过 framing 或终态验证。客户端请求 SSE 时不收完整流再回放。每次最多消费一个上游 frame；下游 frame 在 HTTP body handoff 时确认，未确认不推进后续语义处理。仅编码或排队不算 commit。严格上游 EOF 后才释放终态；完成全部 handoff 后才完成 producer。这是服务 transport 边界，不声称已收到客户端/TCP acknowledgement。消费者不 poll body 时，deadline 仍能释放上游；drop/shutdown 同样取消资源。
 
 ## 操作者诊断
 

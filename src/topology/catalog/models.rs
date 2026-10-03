@@ -9,6 +9,14 @@ pub struct ModelDefinition {
 }
 pub const MODELS: &[ModelDefinition] = &[
     ModelDefinition {
+        id: "gpt-6.1-sol",
+        images: false,
+    },
+    ModelDefinition {
+        id: "grok-4.7",
+        images: false,
+    },
+    ModelDefinition {
         id: "deepseek-flash",
         images: true,
     },

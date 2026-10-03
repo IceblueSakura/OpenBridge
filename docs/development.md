@@ -75,7 +75,7 @@ uv run --project tests/sdk --locked --offline cargo test --locked --offline --te
 - `cargo run --locked --offline --example replay_chat -- <provider-id> <authorized-synthetic-capture.sse> [chat|responses]`：对明确给出的有界 capture 做纯离线 intake 和下游 projection；占位符取值与格式限制以入口代码为准。不读取凭据、不联网，不把 captures 当独立 fixture。
 - `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p 'test_*.py'`：既有 replay checker 和新增矩阵请求数/目标/输出预算的离线防线，无真实调用。
 
-这些 live 入口只在进程内读取工作区 API-key 凭据，均无自动重试；不会更改私有文件或加载 Codex/OAuth 引用。库级 probe 的 raw capture 默认关闭，显式 synthetic capture 会移除已知 opaque/credential 字段，不能充当原始 wire oracle；报告与共享账本位于 run 子目录。SDK/binary gate 只保存白名单结果，不保存 body/headers/token。后者通过启动就绪信号获取临时端口，结束/失败均回收 binary。每次重新执行都是新的一批付费调用，不是“免费重跑测试”。执行结果只在当次交付和授权 run 中报告，不写入 Markdown、注释或适配模型表。probe 序列化守卫本身的离线测试为 `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_live_probe_helpers.py`，不加载凭据或调用网络。
+这些 live 入口均无自动重试，不改写私有凭据。统一 SDK/binary probe 对 API-key 绑定使用工作区凭据入口；对显式 OAuth 绑定只向 binary 提供自有 store/alias，binary 经凭据管理器借用 access，不搜索外部 auth cache。其他具名入口仍按各自代码的准入范围执行。库级 probe 的 raw capture 默认关闭，显式 synthetic capture 会移除已知 opaque/credential 字段，不能充当原始 wire oracle；报告与共享账本位于 run 子目录。SDK/binary gate 只保存白名单结果，不保存 body/headers/token。后者通过启动就绪信号获取临时端口，结束/失败均回收 binary。每次重新执行都是新的一批付费调用，不是“免费重跑测试”。执行结果只在当次交付和授权 run 中报告，不写入 Markdown、注释或适配模型表。probe 序列化守卫本身的离线测试为 `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_live_probe_helpers.py`，不加载凭据或调用网络。
 
 ## pi 探测诊断守卫
 
