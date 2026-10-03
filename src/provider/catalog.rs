@@ -64,6 +64,16 @@ fn chat_provider(id: &str, origin: &str, path: &str) -> ProviderDefinition {
     }
 }
 
+/// Explicit Chat entry; no native Responses endpoint is inferred.
+/// Source: <https://api.modelbest.cn/v1/chat/completions>.
+pub fn modelbest() -> ProviderDefinition {
+    chat_provider(
+        "modelbest",
+        "https://api.modelbest.cn",
+        "/v1/chat/completions",
+    )
+}
+
 /// Native Responses entry is explicit, not inferred from Chat compatibility.
 /// Source: <https://longcat.chat/platform/docs/Codex.html>.
 pub fn longcat() -> ProviderDefinition {
@@ -162,6 +172,7 @@ pub fn all() -> Vec<ProviderDefinition> {
         grok(),
         deepseek(),
         xiaomi(),
+        modelbest(),
         openrouter(),
         opencode_go(),
         longcat(),
@@ -171,4 +182,24 @@ pub fn all() -> Vec<ProviderDefinition> {
         kimi(),
         zhipu(),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn modelbest_registration_is_chat_only_and_origin_bound() {
+        let provider = all()
+            .into_iter()
+            .find(|provider| provider.id.as_str() == "modelbest")
+            .expect("registered ModelBest provider");
+        assert_eq!(provider.origin.as_str(), "https://api.modelbest.cn");
+        assert_eq!(
+            provider.chat_completions.unwrap().as_str(),
+            "/v1/chat/completions"
+        );
+        assert!(provider.responses.is_none());
+        assert_eq!(provider.auth, AuthScheme::Bearer);
+    }
 }
