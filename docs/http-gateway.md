@@ -4,22 +4,14 @@
 
 ## 启动
 
-启动只读取代码显式声明的环境变量，**不自动读取 `.env`、旧 TOML 配置或其他应用认证缓存**。下表列通用启动控制；Provider 专用变量与模型/协议绑定从 [`src/gateway/bootstrap.rs`](../src/gateway/bootstrap.rs)及其引用的 catalog 查询，完整方法见 [AGENTS.md](../AGENTS.md#current-provider-model-and-compatibility-information)。
+启动只读取显式私有 JSON 文件，**不读取环境 key、账户 alias、`.env`、旧 TOML 或第三方 auth cache**。默认配置为凭据目录内的 `gateway.json`；可用独立 `--config` 指定入口配置。格式与管理命令归[凭据指南](credentials.md)，精确解析归 [bootstrap](../src/gateway/bootstrap.rs)。
 
-| 变量 | 含义 |
-|---|---|
-| `OPENBRIDGE_CLIENT_KEY` | 必填：单一入口 Bearer token，32–4096 个可打印 ASCII 非空白字符；应使用高熵随机值 |
-| `OPENBRIDGE_BIND` | 可选：默认 `127.0.0.1:8080`；仅接受 literal loopback SocketAddr（也可 `[::1]:8080`） |
-| `OPENBRIDGE_CREDENTIAL_STORE` | 可选：显式 OpenBridge 自有凭据目录，配合 catalog 声明的账户 alias 变量启用 OAuth 绑定；无默认目录或自动登录/刷新 |
-| `OPENBRIDGE_PROXY` | 可选：受信启动配置中的显式出站代理 URL；不继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` |
-| `OPENBRIDGE_PROBE_DIAGNOSTICS` | 可选：操作者指定的新建私有 JSONL 文件；默认关闭，不覆盖已有文件，不记录 payload |
+`gateway.json` 的 `client_key` 是入口 Bearer token，不是上游 key；`bind` 缺省 `127.0.0.1:8080` 且只允许 literal loopback。`proxy` 是显式受信出站代理，不继承环境代理；`diagnostics` 可选启用已有有界诊断 sink。`models` 缩小已配置池的模型集合；`max_attempts` 只能收紧凭据池尝试上限。不得输出配置正文。
 
-至少提供一个已注册的 API key 或显式 OAuth 账户绑定；设置为空不等于禁用，而是配置错误。不输出凭据值，不生成默认入口密钥。模型绑定由 [`src/topology/catalog.rs`](../src/topology/catalog.rs)维护，未提供对应凭据绑定的模型不在入口中开放。OAuth 绑定固定 profile/client/principal，每次请求重新借用 access；过期、退出、quarantine 或身份改变返回 503 `credential_unavailable`。已 dispatch 的请求可能继续完成，普通请求不触发刷新或账户切换。详见[凭据管理](credentials.md#gateway-access-绑定)。不要从变量命名规则猜测支持项，也不要通过打印环境或私有配置来确认启用情况。
-
-在安全地提供上述环境变量后启动：
+Provider 文件的 `pools` 按编译 credential binding ID 启用候选；没有 pool 的凭据不激活推理，未知或不兼容 binding 拒绝。每次借用检查状态和身份；API key 替换/启停/移除使旧绑定失效，需显式重新加载 Gateway。OAuth refresh 不改变固定 principal 的 replay identity。并发管理、本地不可用与配置/权限故障的区分见[凭据合同](credentials.md#gateway-access-绑定)。
 
 ```sh
-cargo run --locked --offline --bin openbridge
+cargo run --locked --offline --bin openbridge -- --credentials-dir /path/to/private-store
 ```
 
 只有启动不会产生模型生成请求；向有效模型提交请求可能产生真实费用。Ctrl-C 发起 graceful shutdown，取消在途上游并拒绝新的业务请求。这个入口不是部署指令；默认验证仅使用 synthetic keys 和 loopback Provider。
@@ -34,7 +26,7 @@ cargo run --locked --offline --bin openbridge
 - 所有路由先检查唯一的 `Authorization: Bearer …`，认证通过后才进行应用层 body 收集。其他认证 header 不替代该字段，重复 Authorization 拒绝。
 - Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单文本 part 编码规范化为字符串，多 part 保序。user content 另可包含有序 `image_url` 图片 parts，Responses 使用 `input_image`；只准入 URL/inline 图片输入，且 Public Model/Endpoint 必须声明可表示。详细边界见[图片输入 slice](architecture-v2/responses-text-profile.md#user-image-input)。工具结果支持字符串或有序纯文本数组，保留空数组和单/多 part，不拼接。Responses function/custom 结果数组另可承载选定 URL/inline 图片，须独立声明 `tool_result_images` 准入；与 user 图片共用目标资源限制，不意味着现有 catalog/实例已启用。Chat 工具图片投影仍在 I/O 前拒绝。function-only `allowed_tools` 使用 Chat 的嵌套 shell；实际目标支持仍须独立核对。
 - 请求要求 JSON Content-Type，仅 UTF-8；不接受 Content-Encoding。严格 JSON 解析拒绝重复 key。先解析 envelope 中的 public model，绑定受信 task，再进行语义 decode。
-- 每个 `(public model, client protocol)` 在启动时显式激活 Route 成员；多个不同 Endpoint 的 Entry 合并并保持编译 Route 顺序，不按激活输入顺序排序。重复或路由外成员拒绝。默认 bootstrap 仍激活单个相同 wire family 成员；没有对应入口返回 `model_not_found`，不从 Chat 激活推导 Responses。请求按完整最终 IR 和 Route 的候选策略独立预检；无兼容成员在 I/O 前失败。默认选择首个兼容成员。只有显式 `RoutePolicy.fallback = BeforeCommit` 允许提交前顺序前移，最多 `max_attempts` 个不同成员；无同成员重试/竞速/运行时改序，也不允许业务 JSON 指定目标。多成员入口不共用 issuer scope，当前拒绝 opaque replay/加密输出请求。
+- 每个 `(public model, client protocol)` 在启动时显式激活 Route 成员；多个不同 Endpoint 的 Entry 合并并保持编译 Route 顺序，再按凭据池固定顺序展开 `(endpoint, credential)`，不按激活输入顺序重排。重复或路由外成员拒绝。文件 bootstrap 激活相同 wire family 的 Endpoint 及其配置凭据池；没有对应入口返回 `model_not_found`，不从 Chat 激活推导 Responses。请求按完整最终 IR 和 Route 的候选策略独立预检；无兼容成员在 I/O 前失败。默认选择首个兼容成员。跨 Endpoint 前移须显式 `RoutePolicy.fallback = BeforeCommit`；同 Endpoint 换凭据须显式 pool fallback。全链最多 `max_attempts` 个不同组合，凭据池和入口配置可进一步收紧；无同成员重试/竞速/运行时改序，也不允许业务 JSON 指定目标。多成员入口不共用 issuer scope，当前拒绝 opaque replay/加密输出请求。
 - 标准 Responses 缺少 message-call 归属 carrier：带显式分组的 Chat 工具 history 无法投影到 Responses 候选，在 I/O 前拒绝；Chat Provider 的 tool-only/text+tool 输出也无法无损交付给 Responses 客户端。静态投影失败返回 502；SSE 在首次 attached-call 事件拒绝，若前缀已发布则中止 body，不伪造成功终态或前移候选。独立 calls、原生 Responses history 和 Chat 同协议分组不因此禁用。不存在私有分组字段或邻接恢复，详见[分组合同](architecture-v2/responses-text-profile.md#message-owners-and-cross-protocol-grouping)与[缺失项目](implementation-status/generation.md#语义与表示缺口)。
 - 缓存亲和只利用 Provider 原生功能，不维护网关会话/回答缓存，不重排固定 Route。标准 `prompt_cache_key` 是 advisory hint，未声明 carrier 的目标可以省略它；显式 cache options 目标不支持时拒绝。`user`/`safety_identifier` 独立于 cache hints，目标未声明时拒绝而非随 cache 一起丢弃。
 - 两个入口额外支持非空、最多 256 字符且不含控制字符的 `session_id` body 扩展，用于 Provider cache/observability grouping；只投影到明确支持它的目标，否则拒绝。它不等于 OpenBridge 会话，不从其他 ID 自动生成，不把 `session-id`/`x-session-id` 入站 header 透传。OpenCode Go 的受信 adapter 将显式 body `session_id` 投影为 `x-opencode-session`，不发送上游 body 同名字段；该 header carrier 只接受 ASCII，无值时不生成身份，并使用固定 OpenBridge User-Agent。客户端应为同一会话显式提供稳定值；其他入站 headers 仍不透传。具体 profile/激活仍按源码核对。
@@ -96,7 +88,7 @@ Chat 对应图片 part 为 `{"type":"image_url","image_url":{"url":"https://exam
 | 502 / 504 | 上游状态、协议、投影或预算失败 / 上游交付超时 |
 | 503 / 500 | 服务关闭中或绑定凭据不可用 / 本地运行故障 |
 
-未发布下游 frame 时，显式 BeforeCommit 策略可在 429/5xx、连接失败及有剩余总预算的尝试超时后前移；参数、auth/权限、HTTP 重定向、协议或投影错误终止。各尝试共享 permit 和绝对总 deadline，单成员 timeout 不重置总预算。可能重复上游计算/计费，不保证上游已停止处理。非成功模型终态不是 fallback 理由。最终失败返回 JSON 错误。首次下游 frame 发布时保守冻结候选以避免 recv/timeout 竞争，发布不等于 commit；HTTP response 已交出后不能更改状态：late error、取消、超时或缺失/错误终态会中止 body，不合成成功 `response.completed` / `[DONE]`，也不重试。已准入的模型非成功语义终态（如 incomplete）与 transport 错误不同，仍按语义合同交付。
+未发布下游 frame 时，显式 BeforeCommit 策略可在允许的 rate-limit/5xx、连接失败及有剩余总预算的尝试超时后前移；同 Provider 的未知作用范围 429 不允许换凭据。显式 pool 策略另可跳过本地不可用凭据，不能跳过损坏文件或身份变化。参数、auth/权限、HTTP 重定向、协议或投影错误终止。各尝试共享 permit 和绝对总 deadline，单成员 timeout 不重置总预算。可能重复上游计算/计费，不保证上游已停止处理。非成功模型终态不是 fallback 理由。最终失败返回 JSON 错误。首次下游 frame 发布时保守冻结候选以避免 recv/timeout 竞争，发布不等于 commit；HTTP response 已交出后不能更改状态：late error、取消、超时或缺失/错误终态会中止 body，不合成成功 `response.completed` / `[DONE]`，也不重试。已准入的模型非成功语义终态（如 incomplete）与 transport 错误不同，仍按语义合同交付。
 
 上游强制 SSE 的 profile 与下游交付独立：JSON 下游有界聚合至验证终态及 EOF，SSE 下游增量交付。仅具名 profile 可接受缺失 Content-Type 的固定 SSE；显式冲突媒体类型仍拒绝，不能以该规则绕过 framing 或终态验证。客户端请求 SSE 时不收完整流再回放。每次最多消费一个上游 frame；下游 frame 在 HTTP body handoff 时确认，未确认不推进后续语义处理。仅编码或排队不算 commit。严格上游 EOF 后才释放终态；完成全部 handoff 后才完成 producer。这是服务 transport 边界，不声称已收到客户端/TCP acknowledgement。消费者不 poll body 时，deadline 仍能释放上游；drop/shutdown 同样取消资源。
 
@@ -111,11 +103,11 @@ Chat 对应图片 part 为 `{"type":"image_url","image_url":{"url":"https://exam
 3. [`Endpoint`](../src/topology/endpoint.rs) 同时绑定 Provider、canonical model、协议、trusted target、`upstream_model` 和凭据；同一 canonical model 的不同 Provider 成员可以有不同 `upstream_model`。
 4. [`execution::prepare`](../src/execution/attempt.rs) 使用所选 Endpoint 的 `upstream_model` 编码请求；下游响应的 `model` 仍为 public label。
 
-静态绑定从 [`catalog`](../src/topology/catalog.rs) 查询，环境启用规则从 [`bootstrap`](../src/gateway/bootstrap.rs) 查询。注册关系不证明运行实例已启用；不要通过读取私有配置、输出凭据或记录正文来定位路由。
+静态绑定从 [`catalog`](../src/topology/catalog.rs) 查询，文件启用规则从 [`bootstrap`](../src/gateway/bootstrap.rs) 查询。注册关系不证明运行实例已启用；不要通过读取私有配置、输出凭据或记录正文来定位路由。
 
 ### 受控请求诊断
 
-显式 `OPENBRIDGE_PROBE_DIAGNOSTICS` 启用受控 probe 元数据，不是内容日志或生产观测系统。文件必须新建，父目录由操作者准备；Unix 权限 0600。启动时路径无效/已存在会拒绝启动。运行时采用容量 64 的 try-send 队列、每文件 1 MiB 上限；写失败/队列满会丢诊断，不改变业务响应或等待写入。Ctrl-C 后 best-effort 有界 drain；强杀或未完成 I/O 可使记录缺失，不能据缺失推断成功。
+入口配置中的显式 `diagnostics` 路径启用受控 probe 元数据，不是内容日志或生产观测系统。文件必须新建，父目录由操作者准备；Unix 权限 0600。启动时路径无效/已存在会拒绝启动。运行时采用容量 64 的 try-send 队列、每文件 1 MiB 上限；写失败/队列满会丢诊断，不改变业务响应或等待写入。Ctrl-C 后 best-effort 有界 drain；强杀或未完成 I/O 可使记录缺失，不能据缺失推断成功。
 
 仅认证后的 POST 请求且唯一 `x-openbridge-probe-id` 符合 `<32位小写hex run-id>:<1–999999 attempt>` 时记录；无效/重复 ID 只禁用该请求诊断，不改变业务准入。它不进入 IR，不选择上游、不透传，不在响应中回显。
 

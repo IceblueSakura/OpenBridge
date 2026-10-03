@@ -165,8 +165,8 @@ async fn independent_driver_uses_the_same_lifecycle_and_readable_account_file() 
         .unwrap();
     assert_eq!(first.generation, 1);
     assert_eq!(first.access, AccessState::Unknown);
-    let text = std::fs::read_to_string(dir.0.join("third/personal.json")).unwrap();
-    assert!(text.contains("\n  \"profile\": \"third\""));
+    let document = test_support::read_account(&dir.0, "third", "personal");
+    assert_eq!(document["profile"], "third");
     let reopened = CredentialManager::new(
         &dir.0,
         vec![Arc::new(ThirdDriver {
@@ -320,16 +320,14 @@ async fn uncertain_rotated_candidate_is_never_reused_after_restart() {
 
 #[tokio::test]
 async fn incomplete_first_publication_can_be_cleared_without_claiming_remote_revocation() {
-    use std::os::unix::fs::OpenOptionsExt;
     let dir = test_support::Directory::new();
     let (manager, _, _) = manager(&dir);
     drop(manager.store.account_lock("third", "one").unwrap());
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(dir.0.join("third/one.pending"))
-        .unwrap();
+    manager
+        .store
+        .transaction()
+        .unwrap()
+        .test_marker("third", "one", true);
     assert!(manager.list(None).unwrap()[0].recovery_required);
     assert_eq!(
         manager.logout("third", "one", true).await.unwrap(),

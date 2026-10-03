@@ -674,7 +674,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
 }
 
 #[tokio::test]
-async fn binary_bootstraps_only_explicit_environment_and_fails_closed_without_provider_io() {
+async fn binary_bootstraps_only_explicit_files_and_ignores_environment_keys() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::AsyncBufReadExt;
     // A rejecting loopback proxy makes even an accidental upstream dispatch offline.
@@ -696,11 +696,57 @@ async fn binary_bootstraps_only_explicit_environment_and_fails_closed_without_pr
         .await
         .unwrap();
     }));
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let manager = openbridge::credential::CredentialManager::new(&root, vec![]).unwrap();
+    manager
+        .add_api_key(
+            "deepseek",
+            "one",
+            openbridge::credential::Secret::new("synthetic-file-key".into()).unwrap(),
+        )
+        .unwrap();
+    manager
+        .set_pool(
+            "deepseek",
+            "deepseek-api-key",
+            0,
+            openbridge::credential::CredentialPool {
+                members: vec![openbridge::credential::CredentialRef::ApiKey {
+                    alias: "one".into(),
+                }],
+                fallback: false,
+                max_attempts: 1,
+            },
+        )
+        .unwrap();
+    let path = root.join("gateway.json");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    use std::io::Write;
+    options
+        .open(&path)
+        .unwrap()
+        .write_all(
+            &serde_json::to_vec(
+                &json!({"client_key":support::CLIENT_KEY,"bind":"127.0.0.1:0","proxy":proxy}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
     let mut process = tokio::process::Command::new(env!("CARGO_BIN_EXE_openbridge"))
+        .args(["--credentials-dir"])
+        .arg(&root)
         .env_clear()
-        .env("OPENBRIDGE_BIND", "127.0.0.1:0")
-        .env("OPENBRIDGE_CLIENT_KEY", support::CLIENT_KEY)
-        .env("OPENBRIDGE_PROXY", proxy)
+        .env(
+            "OPENBRIDGE_CLIENT_KEY",
+            "synthetic-ignored-environment-key-0001",
+        )
         .env(
             "OPENBRIDGE_DEEPSEEK_API_KEY",
             "synthetic-not-a-provider-key-0001",

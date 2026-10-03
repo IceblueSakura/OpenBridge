@@ -22,12 +22,12 @@ Authenticated bounded HTTP input
 | [protocol](../src/protocol/mod.rs) | 共用语法、envelope/event codecs、strict JSON、具名适配和来源保真 |
 | [lowering](../src/lowering/generation.rs) | 最终不可变语义的目标可表示性；不选择 Provider、不恢复删除值 |
 | [provider](../src/provider/mod.rs) | 可信 origin/path、认证材料和 HTTP 错误分类 |
-| [credential](../src/credential/mod.rs) | profile-neutral manager、显式授权 drivers 与逐账户文件 store；管理生命周期和认证 I/O，提供固定身份的短生命周期 access 借用；不自动刷新或调度账户 |
+| [credential](../src/credential/mod.rs) | 统一 API key / OAuth manager 与安全文件 store；API key 按认证域和 epoch 绑定，OAuth drivers 管理各自授权合同；提供有序池与短生命周期借用；执行层按显式策略前移，不自动刷新或负载均衡 |
 | [topology](../src/topology/mod.rs) | canonical/public model、Route、Endpoint 的固定关系与编译 |
 | [execution](../src/execution/mod.rs) | 候选计划、请求准备、增量 intake、响应投影和显式交付生命周期 |
 | [SSE transport](../src/transport/sse.rs) / [HTTP transport](../src/transport/http.rs) | 有界 framing / 对已准备可信请求执行 I/O；不解释或改写 IR |
 | [gateway](../src/gateway/mod.rs) | 认证、启动准入、预算和实际 HTTP body 所有权 |
-| [binary](../src/bin/openbridge.rs) | 显式环境变量 bootstrap 与 loopback listener |
+| [binary](../src/bin/openbridge.rs) | 显式私有文件 bootstrap 与 loopback listener |
 
 ## 容易混淆的边界
 

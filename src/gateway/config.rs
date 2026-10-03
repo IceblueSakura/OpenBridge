@@ -114,7 +114,7 @@ impl Gateway {
             if !route.endpoints.contains(&entry.endpoint) {
                 return Err(StartupError::Binding);
             }
-            let mut endpoint = topology
+            let endpoint = topology
                 .endpoint(&entry.endpoint)
                 .ok_or(StartupError::Binding)?
                 .clone();
@@ -122,65 +122,83 @@ impl Gateway {
                 .provider(endpoint.provider.as_str())
                 .ok_or(StartupError::Binding)?
                 .clone();
-            let secret = credentials
+            let binding = credentials
                 .get(&endpoint.credential)
-                .ok_or(StartupError::Credentials)?
-                .clone();
-            secret.check(endpoint.execution.credential_kind)?;
-            let provenance = secret.provenance();
-            // Length prefixes avoid ambiguous concatenation. Internal provenance
-            // is neither a credential locator nor attestation of token issuance.
-            let mut hash = Sha256::new();
-            hash.update(auth.digest);
-            for value in [
-                provenance.as_str(),
-                public.id.as_str(),
-                provider.id.as_str(),
-                endpoint.upstream_model.as_str(),
-            ] {
-                hash.update((value.len() as u64).to_le_bytes());
-                hash.update(value.as_bytes());
-            }
-            let digest: String = hash
-                .finalize()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect();
-            let scope = ReplayOrigin::new(&format!("gateway-{digest}"))
-                .map_err(|_| StartupError::Binding)?;
-            endpoint.representation.adaptation.scope = Some(scope.clone());
-            if endpoint.representation.replay_origin.is_some() {
-                endpoint.representation.replay_origin = Some(scope.clone());
-            }
-            let client = Adapter::new(entry.protocol, Dialect::OpenBridge, Some(scope.clone()));
-            // Model input admission must not filter facts reported on the client wire
-            // (e.g. empty logprobs or defaults a model cannot accept as controls).
-            let downstream = GenerationRepresentationContract {
-                replay_origin: Some(scope),
-                reported_facts: public.reported_facts,
-                ..GenerationRepresentationContract::full()
-            };
-            let group = bound
-                .entry((family(entry.protocol), entry.model))
-                .or_insert_with(|| BoundEntry {
-                    public,
-                    client,
-                    downstream,
-                    policy: route.policy.clone(),
-                    candidates: vec![],
-                });
-            if group
-                .candidates
-                .iter()
-                .any(|c| c.endpoint.id == endpoint.id)
+                .ok_or(StartupError::Credentials)?;
+            if bound
+                .get(&(family(entry.protocol), entry.model.clone()))
+                .is_some_and(|group| {
+                    group
+                        .candidates
+                        .iter()
+                        .any(|candidate| candidate.endpoint.id == endpoint.id)
+                })
             {
                 return Err(StartupError::Binding);
             }
-            group.candidates.push(Arc::new(BoundCandidate {
-                endpoint,
-                provider,
-                secret,
-            }));
+            for source in &binding.sources {
+                source.check(endpoint.execution.credential_kind, provider.id.as_str())?;
+            }
+            let count = if binding.fallback {
+                binding.max_attempts
+            } else {
+                1
+            };
+            for secret in binding.sources.iter().take(count) {
+                let secret = secret.clone();
+                let mut endpoint = endpoint.clone();
+                let provenance = secret.provenance();
+                // Length prefixes avoid ambiguous concatenation. Internal provenance
+                // is neither a credential locator nor attestation of token issuance.
+                let mut hash = Sha256::new();
+                hash.update(auth.digest);
+                for value in [
+                    provenance.as_str(),
+                    public.id.as_str(),
+                    provider.id.as_str(),
+                    endpoint.upstream_model.as_str(),
+                ] {
+                    hash.update((value.len() as u64).to_le_bytes());
+                    hash.update(value.as_bytes());
+                }
+                let digest: String = hash
+                    .finalize()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+                let scope = ReplayOrigin::new(&format!("gateway-{digest}"))
+                    .map_err(|_| StartupError::Binding)?;
+                endpoint.representation.adaptation.scope = Some(scope.clone());
+                if endpoint.representation.replay_origin.is_some() {
+                    endpoint.representation.replay_origin = Some(scope.clone());
+                }
+                let client = Adapter::new(entry.protocol, Dialect::OpenBridge, Some(scope.clone()));
+                // Model input admission must not filter facts reported on the client wire
+                // (e.g. empty logprobs or defaults a model cannot accept as controls).
+                let downstream = GenerationRepresentationContract {
+                    replay_origin: Some(scope),
+                    reported_facts: public.reported_facts,
+                    ..GenerationRepresentationContract::full()
+                };
+                let group = bound
+                    .entry((family(entry.protocol), entry.model.clone()))
+                    .or_insert_with(|| BoundEntry {
+                        public: public.clone(),
+                        client,
+                        downstream,
+                        policy: route.policy.clone(),
+                        candidates: vec![],
+                    });
+                if group.candidates.len() >= crate::execution::plan::MAX_CANDIDATES {
+                    return Err(StartupError::Binding);
+                }
+                group.candidates.push(Arc::new(BoundCandidate {
+                    endpoint,
+                    provider: provider.clone(),
+                    secret,
+                    credential_fallback: binding.fallback,
+                }));
+            }
         }
         if bound.is_empty() {
             return Err(StartupError::Binding);

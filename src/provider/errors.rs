@@ -3,6 +3,8 @@
 /// Failure classes shared by provider error handling and downstream reporting.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ErrorClass {
+    /// Local unavailable material, not an upstream 401 or permission denial.
+    CredentialUnavailable,
     Authentication,
     PermissionDenied,
     InvalidRequest,

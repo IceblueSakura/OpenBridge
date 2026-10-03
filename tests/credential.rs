@@ -1,5 +1,8 @@
 //! Actual CLI and independent file expectations; all credentials are synthetic.
 #[cfg(unix)]
+#[path = "credential/api_keys.rs"]
+mod api_keys;
+#[cfg(unix)]
 mod unix {
     use serde_json::{Value, json};
     use std::{
@@ -42,17 +45,21 @@ mod unix {
             .unwrap()
     }
     fn save(root: &Path, profile: &str, alias: &str, value: &Value) {
-        let dir = root.join(profile);
-        if !dir.exists() {
-            DirBuilder::new().mode(0o700).create(&dir).unwrap();
-        }
+        let path = root.join(format!("{profile}.json"));
+        let mut document: Value = if path.exists() {
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap()
+        } else {
+            json!({"provider":profile,"revision":1,"oauth":{},"api_keys":{},"pools":{}})
+        };
+        document["oauth"][alias] = value.clone();
         let mut file = OpenOptions::new()
             .write(true)
-            .create_new(true)
+            .create(true)
+            .truncate(true)
             .mode(0o600)
-            .open(dir.join(format!("{alias}.json")))
+            .open(path)
             .unwrap();
-        file.write_all(serde_json::to_vec_pretty(value).unwrap().as_slice())
+        file.write_all(&serde_json::to_vec_pretty(&document).unwrap())
             .unwrap();
     }
     fn account(profile: &str, alias: &str, subject: &str) -> Value {
@@ -69,10 +76,11 @@ mod unix {
         })
     }
     fn read(root: &Path, profile: &str, alias: &str) -> Value {
-        serde_json::from_slice(
-            &std::fs::read(root.join(profile).join(format!("{alias}.json"))).unwrap(),
+        serde_json::from_slice::<Value>(
+            &std::fs::read(root.join(format!("{profile}.json"))).unwrap(),
         )
-        .unwrap()
+        .unwrap()["oauth"][alias]
+            .take()
     }
     #[tokio::test]
     async fn binary_uses_account_files_and_account_locks_without_cross_profile_effects() {
@@ -116,7 +124,7 @@ mod unix {
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(dir.0.join("grok/one.lock"))
+            .open(dir.0.join("grok.oauth.one.lock"))
             .unwrap();
         lock.lock().unwrap();
         let busy = command(&[
@@ -209,7 +217,9 @@ mod unix {
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(dir.0.join("codex/one.pending"))
+            .open(dir.0.join("codex.oauth.one.pending"))
+            .unwrap()
+            .write_all(b"true")
             .unwrap();
         let output = command(&["list".as_ref(), "--store".as_ref(), dir.0.as_os_str()]).await;
         assert!(output.status.success());
@@ -230,7 +240,10 @@ mod unix {
         assert!(!logout.status.success());
         assert!(String::from_utf8_lossy(&logout.stdout).contains("NOT confirmed"));
         assert!(read(&dir.0, "codex", "one")["credential"].is_null());
-        assert!(!dir.0.join("codex/one.pending").exists());
+        assert_eq!(
+            std::fs::read(dir.0.join("codex.oauth.one.pending")).unwrap(),
+            b"false"
+        );
     }
 
     #[tokio::test]

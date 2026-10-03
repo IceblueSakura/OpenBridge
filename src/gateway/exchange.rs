@@ -111,13 +111,23 @@ pub(super) async fn produce_chain(
                 };
                 let advance = index + 1 < candidates.len()
                     && error.fallback.is_some_and(|class| {
-                        may_advance(
-                            &entry.policy,
-                            visibility,
-                            class,
-                            index + 1,
-                            Instant::now() < deadline,
-                        )
+                        let next = &candidates[index + 1];
+                        let remaining =
+                            index + 1 < entry.policy.max_attempts && Instant::now() < deadline;
+                        if candidate.endpoint.id == next.endpoint.id {
+                            crate::execution::fallback::may_advance_credential(
+                                candidate.credential_fallback,
+                                visibility,
+                                class,
+                                remaining,
+                            )
+                        } else if candidate.provider.id == next.provider.id
+                            && class == crate::provider::ErrorClass::RateLimit
+                        {
+                            false
+                        } else {
+                            may_advance(&entry.policy, visibility, class, index + 1, remaining)
+                        }
                     });
                 trace.end_candidate(Some(error.code), advance);
                 if !advance {

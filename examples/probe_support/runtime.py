@@ -10,14 +10,12 @@ import secrets
 import selectors
 import signal
 import subprocess
-import tomllib
 import uuid
 
 import httpx2
 from openai import DefaultHttpxClient, OpenAI, __version__
 from .checks import require
 from .ledger import MODELS
-from .catalog import OAUTH_PROVIDERS
 from .wire import Wire
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -194,42 +192,49 @@ def gateway(run, models=None, *, synthetic=False, proxy=None):
     require(all(model in run.plan["models"] for model in models), "selection", "budget")
     require(__version__ == "3.19.0", "sdk_version", "setup")
     if not synthetic:
+        require(os.environ.get("OPENBRIDGE_PROBE_LIVE") == "1", "live_not_enabled", "setup")
         require(
-            os.environ.get("OPENBRIDGE_PROBE_LIVE") == "1", "live_not_enabled", "setup"
+            bool(os.environ.get("OPENBRIDGE_PROBE_CREDENTIALS_DIR")),
+            "credential_directory", "setup",
         )
-        pools = {}
-        if any(MODELS[model][0] not in OAUTH_PROVIDERS for model in models):
-            pools = tomllib.loads(
-                (ROOT / "config/upstream-credentials.toml").read_text()
-            )["credential_pools"]
-            pools = {p["id"]: p for p in pools}
     key = secrets.token_urlsafe(32)
-    env = {
-        "OPENBRIDGE_BIND": "127.0.0.1:0",
-        "OPENBRIDGE_CLIENT_KEY": key,
-        "OPENBRIDGE_PROBE_DIAGNOSTICS": str(
-            run.directory / f"gateway-{uuid.uuid4().hex}.jsonl"
-        ),
+    private = run.directory / f"bootstrap-{uuid.uuid4().hex}"
+    private.mkdir(mode=0o700)
+
+    def save(name, value):
+        descriptor = os.open(private / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w") as output:
+            json.dump(value, output)
+
+    if synthetic:
+        documents = {}
+        for model in models:
+            provider, _, binding, profile, _ = MODELS[model]
+            require(profile is None, "oauth_requires_owned_store", "setup")
+            document = documents.setdefault(provider, {
+                "provider": provider, "revision": 1, "oauth": {}, "api_keys": {}, "pools": {},
+            })
+            document["api_keys"]["synthetic"] = {
+                "kind": "api_key", "domain": provider, "alias": "synthetic",
+                "record_id": uuid.uuid4().hex, "epoch": uuid.uuid4().hex,
+                "revision": 1, "generation": 1, "state": "enabled",
+                "secret": "synthetic-upstream-credential",
+            }
+            document["pools"][binding] = {"revision": 1, "config": {
+                "members": [{"kind": "api_key", "alias": "synthetic"}],
+                "fallback": False, "max_attempts": 1,
+            }}
+        for provider, document in documents.items():
+            save(provider + ".json", document)
+    credential_directory = (
+        str(private) if synthetic else os.environ["OPENBRIDGE_PROBE_CREDENTIALS_DIR"]
+    )
+    config = {
+        "bind": "127.0.0.1:0", "client_key": key, "models": models, "max_attempts": 1,
+        "diagnostics": str(run.directory / f"gateway-{uuid.uuid4().hex}.jsonl"),
     }
-    for model in models:
-        provider, _, pool, variable, _ = MODELS[model]
-        if provider in OAUTH_PROVIDERS:
-            # The binary alone opens the explicitly supplied owned store. No auth
-            # cache discovery or token export through the probe process.
-            require(not synthetic, "oauth_requires_owned_store", "setup")
-            require(
-                bool(os.environ.get("OPENBRIDGE_CREDENTIAL_STORE"))
-                and bool(os.environ.get(variable)),
-                "oauth_binding", "setup",
-            )
-            env["OPENBRIDGE_CREDENTIAL_STORE"] = os.environ["OPENBRIDGE_CREDENTIAL_STORE"]
-            env[variable] = os.environ[variable]
-        else:
-            env[variable] = (
-                "synthetic-upstream-credential" if synthetic else pools[pool]["api_keys"][0]
-            )
     if proxy:
-        env["OPENBRIDGE_PROXY"] = proxy
+        config["proxy"] = proxy
     elif not synthetic:
         for name in (
             "OPENBRIDGE_PROXY",
@@ -241,17 +246,22 @@ def gateway(run, models=None, *, synthetic=False, proxy=None):
             "ALL_PROXY",
         ):
             if os.environ.get(name):
-                env["OPENBRIDGE_PROXY"] = os.environ[name]
+                config["proxy"] = os.environ[name]
                 break
     require(
         not synthetic or proxy is not None,
         "synthetic_requires_rejecting_proxy",
         "setup",
     )
+    save("gateway.json", config)
     server = subprocess.Popen(
-        [str(ROOT / "target/debug/openbridge")],
+        [
+            str(ROOT / "target/debug/openbridge"),
+            "--credentials-dir", credential_directory,
+            "--config", str(private / "gateway.json"),
+        ],
         cwd=ROOT,
-        env=env,
+        env={},
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,

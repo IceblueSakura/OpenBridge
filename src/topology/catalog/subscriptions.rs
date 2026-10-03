@@ -5,7 +5,6 @@ pub struct SubscriptionBinding {
     pub profile: &'static str,
     pub model: &'static str,
     pub upstream: &'static str,
-    pub variable: &'static str,
     pub dialect: Dialect,
     pub provider: fn() -> crate::provider::ProviderDefinition,
 }
@@ -14,7 +13,6 @@ pub const SUBSCRIPTION_BINDINGS: &[SubscriptionBinding] = &[
         profile: "codex",
         model: "gpt-6.1-sol",
         upstream: "gpt-6.1-sol",
-        variable: "OPENBRIDGE_CODEX_ACCOUNT",
         dialect: Dialect::Codex,
         provider: catalog::codex,
     },
@@ -22,7 +20,6 @@ pub const SUBSCRIPTION_BINDINGS: &[SubscriptionBinding] = &[
         profile: "grok",
         model: "grok-4.7",
         upstream: "grok-4.7",
-        variable: "OPENBRIDGE_GROK_ACCOUNT",
         dialect: Dialect::Grok,
         provider: catalog::grok,
     },

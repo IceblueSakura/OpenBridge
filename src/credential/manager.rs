@@ -12,16 +12,24 @@ use std::{collections::BTreeMap, path::Path, sync::Arc};
 #[derive(Clone)]
 pub struct CredentialManager {
     pub(super) store: Arc<Store>,
+    pub(super) keys: Arc<Store>,
     drivers: BTreeMap<String, Arc<dyn AuthDriver>>,
 }
 impl CredentialManager {
+    #[cfg(test)]
+    pub(crate) fn write_gateway_config_for_test(&self, value: &serde_json::Value) {
+        self.store.test_config(value);
+    }
     pub fn new(root: impl AsRef<Path>, drivers: Vec<Arc<dyn AuthDriver>>) -> Result<Self, Error> {
-        if drivers.is_empty() || drivers.len() > 16 {
+        if drivers.len() > 16 {
             return Err(Error::InvalidInput);
         }
         let mut registry = BTreeMap::new();
         for driver in drivers {
             valid_profile(driver.profile())?;
+            if driver.profile() == "api-keys" {
+                return Err(Error::InvalidInput);
+            }
             if registry
                 .insert(driver.profile().to_owned(), driver)
                 .is_some()
@@ -29,8 +37,11 @@ impl CredentialManager {
                 return Err(Error::InvalidInput);
             }
         }
+        let store = Store::open(root.as_ref())?;
+        let keys = store.key_partition();
         Ok(Self {
-            store: Store::open(root.as_ref())?,
+            store,
+            keys,
             drivers: registry,
         })
     }
@@ -60,6 +71,20 @@ impl CredentialManager {
             )?;
         }
         Ok(loaded)
+    }
+    /// Redacted inventory; each partition is read under its own short transaction.
+    pub fn inventory(&self) -> Result<Vec<super::CredentialStatus>, Error> {
+        let mut statuses: Vec<_> = self
+            .list(None)?
+            .into_iter()
+            .map(super::CredentialStatus::OAuth)
+            .collect();
+        statuses.extend(
+            self.list_api_keys(None)?
+                .into_iter()
+                .map(super::CredentialStatus::ApiKey),
+        );
+        Ok(statuses)
     }
     pub fn list(&self, selected: Option<&str>) -> Result<Vec<AccountStatus>, Error> {
         if let Some(profile) = selected {

@@ -4,9 +4,9 @@ OpenBridge 的最终目标是**以一套 Agent-first、协议中立的 IR 兼容
 
 Generation IR **以有序交互、行动与结果、控制转移和续轮依赖为设计主线**。OpenAI Responses、Google Gemini、Anthropic Messages 是共同参考，不是表达力上限；既不取最小公分母，也不机械合并各家字段。设计依据见[决策与语义设计](docs/architecture-v2/README.md)，外部出处见[来源入口](docs/references/README.md)。**当前工作区包含 Rust 语义库与最小 loopback Generation 网关，不是完整标准实现或生产就绪服务。**
 
-语义库构造不读取私有配置。`openbridge` binary 通过显式环境变量启动认证的 loopback HTTP 入口；独立 auth CLI 只访问操作者指定的自有 store。启动方式见 [HTTP 网关指南](docs/http-gateway.md)，账户操作与 access 绑定见[凭据指南](docs/credentials.md)。真实测试须通过明确授权的 [probe](docs/probes.md)，不属于默认验证。
+语义库构造不读取私有配置。`openbridge` binary 通过显式私有配置文件与凭据目录启动认证的 loopback HTTP 入口；独立 auth CLI 只访问操作者指定的自有 store。启动方式见 [HTTP 网关指南](docs/http-gateway.md)，账户操作与 access 绑定见[凭据指南](docs/credentials.md)。真实测试须通过明确授权的 [probe](docs/probes.md)，不属于默认验证。
 
-下一步 IR 设计优先定稿**交互与续轮、分组及 replay 依赖**，再展开资源/工具结果、cache/usage 与上下文演进。认证与推理是独立职责；账户绑定不授权自动刷新、切换或重试。未完成方向由 [next-goal](docs/implementation-plans/next-goal.md) 维护。
+下一步 IR 设计优先定稿**交互与续轮、分组及 replay 依赖**，再展开资源/工具结果、cache/usage 与上下文演进。认证与推理是独立职责；账户绑定不授权自动刷新；同 Provider 凭据前移须显式池策略并受发布、身份与预算边界约束。未完成方向由 [next-goal](docs/implementation-plans/next-goal.md) 维护。
 
 ## 当前范围
 
@@ -43,7 +43,7 @@ cargo fmt -- --check
 git diff --check
 ```
 
-Python/probe、TS 类型检查与 Node 单测、固定 OpenAI SDK gate 的命令和安全边界见[开发指南](docs/development.md)；SDK gate 单独显式运行。`cargo run --bin openbridge` 启动最小网关，需先按网关指南提供显式启动凭据。
+Python/probe、TS 类型检查与 Node 单测、固定 OpenAI SDK gate 的命令和安全边界见[开发指南](docs/development.md)；SDK gate 单独显式运行。`cargo run --bin openbridge -- --credentials-dir /path/to/private-store` 启动最小网关，需先按网关指南准备私有文件和显式凭据池。
 
 ## 文档
 
@@ -51,7 +51,7 @@ Python/probe、TS 类型检查与 Node 单测、固定 OpenAI SDK gate 的命令
 
 - [文档索引](docs/README.md)
 - [HTTP 网关启动与接口](docs/http-gateway.md)
-- [Grok / Codex 共用凭据管理](docs/credentials.md)
+- [API key / OAuth 统一凭据管理](docs/credentials.md)
 - [受控 Probe 计划、预算与诊断](docs/probes.md)
 - [当前结构](docs/architecture.md)
 - [v2 设计](docs/architecture-v2/README.md)

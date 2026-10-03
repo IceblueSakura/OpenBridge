@@ -90,6 +90,22 @@ impl CredentialManager {
     }
 }
 
+pub(crate) fn private_directory() -> tempfile::TempDir {
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    builder.tempdir().unwrap()
+}
+
+pub(super) fn read_account(root: &std::path::Path, profile: &str, alias: &str) -> Value {
+    serde_json::from_slice::<Value>(&std::fs::read(root.join(format!("{profile}.json"))).unwrap())
+        .unwrap()["oauth"][alias]
+        .take()
+}
+
 pub(super) struct Directory(pub PathBuf);
 impl Directory {
     pub(super) fn new() -> Self {

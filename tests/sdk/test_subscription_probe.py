@@ -1,4 +1,5 @@
-"""Explicit OAuth activation stays in the binary; no credential discovery."""
+"""Explicit file activation stays in the binary; the probe never exports upstream tokens."""
+import json
 import os
 import sys
 import tempfile
@@ -11,25 +12,25 @@ from probe_support.ledger import Run
 from probe_support.runtime import gateway
 
 class SubscriptionProbeTests(unittest.TestCase):
-    def test_probe_passes_only_explicit_store_alias_not_tokens(self):
+    def test_probe_passes_only_explicit_directory_and_caps_upstream_attempts(self):
         self.assertFalse({"codex", "grok"} & {row[0] for row in select_bindings()})
         with tempfile.TemporaryDirectory() as directory:
             run = Run.create(Path(directory) / "run", providers="codex", limit=1)
             class Stop(Exception):
                 pass
             def spawn(command, **kwargs):
-                env = kwargs["env"]
-                self.assertEqual(env["OPENBRIDGE_CREDENTIAL_STORE"], "/synthetic/owned/store")
-                self.assertEqual(env["OPENBRIDGE_CODEX_ACCOUNT"], "chosen")
-                self.assertNotIn("OPENBRIDGE_GROK_ACCOUNT", env)
-                self.assertNotIn("OPENBRIDGE_CODEX_API_KEY", env)
+                self.assertEqual(kwargs["env"], {})
+                self.assertEqual(command[command.index("--credentials-dir") + 1], "/synthetic/owned/store")
+                config = json.loads(Path(command[command.index("--config") + 1]).read_bytes())
+                self.assertEqual(config["models"], run.plan["models"])
+                self.assertEqual(config["max_attempts"], 1)
+                self.assertNotIn("access_token", config)
                 raise Stop()
             with patch.dict(os.environ, {
                 "OPENBRIDGE_PROBE_LIVE": "1",
-                "OPENBRIDGE_CREDENTIAL_STORE": "/synthetic/owned/store",
-                "OPENBRIDGE_CODEX_ACCOUNT": "chosen",
+                "OPENBRIDGE_PROBE_CREDENTIALS_DIR": "/synthetic/owned/store",
             }, clear=True), patch("probe_support.runtime.subprocess.Popen", side_effect=spawn), patch(
-                "pathlib.Path.read_text", side_effect=AssertionError("no private config reads")
+                "pathlib.Path.read_text", side_effect=AssertionError("no upstream credential reads")
             ):
                 with self.assertRaises(Stop):
                     with gateway(run):

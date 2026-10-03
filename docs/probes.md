@@ -25,7 +25,7 @@ uv run --project tests/sdk --locked --offline python examples/probe.py run \
 uv run --project tests/sdk --locked --offline python examples/probe.py report testdata/runtime/my-run
 ```
 
-- Provider 只取固定 catalog 中的绑定。API-key 绑定使用已有凭据入口；OAuth 绑定要求显式 `OPENBRIDGE_CREDENTIAL_STORE` 和 catalog 指定的账户变量，由 binary 借用自有 store，probe 进程不读取或导出 token、不刷新、不搜索第三方 auth cache。实际 SDK 客户端只获得临时 gateway token。订阅 Provider 不纳入缺省 Provider 选择，须明确指定。
+- Provider 只取固定 catalog 中的绑定。真实执行须用 `OPENBRIDGE_PROBE_CREDENTIALS_DIR` 指定已配置的自有 JSON 目录；该变量仅含路径，不含 key 或账户选择。Gateway probe 将选定 models、临时入口 token 和 `max_attempts: 1` 写入 run 下的私有配置，binary 独自加载上游凭据；即使 store 的 pool 开启 fallback，probe 也不隐式多发请求。无 TOML/env key 回退或第三方 auth-cache 搜索。库级 probe 只读取已配置 API-key 池的首项快照，不自动 fallback/refresh。订阅 Provider 仍须明确选择。实际 SDK 客户端只获得临时 gateway token；上游凭据不复制进 run 或进程环境。
 - `plan --model` 可重复，将所选 Provider 缩小到精确模型子集。重复、未知或不属于所选 Provider 的模型在读取凭据前拒绝。省略模型筛选则包含所选 Provider 的全部已登记测试绑定，不能将此默认扩大解释为授权。
 - `run --model` 可重复，必须属于计划；`--protocol chat|responses`、`--delivery json|sse` 缩小范围。`--effort none|minimal|medium|max` 是明确请求控制，不自动改默认。
 - cases：`text`、`json`、`tool`、`history`、`length`、`cancel`、`image`、`image_math`；`reasoning` 的目标限制读取 `examples/probe_support/scenarios.py`，不得套用到任意模型。

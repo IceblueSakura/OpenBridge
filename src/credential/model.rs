@@ -229,7 +229,7 @@ impl Account {
         })
     }
 }
-pub(super) fn valid_alias(value: &str) -> Result<(), Error> {
+pub(crate) fn valid_alias(value: &str) -> Result<(), Error> {
     if value.is_empty()
         || value.len() > 64
         || !value

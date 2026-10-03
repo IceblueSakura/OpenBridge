@@ -120,19 +120,22 @@ async fn pool_persists_isolated_accounts_and_local_logout() {
     ] {
         assert!(!output.contains(secret));
     }
-    use std::os::unix::fs::PermissionsExt;
-    assert_eq!(
-        std::fs::metadata(&dir.0).unwrap().permissions().mode() & 0o777,
-        0o700
-    );
-    assert_eq!(
-        std::fs::metadata(dir.0.join("grok/alice.json"))
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
-    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&dir.0).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(dir.0.join("grok.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
     authority.done();
 }
 
@@ -341,6 +344,7 @@ async fn revocation_failure_still_clears_only_local_session() {
     authority.done();
 }
 
+#[cfg(unix)]
 #[test]
 fn store_rejects_symlinks_insecure_permissions_and_invalid_aliases() {
     use std::os::unix::fs::{PermissionsExt, symlink};
@@ -360,7 +364,7 @@ fn store_rejects_symlinks_insecure_permissions_and_invalid_aliases() {
     std::fs::create_dir(&outside.0).unwrap();
     std::fs::write(outside.0.join("private"), "do not read").unwrap();
     drop(pool.store.account_lock("grok", "alice").unwrap());
-    symlink(outside.0.join("private"), dir.0.join("grok/alice.json")).unwrap();
+    symlink(outside.0.join("private"), dir.0.join("grok.json")).unwrap();
     assert_eq!(pool.list(None).unwrap_err(), CredentialError::Storage);
     assert_eq!(
         std::fs::read_to_string(outside.0.join("private")).unwrap(),

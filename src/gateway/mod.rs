@@ -4,6 +4,8 @@ mod auth;
 mod body;
 pub mod bootstrap;
 mod config;
+#[cfg(test)]
+mod credential_fallback_tests;
 mod credentials;
 mod diagnostics;
 mod error;
@@ -35,6 +37,7 @@ struct BoundCandidate {
     endpoint: Endpoint,
     provider: ProviderDefinition,
     secret: credentials::Source,
+    credential_fallback: bool,
 }
 struct BoundEntry {
     public: PublicModel,
@@ -69,13 +72,7 @@ impl BoundEntry {
         Ok(selected
             .candidates
             .iter()
-            .map(|planned| {
-                self.candidates
-                    .iter()
-                    .find(|c| c.endpoint.id == planned.endpoint_id)
-                    .expect("selected activated member")
-                    .clone()
-            })
+            .map(|planned| self.candidates[planned.ordinal].clone())
             .collect())
     }
 }

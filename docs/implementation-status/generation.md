@@ -19,8 +19,8 @@ Generation 的目标是 Agent-first、协议中立；当前类型与 codec 仍�
 
 - [CustomSections / CodexHeaders](../../src/protocol/extensions.rs) 的低层 carrier 不等于 gateway 支持。[Adapter request](../../src/adapter/request.rs) 限制 body sections；Codex headers 尚未接入 HTTP 主链。响应自定义段、typed observation headers、body/header 一致性、版本与 turn 生命周期需要独立定稿。
 - configuration/program/cache 控制的表示不授权运行时应用设置、执行 program、管理 turn 或扩展 prewarm 执行语义。
-- 上游 OAuth 登录、token refresh 与账户绑定生命周期尚未接入当前 Gateway；Bearer header 编码不等于 OAuth 登录。来源入口见 [OAuth 登录资料](../references/oauth-login.md)，推进方向由 [next-goal](../implementation-plans/next-goal.md) 维护。
-- 固定 Route fallback 不提供凭据池、动态 registry、同候选自动 retry 或 session affinity，也不授权跨账户认证恢复。跨候选 opaque replay 不能由 canonical model 相同推定安全。
+- Gateway 可按显式池策略在同 Provider 的兼容凭据间提交前前移，但不提供请求内登录、自动 refresh/轮换、负载均衡或健康探测。未知作用范围 429 不授权换凭据；更广失败分类与长期调度仍须独立定稿。管理与身份边界见 [凭据管理](../credentials.md)，本地可借用状态不证明上游授权或模型资格。
+- 固定 Route 与凭据池 fallback 不提供动态 registry、同候选自动 retry 或 session affinity，也不授权跨账户认证恢复。跨候选 opaque replay 不能由 canonical model 相同推定安全。
 - 内部 replay scope 绑定不是 client token 的来源证明；源头真实性仍由 issuer 验证。生产观测、负载和长期资源保障不能由最小 loopback 网关推定。
 
 ## 验收缺口

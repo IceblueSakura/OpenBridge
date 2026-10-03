@@ -26,7 +26,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(
             rows[0][2:4],
-            ("aliyun-tokenplan-primary", "OPENBRIDGE_ALIYUN_TOKENPLAN_CN_API_KEY"),
+            ("aliyun-tokenplan-cn-api-key", None),
         )
         for provider, model in [
             ("aliyun-dashscope-cn", "qwen3.8-flash"),

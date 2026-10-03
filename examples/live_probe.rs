@@ -57,7 +57,7 @@ struct ModelSpec {
 const MODELS: [ModelSpec; 11] = [
     ModelSpec {
         label: "deepseek-flash",
-        pool: "deepseek-primary",
+        pool: "deepseek-api-key",
         provider: "deepseek",
         models_path: Some("/models"),
         chat_endpoint: "deepseek-chat",
@@ -65,7 +65,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "mimo-v2.6-pro",
-        pool: "mimo-primary",
+        pool: "xiaomi-api-key",
         provider: "xiaomi",
         models_path: Some("/v1/models"),
         chat_endpoint: "xiaomi-chat",
@@ -73,7 +73,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "mimo-v2.6-flash",
-        pool: "mimo-primary",
+        pool: "xiaomi-api-key",
         provider: "xiaomi",
         models_path: Some("/v1/models"),
         chat_endpoint: "xiaomi-flash-chat",
@@ -81,7 +81,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "gpt-6-luna",
-        pool: "openrouter-primary",
+        pool: "openrouter-api-key",
         provider: "openrouter",
         models_path: Some("/api/v1/models"),
         chat_endpoint: "openrouter-chat",
@@ -89,7 +89,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "longcat-2.5-preview",
-        pool: "longcat-primary",
+        pool: "longcat-api-key",
         provider: "longcat",
         models_path: Some("/openai/v1/models"),
         chat_endpoint: "longcat-chat",
@@ -97,7 +97,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "nemotron-3-super",
-        pool: "nvidia-primary",
+        pool: "nvidia-api-key",
         provider: "nvidia",
         models_path: Some("/v1/models"),
         chat_endpoint: "nvidia-chat",
@@ -105,7 +105,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "qwen3.8-max",
-        pool: "aliyun-dashscope-cn-primary",
+        pool: "aliyun-dashscope-cn-api-key",
         provider: "aliyun-dashscope-cn",
         models_path: Some("/compatible-mode/v1/models"),
         chat_endpoint: "aliyun-dashscope-cn-chat",
@@ -113,7 +113,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "qwen3.8-flash",
-        pool: "aliyun-tokenplan-primary",
+        pool: "aliyun-tokenplan-cn-api-key",
         provider: "aliyun-tokenplan-cn",
         // No Models entry is declared for this plan; never guess a discovery URL.
         models_path: None,
@@ -122,7 +122,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "kimi-k3",
-        pool: "kimi-primary",
+        pool: "kimi-api-key",
         provider: "kimi",
         models_path: Some("/v1/models"),
         chat_endpoint: "kimi-chat",
@@ -130,7 +130,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "glm-5.3",
-        pool: "zhipu-primary",
+        pool: "zhipu-api-key",
         provider: "zhipu",
         models_path: Some("/api/paas/v4/models"),
         chat_endpoint: "zhipu-chat",
@@ -138,7 +138,7 @@ const MODELS: [ModelSpec; 11] = [
     },
     ModelSpec {
         label: "glm-5.3-flash",
-        pool: "zhipu-primary",
+        pool: "zhipu-api-key",
         provider: "zhipu",
         models_path: Some("/api/paas/v4/models"),
         chat_endpoint: "zhipu-flash-chat",
@@ -225,38 +225,34 @@ struct Credentials {
     pools: BTreeMap<String, String>,
 }
 
-/// Minimal private-config reader: pool id -> first API key. Values never leave
-/// this process except as auth headers.
-#[derive(serde::Deserialize)]
-struct CredentialFile {
-    #[serde(default)]
-    credential_pools: Vec<CredentialPool>,
-}
-
-#[derive(serde::Deserialize)]
-struct CredentialPool {
-    id: String,
-    #[serde(default)]
-    api_keys: Vec<String>,
-}
-
+/// Explicit owned JSON documents; no environment key, legacy import or fallback.
 fn load_credentials(path: &str) -> Result<Credentials, String> {
-    let raw = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-    // TOML diagnostics may embed source lines containing credentials.
-    let parsed: CredentialFile =
-        toml::from_str(&raw).map_err(|_| "invalid credential configuration".to_string())?;
-    let mut pools = BTreeMap::new();
-    for pool in parsed.credential_pools {
-        if let Some(key) = pool.api_keys.first() {
-            let secret = SecretMaterial::new(key)
-                .map_err(|_| format!("pool {} holds invalid credential material", pool.id))?;
-            pools.insert(pool.id, secret.expose().to_string());
+    let load = || -> Result<Credentials, openbridge::credential::CredentialError> {
+        if !std::path::Path::new(path).is_dir() {
+            return Err(openbridge::credential::CredentialError::Storage);
         }
-    }
-    if pools.is_empty() {
-        return Err(format!("{path} contains no credential pools"));
-    }
-    Ok(Credentials { pools })
+        let manager = openbridge::credential::CredentialManager::new(path, vec![])?;
+        let mut pools = BTreeMap::new();
+        for (provider, binding, mut status) in manager.pools()? {
+            if !topology_catalog::API_KEY_BINDINGS
+                .iter()
+                .any(|b| b.credential == binding && (b.provider)().id.as_str() == provider)
+            {
+                continue;
+            }
+            status.config.max_attempts = 1;
+            status.config.fallback = false;
+            let pool = manager.bind_pool(&provider, &status.config)?;
+            if let Some(openbridge::credential::PoolMember::ApiKey(key)) = pool.members.first() {
+                pools.insert(binding, key.borrow()?.expose().to_owned());
+            }
+        }
+        if pools.is_empty() {
+            return Err(openbridge::credential::CredentialError::KeyUnavailable);
+        }
+        Ok(Credentials { pools })
+    };
+    load().map_err(|_| "invalid credential configuration".into())
 }
 
 fn scenario_request(
@@ -1293,8 +1289,10 @@ async fn main() {
         eprintln!("model directory is not declared for this target; no request sent");
         std::process::exit(2);
     }
-    let credentials_path = std::env::var("OPENBRIDGE_CREDENTIALS")
-        .unwrap_or_else(|_| "config/upstream-credentials.toml".into());
+    let credentials_path = std::env::var("OPENBRIDGE_PROBE_CREDENTIALS_DIR").unwrap_or_else(|_| {
+        eprintln!("explicit OPENBRIDGE_PROBE_CREDENTIALS_DIR is required");
+        std::process::exit(2)
+    });
     let credentials = match load_credentials(&credentials_path) {
         Ok(credentials) => credentials,
         Err(error) => {

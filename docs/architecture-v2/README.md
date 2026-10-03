@@ -45,7 +45,7 @@ ADR 是当前有效合同，不是决策历史。只保留最终方案、必要�
 | [0009](decisions/0009-minimal-http-text-gateway.md) | 最小认证 loopback HTTP 网关 |
 | [0010](decisions/0010-canonical-model-fixed-fallback.md) | canonical model 与固定提交前 fallback |
 | [0011](decisions/0011-stable-admission-provider-cache.md) | 稳定准入与 Provider-owned cache affinity |
-| [0012](decisions/0012-grok-personal-credential-pool.md) | profile-neutral 文件授权凭据组件；生命周期、driver、存储与推理选择分离 |
+| [0012](decisions/0012-grok-personal-credential-pool.md) | 文件式 API key / OAuth 管理与有序池；分离生命周期、driver、并发存储与有界推理前移 |
 
 ## 设计合同与来源
 

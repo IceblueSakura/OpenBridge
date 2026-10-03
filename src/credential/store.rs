@@ -1,27 +1,131 @@
-//! Account documents and short store transactions; no authorization protocol policy.
+//! One structured document per provider namespace; short transactions merge records.
 use super::{
     CredentialError as Error,
-    model::{Account, random_id, valid_alias, valid_profile},
-    storage_fs::Directory,
+    model::{Account, valid_alias, valid_profile},
+    pool::PoolStatus,
+    storage_fs::{Directory, FileLock},
 };
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
-    collections::BTreeSet,
-    fs::File,
-    io::{Read, Write},
+    collections::{BTreeMap, BTreeSet},
     path::Path,
     sync::Arc,
 };
-const ACCOUNT_BYTES: u64 = 128 * 1024;
-const ACCOUNTS_PER_PROFILE: usize = 64;
+const DOCUMENT_BYTES: u64 = 8 * 1024 * 1024;
+const RECORDS: usize = 64;
 
+pub(super) trait StoredDocument: Serialize + serde::de::DeserializeOwned {
+    fn validate_binding(&self, namespace: &str, alias: &str) -> Result<(), Error>;
+}
+impl StoredDocument for Account {
+    fn validate_binding(&self, namespace: &str, alias: &str) -> Result<(), Error> {
+        self.validate(namespace, alias)
+    }
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProviderDocument {
+    pub provider: String,
+    #[serde(default)]
+    pub revision: u64,
+    #[serde(default, deserialize_with = "oauth_records")]
+    pub oauth: BTreeMap<String, Value>,
+    #[serde(default, deserialize_with = "key_records")]
+    pub api_keys: BTreeMap<String, Value>,
+    #[serde(
+        default,
+        deserialize_with = "serde_with::rust::maps_duplicate_key_is_error::deserialize"
+    )]
+    pub pools: BTreeMap<String, PoolStatus>,
+}
+// Typed intake rejects duplicate/unknown grant fields before Value is used as a
+// transient serialization container for merging one independently owned record.
+fn typed_records<'de, D: serde::Deserializer<'de>, T: Deserialize<'de> + Serialize>(
+    d: D,
+) -> Result<BTreeMap<String, Value>, D::Error> {
+    let records: BTreeMap<String, T> =
+        serde_with::rust::maps_duplicate_key_is_error::deserialize(d)?;
+    records
+        .into_iter()
+        .map(|(key, value)| {
+            serde_json::to_value(value)
+                .map(|value| (key, value))
+                .map_err(serde::de::Error::custom)
+        })
+        .collect()
+}
+fn oauth_records<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<BTreeMap<String, Value>, D::Error> {
+    typed_records::<D, Account>(d)
+}
+fn key_records<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<BTreeMap<String, Value>, D::Error> {
+    typed_records::<D, super::api_key::KeyRecord>(d)
+}
+impl ProviderDocument {
+    fn empty(provider: &str) -> Self {
+        Self {
+            provider: provider.into(),
+            revision: 0,
+            oauth: BTreeMap::new(),
+            api_keys: BTreeMap::new(),
+            pools: BTreeMap::new(),
+        }
+    }
+    fn validate(&self, provider: &str) -> Result<(), Error> {
+        valid_profile(provider)?;
+        if self.provider != provider
+            || self.oauth.len() > RECORDS
+            || self.api_keys.len() > RECORDS
+            || self.pools.len() > RECORDS
+        {
+            return Err(Error::Storage);
+        }
+        for (alias, value) in &self.oauth {
+            let account: Account =
+                serde_json::from_value(value.clone()).map_err(|_| Error::Storage)?;
+            account.validate(provider, alias)?;
+        }
+        for (alias, value) in &self.api_keys {
+            let key: super::api_key::KeyRecord =
+                serde_json::from_value(value.clone()).map_err(|_| Error::Storage)?;
+            key.validate_binding(provider, alias)?;
+        }
+        for (name, pool) in &self.pools {
+            valid_alias(name)?;
+            if pool.revision == 0 {
+                return Err(Error::Storage);
+            }
+            pool.config.validate()?;
+        }
+        Ok(())
+    }
+}
+#[derive(Clone, Copy)]
+enum Partition {
+    OAuth,
+    ApiKey,
+}
+impl Partition {
+    fn name(self) -> &'static str {
+        match self {
+            Self::OAuth => "oauth",
+            Self::ApiKey => "key",
+        }
+    }
+}
 pub(super) struct Store {
-    root: Directory,
+    root: Arc<Directory>,
+    partition: Partition,
     #[cfg(test)]
     fault: std::sync::atomic::AtomicU8,
 }
 pub(super) struct Transaction<'a> {
     store: &'a Store,
-    _lock: File,
+    _lock: FileLock,
 }
 pub(super) struct Loaded {
     pub account: Option<Account>,
@@ -42,35 +146,47 @@ pub(super) enum PublishStep {
 impl Store {
     pub fn open(root: &Path) -> Result<Arc<Self>, Error> {
         let store = Arc::new(Self {
-            root: Directory::open(root)?,
+            root: Arc::new(Directory::open(root)?),
+            partition: Partition::OAuth,
             #[cfg(test)]
             fault: std::sync::atomic::AtomicU8::new(0),
         });
+        let names = store.root.names()?;
+        if names.iter().any(|n| n == "accounts.json") {
+            return Err(Error::LegacyStore);
+        }
         let _ = store.transaction()?;
         Ok(store)
     }
+    pub fn key_partition(&self) -> Arc<Self> {
+        Arc::new(Self {
+            root: self.root.clone(),
+            partition: Partition::ApiKey,
+            #[cfg(test)]
+            fault: std::sync::atomic::AtomicU8::new(0),
+        })
+    }
+    #[cfg(test)]
+    pub fn test_config(&self, value: &Value) {
+        self.root
+            .write("gateway.json", &serde_json::to_vec(value).unwrap(), || {
+                Ok(())
+            })
+            .unwrap();
+    }
     pub fn transaction(&self) -> Result<Transaction<'_>, Error> {
-        // Detect obsolete snapshots without reading or converting their secrets.
-        if self.root.exists("accounts.json")? {
-            return Err(Error::LegacyStore);
-        }
         Ok(Transaction {
             store: self,
             _lock: self.root.lock("store.lock")?,
         })
     }
-    pub fn account_lock(&self, profile: &str, alias: &str) -> Result<File, Error> {
+    pub fn account_lock(&self, profile: &str, alias: &str) -> Result<FileLock, Error> {
         valid_profile(profile)?;
         valid_alias(alias)?;
-        let tx = self.transaction()?;
-        let directory = tx.directory(profile, true)?.ok_or(Error::Storage)?;
-        let name = format!("{alias}.lock");
-        if !directory.exists(&name)? && directory.names()?.len() >= 256 {
-            return Err(Error::PoolFull);
-        }
-        let lock = directory.lock(&name)?;
-        drop(tx);
-        Ok(lock)
+        let _tx = self.transaction()?;
+        // Stable operation locks never move with the replaced provider document.
+        self.root
+            .lock(&format!("{profile}.{}.{alias}.lock", self.partition.name()))
     }
     #[cfg(test)]
     pub fn fail_at(&self, fault: PublishStep) {
@@ -96,144 +212,220 @@ impl Store {
     }
 }
 impl Transaction<'_> {
-    fn directory(&self, profile: &str, create: bool) -> Result<Option<Directory>, Error> {
-        valid_profile(profile)?;
-        self.store.root.child(profile, create)
-    }
-    pub fn aliases(&self, profile: &str) -> Result<Vec<String>, Error> {
-        let Some(dir) = self.directory(profile, false)? else {
-            return Ok(Vec::new());
+    pub fn provider(&self, provider: &str) -> Result<ProviderDocument, Error> {
+        valid_profile(provider)?;
+        if matches!(provider, "accounts" | "gateway") {
+            return Err(Error::InvalidInput);
+        }
+        let document = match self
+            .store
+            .root
+            .read(&format!("{provider}.json"), DOCUMENT_BYTES)?
+        {
+            Some(bytes) => {
+                serde_json::from_slice::<ProviderDocument>(&bytes).map_err(|_| Error::Storage)?
+            }
+            None => ProviderDocument::empty(provider),
         };
-        let mut aliases = BTreeSet::new();
-        for name in dir.names()? {
-            if let Some(alias) = name
-                .strip_suffix(".json")
-                .or_else(|| name.strip_suffix(".pending"))
+        document.validate(provider)?;
+        Ok(document)
+    }
+    pub fn namespaces(&self) -> Result<Vec<String>, Error> {
+        let mut names = BTreeSet::new();
+        for name in self.store.root.names()? {
+            if name == "gateway.json" {
+                continue;
+            }
+            if let Some(namespace) = name.strip_suffix(".json") {
+                valid_profile(namespace)?;
+                names.insert(namespace.to_owned());
+            } else if name.ends_with(".pending")
+                && let Some((namespace, _)) = name.split_once('.')
             {
-                valid_alias(alias).map_err(|_| Error::Storage)?;
-                aliases.insert(alias.to_owned());
+                valid_profile(namespace)?;
+                names.insert(namespace.to_owned());
             }
         }
-        if aliases.len() > ACCOUNTS_PER_PROFILE {
-            return Err(Error::Storage);
+        if names.len() > RECORDS {
+            return Err(Error::PoolFull);
+        }
+        Ok(names.into_iter().collect())
+    }
+    pub fn ensure_namespace(&self, namespace: &str) -> Result<(), Error> {
+        let mut document = self.provider(namespace)?;
+        if document.revision == 0 {
+            self.publish_provider(&mut document)?;
+        }
+        Ok(())
+    }
+    fn records<'a>(&self, document: &'a mut ProviderDocument) -> &'a mut BTreeMap<String, Value> {
+        match self.store.partition {
+            Partition::OAuth => &mut document.oauth,
+            Partition::ApiKey => &mut document.api_keys,
+        }
+    }
+    fn marker(&self, provider: &str, alias: &str) -> String {
+        format!("{provider}.{}.{alias}.pending", self.store.partition.name())
+    }
+    fn recovery(&self, provider: &str, alias: &str) -> Result<bool, Error> {
+        match self.store.root.read(&self.marker(provider, alias), 16)? {
+            None => Ok(false),
+            Some(bytes) => match bytes.as_slice() {
+                b"true" => Ok(true),
+                b"false" => Ok(false),
+                _ => Err(Error::Storage),
+            },
+        }
+    }
+    pub fn aliases(&self, provider: &str) -> Result<Vec<String>, Error> {
+        let mut document = self.provider(provider)?;
+        let mut aliases: BTreeSet<_> = self.records(&mut document).keys().cloned().collect();
+        let prefix = format!("{provider}.{}.", self.store.partition.name());
+        for name in self.store.root.names()? {
+            if let Some(alias) = name
+                .strip_prefix(&prefix)
+                .and_then(|s| s.strip_suffix(".pending"))
+            {
+                valid_alias(alias)?;
+                if self.recovery(provider, alias)? {
+                    aliases.insert(alias.to_owned());
+                }
+            }
+        }
+        if aliases.len() > RECORDS {
+            return Err(Error::PoolFull);
         }
         Ok(aliases.into_iter().collect())
     }
     pub fn load(&self, profile: &str, alias: &str) -> Result<Loaded, Error> {
-        valid_alias(alias)?;
-        let Some(dir) = self.directory(profile, false)? else {
-            return Ok(Loaded {
-                account: None,
-                recovery: false,
-            });
-        };
-        let recovery = match dir.file(&format!("{alias}.pending"), libc::O_RDONLY) {
-            Ok(file) if file.metadata().map_err(|_| Error::Storage)?.len() == 0 => true,
-            Ok(_) => return Err(Error::Storage),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-            Err(_) => return Err(Error::Storage),
-        };
-        let account = match dir.file(&format!("{alias}.json"), libc::O_RDONLY) {
-            Ok(file) => {
-                if file.metadata().map_err(|_| Error::Storage)?.len() > ACCOUNT_BYTES {
-                    return Err(Error::Storage);
-                }
-                let mut bytes = Vec::new();
-                file.take(ACCOUNT_BYTES + 1)
-                    .read_to_end(&mut bytes)
-                    .map_err(|_| Error::Storage)?;
-                if bytes.len() as u64 > ACCOUNT_BYTES {
-                    return Err(Error::Storage);
-                }
-                let account: Account =
-                    serde_json::from_slice(&bytes).map_err(|_| Error::Storage)?;
-                account.validate(profile, alias)?;
-                Some(account)
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(_) => return Err(Error::Storage),
-        };
+        let (account, recovery) = self.load_document(profile, alias)?;
         Ok(Loaded { account, recovery })
     }
+    pub fn load_document<T: StoredDocument>(
+        &self,
+        profile: &str,
+        alias: &str,
+    ) -> Result<(Option<T>, bool), Error> {
+        valid_alias(alias)?;
+        let mut document = self.provider(profile)?;
+        let record = self
+            .records(&mut document)
+            .remove(alias)
+            .map(|v| serde_json::from_value::<T>(v).map_err(|_| Error::Storage))
+            .transpose()?;
+        if let Some(record) = &record {
+            record.validate_binding(profile, alias)?;
+        }
+        Ok((record, self.recovery(profile, alias)?))
+    }
+    #[cfg(test)]
+    pub fn test_marker(&self, profile: &str, alias: &str, pending: bool) {
+        self.store
+            .root
+            .write(
+                &self.marker(profile, alias),
+                if pending { b"true" } else { b"false" },
+                || Ok(()),
+            )
+            .unwrap();
+    }
     pub fn clear_unpublished(&self, profile: &str, alias: &str) -> Result<(), Error> {
-        let loaded = self.load(profile, alias)?;
-        if loaded.account.is_some() || !loaded.recovery {
+        valid_alias(alias)?;
+        if self
+            .records(&mut self.provider(profile)?)
+            .contains_key(alias)
+            || !self.recovery(profile, alias)?
+        {
             return Err(Error::Storage);
         }
-        let dir = self.directory(profile, false)?.ok_or(Error::Storage)?;
-        dir.remove(&format!("{alias}.pending"))
-            .map_err(|_| Error::PersistenceUncertain)?;
-        dir.sync().map_err(|_| Error::PersistenceUncertain)
+        self.store
+            .root
+            .write(&self.marker(profile, alias), b"false", || Ok(()))
     }
     pub fn publish(&self, account: &Account) -> Result<(), Error> {
-        account.validate(&account.profile, &account.alias)?;
-        let dir = self
-            .directory(&account.profile, true)?
-            .ok_or(Error::Storage)?;
-        let name = format!("{}.json", account.alias);
-        let marker = format!("{}.pending", account.alias);
-        let before = self.load(&account.profile, &account.alias)?;
-        if before.account.is_none()
-            && !before.recovery
-            && self.aliases(&account.profile)?.len() >= ACCOUNTS_PER_PROFILE
-        {
+        self.publish_document(&account.profile, &account.alias, account)
+    }
+    pub fn publish_document<T: StoredDocument>(
+        &self,
+        profile: &str,
+        alias: &str,
+        record: &T,
+    ) -> Result<(), Error> {
+        record.validate_binding(profile, alias)?;
+        let mut document = self.provider(profile)?;
+        let values = self.records(&mut document);
+        if !values.contains_key(alias) && values.len() >= RECORDS {
             return Err(Error::PoolFull);
         }
-        let mut bytes = serde_json::to_vec_pretty(account).map_err(|_| Error::Storage)?;
-        bytes.push(b'\n');
-        if bytes.len() as u64 > ACCOUNT_BYTES {
+        let value = serde_json::to_value(record).map_err(|_| Error::Storage)?;
+        if serde_json::to_vec(&value)
+            .map_err(|_| Error::Storage)?
+            .len()
+            > 128 * 1024
+        {
             return Err(Error::Storage);
         }
-
-        let temporary = format!(".account-{}.tmp", random_id()?);
-        // The marker must be durable before any replacement can become visible.
-        let guard = dir
-            .file(&marker, libc::O_WRONLY | libc::O_CREAT)
-            .map_err(|_| Error::Storage)?;
-        if guard.metadata().map_err(|_| Error::Storage)?.len() != 0 {
-            return Err(Error::Storage);
+        values.insert(alias.into(), value);
+        let before_recovery = self.recovery(profile, alias)?;
+        let marker = self.marker(profile, alias);
+        self.store.root.write(&marker, b"true", || Ok(()))?;
+        for step in [PublishStep::MarkerSync, PublishStep::MarkerDirectorySync] {
+            self.store
+                .checkpoint(step)
+                .map_err(|_| Error::PersistenceUncertain)?;
         }
-        self.store
-            .checkpoint(PublishStep::MarkerSync)
-            .map_err(|_| Error::PersistenceUncertain)?;
-        guard.sync_all().map_err(|_| Error::PersistenceUncertain)?;
-        self.store
-            .checkpoint(PublishStep::MarkerDirectorySync)
-            .map_err(|_| Error::PersistenceUncertain)?;
-        dir.sync().map_err(|_| Error::PersistenceUncertain)?;
-        let mut renamed = false;
-        let result: Result<(), Error> = (|| {
-            let mut file = dir
-                .file(&temporary, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)
-                .map_err(|_| Error::Storage)?;
-            self.store.checkpoint(PublishStep::Write)?;
-            file.write_all(&bytes).map_err(|_| Error::Storage)?;
-            self.store.checkpoint(PublishStep::FileSync)?;
-            file.sync_all().map_err(|_| Error::Storage)?;
-            self.store.checkpoint(PublishStep::Rename)?;
-            dir.rename(&temporary, &name)?;
-            renamed = true;
-            self.store.checkpoint(PublishStep::DirectorySync)?;
-            dir.sync()?;
+        let result = self.publish_provider_with(&mut document, || {
+            for step in [
+                PublishStep::Write,
+                PublishStep::FileSync,
+                PublishStep::Rename,
+            ] {
+                self.store.checkpoint(step)?;
+            }
             Ok(())
-        })();
-        if result.is_err() {
-            let _ = dir.remove(&temporary);
-            if !renamed && !before.recovery && dir.remove(&marker).is_ok() && dir.sync().is_ok() {
+        });
+        if let Err(error) = result {
+            if error == Error::Storage
+                && !before_recovery
+                && self.store.root.write(&marker, b"false", || Ok(())).is_ok()
+            {
                 return Err(Error::Storage);
             }
             return Err(Error::PersistenceUncertain);
         }
-        // Snapshot durability is already confirmed. A leftover marker is conservative;
-        // failed cleanup must never roll back or resurrect the previous token.
-        if self.store.checkpoint(PublishStep::Cleanup).is_err() || dir.remove(&marker).is_err() {
-            return Err(Error::PersistenceUncertain);
+        for step in [PublishStep::DirectorySync, PublishStep::Cleanup] {
+            self.store
+                .checkpoint(step)
+                .map_err(|_| Error::PersistenceUncertain)?;
         }
-        // If cleanup durability fails, a crash may restore the marker, not old data.
-        let _ = self
-            .store
-            .checkpoint(PublishStep::CleanupDirectorySync)
-            .and_then(|_| dir.sync());
+        self.store
+            .root
+            .write(&marker, b"false", || Ok(()))
+            .map_err(|_| Error::PersistenceUncertain)?;
+        let _ = self.store.checkpoint(PublishStep::CleanupDirectorySync);
         Ok(())
+    }
+    pub fn publish_provider(&self, document: &mut ProviderDocument) -> Result<(), Error> {
+        self.publish_provider_with(document, || Ok(()))
+    }
+    fn publish_provider_with(
+        &self,
+        document: &mut ProviderDocument,
+        before_commit: impl FnOnce() -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        document.validate(&document.provider)?;
+        if document.revision == 0 && self.namespaces()?.len() >= RECORDS {
+            return Err(Error::PoolFull);
+        }
+        document.revision = document.revision.checked_add(1).ok_or(Error::Storage)?;
+        let bytes = serde_json::to_vec_pretty(document).map_err(|_| Error::Storage)?;
+        if bytes.len() as u64 > DOCUMENT_BYTES {
+            return Err(Error::Storage);
+        }
+        self.store.root.write(
+            &format!("{}.json", document.provider),
+            &bytes,
+            before_commit,
+        )
     }
 }

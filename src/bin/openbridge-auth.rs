@@ -1,324 +1,328 @@
-//! Presentation and cancellation for the shared manager; no product protocol dispatch.
-#[cfg(unix)]
-mod unix {
-    use openbridge::credential::{
-        CredentialError, CredentialManager, LoginMethod, LoginOptions, LoginPrompt, LogoutOutcome,
-        builtin_drivers,
-    };
-    use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
+//! Typed CLI presentation over CredentialManager; no credential values in arguments.
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use openbridge::credential::{
+    CredentialError as Error, CredentialManager, CredentialPool, CredentialStatus, LoginMethod,
+    LoginOptions, LoginPrompt, LogoutOutcome, Secret, builtin_drivers, read_private_file,
+};
+use std::{path::PathBuf, process::ExitCode};
 
-    const HELP: &str = "OpenBridge file credential management (Unix only)
-Usage:
-  openbridge-auth PROFILE login --store DIR --account ALIAS [--client-id ID]
-      [--method device|browser] [--callback-port PORT] [--proxy URL]
-  openbridge-auth PROFILE refresh --store DIR --account ALIAS [--proxy URL]
-  openbridge-auth PROFILE logout --store DIR --account ALIAS [--revoke] [--proxy URL]
-  openbridge-auth [PROFILE] list --store DIR
-
-Registered profiles: grok, codex. Supported methods are validated by the driver.
-Grok defaults to its pinned product client; --client-id is an explicit override.\nDevice is the default, browser is explicit. Product metadata does not prove registration eligibility.
-Codex supports private device and explicit browser login with its product client, NOT SIWC.
-Browser callback is literal loopback. Grok defaults to an OS port; Codex defaults to 1455.
-Codex also accepts explicit --callback-port 1457; no random port or automatic fallback.
-The explicit DIR is your own private store, never another application's auth cache.
-Readable account JSON files contain secrets. Old accounts.json snapshots are rejected.
-Proxy must be explicit HTTP(S), without credentials; no ambient proxy or retry/fallback.
-Logout is local unless --revoke is supplied. No inference or automatic account routing.
-Ctrl-C cancels the operation; interrupted refresh requires login.";
-
-    #[derive(Debug)]
-    enum Command {
-        Login,
-        Refresh,
-        Logout { revoke: bool },
-        List,
+#[derive(Parser)]
+#[command(subcommand_precedence_over_arg = true)]
+struct Options {
+    /// Authorization profile for OAuth operations; not an inference Provider selector.
+    profile: Option<String>,
+    #[arg(long, global = true)]
+    store: Option<PathBuf>,
+    #[command(subcommand)]
+    command: Command,
+}
+#[derive(Subcommand)]
+enum Command {
+    List,
+    Login(Login),
+    Refresh(Account),
+    Logout {
+        #[command(flatten)]
+        account: Account,
+        #[arg(long)]
+        revoke: bool,
+    },
+    ApiKey {
+        #[command(subcommand)]
+        operation: KeyCommand,
+    },
+    Pool {
+        #[command(subcommand)]
+        operation: PoolCommand,
+    },
+}
+#[derive(Args)]
+struct Account {
+    #[arg(long)]
+    account: String,
+    #[arg(long)]
+    proxy: Option<String>,
+}
+#[derive(Clone, Copy, ValueEnum)]
+enum Method {
+    Device,
+    Browser,
+}
+#[derive(Args)]
+struct Login {
+    #[command(flatten)]
+    account: Account,
+    #[arg(long)]
+    client_id: Option<String>,
+    #[arg(long, value_enum, default_value = "device")]
+    method: Method,
+    #[arg(long)]
+    callback_port: Option<u16>,
+}
+#[derive(Args)]
+struct Key {
+    #[arg(long)]
+    domain: String,
+    #[arg(long)]
+    alias: String,
+}
+#[derive(Subcommand)]
+enum KeyCommand {
+    Add {
+        #[command(flatten)]
+        key: Key,
+        #[arg(long)]
+        secret_file: PathBuf,
+    },
+    Replace {
+        #[command(flatten)]
+        key: Key,
+        #[arg(long)]
+        revision: u64,
+        #[arg(long)]
+        secret_file: PathBuf,
+    },
+    Enable {
+        #[command(flatten)]
+        key: Key,
+        #[arg(long)]
+        revision: u64,
+    },
+    Disable {
+        #[command(flatten)]
+        key: Key,
+        #[arg(long)]
+        revision: u64,
+    },
+    Remove {
+        #[command(flatten)]
+        key: Key,
+        #[arg(long)]
+        revision: u64,
+    },
+    List {
+        #[arg(long)]
+        domain: Option<String>,
+    },
+}
+#[derive(Subcommand)]
+enum PoolCommand {
+    List,
+    Set {
+        #[arg(long)]
+        provider: String,
+        #[arg(long)]
+        binding: String,
+        #[arg(long)]
+        revision: u64,
+        #[arg(long)]
+        file: PathBuf,
+    },
+}
+fn print<T: serde::Serialize>(value: &T) -> Result<(), Error> {
+    println!(
+        "{}",
+        serde_json::to_string(value).map_err(|_| Error::Storage)?
+    );
+    Ok(())
+}
+fn secret(path: &std::path::Path) -> Result<Secret, Error> {
+    let mut bytes = read_private_file(path, 16386)?;
+    if bytes.ends_with(b"\n") {
+        bytes.pop();
+        if bytes.ends_with(b"\r") {
+            bytes.pop();
+        }
     }
-    #[derive(Debug)]
-    struct Options {
-        command: Command,
-        profile: Option<String>,
-        store: PathBuf,
-        account: Option<String>,
-        login: LoginOptions,
-        proxy: Option<String>,
+    Secret::new(String::from_utf8(bytes).map_err(|_| Error::InvalidInput)?)
+}
+fn prompt(prompt: &LoginPrompt) {
+    match prompt {
+        LoginPrompt::Device(p) => eprintln!(
+            "Open {} and enter {}. Approve only the login you initiated.",
+            p.verification_uri, p.user_code
+        ),
+        LoginPrompt::Browser(p) => eprintln!(
+            "Open this first-party authorization URL in your browser:\n{}\nCallback: {}\nCheck CLI output for final login confirmation.",
+            p.authorization_url, p.redirect_uri
+        ),
     }
-    fn parse(args: &[String]) -> Result<Options, &'static str> {
-        let (profile, operation, offset) = match args.first().map(String::as_str) {
-            Some("list") => (None, "list", 1),
-            Some(profile) if !profile.starts_with('-') => (
-                Some(profile.to_owned()),
-                args.get(1).map(String::as_str).ok_or("missing operation")?,
-                2,
-            ),
-            _ => return Err("expected PROFILE operation or list"),
-        };
-        let mut values = BTreeMap::new();
-        let mut revoke = false;
-        let mut index = offset;
-        while index < args.len() {
-            let flag = args[index].as_str();
-            if flag == "--revoke" {
-                if revoke {
-                    return Err("duplicate flag");
+}
+async fn execute(options: Options) -> Result<(), Error> {
+    let root = options.store.ok_or(Error::InvalidInput)?;
+    let profile = options.profile.as_deref();
+    if matches!(
+        options.command,
+        Command::ApiKey { .. } | Command::Pool { .. }
+    ) && profile.is_some()
+    {
+        return Err(Error::InvalidInput);
+    }
+    match options.command {
+        Command::ApiKey { operation } => {
+            // Validate input before opening a new destination store.
+            let input = match &operation {
+                KeyCommand::Add { secret_file, .. } | KeyCommand::Replace { secret_file, .. } => {
+                    Some(secret(secret_file)?)
                 }
-                revoke = true;
-                index += 1;
-                continue;
+                _ => None,
+            };
+            let manager = CredentialManager::new(root, vec![])?;
+            match operation {
+                KeyCommand::Add { key, .. } => {
+                    print(&manager.add_api_key(&key.domain, &key.alias, input.unwrap())?)
+                }
+                KeyCommand::Replace { key, revision, .. } => print(&manager.replace_api_key(
+                    &key.domain,
+                    &key.alias,
+                    revision,
+                    input.unwrap(),
+                )?),
+                KeyCommand::Enable { key, revision } => {
+                    print(&manager.set_api_key_enabled(&key.domain, &key.alias, revision, true)?)
+                }
+                KeyCommand::Disable { key, revision } => {
+                    print(&manager.set_api_key_enabled(&key.domain, &key.alias, revision, false)?)
+                }
+                KeyCommand::Remove { key, revision } => {
+                    print(&manager.remove_api_key(&key.domain, &key.alias, revision)?)
+                }
+                KeyCommand::List { domain } => print(&manager.list_api_keys(domain.as_deref())?),
             }
-            if !matches!(
-                flag,
-                "--store"
-                    | "--account"
-                    | "--client-id"
-                    | "--method"
-                    | "--callback-port"
-                    | "--proxy"
-            ) {
-                return Err("unknown flag");
+        }
+        Command::Pool { operation } => {
+            let manager = CredentialManager::new(root, builtin_drivers(None)?)?;
+            match operation {
+                PoolCommand::List => print(&manager.pools()?),
+                PoolCommand::Set {
+                    provider,
+                    binding,
+                    revision,
+                    file,
+                } => {
+                    let config: CredentialPool =
+                        serde_json::from_slice(&read_private_file(&file, 65536)?)
+                            .map_err(|_| Error::InvalidInput)?;
+                    print(&manager.set_pool(&provider, &binding, revision, config)?)
+                }
             }
-            let value = args
-                .get(index + 1)
-                .filter(|v| !v.is_empty() && !v.starts_with("--"))
-                .ok_or("missing flag value")?;
-            if values.insert(flag, value.clone()).is_some() {
-                return Err("duplicate flag");
+        }
+        Command::List => {
+            let manager = CredentialManager::new(root, builtin_drivers(None)?)?;
+            match profile {
+                Some(p) => print(
+                    &manager
+                        .list(Some(p))?
+                        .into_iter()
+                        .map(CredentialStatus::OAuth)
+                        .collect::<Vec<_>>(),
+                ),
+                None => print(&manager.inventory()?),
             }
-            index += 2;
         }
-        let command = match operation {
-            "login" if !revoke => Command::Login,
-            "refresh" if !revoke => Command::Refresh,
-            "logout" => Command::Logout { revoke },
-            "list" if !revoke => Command::List,
-            _ => return Err("unknown operation or incompatible flags"),
-        };
-        let store = values
-            .remove("--store")
-            .ok_or("--store is required")?
-            .into();
-        let account = values.remove("--account");
-        let proxy = values.remove("--proxy");
-        let client_id = values.remove("--client-id");
-        let method = values.remove("--method");
-        let port = values.remove("--callback-port");
-        if !matches!(command, Command::Login)
-            && (client_id.is_some() || method.is_some() || port.is_some())
-        {
-            return Err("login options only apply to login");
-        }
-        let method = match method.as_deref().unwrap_or("device") {
-            "device" => LoginMethod::Device,
-            "browser" => LoginMethod::Browser,
-            _ => return Err("unknown login method"),
-        };
-        if port.is_some() && method != LoginMethod::Browser {
-            return Err("--callback-port requires browser method");
-        }
-        let callback_port = port
-            .map(|v| v.parse::<u16>().map_err(|_| "invalid callback port"))
-            .transpose()?;
-        match command {
-            Command::List if account.is_some() || proxy.is_some() => {
-                return Err("list only accepts --store");
+        Command::Login(login) => {
+            let profile = profile.ok_or(Error::InvalidInput)?;
+            if login.callback_port.is_some() && matches!(login.method, Method::Device) {
+                return Err(Error::InvalidInput);
             }
-            Command::Login | Command::Refresh | Command::Logout { .. } if account.is_none() => {
-                return Err("--account is required");
-            }
-            _ => {}
-        }
-        Ok(Options {
-            command,
-            profile,
-            store,
-            account,
-            login: LoginOptions {
-                method,
-                client_id,
-                callback_port,
-            },
-            proxy,
-        })
-    }
-    fn show_prompt(prompt: &LoginPrompt) {
-        match prompt {
-            LoginPrompt::Device(prompt) => eprintln!(
-                "Open {} and enter {}. Approve only the login you initiated.",
-                prompt.verification_uri, prompt.user_code
-            ),
-            LoginPrompt::Browser(prompt) => eprintln!(
-                "Open this first-party authorization URL in your browser:\n{}\nCallback: {}\nCheck CLI output for final login confirmation.",
-                prompt.authorization_url, prompt.redirect_uri
-            ),
-        }
-    }
-    async fn execute(options: Options) -> Result<(), CredentialError> {
-        let drivers = builtin_drivers(options.proxy.as_deref())?;
-        if let Some(profile) = &options.profile {
-            let driver = drivers
+            let settings = LoginOptions {
+                method: match login.method {
+                    Method::Device => LoginMethod::Device,
+                    Method::Browser => LoginMethod::Browser,
+                },
+                client_id: login.client_id,
+                callback_port: login.callback_port,
+            };
+            let drivers = builtin_drivers(login.account.proxy.as_deref())?;
+            drivers
                 .iter()
-                .find(|d| d.profile() == profile)
-                .ok_or(CredentialError::UnknownProfile)?;
-            if matches!(options.command, Command::Login) {
-                driver.login_client(&options.login)?;
-            }
+                .find(|driver| driver.profile() == profile)
+                .ok_or(Error::UnknownProfile)?
+                .login_client(&settings)?;
+            let manager = CredentialManager::new(root, drivers)?;
+            print(
+                &manager
+                    .login(profile, &login.account.account, settings, prompt)
+                    .await?,
+            )
         }
-        let manager = CredentialManager::new(options.store, drivers)?;
-        let profile = options.profile.as_deref();
-        let account = options.account.as_deref().unwrap_or("");
-        match options.command {
-            Command::Login => {
-                let status = manager
-                    .login(
-                        profile.ok_or(CredentialError::InvalidInput)?,
-                        account,
-                        options.login,
-                        show_prompt,
-                    )
-                    .await?;
-                println!(
-                    "{}",
-                    serde_json::to_string(&status).map_err(|_| CredentialError::Storage)?
-                );
-            }
-            Command::Refresh => {
-                let status = manager
-                    .refresh(profile.ok_or(CredentialError::InvalidInput)?, account)
-                    .await?;
-                println!(
-                    "{}",
-                    serde_json::to_string(&status).map_err(|_| CredentialError::Storage)?
-                );
-            }
-            Command::Logout { revoke } => {
-                let outcome = manager
-                    .logout(
-                        profile.ok_or(CredentialError::InvalidInput)?,
-                        account,
-                        revoke,
-                    )
-                    .await?;
-                println!(
-                    "{}",
-                    match outcome {
-                        LogoutOutcome::LocalOnly =>
-                            "Local session cleared; remote revocation was not requested.",
-                        LogoutOutcome::Revoked =>
-                            "Local session cleared; remote revocation acknowledged.",
-                        LogoutOutcome::RevocationUnconfirmed =>
-                            "Local session cleared; remote revocation NOT confirmed.",
-                        LogoutOutcome::AlreadySignedOut => "No local account session.",
-                    }
-                );
-                if outcome == LogoutOutcome::RevocationUnconfirmed {
-                    return Err(CredentialError::Network);
-                }
-            }
-            Command::List => println!(
+        Command::Refresh(account) => {
+            let manager = CredentialManager::new(root, builtin_drivers(account.proxy.as_deref())?)?;
+            print(
+                &manager
+                    .refresh(profile.ok_or(Error::InvalidInput)?, &account.account)
+                    .await?,
+            )
+        }
+        Command::Logout { account, revoke } => {
+            let manager = CredentialManager::new(root, builtin_drivers(account.proxy.as_deref())?)?;
+            let outcome = manager
+                .logout(
+                    profile.ok_or(Error::InvalidInput)?,
+                    &account.account,
+                    revoke,
+                )
+                .await?;
+            println!(
                 "{}",
-                serde_json::to_string(&manager.list(profile)?)
-                    .map_err(|_| CredentialError::Storage)?
-            ),
-        }
-        Ok(())
-    }
-    pub async fn run() -> ExitCode {
-        let args: Vec<_> = std::env::args().skip(1).collect();
-        if args.iter().any(|v| v == "--help" || v == "-h") {
-            println!("{HELP}");
-            return ExitCode::SUCCESS;
-        }
-        let options = match parse(&args) {
-            Ok(value) => value,
-            Err(error) => {
-                eprintln!("{error}\n{HELP}");
-                return ExitCode::FAILURE;
-            }
-        };
-        tokio::select! {
-            result = execute(options) => match result {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(error) => { eprintln!("Credential operation failed: {error}"); ExitCode::FAILURE }
-            },
-            _ = tokio::signal::ctrl_c() => {
-                eprintln!("Credential operation cancelled; an interrupted refresh requires login.");
-                ExitCode::FAILURE
-            }
-        }
-    }
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        fn args(s: &str) -> Vec<String> {
-            s.split_whitespace().map(str::to_owned).collect()
-        }
-        #[test]
-        fn presentation_options_are_generic_and_operations_remain_explicit() {
-            let options = parse(&args(
-                "third login --store private --account one --method browser --callback-port 1456",
-            ))
-            .unwrap();
-            assert_eq!(options.profile.as_deref(), Some("third"));
-            assert_eq!(options.login.method, LoginMethod::Browser);
-            assert_eq!(options.login.callback_port, Some(1456));
-            for input in [
-                "list --store private",
-                "codex login --store private --account one",
-                "codex login --store private --account one --method browser",
-                "codex login --store private --account one --method browser --callback-port 1457",
-                "grok login --store private --account one --client-id approved --proxy http://127.0.0.1:1234",
-                "codex logout --store private --account one --revoke",
-            ] {
-                assert!(parse(&args(input)).is_ok());
-            }
-            for input in [
-                "grok list",
-                "list --store private --account one",
-                "list --store private --method browser",
-                "grok refresh --store private --account one --client-id approved",
-                "grok login --store private --account one --callback-port 1456",
-                "grok login --store private --account one --method browser --callback-port 65536",
-                "grok logout --store private --account one --revoke --revoke",
-                "list --store private --store other",
-                "migrate-grok --store private",
-            ] {
-                assert!(parse(&args(input)).is_err(), "{input}");
-            }
-        }
-        #[test]
-        fn profile_rules_are_owned_by_drivers_not_parser_branches() {
-            let drivers = builtin_drivers(None).unwrap();
-            let grok = drivers.iter().find(|d| d.profile() == "grok").unwrap();
-            let codex = drivers.iter().find(|d| d.profile() == "codex").unwrap();
-            assert_eq!(
-                grok.login_client(&LoginOptions::default()).unwrap(),
-                "b1a00492-073a-47ea-816f-4c329264a828"
+                match outcome {
+                    LogoutOutcome::LocalOnly =>
+                        "Local session cleared; remote revocation was not requested.",
+                    LogoutOutcome::Revoked =>
+                        "Local session cleared; remote revocation acknowledged.",
+                    LogoutOutcome::RevocationUnconfirmed =>
+                        "Local session cleared; remote revocation NOT confirmed.",
+                    LogoutOutcome::AlreadySignedOut => "No local account session.",
+                }
             );
-            assert!(
-                codex
-                    .login_client(&LoginOptions {
-                        method: LoginMethod::Browser,
-                        ..LoginOptions::default()
-                    })
-                    .is_ok()
-            );
-            assert!(
-                codex
-                    .login_client(&LoginOptions {
-                        client_id: Some("other".into()),
-                        ..LoginOptions::default()
-                    })
-                    .is_err()
-            );
+            if outcome == LogoutOutcome::RevocationUnconfirmed {
+                return Err(Error::Network);
+            }
+            Ok(())
         }
     }
 }
-#[cfg(unix)]
 #[tokio::main]
-async fn main() -> std::process::ExitCode {
-    unix::run().await
+async fn main() -> ExitCode {
+    let options = match Options::try_parse() {
+        Ok(options) => options,
+        Err(error) => {
+            if matches!(
+                error.kind(),
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            ) {
+                let _ = error.print();
+                return ExitCode::SUCCESS;
+            }
+            eprintln!("Invalid credential arguments; use --help. Values are not echoed.");
+            return ExitCode::FAILURE;
+        }
+    };
+    tokio::select! {
+        result=execute(options) => match result { Ok(())=>ExitCode::SUCCESS, Err(error)=>{eprintln!("Credential operation failed: {error}");ExitCode::FAILURE} },
+        _=tokio::signal::ctrl_c()=>{eprintln!("Credential operation cancelled; interrupted refresh requires login.");ExitCode::FAILURE}
+    }
 }
-#[cfg(not(unix))]
-fn main() -> std::process::ExitCode {
-    eprintln!("OpenBridge credential management requires a Unix owner-only store.");
-    std::process::ExitCode::FAILURE
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn clap_preserves_profile_generic_operations_and_rejects_secrets_in_argv() {
+        for command in [
+            "third login --store private --account one",
+            "grok list --store private",
+            "list --store private",
+            "api-key add --store private --domain alpha --alias one --secret-file private.key",
+            "pool list --store private",
+        ] {
+            assert!(
+                Options::try_parse_from(std::iter::once("auth").chain(command.split_whitespace()))
+                    .is_ok(),
+                "{command}"
+            );
+        }
+        assert!(
+            Options::try_parse_from(["auth", "api-key", "add", "--key", "never-print"]).is_err()
+        );
+    }
 }

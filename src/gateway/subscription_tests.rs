@@ -30,6 +30,7 @@ async fn forced_sse_projects_json_and_rejects_missing_terminal_or_conflicting_me
                 endpoint,
                 provider: base.provider.clone(),
                 secret: base.secret.clone(),
+                credential_fallback: false,
             });
             let entry = Arc::new(BoundEntry {
                 public: original.public.clone(),

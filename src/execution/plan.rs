@@ -16,6 +16,8 @@ pub enum Delivery {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CandidatePlan {
+    /// Position in the fixed input candidate list, not a credential locator.
+    pub ordinal: usize,
     pub endpoint_id: EndpointId,
 }
 
@@ -120,6 +122,7 @@ pub fn select_candidates<'a>(
         }
         match representable(endpoint, request) {
             Ok(()) => selected.candidates.push(CandidatePlan {
+                ordinal: index,
                 endpoint_id: endpoint.id.clone(),
             }),
             Err(reason) => {
@@ -192,7 +195,9 @@ impl ExecutionPlan {
             candidates: route
                 .endpoints
                 .iter()
-                .map(|endpoint_id| CandidatePlan {
+                .enumerate()
+                .map(|(ordinal, endpoint_id)| CandidatePlan {
+                    ordinal,
                     endpoint_id: endpoint_id.clone(),
                 })
                 .collect(),

@@ -1,8 +1,33 @@
 //! Minimal loopback bootstrap; startup never prints credential values.
+use clap::Parser;
 use openbridge::gateway::bootstrap::Bootstrap;
+#[derive(Parser)]
+struct Options {
+    #[arg(long)]
+    credentials_dir: std::path::PathBuf,
+    #[arg(long)]
+    config: Option<std::path::PathBuf>,
+}
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
-    let bootstrap = match Bootstrap::from_env() {
+    let options = match Options::try_parse() {
+        Ok(options) => options,
+        Err(error) => {
+            if matches!(
+                error.kind(),
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            ) {
+                let _ = error.print();
+                return std::process::ExitCode::SUCCESS;
+            }
+            eprintln!("Invalid startup arguments; use --help. Values are not echoed.");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let config = options
+        .config
+        .unwrap_or_else(|| options.credentials_dir.join("gateway.json"));
+    let bootstrap = match Bootstrap::from_files(&config, &options.credentials_dir) {
         Ok(value) => value,
         Err(error) => {
             eprintln!("OpenBridge startup failed: {error}");
