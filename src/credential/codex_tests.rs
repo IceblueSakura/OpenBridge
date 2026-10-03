@@ -170,6 +170,45 @@ fn signed_id_tokens_enforce_claims_algorithm_keys_and_workspace() {
     assert!(codex::verify_identity(&token, &keys(), CLIENT, None).is_ok());
 }
 
+#[test]
+fn jwt_library_defaults_must_not_relax_profile_policy() {
+    let header = json!({"alg":"RS256","kid":"synthetic-codex-key"});
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    for (field, value) in [
+        ("exp", timestamp - 1),
+        ("nbf", timestamp + 3600),
+        ("iat", timestamp + 3600),
+    ] {
+        let mut value_claims = claims("workspace-a");
+        value_claims[field] = json!(value);
+        assert!(
+            codex::verify_identity(&sign(header.clone(), value_claims), &keys(), CLIENT, None)
+                .is_err(),
+            "{field}"
+        );
+    }
+    let token = id_token("workspace-a");
+    for (field, value) in [
+        ("use", json!("enc")),
+        ("key_ops", json!(["sign"])),
+        ("alg", json!("ES256")),
+    ] {
+        let mut keys = keys();
+        keys["keys"][0][field] = value;
+        assert!(
+            codex::verify_identity(&token, &keys, CLIENT, None).is_err(),
+            "{field}"
+        );
+    }
+    let mut header = header;
+    header["jwk"] = json!({"kty":"oct","k":"c3ludGhldGlj"});
+    header["x5u"] = json!("https://untrusted.invalid/key");
+    let token = sign(header, claims("workspace-a"));
+    assert!(codex::verify_identity(&token, &keys(), CLIENT, None).is_ok());
+}
 #[tokio::test]
 async fn shared_pool_keeps_same_alias_subject_and_logout_isolated() {
     let mut steps = super::tests::login_steps("person-a");

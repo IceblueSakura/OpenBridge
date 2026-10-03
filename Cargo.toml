@@ -27,7 +27,7 @@ atomicwrites = "0.4.4"
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage"] }
 serde_with = { version = "3", default-features = false, features = ["std"] }
 os_info = { version = "=3.14.0", default-features = false }
-ring = "0.17"
+jsonwebtoken = { version = "11.1", default-features = false, features = ["aws_lc_rs"] }
 httparse = "1"
 oxc_regular_expression = "0.152"
 oxc_allocator = "0.152"
@@ -39,6 +39,7 @@ windows-permissions = "0.2.4"
 libc = "0.2"
 
 [dev-dependencies]
+ring = "0.17"
 tempfile = "3.27"
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
 tower = { version = "0.5", features = ["util"] }
