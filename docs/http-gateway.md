@@ -1,127 +1,104 @@
 # 最小 Generation HTTP 网关
 
-当前提供 `openbridge` binary 与可嵌入的 `gateway::Gateway`。它把现有语义库、双向 adapters、固定目标和实际 HTTP body 接通，不是旧服务的恢复或完整生产网关。决策见 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，接口摘要见 [OpenAPI](openapi.json)。
+`openbridge` binary 与可嵌入的 `gateway::Gateway` 将共享 IR、双向 adapters、固定目标和实际 HTTP body 接通，不是完整标准实现或生产网关。HTTP 决策归 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，公共接口摘要归 [OpenAPI](openapi.json)，模块接线归[架构](architecture.md)。
 
 ## 启动
 
-启动只读取显式私有 JSON 文件，**不读取环境 key、账户 alias、`.env`、旧 TOML 或第三方 auth cache**。默认配置为凭据目录内的 `gateway.json`；可用独立 `--config` 指定入口配置。格式与管理命令归[凭据指南](credentials.md)，精确解析归 [bootstrap](../src/gateway/bootstrap.rs)。
-
-`gateway.json` 的 `client_key` 是入口 Bearer token，不是上游 key；`bind` 缺省 `127.0.0.1:8080` 且只允许 literal loopback。`proxy` 是显式受信出站代理，不继承环境代理；`diagnostics` 可选启用已有有界诊断 sink。`models` 缩小已配置池的模型集合；`max_attempts` 只能收紧凭据池尝试上限。不得输出配置正文。
-
-Provider 文件的 `pools` 按编译 credential binding ID 启用候选；没有 pool 的凭据不激活推理，未知或不兼容 binding 拒绝。每次借用检查状态和身份；API key 替换/启停/移除使旧绑定失效，需显式重新加载 Gateway。OAuth refresh 不改变固定 principal 的 replay identity。并发管理、本地不可用与配置/权限故障的区分见[凭据合同](credentials.md#gateway-access-绑定)。
+启动只读取操作者指定的私有 JSON 配置与凭据目录，不读取环境 key/账户 alias、`.env`、旧 TOML 或第三方 auth cache。默认入口配置为目录内的 `gateway.json`，可用 `--config` 指定独立路径：
 
 ```sh
 cargo run --locked --offline --bin openbridge -- --credentials-dir /path/to/private-store
+cargo run --locked --offline --bin openbridge -- \
+  --credentials-dir /path/to/private-store --config /path/to/private/gateway.json
 ```
 
-只有启动不会产生模型生成请求；向有效模型提交请求可能产生真实费用。Ctrl-C 发起 graceful shutdown，取消在途上游并拒绝新的业务请求。这个入口不是部署指令；默认验证仅使用 synthetic keys 和 loopback Provider。
+配置结构、synthetic 示例、API key/OAuth 与 pool 操作由[凭据指南](credentials.md#gateway-access-绑定)维护；精确解析归 [bootstrap](../src/gateway/bootstrap.rs)。入口 `client_key` 不等于上游 key，listener 只允许 literal loopback，出站 proxy 必须显式受信配置，不继承环境代理。不得打印配置正文。
+
+Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激活推理。凭据绑定变化与并发管理的规则见[凭据指南](credentials.md)；本地可借用不证明上游授权、模型资格或额度。
+
+仅启动不产生模型生成请求。真实登录、推理与付费测试需另行授权；默认验收只用 synthetic keys 和 loopback Provider。Ctrl-C 发起 graceful shutdown，取消在途上游并拒绝新业务请求，不证明 Provider 停算或停止计费。
 
 ## HTTP 合同
 
 | 方法 / 路径 | 请求与交付 |
 |---|---|
 | `POST /v1/chat/completions` | [单候选 Chat profile](architecture-v2/chat-text-profile.md)；JSON 或 SSE |
-| `POST /v1/responses` | [无状态 Responses text profile](architecture-v2/responses-text-profile.md)；JSON 或 SSE |
+| `POST /v1/responses` | [无状态 Responses profile](architecture-v2/responses-text-profile.md)；JSON 或 SSE |
 
-- 所有路由先检查唯一的 `Authorization: Bearer …`，认证通过后才进行应用层 body 收集。其他认证 header 不替代该字段，重复 Authorization 拒绝。
-- Chat 请求的 user/assistant、system/developer content 支持字符串或非空有序纯文本数组；单文本 part 编码规范化为字符串，多 part 保序。user content 另可包含有序 `image_url` 图片 parts，Responses 使用 `input_image`；只准入 URL/inline 图片输入，且 Public Model/Endpoint 必须声明可表示。详细边界见[图片输入 slice](architecture-v2/responses-text-profile.md#user-image-input)。工具结果支持字符串或有序纯文本数组，保留空数组和单/多 part，不拼接。Responses function/custom 结果数组另可承载选定 URL/inline 图片，须独立声明 `tool_result_images` 准入；与 user 图片共用目标资源限制，不意味着现有 catalog/实例已启用。Chat 工具图片投影仍在 I/O 前拒绝。function-only `allowed_tools` 使用 Chat 的嵌套 shell；实际目标支持仍须独立核对。
-- 请求要求 JSON Content-Type，仅 UTF-8；不接受 Content-Encoding。严格 JSON 解析拒绝重复 key。先解析 envelope 中的 public model，绑定受信 task，再进行语义 decode。
-- 每个 `(public model, client protocol)` 在启动时显式激活 Route 成员；多个不同 Endpoint 的 Entry 合并并保持编译 Route 顺序，再按凭据池固定顺序展开 `(endpoint, credential)`，不按激活输入顺序重排。重复或路由外成员拒绝。文件 bootstrap 激活相同 wire family 的 Endpoint 及其配置凭据池；没有对应入口返回 `model_not_found`，不从 Chat 激活推导 Responses。请求按完整最终 IR 和 Route 的候选策略独立预检；无兼容成员在 I/O 前失败。默认选择首个兼容成员。跨 Endpoint 前移须显式 `RoutePolicy.fallback = BeforeCommit`；同 Endpoint 换凭据须显式 pool fallback。全链最多 `max_attempts` 个不同组合，凭据池和入口配置可进一步收紧；无同成员重试/竞速/运行时改序，也不允许业务 JSON 指定目标。多成员入口不共用 issuer scope，当前拒绝 opaque replay/加密输出请求。
-- 标准 Responses 缺少 message-call 归属 carrier：带显式分组的 Chat 工具 history 无法投影到 Responses 候选，在 I/O 前拒绝；Chat Provider 的 tool-only/text+tool 输出也无法无损交付给 Responses 客户端。静态投影失败返回 502；SSE 在首次 attached-call 事件拒绝，若前缀已发布则中止 body，不伪造成功终态或前移候选。独立 calls、原生 Responses history 和 Chat 同协议分组不因此禁用。不存在私有分组字段或邻接恢复，详见[分组合同](architecture-v2/responses-text-profile.md#message-owners-and-cross-protocol-grouping)与[缺失项目](implementation-status/generation.md#语义与表示缺口)。
-- 缓存亲和只利用 Provider 原生功能，不维护网关会话/回答缓存，不重排固定 Route。标准 `prompt_cache_key` 是 advisory hint，未声明 carrier 的目标可以省略它；显式 cache options 目标不支持时拒绝。`user`/`safety_identifier` 独立于 cache hints，目标未声明时拒绝而非随 cache 一起丢弃。
-- 两个入口额外支持非空、最多 256 字符且不含控制字符的 `session_id` body 扩展，用于 Provider cache/observability grouping；只投影到明确支持它的目标，否则拒绝。它不等于 OpenBridge 会话，不从其他 ID 自动生成，不把 `session-id`/`x-session-id` 入站 header 透传。OpenCode Go 的受信 adapter 将显式 body `session_id` 投影为 `x-opencode-session`，不发送上游 body 同名字段；该 header carrier 只接受 ASCII，无值时不生成身份，并使用固定 OpenBridge User-Agent。客户端应为同一会话显式提供稳定值；其他入站 headers 仍不透传。具体 profile/激活仍按源码核对。
-- operator 预算策略把**缺省输出上限**写入最终 IR，再计算 requirements、admission 与 lowering；显式上限超限则拒绝，不静默裁剪。Chat metadata/service-tier 和 logprobs/top_logprobs 经同一 typed IR/context 与 Endpoint gate，不因 codec 准入就自动扩大 catalog 模型能力。响应 reported facts 不从请求复制补齐。
-- 客户端 `model` 只接受已激活的 public label，不带 `provider/` 前缀；顶层 `provider` 字段拒绝，包括字符串、路由对象和 null，不作为选择或 fallback 提示。上游 URL、path、model 和 auth 都来自启动绑定。入站 headers 不透传，包括独立 `CodexHeaders` carrier；低层 Responses envelope 可读写的 `CustomSections` 也未接线，非空 sections 在请求准入时拒绝。上游非成功 HTTP 状态的诊断正文、认证状态细节、origin、凭据 locator 不回显；下游 `model` 为 public label。
-- `GenerationRequest::continuation()` 是库级 history 事实视图，不增加 HTTP 字段或自动调度；部分/全部工具结果只更新缺失结果关联，不证明 turn 完成或全部 replay 依赖已满足。Responses program history 回放要求每个 program 带对应 program_output，缺少时在 decode/目标预检阶段拒绝，不发送上游请求；IR 可以表示待结果 program，不代表该 history 已可发送。详见[continuation 合同](architecture-v2/responses-text-profile.md#response-outcome-and-continuation)。
-- 未实现 `/v1/models`、状态资源、WebSocket、媒体资源服务/图片输出或 hosted-tool 执行。支持哪些语义仍取决于 public/endpoint 合同，不因 HTTP 路由存在而扩张。Chat 正文/refusal 概率按 owner 保真；静态 reported metadata 没有 Chat chunk 槽位，不能通过丢字段合成 SSE。
+- 唯一的 `Authorization: Bearer …` 在应用层 body 收集前校验；重复或错误认证拒绝，其他 header 不替代它。请求使用 UTF-8 JSON Content-Type，不接受 Content-Encoding；严格 JSON 拒绝重复 key，先绑定 public model/task 再 decode 语义。
+- `model` 仅接受已激活的 public label，不带 `provider/` 前缀。顶层 `provider` 字段即使为 null 也拒绝。目标 URL/path、上游 model、auth、adapter 与 scope 都来自受信绑定；入站 headers 不透传。
+- 每个 `(public model, client protocol)` 显式激活编译 Route 成员。保持 Route 和 pool 顺序，从同一最终 IR 独立预检每个固定 `(endpoint, credential)`；无兼容成员在 I/O 前失败。注册、Chat 激活与 Responses 激活不互相推定，查询方法见 [AGENTS](../AGENTS.md#current-provider-model-and-compatibility-information)。
+- operator 缺省输出上限先写入最终 IR，再派生 requirements/admission/lowering；显式超限拒绝，不静默裁剪。响应 reported facts 不从请求补齐。
+- 文本数组、工具选择/结果、概率、Schema 与 reported context 的精确接受/拒绝由上述 profiles 和 owning code 维护，不因路由存在而扩大 Public Model/Endpoint 合同。跨协议不可表示时明确拒绝，不丢字段换取成功。
+- user 与 Responses 工具结果的 URL/inline 图片有独立准入，见[图片输入](architecture-v2/responses-text-profile.md#user-image-input)与[工具图片结果](architecture-v2/responses-text-profile.md#tool-image-results)。不下载、转码或自动放宽 body 预算；file ID、Chat 工具图片、图片输出与资源服务不因此启用。
+- 标准 Responses 无 Chat message-call 归属 carrier：显式分组 history 在上游 I/O 前拒绝；无法交付的静态输出返回 502，SSE 在首次 attached-call 事件失败，已发布前缀只能中止，不能伪造成功或前移。独立 calls 与同协议分组仍按[分组合同](architecture-v2/responses-text-profile.md#message-owners-and-cross-protocol-grouping)处理。
+- 标准 identity/cache hints 与客户端 `session_id` body 扩展使用各自声明的目标投影，不互相派生，不透传 session headers。`session_id` 不提供网关会话或粘性路由；精确 carrier 归 [adapter request](../src/adapter/request.rs)与[cache projection](../src/protocol/cache.rs)。未声明 carrier 的 advisory cache hint 可按合同省略，行为控制与 identity/session 要求不能随之静默丢弃。
+- [Continuation](architecture-v2/responses-text-profile.md#response-outcome-and-continuation)库视图不增加 HTTP 字段、执行就绪证明或自动 Agent loop。低层 CustomSections/CodexHeaders 也不等于 HTTP 接线；仅开放表中路由，不提供 `/v1/models`；状态资源、WebSocket、hosted-tool/program 执行等[缺口](implementation-status/generation.md)仍独立。
 
 ### 最小请求示例
 
-使用入口 Bearer token（不是上游 API key）。下面的 `configured-public-model` 是占位符，不是已注册模型；按查询指南替换为目标实例已启用且准入对应协议的 public label。向真实模型发送仍会产生 Provider 调用，示例本身不授予调用权限：
+`configured-public-model` 是占位符，不是已注册模型。先按查询指南替换为目标实例已激活、准入相应协议的 public label；示例不授予真实调用权限。
+
+Responses 请求发送到 `/v1/responses`，增加 `"stream":true` 请求 SSE：
 
 ```json
 {"model":"configured-public-model","input":"Reply with exactly pong.","max_output_tokens":64}
 ```
 
-将它发送到 `/v1/responses`；增加 `"stream":true` 即请求 SSE。对应 Chat 请求发送到 `/v1/chat/completions`：
+Chat 请求发送到 `/v1/chat/completions`：
 
 ```json
 {"model":"configured-public-model","messages":[{"role":"user","content":"Reply with exactly pong."}],"max_completion_tokens":64}
 ```
 
-图片输入示例（URL 仅为 synthetic 占位符，不表示上游可获取；实际测试可使用程序生成的 Base64 PNG）：
+图片示例仅使用 synthetic URL，不表示上游可获取或模型已准入：
 
 ```json
 {"model":"configured-public-model","input":[{"role":"user","content":[{"type":"input_text","text":"Describe the image."},{"type":"input_image","image_url":"https://example.test/synthetic.png"}]}],"max_output_tokens":64}
 ```
 
-Chat 对应图片 part 为 `{"type":"image_url","image_url":{"url":"https://example.test/synthetic.png"}}`，前后的文本 part 用 `type:text`。不以图片作为普通字符串转发；file_id、非 user 消息图片和 Chat 工具图片仍拒绝；Responses 工具图片 history 的独立准入见[工具图片结果合同](architecture-v2/responses-text-profile.md#tool-image-results)。库验证单资源 encoded/decoded 和总请求预算，HTTP 默认 256 KiB body 限制仍适用；不会为媒体自动放宽。URL 获取/尺寸/图像内容有效性由上游另行验证，网关不代为下载或转码。
+Chat 图片 part 使用 `{"type":"image_url","image_url":{"url":"https://example.test/synthetic.png"}}`。实际图片与资源限制仍由目标合同检查，不把媒体当普通字符串。
 
-厂商 routing policy 和 wire 扩展由[所选 adapter](../src/adapter/mod.rs)及 owning codec 维护；客户端不得覆盖上游路由、认证或可信 scope。示例不表示任一模型支持全部请求选项。
-
-模型必须已通过启动凭据启用；其他字段按关联 text profile 准入。固定 SDK 使用 `base_url` 指向本机 `/v1`，`api_key` 使用入口 token，不把上游 key 交给客户端。
+固定 SDK 的 `base_url` 指向本机 `/v1`，`api_key` 使用入口 token；不把上游 key 交给客户端。
 
 ### 默认资源边界
 
-| 边界 | 默认 |
-|---|---:|
-| 应用层在途请求 | 16；满时立即 429，不排无限队列 |
-| 请求 body / 收集超时 | 256 KiB / 10 秒 |
-| 上游响应 / 下游编码预算 | 8 MiB，另外受 Endpoint/codec 自身预算约束 |
-| 单 SSE frame / 事件数 | 1 MiB / 65,536 |
-| 上游请求到下游 body handoff 的绝对 deadline | 120 秒，与 Endpoint timeout 取更短者 |
-| 缺省 / 最大允许请求输出 tokens | 1024 / 16384 |
+默认值与可嵌入调整范围只由 [`Limits`](../src/gateway/config.rs)维护：应用层并发、请求收集、上游/下游 bytes、单 SSE frame/事件数、输出 tokens 与绝对 exchange deadline 分别有界，且仍受 Endpoint/codec 预算约束。满载拒绝，不排无限队列；更紧的 Endpoint timeout 优先。媒体输入不自动放宽限制，背压不暂停 deadline。
 
-这些是应用层边界，不是对模型实际计费、全部 HTTP 连接资源或生产抗负载能力的保证。嵌入方可通过 `Limits` 显式调整有效范围。
+这些是应用层边界，不是全部 HTTP 连接、实际计费或生产抗负载保证。
 
 ### 错误与流式边界
 
-应用层错误采用 `{"error":{"message":…,"type":…,"param":null,"code":…}}`；不把原始 parser/Provider 错误字符串写入响应。HTTP framing 层拒绝由 HTTP server 处理。
+应用错误使用 `{"error":{"message":…,"type":…,"param":null,"code":…}}`；HTTP framing 拒绝归 server。原始 parser/Provider 错误、上游正文、auth 状态细节、origin 与 credential locator 不回显；下游 model 保持 public label。
 
 | HTTP | 应用层原因示例 |
 |---|---|
-| 400 | 无效/未准入语义、重复 JSON key、`output_limit_exceeded` |
+| 400 | 无效/未准入语义、重复 JSON key、输出上限超限 |
 | 401 | 缺失、无效或重复入口认证；带 `WWW-Authenticate: Bearer` |
-| 404 / 405 | 未开放的模型或路由 / 方法不支持 |
+| 404 / 405 | 未开放模型或路由 / 方法不支持 |
 | 408 / 413 / 415 | 请求收集超时 / body 超限 / 媒体类型或编码不支持 |
-| 429 | `gateway_busy` 或上游 rate limit |
-| 502 / 504 | 上游状态、协议、投影或预算失败 / 上游交付超时 |
-| 503 / 500 | 服务关闭中或绑定凭据不可用 / 本地运行故障 |
+| 429 | 应用并发满或上游 rate limit |
+| 502 / 504 | 上游状态、协议、投影或预算失败 / 交付超时 |
+| 503 / 500 | 服务关闭或绑定凭据不可用 / 本地运行故障 |
 
-未发布下游 frame 时，显式 BeforeCommit 策略可在允许的 rate-limit/5xx、连接失败及有剩余总预算的尝试超时后前移；同 Provider 的未知作用范围 429 不允许换凭据。显式 pool 策略另可跳过本地不可用凭据，不能跳过损坏文件或身份变化。参数、auth/权限、HTTP 重定向、协议或投影错误终止。各尝试共享 permit 和绝对总 deadline，单成员 timeout 不重置总预算。可能重复上游计算/计费，不保证上游已停止处理。非成功模型终态不是 fallback 理由。最终失败返回 JSON 错误。首次下游 frame 发布时保守冻结候选以避免 recv/timeout 竞争，发布不等于 commit；HTTP response 已交出后不能更改状态：late error、取消、超时或缺失/错误终态会中止 body，不合成成功 `response.completed` / `[DONE]`，也不重试。已准入的模型非成功语义终态（如 incomplete）与 transport 错误不同，仍按语义合同交付。
+跨 Endpoint fallback 须显式 Route 策略，同 Endpoint 换凭据须显式 pool 策略；全部候选共用一次 permit、尝试上限与绝对 deadline，无同成员重试/竞速/运行时改序。允许失败与身份边界归 [ADR 0010](architecture-v2/decisions/0010-canonical-model-fixed-fallback.md)和[凭据 fallback](credentials.md#同-provider-fallback)：auth/权限、重定向、协议/投影、安全故障不前移，未知 scope 的 429 不授权换凭据。多成员入口仍拒绝没有 affinity carrier 的 opaque replay/加密输出请求。
 
-上游强制 SSE 的 profile 与下游交付独立：JSON 下游有界聚合至验证终态及 EOF，SSE 下游增量交付。仅具名 profile 可接受缺失 Content-Type 的固定 SSE；显式冲突媒体类型仍拒绝，不能以该规则绕过 framing 或终态验证。客户端请求 SSE 时不收完整流再回放。每次最多消费一个上游 frame；下游 frame 在 HTTP body handoff 时确认，未确认不推进后续语义处理。仅编码或排队不算 commit。严格上游 EOF 后才释放终态；完成全部 handoff 后才完成 producer。这是服务 transport 边界，不声称已收到客户端/TCP acknowledgement。消费者不 poll body 时，deadline 仍能释放上游；drop/shutdown 同样取消资源。
+首次下游 frame 发布即保守冻结前移，body handoff 才确认 commit；HTTP response 已交出后不能改状态。Late error、取消、超时、错误/缺失终态中止 body，不合成成功 `response.completed` / `[DONE]`。模型 incomplete 等合法非成功语义终态与 transport 失败分开，不作为 fallback 理由。
+
+上游强制 SSE 与下游交付独立：JSON 有界聚合至验证终态及严格 EOF，SSE 增量交付。只有具名 profile 可接受缺失 Content-Type 的固定 SSE，显式冲突仍拒绝。每步至多消费一个 frame，未 handoff 不推进后续语义处理；严格 EOF 后释放终态，最终 handoff 后完成。编码/排队不是 commit，server handoff 也不是客户端/TCP acknowledgement。Drop、shutdown 或消费者不 poll 时，取消/deadline 仍释放上游资源。
 
 ## 操作者诊断
 
-### 固定路由定位
+路由定位使用 [Public Model → Route → Endpoint 查询流程](../AGENTS.md#current-provider-model-and-compatibility-information)，不按名称前缀猜测，也不读取/打印私有配置。静态注册与运行实例激活分开报告。
 
-调试路由时按以下 owner 链核对，不从名称前缀推导目标：
+入口配置的 `diagnostics` 显式启用本地 probe 元数据，不是内容日志或生产观测。父目录由操作者准备，文件必须新建；精确权限、队列、文件预算与白名单归 [diagnostics owner](../src/gateway/diagnostics.rs)。无效路径/已存在文件拒绝启动，运行时写失败或队列满丢诊断，不改变业务响应。结束时 best-effort 有界 drain；缺少记录只能记为未知。
 
-1. [`PublicModel`](../src/topology/route.rs) 的 public label 指向固定 Route，同时引用独立于 Provider spelling 的 canonical model。
-2. [`Route`](../src/topology/route.rs) 声明有序 Endpoint ID；[`Gateway::new`](../src/gateway/config.rs) 只允许显式激活其中的成员，仍保持 Route 顺序。
-3. [`Endpoint`](../src/topology/endpoint.rs) 同时绑定 Provider、canonical model、协议、trusted target、`upstream_model` 和凭据；同一 canonical model 的不同 Provider 成员可以有不同 `upstream_model`。
-4. [`execution::prepare`](../src/execution/attempt.rs) 使用所选 Endpoint 的 `upstream_model` 编码请求；下游响应的 `model` 仍为 public label。
+仅认证后的 POST 且唯一 `x-openbridge-probe-id` 符合 owner 语法才关联；无效/重复 ID 禁用观察但不改变请求准入。ID 不进入 IR、不选择上游、不透传或回显。诊断只保存封闭阶段/结果、HTTP、规范化 Retry-After、字节与时间及候选观察，不保存正文、header 原文、URL、reasoning、opaque 或凭据。
 
-静态绑定从 [`catalog`](../src/topology/catalog.rs) 查询，文件启用规则从 [`bootstrap`](../src/gateway/bootstrap.rs) 查询。注册关系不证明运行实例已启用；不要通过读取私有配置、输出凭据或记录正文来定位路由。
-
-### 受控请求诊断
-
-入口配置中的显式 `diagnostics` 路径启用受控 probe 元数据，不是内容日志或生产观测系统。文件必须新建，父目录由操作者准备；Unix 权限 0600。启动时路径无效/已存在会拒绝启动。运行时采用容量 64 的 try-send 队列、每文件 1 MiB 上限；写失败/队列满会丢诊断，不改变业务响应或等待写入。Ctrl-C 后 best-effort 有界 drain；强杀或未完成 I/O 可使记录缺失，不能据缺失推断成功。
-
-仅认证后的 POST 请求且唯一 `x-openbridge-probe-id` 符合 `<32位小写hex run-id>:<1–999999 attempt>` 时记录；无效/重复 ID 只禁用该请求诊断，不改变业务准入。它不进入 IR，不选择上游、不透传，不在响应中回显。
-
-白名单含关联 ID、最后阶段/结果、上游 HTTP、0–86400 秒内的规范化 Retry-After、接收/已 handoff 字节与时间偏移；另有最多 64 条候选观察（ordinal、stage、status、Retry-After、独立字节计数、耗时、封闭错误码及是否前移）。汇总字节是全链累计，候选记录不会把前一个 HTTP 状态归给尚未收到响应头的新尝试。合法 HTTP-date 也规范化；未知或超范围值不保存。绝不记录正文、header 原文、URL、原始错误、credential locator、reasoning 或 opaque。静态 JSON 在 EOF finalize 时解析，其失败可出现在 `terminal` 阶段；`complete` 仍只表示 server transport handoff，不证明客户端收到。该通道不改变原有 429/502 映射，不把 Retry-After 透传下游，不触发 retry/fallback。
-
-嵌入方可在共享 Gateway 前调用 `with_probe_diagnostics(path)`，结束时 `flush_probe_diagnostics().await` 做有界 drain。run/attempt 及 SDK/pi 账本的归属见 [probe 指南](probes.md)。
+Run/attempt 归属、指标解释与真实调用预算只由[Probe 指南](probes.md)维护；诊断不触发 retry/backoff，不把 Retry-After 透传下游。嵌入方可在共享 Gateway 前调用 `with_probe_diagnostics(path)`，结束时调用 `flush_probe_diagnostics().await`。
 
 ## 嵌入与验证
 
-`Gateway::new` 接受已编译 topology、显式 entries、凭据绑定和资源限制；不读取环境。`router()` 用于嵌入，调用方必须维持 listener 安全边界；`serve()` 自身检查 loopback 并连接 shutdown；丢弃 serve future 也会关闭其上游 workers，避免只能等待请求 deadline。显式跨协议 entry 仍走同一 IR/投影，无法表示的内容拒绝，不能作为任意转换保证。
+`Gateway::new` 接收编译 topology、显式 entries、凭据绑定与 limits，不读取环境。`router()` 的嵌入方维护 listener 安全边界；`serve()` 自行检查 loopback 并连接 shutdown，丢弃 serve future 也取消 owned workers。跨协议 entry 仍受相同 IR/投影约束。
 
-- `src/gateway/` 的 owner tests 验证认证、预算、scope、body 背压/取消/deadline/终态。
-- `src/transport/http_tests.rs` 验证实际 loopback HTTP 的 no-redirect/no-retry 和 timeout。
-- `tests/gateway.rs` 使用真实 Router 与 synthetic HTTP Provider；另外通过隔离环境启动 binary，拒绝代理捕获器阻止任何意外外部请求。
-- `tests/sdk/gateway.rs` 与 `gateway_text_loop.py` 让固定 SDK 经同一 Router/Provider 完成双协议 JSON/SSE 工具与 reasoning 续轮；与旧的纯 fixture SDK gates 分开。
-
-运行方式见[开发指南](development.md)。需要外部兼容性结论时，按 [probe 指南](probes.md)取得授权并验证选定实例/目标，不在本文保存结果。库级测试不能替代 HTTP 服务验收，局部通过也不证明部署、长稳、缓存收益或更广 Agent 行为。
+独立 owning-layer、Router/binary 与固定 SDK loopback 检查的职责和命令归[开发指南](development.md)。真实外部验证须按[Probe 指南](probes.md)另行授权；局部检查不证明一般 Agent、TLS/网络、缓存收益、负载或生产稳定性。运行结果不保存在本页。

@@ -11,7 +11,7 @@
 - JSON、multipart、binary、SSE 与双向 session 不混写为一种通用 request/streaming 能力；
 - Chat、Responses、专用 media endpoint 与 hosted tool 即使处理同一模态，也分别记录；
 - 只有共享同一 opaque identity/state machine 的 lifecycle operation 才放在同一文档；
-- 本索引和 [API 规范目录](api-specification-catalog.md)只导航，不复制字段级协议说明。
+- 本索引和 [API 规范导航](api-specification-catalog.md)只定位来源，不复制字段级协议说明或动态 endpoint 库存。
 
 动态 model、limit、enum、voice、format、tool 与 beta 状态必须按各文档快照日期理解，形成兼容结论前重新复核官方资料并固定目标
 SDK/文档版本。
@@ -102,10 +102,9 @@ SDK/文档版本。
 
 | 主题 | Request/response 形式 | Owner 文档 |
 |------|-----------------------|------------|
-| API family 与 fake 证据边界 | JSON/multipart/binary/SSE/resource/job/session 分层 | [API family 与 fake 证据边界](endpoint-adoption-and-fake-testing.md) |
+| Operation 与验证边界 | 区分 task、encoding、transport、lifecycle 与证据 | [采用与验证边界](endpoint-adoption-and-fake-testing.md) |
 | Moderations create | `POST /v1/moderations` JSON → JSON classifications | [Moderations Create](moderations-create.md) |
 
-跨 family 文档只比较 endpoint、transport/lifecycle 依赖与 fake 证据边界；字段级事实仍由上面各 operation owner 文档维护，
-不构成 OpenBridge 产品范围、当前实施状态或获准计划。
+跨 operation 文档只保留采用边界；字段级事实仍由各 operation owner 维护，验证方法归[验收基线](../conformance-baseline.md)。这些来源不构成产品范围、当前实现或获准计划。
 
 测试方法见[验收基线](../conformance-baseline.md)，本地执行入口见[开发指南](../../development.md)。不保存外部测试资产调查或执行结果；引入资产前另行核对版本、许可和独立预期。

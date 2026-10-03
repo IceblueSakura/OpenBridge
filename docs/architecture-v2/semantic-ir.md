@@ -84,7 +84,7 @@ Generation representation
 
 Continuation 表示下一次交互的要求和依赖，例如待回应 call、必须保留的内容组/opaque 值、有效 scope、工具或设置约束。它不是自动发送请求的命令、重试许可或脚本。语义层验证这些要求；执行/调用方另行决定是否继续、预算与权限。
 
-[显式 response 续轮检查](../../src/semantic/task/generation/turn.rs)以调用方提供的 local `TurnId` / `ResponseId` 关联不可变 response，不将它们冒充上游报告。它检查最终 history 中完整输出的 owner、值、顺序、声明的消息组成员及调用对应结果；缺失与进行中结果分别报告有序引用；齐备仅报告 `ResultsComplete`，不报告工具成功、产物完整、turn 完成或整体执行就绪。调用方可显式附加有界 group/prefix/settings 依赖证明，检查和后继关联都必须重验最终 history；后继 response 的依赖须另行声明。显式后继关联只校验当前及直接前驱 identity，不管理全局 identity、session 或调度；调用方负责全链唯一性、opaque 来源、目标可表示性及执行权限。既有 wire 不承载这些本地关联，也不因这项只读 API 扩大准入。
+实现入口：[本地 response 关联与结果检查](../../src/semantic/task/generation/turn.rs)。它使用调用方声明的本地身份，不代替上游 turn 报告、目标可表示性或执行权限；具体准入与尚未闭合范围见[continuation profile](responses-text-profile.md#response-outcome-and-continuation)及[实现缺口](../implementation-status/generation.md#语义与表示缺口)。
 
 单 response reducer 终止后不可复活。后继 response 可以延续同一逻辑 turn，但应以显式关系关联，不能拼接进前一个 response 伪装成一次成功，也不能借 continuation 绕过提交后的禁止 fallback 边界。无状态完整历史、远端 response/conversation 引用、store/background 分别建模；表示它们不隐式启用存储或远端状态解析。
 
@@ -106,7 +106,9 @@ Opaque 值由一个 owner 持有，来源/依赖 sidecar 不得另存一份可�
 
 工具声明、选择策略、调用、执行结果与进度分开。Client-executed 和 upstream-executed 工具保留执行方；结果按 call identity 关联而不是按名称或邻接位置猜测。不同种类 hosted/custom/function tool 的专有含义不能强制降成普通函数。工具内容可为文本、结构化值或有序媒体，但只接受所选能力的闭合类型，不允许任意递归容器或嵌套可执行调用。
 
-[工具结果值](../../src/semantic/task/generation/tool_result.rs)以同一 `ToolOutput` 表达文本、有界 `StructuredToolOutput`、`ToolExecutionError` 和有序 typed parts。结构化结果只有一份 JSON authority，不与原始字符串双存；构造保留已有 JSON 值的整数精度和对象顺序，不证明 Schema adherence。工具错误是有效的终态结果，不更改 generation outcome；artifact lifecycle 仍独立。选定媒体 parts 仅接受共享 URL/inline 图片值，来源验证不等于网络授权；opaque ID、音视频及资源服务仍不准入。Responses request/history 可承载选定 text/image parts，工具图片语义准入独立于 user 图片，共用目标图片格式/数量/字节/detail 限制；Chat 仍只承载文本结果。结构化/错误值、file ID、图片 cache breakpoint 和媒体输出/events 仍无准入 carrier，在 lowering 与低层 request 编码拒绝，不隐式 stringify 或丢弃错误/资源意义。
+结构化结果保留唯一值权威、整数精度与对象顺序，不和原始字符串双存。工具错误是有效结果，不改写 generation outcome；artifact lifecycle 仍独立。
+
+实现入口：[工具结果值](../../src/semantic/task/generation/tool_result.rs)。库类型不证明存在 wire carrier、Schema adherence 或资源执行服务；现有文本/图片准入与刻意拒绝由[Responses profile](responses-text-profile.md#tool-image-results)、[Chat profile](chat-text-profile.md#function-selection-and-tool-results)及[实现缺口](../implementation-status/generation.md#语义与表示缺口)维护。
 
 工具参数区分原始文本/语法输入、结构化值与尚未完整的片段。原始参数字符串若是协议的权威值，就不能被 SDK parsed view 覆盖或重序列化替换；结构化输入同样保留精度和其合同要求的顺序。解析视图与原值不能独立修改形成双份权威；从片段转为完整值需要相应能力的验证，不猜测补齐。
 
@@ -126,7 +128,7 @@ Schema 是带方言、顺序、严格性和有界引用关系的约束，不是�
 
 区分自动缓存亲和提示、前缀断点/策略、远端缓存资源引用和实际命中事实。已理解的缓存意图有 typed context/attachment owner，不只作为可丢弃 fidelity 保存；具体 TTL、前缀范围、投影顺序和可省略条件属于对应能力/profile。
 
-[库级前缀 intent 与证明](../../src/semantic/cache.rs)选择完整 item/group 边界，绑定 typed 前缀和 settings，并保守绑定显式 model/context/grouping 与独立的缓存兼容 scope。尾后 append 不影响所选前缀；边界内编辑、成员或设置/Schema/工具顺序变化以及 context/scope 改变均拒绝旧证明。Adapter Request 的便利入口检查当前 public binding；针对具体候选必须用最终 model/context 和该表示合同的受信 scope 检查。证明不注入 wire 缓存字段，不保证序列化字节相同、Provider 命中或收益；既有 hints、实际缓存策略、资源引用与所选前缀不是别名。
+实现入口：[前缀 intent 与证明](../../src/semantic/cache.rs)。证明检查调用方声明的 typed 依赖，不是 wire 缓存指令、序列化字节相等或 Provider 命中证据；实际 carrier 投影归[ADR 0011](decisions/0011-stable-admission-provider-cache.md)，尚缺的缓存能力归[实现缺口](../implementation-status/generation.md#语义与表示缺口)。
 
 缓存断点可能依赖整个先行前缀，而不只依赖被标记 part；前缀内容、工具/Schema 顺序和有效设置的变化必须反映到投影及依赖检查。不能把缓存 key、logical session、资源 ID 相互派生。Provider-owned cache 不变成网关回答缓存、负载均衡或粘性路由，见[ADR 0011](decisions/0011-stable-admission-provider-cache.md)。
 
@@ -134,7 +136,7 @@ Schema 是带方言、顺序、严格性和有界引用关系的约束，不是�
 
 共享计量语义应明确计数单位、范围、总量/细分关系、重叠或独立性、报告最终性及缺省含义，不维护 Provider 专属 Usage。Token、工具次数、费用及可见正文长度不是同一种计量。
 
-原始报告与合法派生视图只能有一个权威来源；派生需有命名公式、完整前提和 provenance，不能双存可独立修改的 totals。不存在跨协议通用的原始字段加法公式。累计快照不能逐事件相加；缺省/null 未报告值与显式零分开。来源不足时保留未知或拒绝所需投影，不从正文、请求或重叠细分猜测总量。当前 `Usage` 的字段与校验只是实现 profile，不证明所有计量关系已可表达。[命名派生视图](../../src/semantic/task/generation/usage_views.rs)仅支持已验证报告的 `input - cache-read` 与 `output - reasoning`：对应子计数缺失则未知，显式零保留，借用原报告而不另存总量。cache-write、模态、预测计数不参与这些公式；余量不是费用或可见文本计数，视图也不证明快照最终性，不允许累加累计报告。
+原始报告与合法派生视图只能有一个权威来源；派生需有命名公式、完整前提和 provenance，不能双存可独立修改的 totals。不存在跨协议通用的原始字段加法公式。累计快照不能逐事件相加；缺省/null 未报告值与显式零分开。来源不足时保留未知或拒绝所需投影，不从正文、请求或重叠细分猜测总量。当前 `Usage` 的字段与校验只是实现 profile，不证明所有计量关系已可表达。[命名派生视图](../../src/semantic/task/generation/usage_views.rs)借用原报告，具体公式与前提归代码，不证明费用、可见正文长度或快照最终性。
 
 ## 9. 变换与依赖合同
 
@@ -148,7 +150,7 @@ Schema 是带方言、顺序、严格性和有界引用关系的约束，不是�
 | 删除 | 删除 owner 附着值；悬空调用、引用或组约束须显式修复或拒绝，不偷偷恢复或级联丢弃其他语义 |
 | 修改控制/上下文 | 重算 effective settings、continuation/cache/resource 要求，不能把旧 reported fact 当新设置 |
 
-[进程内依赖证明](../../src/semantic/task/generation/dependency.rs)提供显式 message group / prefix-through-owner 范围及可选 settings 绑定。证明只保留摘要；组外变换或前缀尾后 append 不影响所选范围，范围内的值、顺序、成员、identity 或绑定设置变化必须重验失败。Schema 属性顺序及 redacted opaque/资源正文均参与摘要。范围由能力合同选择，不从相邻 item 猜测；证明不授权 replay，不构成持久化或客户端 carrier。
+实现入口：[进程内依赖证明](../../src/semantic/task/generation/dependency.rs)。范围由能力合同显式选择，不从邻接推断；证明只保留摘要，不授权 replay，也不是持久化身份、issuer 验证或客户端 carrier。具体绑定与投影归[protocol/lowering](protocol-and-lowering.md#source-records)。
 
 变换后重新验证整体语义并派生 requirements；每个固定候选从相同不可变输入独立 lowering。若需损失转换，必须具名、限定前提、显式获准并说明可观察后果；没有泛化 `best_effort`。
 

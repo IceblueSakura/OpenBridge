@@ -1,128 +1,30 @@
-# Proposed Rust Layout
+# Rust Module Boundaries
 
-This layout is intentionally allowed to break predecessor crate paths. It describes ownership direction, not a finalized file inventory. Generation follows [Agent-first, protocol-neutral IR](semantic-ir.md); typed request context, relations and attachment-specific extensions must have explicit homes before implementation. This sketch is not a requirement to preserve current pre-release Rust types or to restrict codecs to OpenAI. Do not mirror the SDK source tree or create speculative empty modules.
-
-```text
-src/
-  semantic/
-    mod.rs
-    value/
-    context.rs
-    resource/
-    task/
-      mod.rs
-      generation/
-        request.rs
-        response.rs
-        event.rs
-        tool.rs
-        reasoning.rs
-        requirements.rs
-        validate.rs
-      embedding/
-      image/
-      speech/
-
-  adapter/
-    mod.rs
-    request.rs
-
-  protocol/
-    mod.rs
-    adaptation.rs
-    fidelity.rs
-    openai/
-      chat/
-        request.rs
-        response.rs
-        event.rs
-      responses/
-        request.rs
-        response.rs
-        event.rs
-
-  topology/
-    model.rs
-    public_contract.rs
-    endpoint.rs
-    route.rs
-    compile.rs
-
-  lowering/
-    mod.rs
-    generation.rs
-    embedding.rs
-    image.rs
-    speech.rs
-
-  provider/
-    mod.rs
-    definition.rs
-    auth.rs
-    errors.rs
-
-  execution/
-    plan.rs
-    attempt.rs
-    lifecycle.rs
-    delivery.rs
-
-  gateway/
-    config.rs
-    admission.rs
-    http.rs
-    body.rs
-    bootstrap.rs
-  bin/
-    openbridge.rs
-  transport/
-    http.rs
-    sse.rs
-  credential/
-  observability/
-  ingress/
-```
+This page defines dependency and decomposition constraints, not a proposed file inventory. Actual ownership and data flow belong to [current architecture](../architecture.md); semantic concepts belong to the [Agent-first design](semantic-ir.md). Current pre-release paths may change within an authorized slice. Do not mirror SDK directories or pre-create modules for unimplemented tasks.
 
 ## Dependency direction
 
-```text
-semantic
-   ^
-protocol     topology
-   ^          ^
-   +---- lowering
-            ^
-         planning
-            ^
-         execution
-            ^
- ingress -> transport/credential
-```
+- `semantic` owns task values, validation, requirements and reducers, without protocol/provider/topology/execution dependencies.
+- `protocol` maps shared semantics to declared wire profiles. Source records and scoped carriers are not another task authority.
+- `lowering` checks immutable final semantics against a supplied representation contract; it does not look up topology, credentials or network targets.
+- `adapter` composes protocol rules and lowering, including context projection, without runtime discovery or I/O.
+- `topology` binds canonical/public models, fixed Routes and trusted Endpoints. Model support vocabulary comes from semantic contracts, not copied protocol flags.
+- `execution` consumes compiled bindings and adapters. Pure candidate/fallback policy stays separate from bounded attempt intake and delivery state.
+- `transport` handles prepared trusted HTTP parts and bounded framing, not Task IR.
+- `credential` separates manager, authorization drivers and concurrent file storage; runtime access is a short-lived binding, not semantic data.
+- `gateway` separates explicit private-file bootstrap, authenticated admission, trusted policy, upstream intake, downstream body ownership and observation. It does not introduce ambient credential fallback or a general plugin framework.
 
-More precisely:
-
-- `semantic` depends on no protocol/provider/topology/execution module.
-- `protocol` depends on semantic values and protocol-local DTOs.
-- Model support vocabulary lives in `semantic::task::generation::contract`; topology references it directly. Endpoint bindings carry explicit adapter/representation contracts, never inferred upstream aliases.
-- `lowering` depends on semantic + protocol profile contracts + compiled endpoint contracts.
-- `adapter` composes protocol rules and target lowering, and owns context projection; it does not access topology, credentials or network.
-- `execution` consumes plans and adapters, owns bounded intake/delivery state and exposes commit acknowledgement to the I/O caller. It does not interpret context fields.
-- `transport` is semantically blind.
-- `gateway` owns startup entry/credential resolution, authenticated public-task admission and trusted budget policy. `exchange` coordinates the fixed chain, `intake` owns one upstream decode/projection, and `body` owns publication/handoff/cancellation. Library and Gateway reuse one pure candidate selector. Its minimal environment bootstrap is not a general configuration or plugin framework.
+For direct owner links, use [architecture](../architecture.md#模块所有权). Keep these boundaries when splitting modules by responsibility, not line count; preserve intended public paths through explicit re-exports.
 
 ## Types to avoid
 
-Do not recreate predecessor concepts under new names:
-
-- generic `ApiRequest { protocol, Bytes }` as the semantic pipeline carrier;
-- request analyzers that independently reconstruct semantic facts from JSON;
-- `Native` / `Bridge` plan enums;
-- provider body hooks accepting arbitrary mutable JSON;
-- universal capabilities with protocol, semantic and execution flags mixed together;
-- raw source envelopes stored inside semantic request/response objects.
+- Generic `ApiRequest { protocol, Bytes }` as the semantic pipeline carrier.
+- Request analyzers that independently reconstruct semantic facts from JSON.
+- `Native` / `Bridge` plan enums.
+- Provider body hooks accepting arbitrary mutable JSON.
+- Universal capabilities mixing semantic, representation and execution flags.
+- Raw source envelopes stored inside semantic request/response objects.
 
 ## Crate split
 
-Do not split into multiple crates initially. Module boundaries are sufficient while the semantic API is unstable.
-
-A later split is justified only if dependency enforcement or reuse benefits outweigh iteration cost. A likely future boundary is a pure `openbridge-semantic` crate containing semantic IR, validation and requirement projection.
+Keep one crate while semantic APIs are unstable. Split only when enforceable dependency boundaries or reuse justify the iteration cost; a pure semantic crate is a possible boundary, not a scheduled implementation.
