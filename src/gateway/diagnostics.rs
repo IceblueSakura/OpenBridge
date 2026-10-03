@@ -305,16 +305,8 @@ mod tests {
     }
     #[tokio::test]
     async fn metadata_is_closed_bounded_and_never_replaces_existing_files() {
-        let dir = std::env::temp_dir().join(format!(
-            "openbridge-diag-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir(&dir).unwrap();
-        let path = dir.join("events.jsonl");
+        let directory = crate::test_files::private_directory();
+        let path = directory.path().join("events.jsonl");
         let sink = Sink::open(&path).unwrap();
         assert!(Sink::open(&path).is_err());
         let mut headers = HeaderMap::new();
@@ -341,7 +333,5 @@ mod tests {
         assert_eq!(value["retry_after_seconds"], 7);
         assert!(text.len() <= LIMIT);
         drop(sink);
-        std::fs::remove_file(path).unwrap();
-        std::fs::remove_dir(dir).unwrap();
     }
 }

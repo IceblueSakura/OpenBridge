@@ -123,6 +123,25 @@ pub struct ProviderDefinition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+    proptest! {
+        #![proptest_config(crate::test_properties::config())]
+        #[test]
+        fn property_origin_raw_delimiters_and_controls_cannot_be_normalized_away(
+            host in "[a-z]{1,20}", port in 1u16..=65535,
+            bad in prop::sample::select(vec!['\n', '\r', '\t', '\\', '@', '%', '?', '#', '/']), position in 0usize..70
+        ) {
+            let mut origin = format!("https://{host}.invalid:{port}");
+            prop_assert!(TrustedOrigin::parse(&origin).is_ok());
+            origin.insert(position % (origin.len()+1), bad);
+            prop_assert!(TrustedOrigin::parse(&origin).is_err());
+        }
+        #[test]
+        fn property_origin_numeric_http_aliases_never_become_literal_loopback(host in any::<u32>()) {
+            let origin = format!("http://{host}");
+            prop_assert!(TrustedOrigin::parse(&origin).is_err());
+        }
+    }
 
     #[test]
     fn trusted_origin_accepts_https_and_loopback_http_only() {

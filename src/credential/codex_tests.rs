@@ -404,12 +404,12 @@ async fn rejected_refresh_does_not_repeat_consumed_grants() {
 fn legacy_snapshot_is_rejected_without_reading_or_rewriting_it() {
     use std::{fs::DirBuilder, os::unix::fs::DirBuilderExt};
     let dir = Directory::new();
-    DirBuilder::new().mode(0o700).create(&dir.0).unwrap();
+    DirBuilder::new().mode(0o700).create(&dir.path).unwrap();
     let original = b"synthetic obsolete snapshot; intentionally not parsed";
-    let path = dir.0.join("accounts.json");
+    let path = dir.path.join("accounts.json");
     std::fs::write(&path, original).unwrap();
     assert!(matches!(
-        super::test_support::offline(&dir.0),
+        super::test_support::offline(&dir.path),
         Err(CredentialError::LegacyStore)
     ));
     assert_eq!(std::fs::read(&path).unwrap(), original);
@@ -418,7 +418,7 @@ fn legacy_snapshot_is_rejected_without_reading_or_rewriting_it() {
 #[test]
 fn codex_principal_scope_is_validated_by_its_driver_on_reload() {
     let dir = Directory::new();
-    let pool = super::test_support::offline(&dir.0).unwrap();
+    let pool = super::test_support::offline(&dir.path).unwrap();
     let mut account = model::Account::new("codex", "personal", CLIENT);
     account.identity = Some(VerifiedIdentity {
         subject: "person-a".into(),

@@ -1,24 +1,9 @@
 //! API-key CLI input and on-disk shape are checked independently of its encoder.
+use crate::test_files::Directory;
 use serde_json::Value;
-use std::{path::PathBuf, process::Stdio, time::Duration};
+use std::{process::Stdio, time::Duration};
 use tokio::{process::Command, time::timeout};
 
-struct Directory(PathBuf);
-impl Directory {
-    fn new() -> Self {
-        let mut bytes = [0u8; 16];
-        getrandom::fill(&mut bytes).unwrap();
-        let suffix: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        Self(std::env::temp_dir().join(format!("openbridge-key-cli-{suffix}")))
-    }
-}
-impl Drop for Directory {
-    fn drop(&mut self) {
-        if self.0.exists() {
-            std::fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
-}
 async fn command(dir: &Directory, args: &[&str], input: Option<&[u8]>) -> std::process::Output {
     use std::os::unix::fs::PermissionsExt;
     let input_dir = tempfile::Builder::new()
@@ -50,7 +35,7 @@ async fn command(dir: &Directory, args: &[&str], input: Option<&[u8]>) -> std::p
     let child = Command::new(env!("CARGO_BIN_EXE_openbridge-auth"))
         .args(args)
         .arg("--store")
-        .arg(&dir.0)
+        .arg(&dir.path)
         .env_clear()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -86,7 +71,7 @@ async fn api_key_cli_uses_explicit_file_and_never_reports_material() {
     assert_eq!(status["revision"], 1);
     assert_eq!(status["state"], "enabled");
     let record: Value =
-        serde_json::from_slice::<Value>(&std::fs::read(dir.0.join("synthetic.json")).unwrap())
+        serde_json::from_slice::<Value>(&std::fs::read(dir.path.join("synthetic.json")).unwrap())
             .unwrap()["api_keys"]["one"]
             .take();
     assert_eq!(record["kind"], "api_key");
@@ -138,7 +123,7 @@ async fn api_key_cli_uses_explicit_file_and_never_reports_material() {
     .await;
     assert!(removed.status.success());
     let record: Value =
-        serde_json::from_slice::<Value>(&std::fs::read(dir.0.join("synthetic.json")).unwrap())
+        serde_json::from_slice::<Value>(&std::fs::read(dir.path.join("synthetic.json")).unwrap())
             .unwrap()["api_keys"]["one"]
             .take();
     assert!(record["secret"].is_null());
@@ -173,7 +158,7 @@ async fn api_key_cli_rejects_argv_secrets_and_invalid_input_without_creating_sto
         let result = command(&dir, &args, None).await;
         assert!(!result.status.success());
         assert!(!String::from_utf8_lossy(&result.stderr).contains("never-print-this"));
-        assert!(!dir.0.exists());
+        assert!(!dir.path.exists());
     }
     for input in [
         b"".as_slice(),
@@ -197,6 +182,6 @@ async fn api_key_cli_rejects_argv_secrets_and_invalid_input_without_creating_sto
         )
         .await;
         assert!(!result.status.success());
-        assert!(!dir.0.exists());
+        assert!(!dir.path.exists());
     }
 }

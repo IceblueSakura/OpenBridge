@@ -88,6 +88,25 @@ fn preflight(pattern: &str) -> Result<(), GenerationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+    proptest! {
+        #![proptest_config(crate::test_properties::config())]
+        #[test]
+        fn property_regex_group_bounds(depth in 0usize..129, open in prop::sample::select(vec!["(", "(?:", "(?=", "(?<="])) {
+            let pattern = format!("{}a{}", open.repeat(depth), ")".repeat(depth));
+            prop_assert_eq!(validate(&pattern), if depth <= MAX_DEPTH { Ok(()) } else { Err(GenerationError::Limit) });
+        }
+        #[test]
+        fn property_regex_delimiters_in_classes_and_escapes_are_not_groups(n in 1025usize..2048) {
+            let class = format!("[{}]", "(".repeat(n));
+            prop_assert!(validate(&class).is_ok());
+            prop_assert!(validate(&r"\(".repeat(n)).is_ok());
+        }
+        #[test]
+        fn property_regex_arbitrary_bounded_utf8_never_panics(chars in prop::collection::vec(any::<char>(), 0..2048)) {
+            let _ = validate(&chars.into_iter().collect::<String>());
+        }
+    }
     #[test]
     fn extreme_nesting_and_flat_work_are_rejected_on_a_small_worker_stack() {
         std::thread::Builder::new()

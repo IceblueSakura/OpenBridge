@@ -90,14 +90,8 @@ async fn response(
 }
 #[tokio::test]
 async fn diagnostic_status_and_final_intake_are_from_the_original_attempt() {
-    let path = std::env::temp_dir().join(format!(
-        "openbridge-body-diag-{}-{}.jsonl",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let directory = crate::test_files::private_directory();
+    let path = directory.path().join("events.jsonl");
     let gate = gateway(Limits::default())
         .with_probe_diagnostics(&path)
         .unwrap();
@@ -141,7 +135,6 @@ async fn diagnostic_status_and_final_intake_are_from_the_original_attempt() {
             }
         );
     }
-    std::fs::remove_file(path).unwrap();
 }
 async fn bounded<T>(future: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(2), future)

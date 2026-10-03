@@ -16,6 +16,10 @@
 //! - raw per-call reports go to the gitignored `testdata/runtime/` tree and hold
 //!   no keys, auth headers or credential locators.
 
+#[cfg(test)]
+#[path = "../tests/support/filesystem.rs"]
+mod test_files;
+
 use openbridge::{
     adapter::{Adapter, Dialect},
     execution::{Attempt, AttemptError, ResponseDelivery, admit, prepare},
@@ -1640,23 +1644,30 @@ mod tests {
     }
     #[test]
     fn credential_parse_errors_never_include_source_lines() {
-        let path = std::env::temp_dir().join(format!(
-            "openbridge-synthetic-invalid-{}-{}.toml",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        struct Remove(std::path::PathBuf);
-        impl Drop for Remove {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
+        use std::io::Write;
+        let directory = test_files::private_directory();
+        let path = directory.path().join("synthetic.json");
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
         }
-        let _cleanup = Remove(path.clone());
-        std::fs::write(&path, "api_keys = [\"synthetic-must-not-appear\" invalid").unwrap();
-        let error = load_credentials(path.to_str().unwrap()).err().unwrap();
+        let mut file = options.open(&path).unwrap();
+        file.write_all(br#"{"api_keys":["synthetic-must-not-appear" invalid"#)
+            .unwrap();
+        drop(file);
+        assert!(openbridge::credential::read_private_file(&path, 4096).is_ok());
+        let manager =
+            openbridge::credential::CredentialManager::new(directory.path(), vec![]).unwrap();
+        assert!(matches!(
+            manager.pools(),
+            Err(openbridge::credential::CredentialError::Storage)
+        ));
+        let error = load_credentials(directory.path().to_str().unwrap())
+            .err()
+            .unwrap();
         assert_eq!(error, "invalid credential configuration");
     }
 }

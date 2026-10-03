@@ -167,7 +167,7 @@ async fn browser_login_refresh_and_revoke_use_one_bound_file_session() {
         manager.logout("codex", "personal", true).await.unwrap(),
         LogoutOutcome::Revoked
     );
-    let record = super::test_support::read_account(&dir.0, "codex", "personal");
+    let record = super::test_support::read_account(&dir.path, "codex", "personal");
     assert!(record["credential"].is_null());
     assert_eq!(record["identity"]["scope"], "workspace-a");
     authority.done();
@@ -188,14 +188,14 @@ async fn missing_nonce_wrong_nonce_and_changed_workspace_preserve_the_previous_s
         let first = browser_login(&manager, &authority, 0, "workspace-a", false)
             .await
             .unwrap();
-        let previous = super::test_support::read_account(&dir.0, "codex", "personal");
+        let previous = super::test_support::read_account(&dir.path, "codex", "personal");
         assert_eq!(
             browser_login(&manager, &authority, nonce_mode, workspace, false)
                 .await
                 .unwrap_err(),
             error
         );
-        let current = super::test_support::read_account(&dir.0, "codex", "personal");
+        let current = super::test_support::read_account(&dir.path, "codex", "personal");
         assert_eq!(current["credential"], previous["credential"]);
         assert_eq!(current["identity"], previous["identity"]);
         let status = manager.list(Some("codex")).unwrap().remove(0);

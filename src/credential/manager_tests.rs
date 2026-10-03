@@ -146,7 +146,7 @@ fn manager(dir: &test_support::Directory) -> (CredentialManager, Arc<Notify>, Ar
     let entered = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let manager = CredentialManager::new(
-        &dir.0,
+        &dir.path,
         vec![Arc::new(ThirdDriver {
             entered: entered.clone(),
             release: release.clone(),
@@ -165,10 +165,10 @@ async fn independent_driver_uses_the_same_lifecycle_and_readable_account_file() 
         .unwrap();
     assert_eq!(first.generation, 1);
     assert_eq!(first.access, AccessState::Unknown);
-    let document = test_support::read_account(&dir.0, "third", "personal");
+    let document = test_support::read_account(&dir.path, "third", "personal");
     assert_eq!(document["profile"], "third");
     let reopened = CredentialManager::new(
-        &dir.0,
+        &dir.path,
         vec![Arc::new(ThirdDriver {
             entered: Arc::new(Notify::new()),
             release: Arc::new(Notify::new()),

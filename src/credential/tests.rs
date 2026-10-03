@@ -124,11 +124,11 @@ async fn pool_persists_isolated_accounts_and_local_logout() {
     {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(
-            std::fs::metadata(&dir.0).unwrap().permissions().mode() & 0o777,
+            std::fs::metadata(&dir.path).unwrap().permissions().mode() & 0o777,
             0o700
         );
         assert_eq!(
-            std::fs::metadata(dir.0.join("grok.json"))
+            std::fs::metadata(dir.path.join("grok.json"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -349,25 +349,25 @@ async fn revocation_failure_still_clears_only_local_session() {
 fn store_rejects_symlinks_insecure_permissions_and_invalid_aliases() {
     use std::os::unix::fs::{PermissionsExt, symlink};
     let dir = Directory::new();
-    let pool = super::test_support::offline(&dir.0).unwrap();
+    let pool = super::test_support::offline(&dir.path).unwrap();
     assert_eq!(
         pool.store.account_lock("grok", "../escape").unwrap_err(),
         CredentialError::InvalidInput
     );
-    std::fs::set_permissions(&dir.0, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(&dir.path, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(matches!(
-        super::test_support::offline(&dir.0),
+        super::test_support::offline(&dir.path),
         Err(CredentialError::Storage)
     ));
-    std::fs::set_permissions(&dir.0, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&dir.path, std::fs::Permissions::from_mode(0o700)).unwrap();
     let outside = Directory::new();
-    std::fs::create_dir(&outside.0).unwrap();
-    std::fs::write(outside.0.join("private"), "do not read").unwrap();
+    std::fs::create_dir(&outside.path).unwrap();
+    std::fs::write(outside.path.join("private"), "do not read").unwrap();
     drop(pool.store.account_lock("grok", "alice").unwrap());
-    symlink(outside.0.join("private"), dir.0.join("grok.json")).unwrap();
+    symlink(outside.path.join("private"), dir.path.join("grok.json")).unwrap();
     assert_eq!(pool.list(None).unwrap_err(), CredentialError::Storage);
     assert_eq!(
-        std::fs::read_to_string(outside.0.join("private")).unwrap(),
+        std::fs::read_to_string(outside.path.join("private")).unwrap(),
         "do not read"
     );
 }

@@ -3,35 +3,18 @@
 #[path = "credential/api_keys.rs"]
 mod api_keys;
 #[cfg(unix)]
+#[path = "support/filesystem.rs"]
+mod test_files;
+#[cfg(unix)]
 mod unix {
     use serde_json::{Value, json};
-    use std::{
-        fs::{DirBuilder, OpenOptions},
-        io::Write,
-        os::unix::fs::{DirBuilderExt, OpenOptionsExt},
-        path::{Path, PathBuf},
-    };
+    use std::{fs::OpenOptions, io::Write, os::unix::fs::OpenOptionsExt, path::Path};
     use tokio::{
         process::Command,
         time::{Duration, timeout},
     };
 
-    struct Directory(PathBuf);
-    impl Directory {
-        fn new() -> Self {
-            let mut bytes = [0u8; 16];
-            getrandom::fill(&mut bytes).unwrap();
-            let suffix: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            let path = std::env::temp_dir().join(format!("openbridge-auth-cli-{suffix}"));
-            DirBuilder::new().mode(0o700).create(&path).unwrap();
-            Self(path)
-        }
-    }
-    impl Drop for Directory {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
+    use crate::test_files::Directory;
     async fn command(args: &[&std::ffi::OsStr]) -> std::process::Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_openbridge-auth"));
         command
@@ -84,26 +67,26 @@ mod unix {
     }
     #[tokio::test]
     async fn binary_uses_account_files_and_account_locks_without_cross_profile_effects() {
-        let dir = Directory::new();
+        let dir = Directory::existing();
         save(
-            &dir.0,
+            &dir.path,
             "grok",
             "one",
             &account("grok", "one", "synthetic-person-one"),
         );
         save(
-            &dir.0,
+            &dir.path,
             "grok",
             "two",
             &account("grok", "two", "synthetic-person-two"),
         );
         save(
-            &dir.0,
+            &dir.path,
             "codex",
             "one",
             &account("codex", "one", "synthetic-person-one"),
         );
-        let path = dir.0.as_os_str();
+        let path = dir.path.as_os_str();
         let all = command(&["list".as_ref(), "--store".as_ref(), path]).await;
         assert!(all.status.success());
         let statuses: Value = serde_json::from_slice(&all.stdout).unwrap();
@@ -124,7 +107,7 @@ mod unix {
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(dir.0.join("grok.oauth.one.lock"))
+            .open(dir.path.join("grok.oauth.one.lock"))
             .unwrap();
         lock.lock().unwrap();
         let busy = command(&[
@@ -150,13 +133,13 @@ mod unix {
         ])
         .await;
         assert!(unrelated.status.success());
-        assert!(read(&dir.0, "grok", "two")["credential"].is_null());
+        assert!(read(&dir.path, "grok", "two")["credential"].is_null());
         assert_eq!(
-            read(&dir.0, "grok", "one")["credential"]["refresh"],
+            read(&dir.path, "grok", "one")["credential"]["refresh"],
             "synthetic-refresh"
         );
         assert_eq!(
-            read(&dir.0, "codex", "one")["credential"]["refresh"],
+            read(&dir.path, "codex", "one")["credential"]["refresh"],
             "synthetic-refresh"
         );
         drop(lock);
@@ -170,7 +153,7 @@ mod unix {
         ])
         .await;
         assert!(logout.status.success());
-        let snapshot = read(&dir.0, "grok", "one");
+        let snapshot = read(&dir.path, "grok", "one");
         assert_eq!(snapshot["state"], "signed_out");
         assert!(snapshot["credential"].is_null());
         assert_eq!(snapshot["identity"]["subject"], "synthetic-person-one");
@@ -188,7 +171,7 @@ mod unix {
         let store_lock = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(dir.0.join("store.lock"))
+            .open(dir.path.join("store.lock"))
             .unwrap();
         store_lock.lock().unwrap();
         let busy = command(&["list".as_ref(), "--store".as_ref(), path]).await;
@@ -196,19 +179,19 @@ mod unix {
     }
     #[tokio::test]
     async fn binary_refuses_old_format_and_reports_quarantine_without_exposing_tokens() {
-        let legacy = Directory::new();
-        std::fs::write(legacy.0.join("accounts.json"), "synthetic obsolete data").unwrap();
-        let output = command(&["list".as_ref(), "--store".as_ref(), legacy.0.as_os_str()]).await;
+        let legacy = Directory::existing();
+        std::fs::write(legacy.path.join("accounts.json"), "synthetic obsolete data").unwrap();
+        let output = command(&["list".as_ref(), "--store".as_ref(), legacy.path.as_os_str()]).await;
         assert!(!output.status.success());
         assert!(String::from_utf8_lossy(&output.stderr).contains("legacy"));
         assert_eq!(
-            std::fs::read_to_string(legacy.0.join("accounts.json")).unwrap(),
+            std::fs::read_to_string(legacy.path.join("accounts.json")).unwrap(),
             "synthetic obsolete data"
         );
 
-        let dir = Directory::new();
+        let dir = Directory::existing();
         save(
-            &dir.0,
+            &dir.path,
             "codex",
             "one",
             &account("codex", "one", "synthetic-person"),
@@ -217,11 +200,11 @@ mod unix {
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(dir.0.join("codex.oauth.one.pending"))
+            .open(dir.path.join("codex.oauth.one.pending"))
             .unwrap()
             .write_all(b"true")
             .unwrap();
-        let output = command(&["list".as_ref(), "--store".as_ref(), dir.0.as_os_str()]).await;
+        let output = command(&["list".as_ref(), "--store".as_ref(), dir.path.as_os_str()]).await;
         assert!(output.status.success());
         let statuses: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(statuses[0]["state"], "needs_reauthorization");
@@ -231,7 +214,7 @@ mod unix {
             "codex".as_ref(),
             "logout".as_ref(),
             "--store".as_ref(),
-            dir.0.as_os_str(),
+            dir.path.as_os_str(),
             "--account".as_ref(),
             "one".as_ref(),
             "--revoke".as_ref(),
@@ -239,17 +222,17 @@ mod unix {
         .await;
         assert!(!logout.status.success());
         assert!(String::from_utf8_lossy(&logout.stdout).contains("NOT confirmed"));
-        assert!(read(&dir.0, "codex", "one")["credential"].is_null());
+        assert!(read(&dir.path, "codex", "one")["credential"].is_null());
         assert_eq!(
-            std::fs::read(dir.0.join("codex.oauth.one.pending")).unwrap(),
+            std::fs::read(dir.path.join("codex.oauth.one.pending")).unwrap(),
             b"false"
         );
     }
 
     #[tokio::test]
     async fn browser_registration_errors_are_rejected_before_store_creation() {
-        let dir = Directory::new();
-        let store = dir.0.join("not-created");
+        let dir = Directory::existing();
+        let store = dir.path.join("not-created");
         for flags in [
             vec![
                 "codex",
@@ -305,8 +288,8 @@ mod unix {
             io::{AsyncBufReadExt, AsyncReadExt, BufReader},
             net::TcpListener,
         };
-        let dir = Directory::new();
-        let store = dir.0.join("sessions");
+        let dir = Directory::existing();
+        let store = dir.path.join("sessions");
         let egress = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let proxy = format!("http://{}", egress.local_addr().unwrap());
         let mut child = Command::new(env!("CARGO_BIN_EXE_openbridge-auth"))

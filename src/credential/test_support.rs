@@ -8,7 +8,6 @@ use axum::{
 use serde_json::Value;
 use std::{
     collections::VecDeque,
-    path::PathBuf,
     sync::{Arc, Mutex},
 };
 use tokio::sync::Notify;
@@ -90,15 +89,7 @@ impl CredentialManager {
     }
 }
 
-pub(crate) fn private_directory() -> tempfile::TempDir {
-    let mut builder = tempfile::Builder::new();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        builder.permissions(std::fs::Permissions::from_mode(0o700));
-    }
-    builder.tempdir().unwrap()
-}
+pub(crate) use crate::test_files::{Directory, private_directory};
 
 pub(super) fn read_account(root: &std::path::Path, profile: &str, alias: &str) -> Value {
     serde_json::from_slice::<Value>(&std::fs::read(root.join(format!("{profile}.json"))).unwrap())
@@ -106,22 +97,6 @@ pub(super) fn read_account(root: &std::path::Path, profile: &str, alias: &str) -
         .take()
 }
 
-pub(super) struct Directory(pub PathBuf);
-impl Directory {
-    pub(super) fn new() -> Self {
-        let mut bytes = [0u8; 16];
-        getrandom::fill(&mut bytes).unwrap();
-        let name: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        Self(std::env::temp_dir().join(format!("openbridge-auth-test-{name}")))
-    }
-}
-impl Drop for Directory {
-    fn drop(&mut self) {
-        if self.0.exists() {
-            std::fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
-}
 pub(super) struct Step {
     pub path: &'static str,
     pub expected: Vec<(&'static str, &'static str)>,
@@ -302,7 +277,7 @@ impl Authority {
         assert!(self.steps.lock().unwrap().is_empty());
     }
     pub fn pool(&self, dir: &Directory) -> CredentialManager {
-        CredentialManager::synthetic(&dir.0, &self.origin).unwrap()
+        CredentialManager::synthetic(&dir.path, &self.origin).unwrap()
     }
 }
 impl Drop for Authority {

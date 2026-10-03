@@ -4,7 +4,7 @@
 fn oauth_pool_borrows_distinct_principals_without_refresh_or_cross_profile_substitution() {
     use super::model::{Account, AccountState};
     let dir = test_support::Directory::new();
-    let manager = CredentialManager::new(&dir.0, builtin_drivers(None).unwrap()).unwrap();
+    let manager = CredentialManager::new(&dir.path, builtin_drivers(None).unwrap()).unwrap();
     for alias in ["first", "second"] {
         let mut account = Account::new("codex", alias, "app_EMoamEEZ73f0CkXaXp7hrann");
         account.identity = Some(VerifiedIdentity {
@@ -78,7 +78,7 @@ use super::*;
 #[test]
 fn provider_pool_keeps_order_and_rejects_duplicates_stale_updates_or_missing_keys() {
     let dir = test_support::Directory::new();
-    let manager = CredentialManager::new(&dir.0, vec![]).unwrap();
+    let manager = CredentialManager::new(&dir.path, vec![]).unwrap();
     for name in ["first", "second"] {
         manager
             .add_api_key(

@@ -27,7 +27,7 @@ fn active() -> Account {
 #[test]
 fn provider_document_merges_independent_records_without_losing_other_credentials() {
     let dir = Directory::new();
-    let manager = CredentialManager::new(&dir.0, vec![]).unwrap();
+    let manager = CredentialManager::new(&dir.path, vec![]).unwrap();
     manager
         .store
         .transaction()
@@ -41,7 +41,7 @@ fn provider_document_merges_independent_records_without_losing_other_credentials
             Secret::new("synthetic-key".into()).unwrap(),
         )
         .unwrap();
-    let file = dir.0.join("synthetic.json");
+    let file = dir.path.join("synthetic.json");
     let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
     assert_eq!(doc["provider"], "synthetic");
     assert_eq!(doc["oauth"]["one"]["credential"]["access"], "old-access");
@@ -61,14 +61,14 @@ fn publication_faults_distinguish_unchanged_data_from_uncertain_replacement() {
         PublishStep::CleanupDirectorySync,
     ] {
         let dir = Directory::new();
-        let store = Store::open(&dir.0).unwrap();
+        let store = Store::open(&dir.path).unwrap();
         let mut account = active();
         store.transaction().unwrap().publish(&account).unwrap();
         account.credential.as_mut().unwrap().access = Secret::new("new-access".into()).unwrap();
         account.advance().unwrap();
         store.fail_at(fault);
         let result = store.transaction().unwrap().publish(&account);
-        let reopened = Store::open(&dir.0).unwrap();
+        let reopened = Store::open(&dir.path).unwrap();
         let loaded = reopened
             .transaction()
             .unwrap()
@@ -102,7 +102,7 @@ fn publication_faults_distinguish_unchanged_data_from_uncertain_replacement() {
             loaded.account.unwrap().credential.unwrap().access.expose(),
             if replaced { "new-access" } else { "old-access" }
         );
-        assert!(std::fs::read_dir(&dir.0).unwrap().all(|entry| {
+        assert!(std::fs::read_dir(&dir.path).unwrap().all(|entry| {
             !entry
                 .unwrap()
                 .file_name()
@@ -116,9 +116,9 @@ fn publication_faults_distinguish_unchanged_data_from_uncertain_replacement() {
 fn account_file_binding_permissions_links_and_size_are_enforced() {
     use std::os::unix::fs::{PermissionsExt, symlink};
     let dir = Directory::new();
-    let store = Store::open(&dir.0).unwrap();
+    let store = Store::open(&dir.path).unwrap();
     store.transaction().unwrap().publish(&active()).unwrap();
-    let path = dir.0.join("synthetic.json");
+    let path = dir.path.join("synthetic.json");
     assert_eq!(
         std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
         0o600
@@ -132,7 +132,7 @@ fn account_file_binding_permissions_links_and_size_are_enforced() {
             .is_err()
     );
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let link = dir.0.join("hardlink");
+    let link = dir.path.join("hardlink");
     std::fs::hard_link(&path, &link).unwrap();
     assert!(
         store
@@ -142,9 +142,9 @@ fn account_file_binding_permissions_links_and_size_are_enforced() {
             .is_err()
     );
     std::fs::remove_file(link).unwrap();
-    std::fs::rename(&path, dir.0.join("other.json")).unwrap();
+    std::fs::rename(&path, dir.path.join("other.json")).unwrap();
     assert!(store.transaction().unwrap().load("other", "one").is_err());
-    symlink(dir.0.join("other.json"), &path).unwrap();
+    symlink(dir.path.join("other.json"), &path).unwrap();
     assert!(
         store
             .transaction()
@@ -173,7 +173,7 @@ fn account_file_binding_permissions_links_and_size_are_enforced() {
 #[test]
 fn an_interrupted_first_publication_remains_visible_as_recovery_not_an_empty_store() {
     let dir = Directory::new();
-    let store = Store::open(&dir.0).unwrap();
+    let store = Store::open(&dir.path).unwrap();
     drop(store.account_lock("synthetic", "one").unwrap());
     store
         .transaction()

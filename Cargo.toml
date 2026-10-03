@@ -43,6 +43,7 @@ windows-permissions = "0.2.4"
 libc = "0.2"
 
 [dev-dependencies]
+proptest = { version = "1.11", default-features = false, features = ["std"] }
 ring = "0.17"
 tempfile = "3.27"
 reqwest = { version = "0.13", default-features = false, features = ["json"] }

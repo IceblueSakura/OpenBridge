@@ -5,7 +5,7 @@ fn secret(value: &str) -> Secret {
     Secret::new(value.into()).unwrap()
 }
 fn manager(dir: &Directory) -> CredentialManager {
-    CredentialManager::new(&dir.0, vec![]).unwrap()
+    CredentialManager::new(&dir.path, vec![]).unwrap()
 }
 #[test]
 fn keys_have_separate_lifecycle_and_rotation_never_reuses_a_bound_epoch() {
@@ -60,7 +60,7 @@ fn keys_have_separate_lifecycle_and_rotation_never_reuses_a_bound_epoch() {
             .is_err()
     );
     let record: serde_json::Value = serde_json::from_slice::<serde_json::Value>(
-        &std::fs::read(dir.0.join("alpha.json")).unwrap(),
+        &std::fs::read(dir.path.join("alpha.json")).unwrap(),
     )
     .unwrap()["api_keys"]["one"]
         .take();
@@ -151,7 +151,7 @@ fn unpublished_keys_require_explicit_recovery_and_missing_mutations_create_nothi
     let dir = Directory::new();
     let manager = manager(&dir);
     assert!(manager.remove_api_key("missing", "one", 0).is_err());
-    assert!(!dir.0.join("missing.json").exists());
+    assert!(!dir.path.join("missing.json").exists());
     manager.keys.fail_at(PublishStep::MarkerSync);
     assert_eq!(
         manager
@@ -197,7 +197,7 @@ fn out_of_band_material_edit_cannot_reuse_a_pinned_replay_identity() {
         .add_api_key("alpha", "one", secret("synthetic-before"))
         .unwrap();
     let before = manager.bind_api_key("alpha", "one").unwrap();
-    let path = dir.0.join("alpha.json");
+    let path = dir.path.join("alpha.json");
     let mut document: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     document["api_keys"]["one"]["secret"] = serde_json::json!("synthetic-after");
@@ -214,7 +214,7 @@ fn key_documents_reject_wrong_kind_identity_and_inconsistent_material() {
     manager
         .add_api_key("alpha", "one", secret("synthetic"))
         .unwrap();
-    let path = dir.0.join("alpha.json");
+    let path = dir.path.join("alpha.json");
     let original: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     for (field, value) in [
@@ -254,7 +254,7 @@ fn local_locks_and_record_binding_are_shared_but_domains_are_isolated() {
         .add_api_key("alpha", "two", secret("synthetic-three"))
         .unwrap();
     drop(lock);
-    std::fs::rename(dir.0.join("alpha.json"), dir.0.join("other.json")).unwrap();
+    std::fs::rename(dir.path.join("alpha.json"), dir.path.join("other.json")).unwrap();
     assert!(manager.bind_api_key("alpha", "other").is_err());
     assert!(
         manager

@@ -139,14 +139,8 @@ async fn model_request_limits_do_not_suppress_client_reported_facts() {
 
 #[tokio::test]
 async fn diagnostics_only_record_authenticated_requests_and_never_expose_headers() {
-    let path = std::env::temp_dir().join(format!(
-        "openbridge-auth-diag-{}-{}.jsonl",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let directory = crate::test_files::private_directory();
+    let path = directory.path().join("events.jsonl");
     let gate = gateway(Limits::default())
         .with_probe_diagnostics(&path)
         .unwrap();
@@ -179,7 +173,6 @@ async fn diagnostics_only_record_authenticated_requests_and_never_expose_headers
     assert!(!text.contains(KEY));
     assert!(!text.contains("invalid json"));
     assert!(text.contains("admission"));
-    std::fs::remove_file(path).unwrap();
 }
 #[tokio::test]
 async fn authentication_runs_before_any_body_poll() {
