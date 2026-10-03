@@ -15,6 +15,8 @@ mod intake;
 #[cfg(test)]
 mod route_fallback_tests;
 #[cfg(test)]
+mod shutdown_tests;
+#[cfg(test)]
 mod subscription_tests;
 #[cfg(test)]
 mod tests;
@@ -32,7 +34,8 @@ pub use config::{Entry, Limits, StartupError};
 pub use credentials::Credentials;
 use error::ApiError;
 use std::{collections::BTreeMap, sync::Arc};
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 struct BoundCandidate {
     endpoint: Endpoint,
     provider: ProviderDefinition,
@@ -83,7 +86,7 @@ struct Runtime {
     limits: Limits,
     permits: Arc<Semaphore>,
     transport: HttpTransport,
-    shutdown: watch::Sender<bool>,
+    shutdown: CancellationToken,
 }
 #[derive(Clone)]
 pub struct Gateway {

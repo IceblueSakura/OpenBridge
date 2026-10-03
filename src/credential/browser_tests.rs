@@ -294,7 +294,9 @@ fn es256_nonce_issuer_audience_and_key_policy_are_independent_of_codex() {
     bad_curve["keys"][0]["crv"] = json!("P-384");
     assert!(grok::verify_identity(&good, &bad_curve, CLIENT, "expected").is_err());
     assert_eq!(
-        oauth::challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+        oauth::challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
+            .unwrap()
+            .as_str(),
         "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
     );
 }

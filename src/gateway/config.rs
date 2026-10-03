@@ -11,7 +11,8 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub model: String,
@@ -221,7 +222,7 @@ impl Gateway {
             }
             activated.insert(key, Arc::new(group));
         }
-        let (shutdown, _) = watch::channel(false);
+        let shutdown = CancellationToken::new();
         let permits = Arc::new(Semaphore::new(limits.concurrency));
         Ok(Self {
             state: Arc::new(Runtime {

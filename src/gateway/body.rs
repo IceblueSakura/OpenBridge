@@ -25,7 +25,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::{
-    sync::{OwnedSemaphorePermit, mpsc, oneshot, watch},
+    sync::{OwnedSemaphorePermit, mpsc, oneshot},
     task::AbortHandle,
     time::Instant,
 };
@@ -132,7 +132,7 @@ async fn respond(
     upstream: reqwest::Response,
     limits: &Limits,
     deadline: Instant,
-    shutdown: watch::Receiver<bool>,
+    shutdown: tokio_util::sync::CancellationToken,
     permit: OwnedSemaphorePermit,
     trace: Trace,
 ) -> Result<Response, ApiError> {
@@ -158,7 +158,7 @@ pub(super) async fn respond_source(
     source: Upstreams,
     limits: Limits,
     deadline: Instant,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: tokio_util::sync::CancellationToken,
     permit: OwnedSemaphorePermit,
     mut trace: Trace,
 ) -> Result<Response, ApiError> {
@@ -169,16 +169,12 @@ pub(super) async fn respond_source(
     let worker = tokio::spawn(async move {
         trace.outcome(Outcome::Interrupted);
         let _permit = permit;
-        let result = if *shutdown.borrow() {
-            Err(ApiError::shutdown())
-        } else {
-            tokio::select! {
-                biased;
-                _=shutdown.changed()=>Err(ApiError::shutdown()),
-                _=tokio::time::sleep_until(deadline)=>Err(ApiError::timeout()),
-                _=tx.closed()=>Err(ApiError::upstream()),
-                result=produce_chain(source,&entry,&request,&limits,deadline,&tx,&worker_state,&mut trace)=>result,
-            }
+        let result = tokio::select! {
+            biased;
+            _=shutdown.cancelled()=>Err(ApiError::shutdown()),
+            _=tokio::time::sleep_until(deadline)=>Err(ApiError::timeout()),
+            _=tx.closed()=>Err(ApiError::upstream()),
+            result=produce_chain(source,&entry,&request,&limits,deadline,&tx,&worker_state,&mut trace)=>result,
         };
         match result {
             Ok(()) => {

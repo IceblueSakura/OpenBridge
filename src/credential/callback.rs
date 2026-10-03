@@ -137,6 +137,8 @@ pub(super) fn classify(
     if request.method != Some("GET") {
         return reject(405);
     }
+    // One callback, not a general HTTP connection: buffered trailing bytes
+    // invalidate the whole attempt instead of being ignored or pipelined.
     if !matches!(request.version, Some(0 | 1)) || consumed != bytes.len() {
         return reject(400);
     }

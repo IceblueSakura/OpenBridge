@@ -11,14 +11,6 @@ use axum::{
 };
 use std::{future::Future, sync::Arc};
 use tokio::net::TcpListener;
-// Aborting the listener future must also stop detached body workers and the
-// graceful-shutdown watcher, not leave them alive until their request deadlines.
-struct StopOnDrop(Gateway);
-impl Drop for StopOnDrop {
-    fn drop(&mut self) {
-        self.0.shutdown();
-    }
-}
 impl Gateway {
     /// Embedding callers own listener security; `serve` enforces loopback itself.
     pub fn router(&self) -> Router {
@@ -36,7 +28,7 @@ impl Gateway {
             .with_state(self.state.clone())
     }
     pub fn shutdown(&self) {
-        self.state.shutdown.send_replace(true);
+        self.state.shutdown.cancel();
     }
     pub async fn serve(
         self,
@@ -46,17 +38,14 @@ impl Gateway {
         if !listener.local_addr()?.ip().is_loopback() {
             return Err(std::io::Error::other("listener must be loopback"));
         }
-        let _owner = StopOnDrop(self.clone());
-        let mut cancelled = self.state.shutdown.subscribe();
+        // Listener-future cancellation must also release detached body workers.
+        let _owner = self.state.shutdown.clone().drop_guard();
         let router = self.router();
         axum::serve(listener, router)
             .with_graceful_shutdown(async move {
-                let stopped = *cancelled.borrow();
-                if !stopped {
-                    tokio::select! {
-                        _ = shutdown => {},
-                        _ = cancelled.changed() => {},
-                    }
+                tokio::select! {
+                    _ = shutdown => {},
+                    _ = self.state.shutdown.cancelled() => {},
                 }
                 self.shutdown();
             })
@@ -89,7 +78,7 @@ pub(super) async fn handle(
     request: Request,
 ) -> Result<Response, ApiError> {
     let trace = Trace::new(state.diagnostics.as_ref(), request.headers());
-    if *state.shutdown.borrow() {
+    if state.shutdown.is_cancelled() {
         return Err(ApiError::shutdown());
     }
     let permit = state
@@ -98,13 +87,9 @@ pub(super) async fn handle(
         .try_acquire_owned()
         .map_err(|_| ApiError::new(StatusCode::TOO_MANY_REQUESTS, "gateway_busy"))?;
     admission::headers(request.headers(), state.limits.request_bytes)?;
-    let mut shutdown = state.shutdown.subscribe();
-    if *shutdown.borrow() {
-        return Err(ApiError::shutdown());
-    }
     let bytes = tokio::select! {
         biased;
-        _=shutdown.changed()=>return Err(ApiError::shutdown()),
+        _=state.shutdown.cancelled()=>return Err(ApiError::shutdown()),
         result=tokio::time::timeout(state.limits.body_timeout,admission::collect(request.into_body(),state.limits.request_bytes))=>result.map_err(|_|ApiError::new(StatusCode::REQUEST_TIMEOUT,"request_timeout"))??,
     };
     let (entry, semantic) = admission::prepare(&state, profile, &bytes)?;

@@ -72,7 +72,7 @@ async fn forced_sse_projects_json_and_rejects_missing_terminal_or_conflicting_me
                 },
                 gate.state.limits.clone(),
                 tokio::time::Instant::now() + Duration::from_secs(3),
-                gate.state.shutdown.subscribe(),
+                gate.state.shutdown.clone(),
                 gate.state.permits.clone().acquire_owned().await.unwrap(),
                 diagnostics::Trace::new(None, &axum::http::HeaderMap::new()),
             )

@@ -5,6 +5,7 @@ use super::{
     http::AuthHttp,
     oauth::{self, CodeExchange},
 };
+use oauth2::{AuthUrl, ClientId, CsrfToken, RedirectUrl, Scope, basic::BasicClient};
 use std::{collections::BTreeSet, time::Duration};
 use tokio::time::Instant;
 
@@ -34,7 +35,7 @@ pub(super) struct BrowserResponse {
 impl BrowserGrant {
     pub async fn begin(profile: BrowserProfile<'_>, port: u16) -> Result<Self, Error> {
         let started = Instant::now();
-        let mut url = url::Url::parse(profile.authorize).map_err(|_| Error::Protocol)?;
+        let url = url::Url::parse(profile.authorize).map_err(|_| Error::Protocol)?;
         if url.scheme() != "https"
             || url.host_str().is_none()
             || !url.username().is_empty()
@@ -68,21 +69,23 @@ impl BrowserGrant {
         let verifier = oauth::random_token()?;
         let state = oauth::random_token()?;
         let nonce = oauth::random_token()?;
-        url.query_pairs_mut()
-            .extend_pairs([
-                ("response_type", "code"),
-                ("client_id", profile.client),
-                ("scope", profile.scopes),
-                ("redirect_uri", redirect_uri.as_str()),
-                ("code_challenge_method", "S256"),
-                (
-                    "code_challenge",
-                    oauth::challenge(verifier.expose()).as_str(),
-                ),
-                ("state", state.expose()),
-                ("nonce", nonce.expose()),
-            ])
-            .extend_pairs(profile.extra.iter().copied());
+        let client = BasicClient::new(ClientId::new(profile.client.into()))
+            .set_auth_uri(AuthUrl::from_url(url))
+            .set_redirect_uri(RedirectUrl::new(redirect_uri.clone()).map_err(|_| Error::Protocol)?);
+        let mut authorization = client
+            .authorize_url(|| CsrfToken::new(state.expose().into()))
+            .add_scopes(
+                profile
+                    .scopes
+                    .split_ascii_whitespace()
+                    .map(|s| Scope::new(s.into())),
+            )
+            .set_pkce_challenge(oauth::challenge(verifier.expose())?)
+            .add_extra_param("nonce", nonce.expose());
+        for (name, value) in profile.extra {
+            authorization = authorization.add_extra_param(*name, *value);
+        }
+        let (url, _) = authorization.url();
         Ok(Self {
             prompt: BrowserPrompt {
                 authorization_url: url.to_string(),

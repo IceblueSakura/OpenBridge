@@ -82,7 +82,7 @@ async fn response(
         upstream,
         &gate.state.limits,
         deadline,
-        gate.state.shutdown.subscribe(),
+        gate.state.shutdown.clone(),
         gate.state.permits.clone().acquire_owned().await.unwrap(),
         super::Trace::new(gate.state.diagnostics.as_ref(), &diagnostic_headers),
     )

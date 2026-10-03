@@ -148,7 +148,7 @@ pub(super) async fn run(
 ) -> Result<Response, ApiError> {
     let candidates = entry.eligible(&request)?;
     let limits = runtime.limits.clone();
-    let shutdown = runtime.shutdown.subscribe();
+    let shutdown = runtime.shutdown.clone();
     body::respond_source(
         entry,
         request,
