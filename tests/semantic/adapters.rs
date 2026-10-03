@@ -17,6 +17,45 @@ fn response() -> Value {
         "usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}})
 }
 #[test]
+fn forced_upstream_stream_preserves_client_delivery_and_final_controls() {
+    let client = adapter(Profile::Responses, Dialect::OpenBridge, "a");
+    let provider = adapter(Profile::Responses, Dialect::Codex, "a");
+    for streaming in [false, true] {
+        let mut request = client.decode_request(
+            json!({"model":"client-label","input":"hello","stream":streaming,"max_output_tokens":37})
+                .to_string().as_bytes(),
+        ).unwrap();
+        let wire = provider
+            .encode_request(&request, "upstream-label", &Contract::full())
+            .unwrap();
+        assert_eq!(wire["model"], "upstream-label");
+        assert_eq!(wire["stream"], true);
+        assert_eq!(wire["store"], false);
+        assert_eq!(wire["instructions"], "");
+        assert_eq!(wire["max_output_tokens"], 37);
+        assert_eq!(request.delivery.streaming(), streaming);
+        assert_eq!(
+            client
+                .encode_request(&request, "client-label", &Contract::full())
+                .unwrap()["stream"],
+            streaming
+        );
+        for cap in [Some(11), None] {
+            let mut settings = request.task.semantic.settings().clone();
+            settings.controls.max_output_tokens = cap;
+            request.task.semantic = request.task.semantic.with_settings(settings).unwrap();
+            let wire = provider
+                .encode_request(&request, "upstream-label", &Contract::full())
+                .unwrap();
+            match cap {
+                Some(cap) => assert_eq!(wire["max_output_tokens"], cap),
+                None => assert!(wire.get("max_output_tokens").is_none()),
+            }
+        }
+    }
+}
+
+#[test]
 fn deepseek_default_is_scoped_and_never_overwrites_reported_or_invalid_values() {
     let deepseek = adapter(Profile::Responses, Dialect::DeepSeek, "a");
     let standard = adapter(Profile::Responses, Dialect::Standard, "a");

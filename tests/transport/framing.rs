@@ -5,21 +5,23 @@ use openbridge::transport::sse::{SseDecodeError, SseDecoder};
 #[test]
 fn decoder_handles_fragmented_utf8_crlf_and_multiline_data() {
     let payload = "event: response.output_text.delta\r\nid: evt-1\r\ndata: {\"delta\":\"A😊\"}\r\ndata: second\r\n\r\n";
-    let split = payload.find('😊').unwrap() + 1;
-    let mut decoder = SseDecoder::new(1024);
-
-    assert!(
-        decoder
-            .push(&payload.as_bytes()[..split])
-            .unwrap()
-            .is_empty()
-    );
-    let events = decoder.push(&payload.as_bytes()[split..]).unwrap();
-
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].event(), Some("response.output_text.delta"));
-    assert_eq!(events[0].id(), Some("evt-1"));
-    assert_eq!(events[0].data(), "{\"delta\":\"A😊\"}\nsecond");
+    // Exhaust all two-cut partitions, including cuts inside UTF-8 and CRLF.
+    // Expected wire facts are independent of the unfragmented decoder.
+    let bytes = payload.as_bytes();
+    for first in 0..=bytes.len() {
+        for second in first..=bytes.len() {
+            let mut decoder = SseDecoder::new(1024);
+            let mut events = Vec::new();
+            for chunk in [&bytes[..first], &bytes[first..second], &bytes[second..]] {
+                events.extend(decoder.push(chunk).unwrap());
+            }
+            events.extend(decoder.finish_strict().unwrap());
+            assert_eq!(events.len(), 1, "cuts {first}, {second}");
+            assert_eq!(events[0].event(), Some("response.output_text.delta"));
+            assert_eq!(events[0].id(), Some("evt-1"));
+            assert_eq!(events[0].data(), "{\"delta\":\"A😊\"}\nsecond");
+        }
+    }
 }
 
 #[test]

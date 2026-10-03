@@ -60,7 +60,7 @@ impl AuthDriver for ThirdDriver {
 }
 #[tokio::test]
 async fn inference_binding_reloads_and_rejects_expired_logout_or_identity_change() {
-    let dir = tests::Directory::new();
+    let dir = test_support::Directory::new();
     let (manager, _, _) = manager(&dir);
     assert!(manager.bind_access("third", "one").is_err());
     manager
@@ -69,27 +69,6 @@ async fn inference_binding_reloads_and_rejects_expired_logout_or_identity_change
         .unwrap();
     let binding = manager.bind_access("third", "one").unwrap();
     let provenance = binding.provenance();
-    let mut credentials = crate::gateway::Credentials::new();
-    credentials.insert_account(
-        crate::provider::CredentialBindingId::new("codex-oauth").unwrap(),
-        binding.clone(),
-    );
-    assert!(matches!(
-        crate::gateway::Gateway::new(
-            crate::topology::catalog::default_topology().unwrap(),
-            vec![crate::gateway::Entry {
-                model: "gpt-6.1-sol".into(),
-                protocol: crate::protocol::openai::Profile::Responses,
-                endpoint: crate::topology::EndpointId::new("codex-responses").unwrap()
-            }],
-            credentials,
-            crate::provider::SecretMaterial::new("synthetic-client-credential-long-enough")
-                .unwrap(),
-            crate::gateway::Limits::default(),
-            None,
-        ),
-        Err(crate::gateway::StartupError::Credentials)
-    ));
     assert_eq!(
         binding.borrow().unwrap().access.expose(),
         "synthetic-third-access"
@@ -163,7 +142,7 @@ fn grant() -> Grant {
         },
     }
 }
-fn manager(dir: &tests::Directory) -> (CredentialManager, Arc<Notify>, Arc<Notify>) {
+fn manager(dir: &test_support::Directory) -> (CredentialManager, Arc<Notify>, Arc<Notify>) {
     let entered = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let manager = CredentialManager::new(
@@ -178,7 +157,7 @@ fn manager(dir: &tests::Directory) -> (CredentialManager, Arc<Notify>, Arc<Notif
 }
 #[tokio::test]
 async fn independent_driver_uses_the_same_lifecycle_and_readable_account_file() {
-    let dir = tests::Directory::new();
+    let dir = test_support::Directory::new();
     let (manager, _, _) = manager(&dir);
     let first = manager
         .login("third", "personal", LoginOptions::default(), |_| {})
@@ -208,7 +187,7 @@ async fn independent_driver_uses_the_same_lifecycle_and_readable_account_file() 
 }
 #[tokio::test]
 async fn refreshing_one_account_does_not_hold_the_store_transaction_lock() {
-    let dir = tests::Directory::new();
+    let dir = test_support::Directory::new();
     let (manager, entered, release) = manager(&dir);
     manager
         .login("third", "one", LoginOptions::default(), |_| {})
@@ -248,7 +227,7 @@ async fn refreshing_one_account_does_not_hold_the_store_transaction_lock() {
 }
 #[tokio::test]
 async fn uncertain_replacement_is_quarantined_after_reopen_and_can_be_cleared() {
-    let dir = tests::Directory::new();
+    let dir = test_support::Directory::new();
     let (manager, _, _) = manager(&dir);
     manager
         .login("third", "one", LoginOptions::default(), |_| {})
@@ -270,7 +249,7 @@ async fn uncertain_replacement_is_quarantined_after_reopen_and_can_be_cleared() 
 }
 #[tokio::test]
 async fn duplicate_identity_is_not_published_under_another_alias() {
-    let dir = tests::Directory::new();
+    let dir = test_support::Directory::new();
     let (manager, _, _) = manager(&dir);
     manager
         .login("third", "one", LoginOptions::default(), |_| {})
@@ -287,7 +266,7 @@ async fn duplicate_identity_is_not_published_under_another_alias() {
 }
 #[tokio::test]
 async fn local_status_queries_do_not_change_credential_generation() {
-    let dir = tests::Directory::new();
+    let dir = test_support::Directory::new();
     let (manager, _, _) = manager(&dir);
     let first = manager
         .login("third", "one", LoginOptions::default(), |_| {})
@@ -308,7 +287,7 @@ async fn local_status_queries_do_not_change_credential_generation() {
 
 #[tokio::test]
 async fn uncertain_rotated_candidate_is_never_reused_after_restart() {
-    let dir = tests::Directory::new();
+    let dir = test_support::Directory::new();
     let (manager, entered, release) = manager(&dir);
     manager
         .login("third", "one", LoginOptions::default(), |_| {})
@@ -342,7 +321,7 @@ async fn uncertain_rotated_candidate_is_never_reused_after_restart() {
 #[tokio::test]
 async fn incomplete_first_publication_can_be_cleared_without_claiming_remote_revocation() {
     use std::os::unix::fs::OpenOptionsExt;
-    let dir = tests::Directory::new();
+    let dir = test_support::Directory::new();
     let (manager, _, _) = manager(&dir);
     drop(manager.store.account_lock("third", "one").unwrap());
     std::fs::OpenOptions::new()
@@ -361,7 +340,7 @@ async fn incomplete_first_publication_can_be_cleared_without_claiming_remote_rev
 
 #[tokio::test]
 async fn freshness_and_client_binding_are_not_inferred_from_lifecycle_or_alias() {
-    let dir = tests::Directory::new();
+    let dir = test_support::Directory::new();
     let (manager, _, _) = manager(&dir);
     manager
         .login("third", "one", LoginOptions::default(), |_| {})

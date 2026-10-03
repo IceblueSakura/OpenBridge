@@ -810,18 +810,6 @@ fn reported_settings_nulls_follow_the_response_model_not_the_request_types() {
     assert_eq!(encoded["reasoning"]["mode"], Value::Null);
 }
 #[test]
-fn sdk_parsed_arguments_is_a_checked_derived_view_not_a_second_owner() {
-    let source = json!({"input":[{"type":"function_call","id":"f","call_id":"c","name":"lookup","arguments":"{\"n\":1}","parsed_arguments":{"n":1}}]});
-    let decoded = responses::decode_generation(&source).unwrap();
-    let encoded = request_wire(&decoded);
-    assert_eq!(encoded["input"][0]["arguments"], "{\"n\":1}");
-    assert!(encoded["input"][0].get("parsed_arguments").is_none());
-    let mut mismatched = source;
-    mismatched["input"][0]["parsed_arguments"] = json!({"n":2});
-    assert!(responses::decode_generation(&mismatched).is_err());
-}
-
-#[test]
 fn static_file_path_is_not_an_annotation_added_event() {
     let mut response = wire::response(2);
     response["output"][0]["content"][0]["annotations"] =

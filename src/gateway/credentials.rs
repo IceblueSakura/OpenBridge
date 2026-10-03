@@ -36,17 +36,35 @@ impl Credentials {
         self.0.get(id)
     }
 }
+fn check_profile(kind: CredentialKind, profile: Option<&str>) -> Result<(), StartupError> {
+    match (kind, profile) {
+        (CredentialKind::ApiKey, None) => Ok(()),
+        (CredentialKind::OAuth(expected), Some(actual)) if actual == expected => Ok(()),
+        _ => Err(StartupError::Credentials),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn credential_kind_and_authorization_profile_must_both_match() {
+    for (kind, profile, accepted) in [
+        (CredentialKind::ApiKey, None, true),
+        (CredentialKind::ApiKey, Some("first"), false),
+        (CredentialKind::OAuth("first"), None, false),
+        (CredentialKind::OAuth("first"), Some("first"), true),
+        (CredentialKind::OAuth("first"), Some("second"), false),
+    ] {
+        assert_eq!(check_profile(kind, profile).is_ok(), accepted);
+    }
+}
+
 impl Source {
     pub(super) fn check(&self, kind: CredentialKind) -> Result<(), StartupError> {
-        match (self, kind) {
-            (Self::ApiKey(_), CredentialKind::ApiKey) => Ok(()),
-            (Self::Account(binding), CredentialKind::OAuth(profile))
-                if binding.profile() == profile =>
-            {
-                Ok(())
-            }
-            _ => Err(StartupError::Credentials),
-        }
+        let profile = match self {
+            Self::ApiKey(_) => None,
+            Self::Account(binding) => Some(binding.profile()),
+        };
+        check_profile(kind, profile)
     }
     pub(super) fn provenance(&self) -> String {
         match self {

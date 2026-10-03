@@ -387,3 +387,42 @@ fn opaque_and_readable_values_share_the_semantic_budget() {
         Err(GenerationError::Limit)
     ));
 }
+
+#[test]
+fn every_bounded_owner_subset_replays_only_surviving_values_in_final_order() {
+    for count in 1..=6 {
+        let source = request(Value::Array(
+            (0..count)
+                .map(|i| wire(&format!("r{i}"), &format!("synthetic-{i}"), "completed"))
+                .collect(),
+        ));
+        for mask in 1..(1 << count) {
+            let mut selected: Vec<_> = (0..count).filter(|i| mask & (1 << i) != 0).collect();
+            for reverse in [false, true] {
+                if reverse {
+                    selected.reverse();
+                }
+                let items = selected
+                    .iter()
+                    .map(|&i| source.semantic.items()[i].clone())
+                    .collect();
+                let edited = source.semantic.clone().with_items(items).unwrap();
+                let actual = encode(&edited, &source.fidelity).unwrap();
+                let expected: Vec<_> = selected
+                    .iter()
+                    .map(|i| {
+                        json!({
+                            "type":"reasoning", "id":format!("r{i}"), "summary":[],
+                            "encrypted_content":format!("synthetic-{i}")
+                        })
+                    })
+                    .collect();
+                assert_eq!(
+                    actual["input"],
+                    json!(expected),
+                    "mask {mask}, reversed {reverse}"
+                );
+            }
+        }
+    }
+}

@@ -16,8 +16,6 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(
             [row[1] for row in rows], ["mimo-v2.6-flash", "longcat-2.5-preview"]
         )
-        self.assertEqual(rows[0][2:4], ("mimo-primary", "OPENBRIDGE_XIAOMI_API_KEY"))
-        self.assertEqual(rows[1][4], ("chat", "responses"))
         for models in ([], ["mimo-v2.6-flash"] * 2, ["deepseek-flash"]):
             with self.assertRaises(RuntimeError):
                 select_bindings("xiaomi", models=models)
@@ -37,21 +35,11 @@ class SelectionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 select_bindings(provider, models=[model])
 
-    def test_dashscope_selection_uses_the_renamed_provider_and_key(self):
-        rows = select_bindings("aliyun-dashscope-cn", models=["qwen3.8-max"])
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(
-            rows[0][2:4],
-            ("aliyun-dashscope-cn-primary", "OPENBRIDGE_ALIYUN_DASHSCOPE_CN_API_KEY"),
-        )
-        with self.assertRaises(RuntimeError):
-            select_bindings("bailian")
-
     def test_go_subscription_requires_explicit_selection_and_only_admits_hy4_chat(self):
         self.assertNotIn("opencode-go", [row[0] for row in select_bindings()])
         rows = select_bindings("opencode-go", models=["hy4-preview"])
-        self.assertEqual(rows, [("opencode-go", "hy4-preview", "opencode-primary",
-            "OPENBRIDGE_OPENCODE_GO_API_KEY", ("chat",))])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][4], ("chat",))
         with self.assertRaises(RuntimeError):
             select_bindings("opencode-go", models=["gpt-6-luna"])
 

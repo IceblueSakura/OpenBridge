@@ -11,13 +11,8 @@ from probe_support.ledger import Run
 from probe_support.runtime import gateway
 
 class SubscriptionProbeTests(unittest.TestCase):
-    def test_subscriptions_are_never_default_selections(self):
-        self.assertFalse({"codex", "grok"} & {row[0] for row in select_bindings()})
-        self.assertEqual([r[1] for r in select_bindings("codex,grok")], ["gpt-6.1-sol", "grok-4.7"])
-        with self.assertRaises(RuntimeError):
-            select_bindings("grok", models=["grok4.7"])
-
     def test_probe_passes_only_explicit_store_alias_not_tokens(self):
+        self.assertFalse({"codex", "grok"} & {row[0] for row in select_bindings()})
         with tempfile.TemporaryDirectory() as directory:
             run = Run.create(Path(directory) / "run", providers="codex", limit=1)
             class Stop(Exception):

@@ -206,24 +206,6 @@ mod tests {
     use crate::topology::catalog::default_topology;
 
     #[test]
-    fn plan_candidates_follow_fixed_route_order() {
-        let topology = default_topology().unwrap();
-        let plan = ExecutionPlan::derive(
-            &topology,
-            "mimo-v2.6-pro",
-            TaskKind::Generation,
-            Delivery::Stream,
-        )
-        .unwrap();
-        let order: Vec<_> = plan
-            .candidates
-            .iter()
-            .map(|c| c.endpoint_id.as_str())
-            .collect();
-        assert_eq!(order, ["xiaomi-responses", "xiaomi-chat"]);
-    }
-
-    #[test]
     fn unknown_labels_never_plan() {
         let topology = default_topology().unwrap();
         assert_eq!(

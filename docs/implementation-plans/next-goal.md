@@ -1,66 +1,45 @@
 # 下一步目标
 
-**下一步设计重点是 Agent-first、协议中立的 Generation 交互与依赖合同，而不是先追齐某家 API 的字段。** 项目尚未上线，允许在明确设计与获准实现切片中替换现有类型；一套 IR 指共享原则和 task family，不是万能请求。产品方向见 [v2 目标](../architecture-v2/README.md)，详细设计只由[semantic IR](../architecture-v2/semantic-ir.md)维护；实现缺口归[当前能力与边界](../implementation-status/generation.md)。不以迁移、追平或恢复旧版为目标。
+下一步设计重点是 **Agent-first、协议中立的 Generation 交互与依赖合同**，不是追齐某家 API 字段。项目处于未发布的设计探索阶段，可在获准切片内替换类型；一套 IR 指共享原则与 task family，而非万能请求。设计权威归 [semantic IR](../architecture-v2/semantic-ir.md)，未闭合实现边界归 [Generation 缺口](../implementation-status/generation.md)。
 
-**既有 Codex / SuperGrok OAuth2 登录方向保留：依据独立协议参考定稿合法接入、credential 生命周期与执行合同，再分别形成实现切片。** 它是独立的 credential/execution 工作，不以新 IR 的全部落地为前置，也不替代下述设计顺序。[Grok Build / xAI 登录参考](../references/grok-login.md)区分官方 OAuth 与订阅推理资格；[ChatGPT 登录参考](../references/chatgpt-login.md)区分 Codex 产品流程与公开 SIWC。Grok 个人公共 Responses 与 ChatGPT Codex 产品登录共用的凭据管理 owner 由 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)维护；Gateway 的固定 access 借用合同归该 ADR 与凭据指南。ChatGPT 不采用公开 SIWC，合法 client/部署用途与具体订阅执行合同仍须确认；参考资料不构成可用推理的声明。共用标准与采用边界见 [OAuth 来源入口](../references/oauth-login.md)。
-
-最小 HTTP 入口的职责和运行边界见 [HTTP 指南](../http-gateway.md)。当前 Provider/模型与协议准入按 [AGENTS.md](../../AGENTS.md#current-provider-model-and-compatibility-information)现场查询；本页不维护支持清单、实测结果或临时账号阻塞。
+本页只维护未完成方向，不授予实施或真实调用权限。具体行为、失败用例和验收范围写入 [current-focus](current-focus.md)。Provider/model、激活及上游准入按 [AGENTS 查询方法](../../AGENTS.md#current-provider-model-and-compatibility-information)现场核对，不在计划中保存清单或测试结果。
 
 ## IR 设计优先顺序
 
-以下是设计产物与定稿门槛，不是自动获准的代码任务。跨模块合同在现有 semantic IR/ADR owner 内维护，不新增协议比较报告；具体 wire 字段与测试场景留给获准实现切片。
-
-| 优先级 | 设计主题 | 定稿产物与边界 |
+| 优先级 | 设计主题 | 定稿边界 |
 |---|---|---|
-| P0 | 交互、结果与控制转移 | 明确 item/message/response/turn/group/call/result；响应闭合、产物完整性与 turn 进度的合法组合；continuation 要求与实际调度、重试的边界 |
-| P0 | Identity、分组与 replay 依赖 | 明确稳定 identity、wire 坐标、单 owner 与组/前缀依赖；opaque 类型的 scope/finality、编辑失效及客户端交付→回传合同 |
-| P1 | 内容、工具结果与资源 | 明确媒体值和用途、结构化结果及工具错误、资源来源/权限边界、引用的输出 owner 与来源坐标；不建任意嵌套可执行容器 |
-| P1 | 控制、Schema、cache 与 usage | 区分模式/预算/显示、声明约束/目标保证、亲和提示/前缀策略/资源引用、报告计数/有前提的派生视图；避免同名即等价 |
-| P2 | 上下文演进 | 定义配置变化、compaction、远端 continuation 资源的作用范围与依赖；不据此引入 session 服务或自动 Agent loop |
+| P0 | 交互、结果与控制转移 | item/message/response/turn/group/call/result；区分响应闭合、产物完整、turn 进度与 continuation，不把表示控制转移当作调度授权 |
+| P0 | Identity、分组与 replay 依赖 | 稳定 identity、wire 坐标、单 owner 与组/前缀依赖；opaque scope/finality、编辑失效及客户端交付→回传合同 |
+| P1 | 内容、工具结果与资源 | 媒体值和用途、结构化结果与工具错误、资源来源/权限边界、引用的 owner 与来源坐标；不建任意可执行容器 |
+| P1 | 控制、Schema、cache 与 usage | 区分模式/预算/显示、声明约束/目标保证、亲和提示/前缀策略/资源引用、reported counts 与有前提的派生 view |
+| P2 | 上下文演进 | 配置变化、compaction、远端 continuation 资源的 scope 与依赖；不引入 session 服务或自动 Agent loop |
 
 ### 定稿方法与下一片选择
 
-1. 先定义概念、唯一 owner、presence、合法状态及关系，不先承诺 Rust struct 或兼容 alias。
-2. 用 OpenAI、Google、Anthropic 的独立官方合同检查请求/history、响应与事件；记录不可表示及有条件映射，不以协议名称或类型存在推定能力。来源入口见[references](../references/README.md)。
-3. 对插入、替换、删除、重排明确依赖失效和目标拒绝；评审方法归[验收基线](../references/conformance-baseline.md)。
-4. 在相应能力内选定具体协议/API 版本、下游 carrier、scope 构造、资源边界及是否允许损失转换。未知事项不以万能 metadata/JSON 字段填补。
-5. 只有选定端到端行为后，才在[current-focus](current-focus.md)写入获准实现 slice；同步类型、codec/lowering、序列化与适用公共合同。设计文档不扩大现有 Chat/Responses profile，不证明 SDK、上游或生产可用。
+1. 先定义概念、唯一 owner、presence、合法状态和关系，再定 Rust 类型。共享概念不复制到 Provider IR，也不以现有 wire 为语义上限。
+2. 按[固定来源](../references/README.md)与独立官方合同检查 request/history、response/event 和跨协议可表示性；资料或类型存在不代表准入。
+3. 明确插入、替换、删除、重排造成的依赖失效；为所选切片确定 wire/API 版本、下游 carrier、scope、资源限制及是否允许损失转换。未知语义不能塞入万能 metadata。
+4. 优先选择能检验工具续轮、response/turn 分离和 replay 依赖的最小端到端场景，再扩展媒体；不要求预先实现所有 Provider、任务或工作流。
 
-优先选择能检验工具续轮、响应/turn 分离与 replay 依赖的最小场景，再扩展媒体宽度；无需先实现所有 Provider、所有任务或通用工作流引擎。后续每片应列明已定稿合同和仍待选择的边界，不能以本设计授权真实调用或凭据操作。
+可读 reasoning 与 opaque continuation 分别验收：可读内容不能替代必要 signature，opaque 值必须定义格式、owner、origin、依赖和 finality。无 opaque 合同不强造密文；有回放要求则需验证真实交付→回传。不能静默修改控制或丢弃不可表示内容以通过测试。
 
-## 保留的实施方向
-
-下表保留既有工作顺序，不表示这些代码任务已获准或已实现。IR 相关行为变化需先完成上面的对应设计，而非等待全部设计域结束。
+## 实施方向
 
 | 优先级 | 建议切片 | 退出条件 |
 |---|---|---|
-| 1 | 账户登录生命周期与选定订阅接线 | profile-neutral 文件凭据管理合同归 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)；后续选定合法 client/部署用途、订阅准入与 Gateway credential 借用合同；扩展 driver 时保持逐账户文件、独立操作协调与发布恢复边界，保持两家 grant/profile 隔离，并分别验证所选执行切片。真实登录与 Provider 调用另行授权，不由方向文档触发 |
-| 2 | 按实际需求选择端到端文本场景 | 现场核对绑定、客户端和授权范围；请求经过 binary/Router，覆盖 IR、交付、工具续轮与失败边界，不仅是库级 decode 或 HTTP 200 |
-| 3 | 选定 Agent/Provider 原生缓存场景与必要文本投影 | 核对稳定前缀、Schema/工具顺序、replay scope 与派生 view；按消费需求补投影。评价缓存效果时独立设计对照，不把兼容默认值当计费事实 |
-| 4 | 与实际使用相称的运行保障 | 按具体需求决定凭据生命周期、诊断、负载与失败策略；未选定前不预建动态 registry、通用插件或完整旧运行时 |
-| 5 | 扩展 Provider 与多模态 | 以现有 user URL/inline 图片输入为起点，按需求选定 file_id 来源/生命周期、更广工具媒体结果、其他模态或独立媒体任务；新 wire 差异改 adapter，真正的新能力演进共享 task/extension owner，同时验收 request/response/event 与资源边界 |
+| 1 | 授权与订阅执行扩展 | 在[凭据组件当前合同](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)上按实际需求选定 client/部署用途与订阅准入；新增 driver 或自动生命周期策略需独立合同，不混用 grant/profile、workspace 或 replay scope |
+| 2 | 端到端文本场景 | 经实际 binary/Router 检验 IR、交付、工具续轮与失败边界；不以库级 decode 或 HTTP 200 代替验收 |
+| 3 | Agent/Provider 原生缓存与必要文本投影 | 检验稳定前缀、Schema/工具顺序、scope 和派生 view；缓存效果使用独立对照，不把默认值当计费事实 |
+| 4 | 运行保障 | 按使用需求选择凭据生命周期、诊断、负载与失败策略；不预建动态 registry、通用插件或调度框架 |
+| 5 | Provider 与多模态 | 在已选图片输入场景上定义 file_id、资源生命周期、更广工具媒体和独立 task family；wire 差异归 adapter，真正的新能力归共享语义 owner |
 
-不以重复成功矩阵代替问题定位，也不根据过期结果固定下一轮目标。新发现先区分上游输出、字段投影、I/O 生命周期和客户端差异；稳定结论进入 owning code 注释与独立 synthetic 回归，运行结果只在当次交付和授权 run 中保留。
+认证生命周期与推理扩展不以全部 IR 设计完成为前置。现行 access 借用和操作方式归[凭据指南](../credentials.md)；新的 scope/resource、callback/client、refresh 或账户调度策略须独立定稿。身份验证不证明推理资格，401 不授权跨账户切换，普通请求不发起交互登录，也不搜索第三方认证缓存。
 
-可读 reasoning 与 opaque continuation 分别按实际合同验收：可读内容检查归属、历史和变换保真，不能替代所需 signature 的回放验证；opaque 值需要明确格式、owner、origin、依赖与 finality。无 opaque 合同的场景不强造密文；有回放要求时不能只保留可读内容。不为尚未选定的模型预建通用透传，不静默修改请求控制来通过测试。
-
-现有缓存投影从 Provider 自动缓存与明确的 cache key/session carrier 起步；新设计中的前缀策略和资源引用需另行定稿与准入。不在本项目实现负载均衡、回答缓存、会话管理或跨请求粘性路由。稳定公开接入与扩展 owner 见 [ADR 0011](../architecture-v2/decisions/0011-stable-admission-provider-cache.md)。
-
-## OAuth 登录调研与实现前置条件
-
-1. **分别确认目标合同**：ChatGPT 已选 [Codex 产品 flow](../references/chatgpt-login.md)，不与公开 SIWC 或 Platform API key 混用；[Grok Build/xAI OAuth](../references/grok-login.md)的公开流程不证明全部 SuperGrok 订阅或网关用途已获准。按所选合同确认 authority、合法 client registration、scope/resource、callback/device flow、账户/workspace 和部署用途；缓存/上下文归 [独立 owner](../references/extensions-and-context.md#2-codex-session_id-的实际含义)，不把 Codex 私有映射推广为通用 adapter。
-2. **确定生命周期与 owner**：Grok / Codex 的共用管理边界由 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)固定；数据面短生命周期 access 借用已纳入该 ADR；进一步的自动刷新、调度或 replay/session 扩展仍需独立切片。明确显式登录/取消/重新授权、secret storage、access expiry、refresh rotation/revocation、并发协调、持久化一致性和不确定结果处理。认证 owner 与 Provider 执行边界协作，但 token、locator、选定账户、refresh/retry state 不进入 Task IR，纯 codec/lowering 不访问 credential 或网络。
-3. **保持受信路由与失败边界**：业务请求只能提交 public model，不能指定 Provider、账户、authority 或凭据。区分共享 canonical 身份与具体 credential/replay scope；401 不自动授权跨账户切换或无界重试，publication/commit 后不重放。普通请求不能隐式发起交互登录；不搜索或导入 Codex、Hermes、LiteLLM 或浏览器的认证缓存。
-4. **先离线、后明确授权验收**：使用 synthetic authority/存储验证成功、拒绝、过期、取消、rotation、并发和写入失败。采用结果进入受影响的 ADR、owning code 和必要操作指南，不恢复旧报告或整个旧运行时。真实登录、token refresh、订阅推理和凭据写入须另行明确目标、效果与输出边界；若还需付费调用，另定请求和 token 预算。
-
-本页只确定方向，不授予 OAuth 实现、登录或凭据操作权限。具体实现范围以 [current-focus](current-focus.md) 维护的获准切片为准；调研充分后在该 owner 记录可观察行为、失败用例、非目标与验证边界，再按获准范围推进。
+缓存只使用 Provider 原生功能和明确 carrier；不实现回答缓存、负载均衡、会话管理或跨请求粘性路由。不要把 hosted tools、program 执行、Codex turn 管理或 WebSocket 的完整实现当作每个切片的前置条件。
 
 ## 下一片需选定的边界
 
-- 从当前源码和启动入口确认模型、客户端及同协议或可表示的跨协议子集；实际实例启用与账号可用性分开判断。
-- 若需真实调用，先约定目标、精确请求矩阵、token/请求数与脱敏边界；方向文档、旧计划和存在密钥都不是授权。
-- 检查客户端 → 入口认证 → IR → Provider → 实际下游 body → 下一轮回放的整条路径。
-- 保持固定可信目标、预算、late failure 不伪造终态、交付后不 retry/fallback 的边界；不靠延长 deadline 或宽松解析掩盖失败。
-- 在 [current-focus](current-focus.md)记录获准行为切片，以独立反例驱动实现；完成后恢复为空，不留下测试日记。
-
-无需把 hosted tools、program 执行、Codex turn 管理、state/WS 或其他 task family 的完整实现当作每个切片的前置条件；也不因本机入口存在而宣称生产就绪。
+- 明确 public model、客户端、原生协议或可表示的跨协议子集；注册、激活与账号可用性分开验证。
+- 验收客户端 → 入口认证 → IR → Provider → 实际下游 body → 下一轮回放，保留固定目标、绝对预算、提交后禁止重放和真实终态约束。
+- 先用独立 synthetic 反例验证；真实请求另行约定目标、矩阵、请求/token 预算与脱敏范围，存在凭据或计划不构成授权。
+- 新问题按上游输出、投影、I/O 生命周期和消费者差异定位，不重复成功矩阵或靠宽松解析/延长 deadline 掩盖失败。稳定约束归 owning code，运行结果只在当次交付和获准 run 中保留。

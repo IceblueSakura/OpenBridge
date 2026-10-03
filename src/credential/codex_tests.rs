@@ -1,7 +1,7 @@
 //! Independent Codex wire/identity expectations, not Grok grant aliases.
 //! RSA key/JWK fixtures were generated locally with OpenSSL solely for synthetic
 //! tests. They contain no real credential, copied asset or upstream private key.
-use super::tests::{Authority, Directory, Step, step};
+use super::test_support::{Authority, Directory, Step, step};
 use super::*;
 use axum::http::StatusCode;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64};
@@ -370,7 +370,7 @@ fn legacy_snapshot_is_rejected_without_reading_or_rewriting_it() {
     let path = dir.0.join("accounts.json");
     std::fs::write(&path, original).unwrap();
     assert!(matches!(
-        super::tests::offline(&dir.0),
+        super::test_support::offline(&dir.0),
         Err(CredentialError::LegacyStore)
     ));
     assert_eq!(std::fs::read(&path).unwrap(), original);
@@ -379,7 +379,7 @@ fn legacy_snapshot_is_rejected_without_reading_or_rewriting_it() {
 #[test]
 fn codex_principal_scope_is_validated_by_its_driver_on_reload() {
     let dir = Directory::new();
-    let pool = super::tests::offline(&dir.0).unwrap();
+    let pool = super::test_support::offline(&dir.0).unwrap();
     let mut account = model::Account::new("codex", "personal", CLIENT);
     account.identity = Some(VerifiedIdentity {
         subject: "person-a".into(),

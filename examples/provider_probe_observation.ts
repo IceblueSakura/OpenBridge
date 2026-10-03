@@ -2,7 +2,10 @@
 // Not a replacement for the protocol decoder: only answer text and terminal
 // facts are observed. Reasoning, opaque values, identities and headers are never
 // retained in reports. It does not rewrite bytes or relax a scenario oracle.
-export function classifyText(text, expected) {
+import { record, array } from './probe_values.ts';
+import type { Protocol } from './probe_values.ts';
+
+export function classifyText(text: unknown, expected: string) {
   if (typeof text !== 'string') return 'unavailable';
   const value = text.trim();
   if (value === expected) return 'exact';
@@ -15,17 +18,17 @@ export function classifyText(text, expected) {
 }
 
 export class WireObservation {
-  #protocol; #limits; #decoder = new TextDecoder('utf-8', {fatal:true});
-  #pending = ''; #bytes = 0; #parts = new Map(); #textChars = 0;
-  #snapshot; #terminal; #done = false; #eof = false; #failed = false;
-  constructor(protocol, {wireBytes = 2 << 20, frameBytes = 1 << 20, textChars = 65536} = {}) {
+  #protocol: Protocol; #limits: {wireBytes: number; frameBytes: number; textChars: number}; #decoder = new TextDecoder('utf-8', {fatal:true});
+  #pending = ''; #bytes = 0; #parts = new Map<string, string>(); #textChars = 0;
+  #snapshot: string | undefined; #terminal: string | undefined; #done = false; #eof = false; #failed = false;
+  constructor(protocol: Protocol, {wireBytes = 2 << 20, frameBytes = 1 << 20, textChars = 65536} = {}) {
     if (!['chat','responses'].includes(protocol) || [wireBytes,frameBytes,textChars].some(n => !Number.isSafeInteger(n) || n < 1)) {
       throw new Error('invalid observation limits or protocol');
     }
     this.#protocol = protocol;
     this.#limits = {wireBytes,frameBytes,textChars};
   }
-  push(bytes) {
+  push(bytes: Uint8Array) {
     if (this.#failed || this.#eof) throw new Error('closed observation');
     try {
       this.#bytes += bytes.byteLength;
@@ -46,13 +49,13 @@ export class WireObservation {
       throw new Error('invalid or over-budget diagnostic stream');
     }
   }
-  #append(key, text) {
+  #append(key: string, text: unknown) {
     if (typeof text !== 'string') throw new Error('invalid text delta');
     this.#textChars += text.length;
     if (this.#textChars > this.#limits.textChars) throw new Error('observation text budget');
     this.#parts.set(key,(this.#parts.get(key) ?? '') + text);
   }
-  #frame(frame) {
+  #frame(frame: string) {
     const data = frame.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).replace(/^ /,'')).join('\n');
     if (!data) return;
     if (this.#done) throw new Error('data after terminal');
@@ -61,28 +64,32 @@ export class WireObservation {
       this.#done = true;
       return;
     }
-    const value = JSON.parse(data);
+    const value = record(JSON.parse(data));
     if (this.#protocol === 'responses') {
       if (value.type === 'response.output_text.delta') {
-        if (![value.output_index,value.content_index].every(n => Number.isSafeInteger(n) && n >= 0)) throw new Error('invalid text coordinates');
+        if (![value.output_index,value.content_index].every(n => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0)) throw new Error('invalid text coordinates');
         this.#append(`${value.output_index}:${value.content_index}`,value.delta);
-      } else if (['response.completed','response.incomplete','response.failed','error'].includes(value.type)) {
-        this.#terminal = value.type;
+      } else if (typeof value.type === 'string' && ['response.completed','response.incomplete','response.failed','error'].includes(value.type)) {
+        this.#terminal = String(value.type);
         if (value.type === 'response.completed') {
-          if (!Array.isArray(value.response?.output)) throw new Error('missing output');
-          const parts = value.response.output.filter(item => item.type === 'message').flatMap(item => item.content ?? []).filter(part => part.type === 'output_text');
-          if (parts.some(part => typeof part.text !== 'string')) throw new Error('invalid terminal text');
-          if (parts.reduce((n,part) => n + part.text.length,0) > this.#limits.textChars) throw new Error('terminal text budget');
-          this.#snapshot = parts.map(part => part.text).join('');
+          const parts = array(record(value.response).output).map(record).filter(item => item.type === 'message')
+            .flatMap(item => array(item.content ?? []).map(record)).filter(part => part.type === 'output_text');
+          const texts = parts.map(part => {
+            if (typeof part.text !== 'string') throw new Error('invalid terminal text');
+            return part.text;
+          });
+          if (texts.reduce((n,text) => n + text.length,0) > this.#limits.textChars) throw new Error('terminal text budget');
+          this.#snapshot = texts.join('');
         }
         this.#done = true;
       }
     } else {
-      for (const choice of value.choices ?? []) {
+      for (const choice of array(value.choices ?? []).map(record)) {
         if (choice.index !== 0) throw new Error('multiple candidates');
-        if (choice.delta?.content != null) this.#append('0:0',choice.delta.content);
+        const delta = record(choice.delta ?? {});
+        if (delta.content != null) this.#append('0:0',delta.content);
         if (choice.finish_reason != null) {
-          if (!['stop','tool_calls','length','content_filter'].includes(choice.finish_reason)) throw new Error('unknown finish');
+          if (typeof choice.finish_reason !== 'string' || !['stop','tool_calls','length','content_filter'].includes(choice.finish_reason)) throw new Error('unknown finish');
           this.#terminal = choice.finish_reason;
         }
       }
@@ -105,7 +112,7 @@ export class WireObservation {
       return ai - bi || ac - bc;
     }).map(([,text]) => text).join('');
   }
-  facts(expected, consumerText) {
+  facts(expected: string, consumerText?: string) {
     const available = !this.#failed && this.#done && (this.#protocol === 'chat' || this.#terminal === 'response.completed');
     const text = available ? (this.#protocol === 'responses' ? this.#snapshot : this.#deltaText()) : undefined;
     return {

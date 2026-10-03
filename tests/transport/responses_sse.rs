@@ -677,3 +677,54 @@ fn multiline_data_is_joined_and_an_invalid_json_record_poisons_the_stream() {
     assert!(d.consume(input.as_bytes()).is_err());
     assert!(d.consume(wire_events().as_slice()).is_err());
 }
+
+#[test]
+fn empty_terminal_summary_requires_real_closed_items_and_exact_nonempty_snapshots() {
+    use openbridge::{
+        adapter::{Adapter, Dialect},
+        execution::Attempt,
+        protocol::openai::{Profile, sse::SseLimits},
+        semantic::value::ReplayOrigin,
+    };
+    let adapter = |dialect, scope| {
+        Adapter::new(
+            Profile::Responses,
+            dialect,
+            Some(ReplayOrigin::new(scope).unwrap()),
+        )
+    };
+    let events = crate::wire::events(2);
+    for (dialect, finished, output, accepted) in [
+        (Dialect::Codex, true, json!([]), true),
+        (Dialect::Standard, true, json!([]), false),
+        (Dialect::Codex, false, json!([]), false),
+        (Dialect::Codex, true, Value::Null, false),
+        (
+            Dialect::Codex,
+            true,
+            json!([{"type":"message","id":"other","role":"assistant","status":"completed","content":[]}]),
+            false,
+        ),
+    ] {
+        let mut selected = events.clone();
+        if !finished {
+            selected.retain(|e| e["type"] != "response.output_item.done");
+        }
+        selected.last_mut().unwrap()["response"]["output"] = output;
+        let mut attempt = Attempt::new(adapter(dialect, "one"), 1 << 20, SseLimits::default());
+        attempt.begin(200, "text/event-stream").unwrap();
+        let mut valid = true;
+        for event in selected {
+            let bytes = format!(
+                "event: {}\ndata: {event}\n\n",
+                event["type"].as_str().unwrap()
+            );
+            if attempt.push(bytes.as_bytes()).is_err() {
+                valid = false;
+                break;
+            }
+        }
+        valid = valid && attempt.finish().is_ok();
+        assert_eq!(valid, accepted, "{dialect:?} finished={finished}");
+    }
+}

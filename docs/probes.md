@@ -73,12 +73,14 @@ Rust 入口在凭据加载前验证计划选择，默认不做目录请求。显
 
 ## pi
 
-非私有代码已入仓：`examples/pi_probe.py` / `pi_probe.mjs`。本机交互配置、真实 key 和 auth 文件不入仓；自动 probe 不读取日常配置，而是在 run 私有子目录生成最小配置，禁用资源发现、重试、compaction 和 cache warming，只注册固定 synthetic read。
+非私有代码已入仓：`examples/pi_probe.py` / `pi_probe.ts`。本机交互配置、真实 key 和 auth 文件不入仓；自动 probe 不读取日常配置，而是在 run 私有子目录生成最小配置，禁用资源发现、重试、compaction 和 cache warming，只注册固定 synthetic read。
 
 ```sh
 uv run --project tests/sdk --locked --offline python examples/pi_probe.py \
   --package /path/to/pi-0.87.1 --model "$PUBLIC_MODEL" --check --invalid-auth
 ```
+
+Node 与 pi 类型依赖按[开发指南](development.md#测试语言与-js-工具)准备；可将 `--package` 指向本仓库 `node_modules/@earendil-works/pi-coding-agent`。`--protocol chat|responses` 可显式选择已准入协议；缺省取 probe catalog 的首项，不按模型名推断。协议选择在启动 Gateway 前验证，TS runner 只消费受信选择。
 
 `--check` 使用 synthetic key 和拒绝 CONNECT 的 loopback proxy；错误 token 必须 401 且零上游连接，正确 token 准入必须到达拒绝代理。不需要 live run；未指定时使用临时 synthetic 账本。
 
@@ -96,7 +98,8 @@ uv run --project tests/sdk --locked --offline python examples/pi_probe.py \
 ```sh
 uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p 'test_*.py'
 uv run --project tests/sdk --locked --offline python -O -m unittest discover -s tests/sdk -p 'test_*.py'
-node --test tests/sdk/*.test.mjs
+npm run typecheck
+npm test
 cargo test --locked --offline --example live_probe
 ```
 

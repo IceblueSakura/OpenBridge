@@ -20,14 +20,15 @@ from .checks import require
 MODELS = {row[1]: row for row in BINDINGS}
 
 
-def source_fingerprint():
-    root = Path(__file__).resolve().parents[2]
-    paths = [root / "Cargo.toml", root / "Cargo.lock", root / "tests/sdk/uv.lock"]
+def source_fingerprint(root=None):
+    root = Path(__file__).resolve().parents[2] if root is None else root
+    paths = [root / name for name in ("Cargo.toml", "Cargo.lock", "tests/sdk/uv.lock",
+             "package.json", "package-lock.json", "tsconfig.json")]
     for pattern in (
         "src/**/*.rs",
         "examples/**/*.rs",
         "examples/**/*.py",
-        "examples/*.mjs",
+        "examples/**/*.ts",
     ):
         paths.extend(root.glob(pattern))
     digest = hashlib.sha256()

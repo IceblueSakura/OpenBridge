@@ -2,7 +2,7 @@
 use super::{
     model::{Account, AccountState},
     store::{PublishStep, Store},
-    tests::Directory,
+    test_support::Directory,
     *,
 };
 fn active() -> Account {

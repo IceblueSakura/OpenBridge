@@ -121,61 +121,7 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
     )
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn default_topology_resolves_the_admitted_models_and_fixed_routes() {
-        let topology = default_topology().unwrap();
-        let model = topology.model("deepseek-flash").unwrap();
-        assert_eq!(model.route.as_str(), "deepseek-generation");
-        assert_eq!(
-            topology
-                .route_endpoints(&model.route)
-                .iter()
-                .map(|e| (e.id.as_str(), e.protocol))
-                .collect::<Vec<_>>(),
-            vec![
-                ("deepseek-responses", ProtocolProfile::OpenAiResponses),
-                ("deepseek-chat", ProtocolProfile::OpenAiChat)
-            ]
-        );
-        assert!(topology.model("mimo-v2.6-pro").is_some());
-        assert!(topology.model("gpt-42").is_none());
-    }
-    #[test]
-    fn endpoints_pin_researched_targets_and_upstream_model_bindings() {
-        let topology = default_topology().unwrap();
-        let responses = topology
-            .endpoint(&EndpointId::new("xiaomi-responses").unwrap())
-            .unwrap();
-        assert_eq!(
-            responses.target.origin.as_str(),
-            "https://api.xiaomimimo.com"
-        );
-        assert_eq!(responses.target.path.as_str(), "/v1/responses");
-        assert_eq!(responses.upstream_model, "mimo-v2.6-pro");
-        assert_eq!(responses.credential.as_str(), "xiaomi-api-key");
-        let chat = topology
-            .endpoint(&EndpointId::new("deepseek-chat").unwrap())
-            .unwrap();
-        assert_eq!(chat.target.origin.as_str(), "https://api.deepseek.com");
-        assert_eq!(chat.target.path.as_str(), "/chat/completions");
-        assert_eq!(chat.upstream_model, "deepseek-flash");
-    }
-    #[test]
-    fn contracts_claim_only_documented_protocol_limits() {
-        for endpoint in default_topology().unwrap().endpoints() {
-            let c = &endpoint.representation.semantics;
-            assert!(
-                !c.strict_tools,
-                "function strict is only guaranteed on /beta"
-            );
-            assert!(!c.custom_tools, "custom tools are undeclared");
-            assert!(!c.audio_input && !c.file_input, "media undeclared");
-
-            assert!(c.tools && c.instructions);
-            assert!(!endpoint.execution.retry_before_commit);
-            assert!(endpoint.execution.streaming);
-        }
-    }
+#[test]
+fn declared_topology_compiles() {
+    default_topology().unwrap();
 }

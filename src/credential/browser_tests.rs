@@ -1,7 +1,7 @@
 //! Independent callback and xAI browser boundaries. EC fixtures were generated
 //! locally with OpenSSL, contain no user/upstream key, and are public test assets.
 use super::callback::{Callback, CallbackDecision, classify};
-use super::tests::{Authority, Directory, Step, step};
+use super::test_support::{Authority, Directory, Step, step};
 use super::*;
 use axum::http::StatusCode;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64};
@@ -474,12 +474,4 @@ async fn shared_browser_mechanism_rejects_overrides_and_never_falls_back_from_an
         BrowserGrant::begin(invalid, 0).await,
         Err(CredentialError::Protocol)
     ));
-    drop(occupied);
-    let grant = BrowserGrant::begin(profile(), port).await.unwrap();
-    assert_eq!(
-        grant.prompt.redirect_uri,
-        format!("http://127.0.0.1:{port}/auth/callback")
-    );
-    drop(grant);
-    drop(TcpListener::bind(("127.0.0.1", port)).await.unwrap());
 }

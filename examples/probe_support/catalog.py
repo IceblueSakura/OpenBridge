@@ -79,6 +79,14 @@ BINDINGS = (
 )
 
 
+def select_protocol(model, requested=None):
+    """Default to declared order; an explicit protocol must be admitted."""
+    row = next((row for row in BINDINGS if row[1] == model), None)
+    if row is None or requested is not None and requested not in row[4]:
+        raise RuntimeError("unknown model or unadmitted protocol")
+    return requested if requested is not None else row[4][0]
+
+
 def select_bindings(selection=None, *, models=None):
     available = dict.fromkeys(row[0] for row in BINDINGS)
     # Subscription-plan usage needs a deliberate selection; a general matrix

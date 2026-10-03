@@ -8,7 +8,7 @@ These instructions apply throughout the repository. More specific guidance may n
 - Before editing, inspect the branch, `git status` and target diff. Preserve unrelated work; stop on overlapping external edits. Do not discard, stage, commit or push without scoped authorization.
 - Review, diagnosis and planning are read-only. An implementation request authorizes scoped edits and disposable checks; a design step is not another approval gate. Stop for unresolved material choices, not arbitrary phases.
 - Commits, pushes, publication, service/production changes, credential operations and live/paid requests require explicit authorization for the target and effects. A commit request does not authorize a push.
-- ADRs record decisions, [next-goal](docs/implementation-plans/next-goal.md) records direction, and [current-focus](docs/implementation-plans/current-focus.md) records the approved behavior slice. None grants authority or proves implementation.
+- ADRs define current accepted contracts and their essential rationale, not decision history; [next-goal](docs/implementation-plans/next-goal.md) records direction, and [current-focus](docs/implementation-plans/current-focus.md) records the approved behavior slice. None grants authority or proves implementation.
 
 ## Read the Relevant Context
 
@@ -59,7 +59,7 @@ Report revision, scope and unverified layers in the current conversation. Creden
 
 ## Verification
 
-- Add tests for distinct semantic, wire or security/resource boundaries, not each catalog value. Test at the lowest owning layer; add at most one production-Router smoke when it adds independent value. Avoid inventory and incidental DTO snapshots.
+- Add tests for distinct semantic, wire or security/resource boundaries, not each catalog value. Test at the lowest owning layer; credential tests must not construct a Gateway to check pure binding policy, and pure codec tests must not depend on product catalogs. Keep binding/admission integration checks separate from codec expectations. Add at most one production-Router smoke when it adds independent value. Remove duplicate inventory/DTO snapshots only after locating independent coverage for their meaningful assertions.
 - Use independent wire→IR and IR→wire expectations, then insertion/replacement/deletion and applicable stream/failure cases. Round trips alone can hide symmetric loss. Reuse small synthetic fixtures; review version, license, sensitivity and oracle independence before importing assets.
 - Run focused checks, then the [development baseline](docs/development.md). Rust changes require `cargo fmt -- --check`, `cargo test --locked --offline` and `cargo clippy --locked --offline --all-targets -- -D warnings`. SDK loopback is a separate explicit gate. Prose-only changes require structure/link/anchor checks and `git diff --check`, not runtime tests.
 - Parallelize only independent scenarios with isolated paths/ports/output. Use readiness/events and bounded timeouts; keep ordered retry/fallback/cancellation scenarios serial, without sleeps hiding races.
@@ -68,7 +68,7 @@ Report revision, scope and unverified layers in the current conversation. Creden
 ## Documentation and Comments
 
 - Prefer executable types, validation and independent regressions. Put non-obvious protocol, compatibility, security, concurrency and cleanup rationale beside the owning code, with essential source URLs. Rust comments/docs and Python docstrings use concise English; comments explain why, not narrate a previous investigation.
-- Keep Markdown for stable cross-module decisions, design gaps, source provenance and necessary operations. ADRs state the decision, rationale and consequences with owner links; do not duplicate field tables, defaults, file trees or test scenarios already owned by code/tests.
+- Keep Markdown for the current cross-module solution, design gaps, source provenance and necessary operations. ADRs state only the effective contract, essential rationale and consequences with direct owner links; omit decision chronology, superseded alternatives and implementation diaries. Keep each fact in one owner instead of duplicating field tables, defaults, file trees or test scenarios across guides.
 - Do not retain historical analysis, comparison surveys, audit reports, test results or completion diaries, including offline/SDK results. Do not move them into comments or memory. Outcomes belong in the current response and authorized ignored artifacts; Git history is sufficient for explicit historical questions.
 - Preserve necessary attribution, fixed standard/SDK versions and licenses for retained material. References are source navigation, not another implementation schema or a changing Provider API snapshot. Do not add research pages when a nearby rationale comment or an existing ADR suffices.
 - Update only affected owners and links. Do not weaken a design constraint merely because it is not implemented, or claim behavior improved from documentation review alone.

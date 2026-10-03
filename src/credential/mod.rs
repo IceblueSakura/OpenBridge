@@ -86,4 +86,6 @@ mod manager_tests;
 #[cfg(test)]
 mod storage_tests;
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;

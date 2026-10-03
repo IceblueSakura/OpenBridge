@@ -2,6 +2,7 @@
 import ipaddress
 import json
 import sys
+from sdk_support import check
 from urllib.parse import urlsplit
 
 import openai
@@ -42,15 +43,15 @@ def run(base_url: str) -> None:
                 else:
                     result = client.chat.completions.parse(**params)
                 requests += 1
-                assert result.model == "public-model" and result.usage.total_tokens == 5
+                check(result.model == "public-model" and result.usage.total_tokens == 5)
                 message = result.choices[0].message
                 if turn == 1:
                     call = message.tool_calls[0]
-                    assert call.id == "call-local" and json.loads(call.function.arguments) == {"n": 1}
+                    check(call.id == "call-local" and json.loads(call.function.arguments) == {"n": 1})
                     history.append(message.model_dump(exclude_none=True))
                     history.append({"role": "tool", "tool_call_id": call.id, "content": '{"n":1}'})
                 else:
-                    assert result.choices[0].finish_reason == "stop" and message.content == "old 🧪"
+                    check(result.choices[0].finish_reason == "stop" and message.content == "old 🧪")
         for stream in (False, True):
             history = [{"role": "user", "content": "lookup"}]
             tools = [{"type": "function", **function},
@@ -65,24 +66,24 @@ def run(base_url: str) -> None:
                         for event in events:
                             completed += event.type == "response.completed"
                         result = events.get_final_response()
-                    assert completed == 1
+                    check(completed == 1)
                 else:
                     result = client.responses.parse(**params)
                 requests += 1
-                assert result.model == "public-model" and result.status == "completed"
-                assert result.usage.total_tokens == 8 and result.max_output_tokens == 32
+                check(result.model == "public-model" and result.status == "completed")
+                check(result.usage.total_tokens == 8 and result.max_output_tokens == 32)
                 if turn == 1:
                     dumped = [item.model_dump(exclude_none=True) for item in result.output]
-                    assert {item["call_id"] for item in dumped if item["type"] in (
-                        "function_call", "custom_tool_call")} == {"c_lookup", "c_sql"}
-                    assert any(item.get("encrypted_content") == "synthetic-final-token" for item in dumped)
+                    check({item["call_id"] for item in dumped if item["type"] in (
+                        "function_call", "custom_tool_call")} == {"c_lookup", "c_sql"})
+                    check(any(item.get("encrypted_content") == "synthetic-final-token" for item in dumped))
                     history.extend(dumped)
                     history.extend([
                         {"type": "function_call_output", "call_id": "c_lookup", "output": '{"n":1}'},
                         {"type": "custom_tool_call_output", "call_id": "c_sql", "output": "1"},
                     ])
                 else:
-                    assert result.output_text == '{"ok":false}'
+                    check(result.output_text == '{"ok":false}')
         # Validate empty owner items with a complete independent Responses envelope;
         # do not invent missing Chat-reported settings to satisfy strict SDK validation.
         for stream in (False, True):
@@ -95,16 +96,16 @@ def run(base_url: str) -> None:
                     for event in events:
                         completed += event.type == "response.completed"
                     result = events.get_final_response()
-                assert completed == 1
+                check(completed == 1)
             else:
                 result = client.responses.parse(**params)
             requests += 1
-            assert result.model == "public-model" and result.status == "completed"
-            assert len(result.output) == 2
+            check(result.model == "public-model" and result.status == "completed")
+            check(len(result.output) == 2)
             owner, call = result.output
-            assert owner.type == "message" and owner.status == "completed" and owner.content == []
-            assert call.type == "function_call" and call.call_id == "call-local"
-            assert json.loads(call.arguments) == {"n": 1}
+            check(owner.type == "message" and owner.status == "completed" and owner.content == [])
+            check(call.type == "function_call" and call.call_id == "call-local")
+            check(json.loads(call.arguments) == {"n": 1})
     print(json.dumps({"requests": requests, "protocols": 2, "deliveries": 2}))
 
 

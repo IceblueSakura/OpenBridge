@@ -2,15 +2,19 @@
 //! against a synthetic HTTP Provider. All listeners and credentials are test-owned.
 #[path = "sdk/chat.rs"]
 mod chat_sdk;
+#[path = "../examples/support/child_process.rs"]
+mod child_process;
 #[path = "sdk/gateway.rs"]
 mod gateway_sdk;
+#[path = "sdk/process.rs"]
+mod process_tests;
 #[path = "support/responses_profile.rs"]
 mod wire;
 
 use std::{
-    process::{Child, Command, Stdio},
+    process::Stdio,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use axum::{
@@ -35,7 +39,7 @@ use openbridge::{
     },
 };
 use serde_json::Value;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, process::Command};
 
 const SCRIPT: &str = "tests/sdk/responses_text_loop.py";
 
@@ -302,16 +306,6 @@ async fn handle(State(state): State<Suite>, headers: HeaderMap, body: Bytes) -> 
         .unwrap()
 }
 
-struct ChildGuard(Option<Child>);
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        if let Some(child) = &mut self.0 {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
 struct ServerGuard(tokio::task::AbortHandle);
 impl Drop for ServerGuard {
     fn drop(&mut self) {
@@ -359,22 +353,9 @@ async fn sdk_case(sse: bool, profile: Profile) {
     ] {
         command.env_remove(name);
     }
-    let mut child = ChildGuard(Some(
-        command
-            .spawn()
-            .expect("run with the locked tests/sdk Python environment"),
-    ));
-    let deadline = Instant::now() + Duration::from_secs(35);
-    let output = loop {
-        if child.0.as_mut().unwrap().try_wait().unwrap().is_some() {
-            break child.0.take().unwrap().wait_with_output().unwrap();
-        }
-        assert!(
-            Instant::now() < deadline,
-            "SDK loopback exceeded bounded timeout"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
+    let output = child_process::run(&mut command, b"", Duration::from_secs(35), 64 << 10)
+        .await
+        .expect("bounded SDK process");
     guard.0.abort();
     let _ = server.await;
     assert!(

@@ -1,9 +1,9 @@
 """Exercise Chat create, typed chunks and derived-view replay on the fixed listener."""
 import json
 import sys
+from sdk_support import check, client_for
 
 from pydantic import BaseModel
-from responses_text_loop import client_for
 
 
 class Answer(BaseModel):
@@ -36,32 +36,32 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                                 continue
                             count += 1
                             chunk = event.chunk
-                            assert chunk.id == "chat-local" and chunk.model == "fixture-model"
+                            check(chunk.id == "chat-local" and chunk.model == "fixture-model")
                             if not chunk.choices:
-                                assert finish is not None
+                                check(finish is not None)
                                 continue
-                            assert finish is None
+                            check(finish is None)
                             choice = chunk.choices[0]
-                            assert choice.index == 0
+                            check(choice.index == 0)
                             delta = choice.delta
                             content += delta.content or ""
                             for call in delta.tool_calls or []:
                                 if call.index not in calls:
-                                    assert call.id and call.function.name
+                                    check(call.id and call.function.name)
                                     calls[call.index] = ""
                                 calls[call.index] += call.function.arguments or ""
                             finish = choice.finish_reason
                         final = events.get_final_completion()
-                    assert list(calls.values()) in ([], ['{"n":1}'])
+                    check(list(calls.values()) in ([], ['{"n":1}']))
                     if turn == 2:
-                        assert content == '{"answer":"new 🧪"}'
+                        check(content == '{"answer":"new 🧪"}')
                     message, usage = final.choices[0].message, final.usage
                     counts.append(count)
                 else:
                     result = client.chat.completions.parse(
                         model="fixture-model", messages=history, tools=tools,
                         tool_choice=allowed if turn == 1 else "none", n=1, **extra)
-                    assert len(result.choices) == 1
+                    check(len(result.choices) == 1)
                     choice = result.choices[0]
                     finish, usage = choice.finish_reason, result.usage
                     message = choice.message
@@ -78,14 +78,14 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                     with client.chat.completions.create(**params) as chunks:
                         for chunk in chunks:
                             count += 1
-                            assert chunk.id == "chat-local" and chunk.model == "fixture-model"
+                            check(chunk.id == "chat-local" and chunk.model == "fixture-model")
                             if not chunk.choices:
-                                assert finish is not None and usage is None
+                                check(finish is not None and usage is None)
                                 usage = chunk.usage
                                 continue
-                            assert finish is None
+                            check(finish is None)
                             choice = chunk.choices[0]
-                            assert choice.index == 0
+                            check(choice.index == 0)
                             delta = choice.delta
                             content += delta.content or ""
                             finish = choice.finish_reason
@@ -93,30 +93,30 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                     counts.append(count)
                 else:
                     result = client.chat.completions.create(**params)
-                    assert len(result.choices) == 1
+                    check(len(result.choices) == 1)
                     choice = result.choices[0]
                     finish, usage = choice.finish_reason, result.usage
                     message = choice.message.model_dump(exclude_none=True)
-            assert usage is not None and usage.total_tokens == 5
-            assert usage.prompt_tokens_details.text_tokens == 3
-            assert usage.completion_tokens_details.text_tokens == 2
-            assert usage.completion_tokens_details.accepted_prediction_tokens == 1
-            assert usage.completion_tokens_details.rejected_prediction_tokens == 0
+            check(usage is not None and usage.total_tokens == 5)
+            check(usage.prompt_tokens_details.text_tokens == 3)
+            check(usage.completion_tokens_details.text_tokens == 2)
+            check(usage.completion_tokens_details.accepted_prediction_tokens == 1)
+            check(usage.completion_tokens_details.rejected_prediction_tokens == 0)
             if turn == 1:
-                assert finish == "tool_calls"
+                check(finish == "tool_calls")
                 call = message["tool_calls"][0]
-                assert call["id"] == "call-local"
-                assert call["function"]["name"] == "lookup"
-                assert call["function"]["arguments"] == '{"n":1}'
-                assert call["function"]["parsed_arguments"] == {"n": 1}, "dump must carry the derived view"
+                check(call["id"] == "call-local")
+                check(call["function"]["name"] == "lookup")
+                check(call["function"]["arguments"] == '{"n":1}')
+                check(call["function"]["parsed_arguments"] == {"n": 1}, "dump must carry the derived view")
                 history.extend([message, {"role": "tool", "tool_call_id": "call-local", "content": [{"type": "text", "text": "synthetic result"}, {"type": "text", "text": ""}]}])
             elif turn == 2:
-                assert finish == "stop" and message["content"] == '{"answer":"new 🧪"}'
-                assert json.loads(message["content"]) == {"answer": "new 🧪"}
-                assert message["parsed"] == {"answer": "new 🧪"}, "dump must carry the derived view"
+                check(finish == "stop" and message["content"] == '{"answer":"new 🧪"}')
+                check(json.loads(message["content"]) == {"answer": "new 🧪"})
+                check(message["parsed"] == {"answer": "new 🧪"}, "dump must carry the derived view")
                 history.append(message)
             else:
-                assert finish == "stop" and message["content"] == "old 🧪"
+                check(finish == "stop" and message["content"] == "old 🧪")
         return {"turns": 3, "stream": stream, "event_counts": counts}
     finally:
         client.close()

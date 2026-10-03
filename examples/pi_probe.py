@@ -12,6 +12,7 @@ import threading
 import uuid
 from probe_support.checks import require, install_signals
 from probe_support.ledger import Run, MODELS
+from probe_support.catalog import select_protocol
 from probe_support.runtime import gateway, ROOT
 
 
@@ -23,11 +24,13 @@ def main():
         "--package", required=True, help="Explicit fixed Pi package directory (0.87.1)"
     )
     parser.add_argument("--model", default="nemotron-3-super", choices=MODELS)
+    parser.add_argument("--protocol", choices=("chat", "responses"))
     parser.add_argument("--thinking", choices=("off", "minimal"), default="off")
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--invalid-auth", action="store_true")
     args = parser.parse_args()
+    protocol = select_protocol(args.model, args.protocol)
     require(
         args.live != args.check and (not args.invalid_auth or args.check),
         "mode",
@@ -79,6 +82,7 @@ def main():
                 OPENBRIDGE_PI_PACKAGE=str(Path(args.package).resolve()),
                 OPENBRIDGE_PROBE_PYTHON=sys.executable,
                 OPENBRIDGE_TEST_MODEL=args.model,
+                OPENBRIDGE_TEST_PROTOCOL=protocol,
                 OPENBRIDGE_TEST_THINKING=args.thinking,
                 OPENBRIDGE_TEST_MODE="check" if args.check else "live",
                 OPENBRIDGE_TEST_UPSTREAM=origin,
@@ -92,7 +96,7 @@ def main():
             if args.invalid_auth:
                 env["OPENBRIDGE_TEST_INVALID_AUTH"] = "1"
             child = subprocess.Popen(
-                ["node", str(ROOT / "examples/pi_probe.mjs")], env=env, cwd=ROOT
+                ["node", str(ROOT / "examples/pi_probe.ts")], env=env, cwd=ROOT
             )
             try:
                 code = child.wait(timeout=400)

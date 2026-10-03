@@ -3,20 +3,15 @@ use openbridge::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Representation,
     protocol::openai::Profile,
-    semantic::task::generation::{ImageDetail, ImageFormat},
-    topology::*,
+    semantic::task::generation::{GenerationSemanticContract, ImageDetail, ImageFormat},
 };
 use serde_json::json;
 #[test]
 fn same_model_keeps_semantics_while_each_target_projects_media_independently() {
-    let model = CanonicalModel {
-        id: ModelId::new("synthetic-model").unwrap(),
-        task: TaskKind::Generation,
-        contract: GenerationSemanticContract::text_images(),
-    };
+    let contract = GenerationSemanticContract::text_images();
     let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);
     let request=client.decode_request(&serde_json::to_vec(&json!({"model":"synthetic-model","input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/bmp;base64,AQ=="}]}]})).unwrap()).unwrap();
-    assert!(request.check_semantic(&model.contract).is_ok());
+    assert!(request.check_semantic(&contract).is_ok());
     let original = request.clone();
     let mut limited = Representation::full();
     limited.images.inline_formats = vec![ImageFormat::Png];

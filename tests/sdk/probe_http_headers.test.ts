@@ -1,7 +1,7 @@
 // Preserve the real client's auth boundary without any credential fixture.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { relayHeaders } from '../../examples/probe_http_headers.mjs';
+import { relayHeaders } from '../../examples/probe_http_headers.ts';
 
 test('a relay neither repairs incorrect credentials nor fabricates missing headers', () => {
   assert.deepEqual(relayHeaders(['Authorization','Bearer synthetic-wrong','Content-Type','text/plain',

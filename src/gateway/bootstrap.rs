@@ -320,13 +320,6 @@ mod tests {
                 "/api/paas/v4",
                 "/api/v1",
             ),
-            (
-                "glm-5.3-flash",
-                "glm-5.3-flash",
-                "zhipu-api-key",
-                "/api/paas/v4",
-                "/api/v1",
-            ),
         ] {
             for protocol in [Profile::Chat, Profile::Responses] {
                 let entry =

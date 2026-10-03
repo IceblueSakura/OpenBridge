@@ -13,21 +13,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{
-    io::{AsyncRead, AsyncReadExt},
-    net::TcpListener,
-    process::Command,
-    sync::oneshot,
-};
-async fn bounded_output(reader: impl AsyncRead + Unpin) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    reader
-        .take((64 << 10) + 1)
-        .read_to_end(&mut bytes)
-        .await
-        .unwrap();
-    bytes
-}
+use tokio::{net::TcpListener, process::Command, sync::oneshot};
 fn owner_response() -> Value {
     let mut value = wire::response(2);
     value["output"] = json!([
@@ -236,32 +222,15 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
             command.env_remove(name);
         }
     }
-    command.kill_on_drop(true);
-    let mut child = command.spawn().expect("locked SDK Python");
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let result = tokio::time::timeout(Duration::from_secs(35), async {
-        tokio::join!(child.wait(), bounded_output(stdout), bounded_output(stderr))
-    })
-    .await;
-    let (status, stdout, stderr) = match result {
-        Ok(result) => result,
-        Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            panic!("bounded SDK gateway process timed out");
-        }
-    };
+    let output = super::child_process::run(&mut command, b"", Duration::from_secs(35), 64 << 10)
+        .await
+        .expect("bounded SDK gateway process");
     assert!(
-        stdout.len() <= 64 << 10 && stderr.len() <= 64 << 10,
-        "SDK report exceeded capture limit"
-    );
-    assert!(
-        status.unwrap().success(),
+        output.status.success(),
         "SDK gateway failed: {}",
-        String::from_utf8_lossy(&stderr)
+        String::from_utf8_lossy(&output.stderr)
     );
-    let report: Value = serde_json::from_slice(&stdout).unwrap();
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["requests"], 10);
     {
         let observed = observed.0.lock().unwrap();

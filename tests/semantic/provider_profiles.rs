@@ -61,15 +61,10 @@ fn opencode_go_keeps_readable_reasoning_and_tool_result_history() {
         {"role":"user","content":"lookup"},
         {"role":"assistant","content":null,"reasoning_content":"think","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{\"key\":\"alpha\"}"}}]},
         {"role":"tool","tool_call_id":"call-1","content":"{\"value\":17}"}],"max_completion_tokens":37}"#).unwrap();
-    let topology = openbridge::topology::catalog::default_topology().unwrap();
-    let endpoint = topology
-        .endpoint(&openbridge::topology::EndpointId::new("opencode-go-chat").unwrap())
-        .unwrap();
-    openbridge::execution::admit(topology.model("hy4-preview").unwrap(), &request).unwrap();
+    let contract = provider.contract(&Contract::full());
     let before = request.clone();
-    let wire = endpoint
-        .adapter()
-        .encode_request(&request, "hy4-preview", &endpoint.representation)
+    let wire = provider
+        .encode_request(&request, "synthetic-upstream", &contract)
         .unwrap();
     assert_eq!(wire["messages"][1]["reasoning"], "think");
     assert!(wire["messages"][1].get("reasoning_content").is_none());
@@ -84,9 +79,8 @@ fn opencode_go_keeps_readable_reasoning_and_tool_result_history() {
     assert_eq!(request, before);
     let controlled = client.decode_request(br#"{"model":"hy4-preview","messages":[{"role":"user","content":"keep"}],"reasoning_effort":"low"}"#).unwrap();
     assert!(
-        endpoint
-            .adapter()
-            .encode_request(&controlled, "hy4-preview", &endpoint.representation)
+        provider
+            .encode_request(&controlled, "synthetic-upstream", &contract)
             .is_err()
     );
 

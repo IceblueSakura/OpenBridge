@@ -1,7 +1,7 @@
 //! Independent product browser wire and lifecycle; never contacts OpenAI.
 use super::browser_tests::request;
 use super::codex_tests::{claims, id_token, keys, sign};
-use super::tests::{Authority, Directory, Step, step};
+use super::test_support::{Authority, Directory, Step, step};
 use super::*;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64};
 use serde_json::{Value, json};

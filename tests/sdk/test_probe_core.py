@@ -23,6 +23,23 @@ def reserve_worker(path, number):
 
 
 class ProbeCoreTests(unittest.TestCase):
+    def test_source_fingerprint_includes_typescript_and_toolchain(self):
+        from probe_support.ledger import source_fingerprint
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            paths = ("Cargo.toml", "Cargo.lock", "tests/sdk/uv.lock",
+                     "package.json", "package-lock.json", "tsconfig.json",
+                     "examples/synthetic.ts")
+            for name in paths:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}")
+            for name in paths[3:]:
+                before = source_fingerprint(root)
+                path = root / name
+                path.write_text(path.read_text() + "\n")
+                self.assertNotEqual(source_fingerprint(root), before, name)
+
     def test_model_subset_is_enforced_by_persistent_reservations(self):
         from probe_support.scenarios import plan_groups
 

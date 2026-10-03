@@ -4,17 +4,29 @@ use openbridge::{
     execution::ExecutionPlan,
     lowering::generation::GenerationRepresentationContract as Representation,
     protocol::openai::Profile,
-    provider::{CredentialBindingId, catalog},
+    provider::{
+        AuthScheme, CredentialBindingId, EndpointPath, ProviderDefinition, ProviderId,
+        TrustedOrigin,
+    },
     semantic::task::generation::ImageFormat,
     topology::*,
 };
 use serde_json::json;
+fn provider(id: &str) -> ProviderDefinition {
+    ProviderDefinition {
+        id: ProviderId::new(id).unwrap(),
+        origin: TrustedOrigin::parse("https://synthetic.invalid").unwrap(),
+        chat_completions: None,
+        responses: Some(EndpointPath::new("/responses").unwrap()),
+        auth: AuthScheme::Bearer,
+    }
+}
 fn topology(policy: CandidatePolicy) -> CompiledTopology {
     let model_id = ModelId::new("synthetic-canonical").unwrap();
     let mut endpoints = vec![];
     for (id, provider, formats) in [
-        ("a", catalog::deepseek(), vec![ImageFormat::Png]),
-        ("b", catalog::xiaomi(), vec![ImageFormat::Bmp]),
+        ("a", provider("first"), vec![ImageFormat::Png]),
+        ("b", provider("second"), vec![ImageFormat::Bmp]),
     ] {
         let mut representation = Adapter::new(Profile::Responses, Dialect::OpenBridge, None)
             .contract(&Representation::full());
@@ -59,7 +71,7 @@ fn topology(policy: CandidatePolicy) -> CompiledTopology {
         GenerationSemanticContract::text_images(),
     );
     compile(
-        vec![catalog::deepseek(), catalog::xiaomi()],
+        vec![provider("first"), provider("second")],
         endpoints,
         vec![route],
         vec![public],
@@ -71,6 +83,31 @@ fn topology(policy: CandidatePolicy) -> CompiledTopology {
     )
     .unwrap()
 }
+#[test]
+fn forced_upstream_stream_is_rejected_before_attempt_preparation() {
+    use openbridge::execution::plan::{RejectionReason, representable};
+    let compiled = topology(CandidatePolicy::SkipUnrepresentable);
+    let mut endpoint = compiled
+        .endpoint(&EndpointId::new("a").unwrap())
+        .unwrap()
+        .clone();
+    endpoint.execution.streaming = false;
+    let request = Adapter::new(Profile::Responses, Dialect::OpenBridge, None)
+        .decode_request(br#"{"model":"public","input":"hello","stream":false}"#)
+        .unwrap();
+    assert!(representable(&endpoint, &request).is_ok());
+    endpoint
+        .representation
+        .adaptation
+        .rules
+        .responses_forced_stream = true;
+    assert_eq!(
+        representable(&endpoint, &request),
+        Err(RejectionReason::Streaming)
+    );
+    assert!(!request.delivery.streaming());
+}
+
 #[test]
 fn full_requests_are_filtered_without_mutation_or_reordering() {
     let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);

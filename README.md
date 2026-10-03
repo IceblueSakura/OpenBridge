@@ -2,13 +2,11 @@
 
 OpenBridge 的最终目标是**以一套 Agent-first、协议中立的 IR 兼容多种 API 协议，支持多模态与 Provider 原生缓存的网关**。项目尚未上线，处于设计探索阶段；稳定目标是语义、所有权和交互不变量，不是现有类型。当前实现从 Chat Completions / Responses 的文本 Generation 与选定图片输入起步，不是长期只做文本 codec。产品判据见 [v2 目标](docs/architecture-v2/README.md#产品目标与阶段判据)。
 
-当前 `main` 以原 `semantic-v2` 实现为基线，独立推进产品目标；不以迁移、追平或恢复旧版本为目标。旧版只作为 Git refs 与[历史参考](docs/archive.md)保留，主线定位不等于完整标准或生产就绪。
-
 Generation IR **以有序交互、行动与结果、控制转移和续轮依赖为设计主线**。OpenAI Responses、Google Gemini、Anthropic Messages 是共同参考，不是表达力上限；既不取最小公分母，也不机械合并各家字段。设计依据见[决策与语义设计](docs/architecture-v2/README.md)，外部出处见[来源入口](docs/references/README.md)。**当前工作区包含 Rust 语义库与最小 loopback Generation 网关，不是完整标准实现或生产就绪服务。**
 
-旧 service、auth、probe、Provider/registry、MCP、观测及 gateway-tools 原型已整体退役；其源码、测试、配置模板、运行文档和 corpus 在 [Git 归档](docs/archive.md)中查阅。它们不代表 v2 已实现能力。语义库构造不隐式读取私有配置；独立 auth CLI 只访问操作者明确提供的自有 store。`openbridge` binary 通过显式环境变量启动认证的 loopback HTTP 入口，不读取旧配置。启动方式、限制与接口见 [HTTP 网关指南](docs/http-gateway.md)。受控 `examples/live_probe.rs` 仍有独立运行授权与凭据边界，不属于默认验证。
+语义库构造不读取私有配置。`openbridge` binary 通过显式环境变量启动认证的 loopback HTTP 入口；独立 auth CLI 只访问操作者指定的自有 store。启动方式见 [HTTP 网关指南](docs/http-gateway.md)，账户操作与 access 绑定见[凭据指南](docs/credentials.md)。真实测试须通过明确授权的 [probe](docs/probes.md)，不属于默认验证。
 
-下一步 IR 设计优先定稿**交互与续轮、分组及 replay 依赖**，再展开资源/工具结果、cache/usage 与上下文演进。账户登录与模型交互独立推进：Grok 选定个人账户、公共 Responses 方向，ChatGPT 选定 Codex 产品登录与订阅用途；独立 [共用凭据管理 CLI](docs/credentials.md) 按认证类型隔离 Grok / Codex 的设备与浏览器登录、刷新与退出，使用可读的逐账户文件、独立操作协调与显式 driver 注册，拒绝旧 snapshot 且不自动迁移，Gateway 通过显式 store/alias 固定绑定借用 access，不自动选择、切换或刷新账户。合法 client、部署用途与订阅推理执行合同仍需独立确认，不将 Codex token 当作公开 SIWC 或 API key。设计顺序与保留的实施方向由 [next-goal](docs/implementation-plans/next-goal.md) 维护，登录合同来源见 [账户登录参考](docs/references/oauth-login.md)。
+下一步 IR 设计优先定稿**交互与续轮、分组及 replay 依赖**，再展开资源/工具结果、cache/usage 与上下文演进。认证与推理是独立职责；账户绑定不授权自动刷新、切换或重试。未完成方向由 [next-goal](docs/implementation-plans/next-goal.md) 维护。
 
 ## 当前范围
 
@@ -45,7 +43,7 @@ cargo fmt -- --check
 git diff --check
 ```
 
-固定 OpenAI SDK gate 单独显式运行，命令与安全边界见[开发指南](docs/development.md)。`cargo run --bin openbridge` 提供新的最小入口，不恢复旧服务；需先按网关指南提供显式启动凭据。
+Python/probe、TS 类型检查与 Node 单测、固定 OpenAI SDK gate 的命令和安全边界见[开发指南](docs/development.md)；SDK gate 单独显式运行。`cargo run --bin openbridge` 启动最小网关，需先按网关指南提供显式启动凭据。
 
 ## 文档
 

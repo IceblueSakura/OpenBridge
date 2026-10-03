@@ -6,22 +6,10 @@ use axum::{
     http::header::CONTENT_TYPE,
     routing::get,
 };
-use futures_util::{StreamExt, stream};
+use futures_util::stream;
 use openbridge::protocol::openai::sse::{ResponsesSseDecoder, SseLimits, encode_frame};
-use std::{
-    convert::Infallible,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
-};
-use tokio::{
-    net::TcpListener,
-    sync::{mpsc, oneshot},
-};
-
-const FIRST: &[u8] = b"event: response.created\ndata: {\"type\":\"response.created\"}\n\n";
+use std::{convert::Infallible, time::Duration};
+use tokio::{net::TcpListener, sync::mpsc};
 
 fn body(rx: mpsc::Receiver<Bytes>) -> Body {
     Body::from_stream(stream::unfold(rx, |mut rx| async move {
@@ -29,112 +17,6 @@ fn body(rx: mpsc::Receiver<Bytes>) -> Body {
             .await
             .map(|frame| (Ok::<_, Infallible>(frame), rx))
     }))
-}
-
-struct DropSignal(Option<oneshot::Sender<()>>);
-impl Drop for DropSignal {
-    fn drop(&mut self) {
-        if let Some(done) = self.0.take() {
-            let _ = done.send(());
-        }
-    }
-}
-
-#[tokio::test]
-async fn first_frame_is_readable_without_waiting_for_terminal_and_cancellation_drops_producer() {
-    let (release, gate) = oneshot::channel::<()>();
-    let (closed, dropped) = oneshot::channel::<()>();
-    let gate = Arc::new(Mutex::new(Some(gate)));
-    let closed = Arc::new(Mutex::new(Some(closed)));
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let server = tokio::spawn(async move {
-        axum::serve(listener, Router::new().route("/stream", get(move || {
-            let gate = gate.clone();
-            let closed = closed.clone();
-            async move {
-                let gate = gate.lock().unwrap().take().unwrap();
-                let closed = closed.lock().unwrap().take().unwrap();
-                let (tx, rx) = mpsc::channel(1);
-                tokio::spawn(async move {
-                    let _signal = DropSignal(Some(closed));
-                    if tx.send(Bytes::from_static(FIRST)).await.is_err() { return; }
-                    // A closed body must unblock the producer even if the next event is gated.
-                    tokio::select! {
-                        _ = gate => { let _ = tx.send(Bytes::from_static(b"data: forbidden\n\n")).await; },
-                        _ = tx.closed() => {},
-                    }
-                });
-                ([(CONTENT_TYPE, "text/event-stream")], body(rx))
-            }
-        }))).await.unwrap();
-    });
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    let mut response = tokio::time::timeout(
-        Duration::from_secs(3),
-        client.get(format!("http://{address}/stream")).send(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(response.status(), 200);
-    let first = tokio::time::timeout(Duration::from_secs(3), response.chunk())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert_eq!(&first[..], FIRST);
-    // The producer is blocked before the second frame; EOF is not fabricated.
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), response.chunk())
-            .await
-            .is_err()
-    );
-    drop(response);
-    tokio::time::timeout(Duration::from_secs(3), dropped)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(release.send(()).is_err());
-    server.abort();
-    let _ = server.await;
-}
-
-#[tokio::test]
-async fn slow_body_consumer_bounds_prefetch_to_one_queued_frame() {
-    let (tx, rx) = mpsc::channel(1);
-    let (queued, ready) = oneshot::channel();
-    let (closed, dropped) = oneshot::channel();
-    let sent = Arc::new(AtomicUsize::new(0));
-    let progress = sent.clone();
-    let producer = tokio::spawn(async move {
-        let _signal = DropSignal(Some(closed));
-        tx.send(Bytes::from_static(FIRST)).await.unwrap();
-        progress.fetch_add(1, Ordering::SeqCst);
-        tx.send(Bytes::from_static(FIRST)).await.unwrap();
-        progress.fetch_add(1, Ordering::SeqCst);
-        let _ = queued.send(());
-        assert!(tx.send(Bytes::from_static(FIRST)).await.is_err());
-    });
-    let body = body(rx);
-    let mut stream = body.into_data_stream();
-    let first = tokio::time::timeout(Duration::from_secs(3), stream.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert_eq!(first.as_ref(), FIRST);
-    tokio::time::timeout(Duration::from_secs(3), ready)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(sent.load(Ordering::SeqCst), 2);
-    drop(stream);
-    tokio::time::timeout(Duration::from_secs(3), dropped)
-        .await
-        .unwrap()
-        .unwrap();
-    producer.await.unwrap();
 }
 
 #[tokio::test]

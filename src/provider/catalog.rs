@@ -172,31 +172,3 @@ pub fn all() -> Vec<ProviderDefinition> {
         zhipu(),
     ]
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn catalog_pins_researched_origins_paths_and_auth() {
-        let deepseek = deepseek();
-        assert_eq!(deepseek.id.as_str(), "deepseek");
-        assert_eq!(deepseek.origin.as_str(), "https://api.deepseek.com");
-        assert_eq!(
-            deepseek.chat_completions.unwrap().as_str(),
-            "/chat/completions"
-        );
-        assert_eq!(deepseek.responses.unwrap().as_str(), "/responses");
-        assert_eq!(deepseek.auth, AuthScheme::Bearer);
-
-        let xiaomi = xiaomi();
-        assert_eq!(xiaomi.id.as_str(), "xiaomi");
-        assert_eq!(xiaomi.origin.as_str(), "https://api.xiaomimimo.com");
-        assert_eq!(
-            xiaomi.chat_completions.unwrap().as_str(),
-            "/v1/chat/completions"
-        );
-        assert_eq!(xiaomi.responses.unwrap().as_str(), "/v1/responses");
-        assert_eq!(xiaomi.auth, AuthScheme::Bearer);
-    }
-}

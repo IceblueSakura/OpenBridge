@@ -1,9 +1,9 @@
 // Pure synthetic diagnostics; no Pi runtime, credentials, files or network.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { WireObservation, classifyText } from '../../examples/provider_probe_observation.mjs';
-const event = value => `data: ${JSON.stringify(value)}\n\n`;
-const completed = text => ({type:'response.completed',response:{output:[{type:'message',content:[{type:'output_text',text}]}]}});
+import { WireObservation, classifyText } from '../../examples/provider_probe_observation.ts';
+const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
+const completed = (text: string) => ({type:'response.completed',response:{output:[{type:'message',content:[{type:'output_text',text}]}]}});
 
 test('same wire distinguishes consumer loss from a literal-output violation', () => {
   const observer = new WireObservation('responses');

@@ -1,8 +1,7 @@
 """Exercise Responses turns and derived-view replay through the v2-only synthetic listener."""
-import ipaddress
 import json
 import sys
-from urllib.parse import urlsplit
+from sdk_support import check, client_for
 
 import openai
 from pydantic import BaseModel
@@ -10,23 +9,6 @@ from pydantic import BaseModel
 
 class Answer(BaseModel):
     ok: bool
-
-
-def client_for(base_url: str) -> openai.OpenAI:
-    """Reject non-loopback targets and private client defaults before making requests."""
-    if openai.__version__ != "3.19.0":
-        raise RuntimeError("expected pinned openai==3.19.0")
-    parsed = urlsplit(base_url)
-    if (parsed.scheme != "http" or not parsed.hostname or not parsed.port
-            or not ipaddress.ip_address(parsed.hostname).is_loopback
-            or parsed.path != "/v1" or parsed.query or parsed.fragment
-            or parsed.username or parsed.password):
-        raise ValueError("only a literal loopback /v1 listener is allowed")
-    return openai.OpenAI(
-        api_key="synthetic-local-token", base_url=base_url, max_retries=0,
-        timeout=8.0, organization="", project="", _strict_response_validation=True,
-        http_client=openai.DefaultHttpxClient(trust_env=False, follow_redirects=False),
-    )
 
 
 def run(base_url: str, stream: bool) -> dict[str, object]:
@@ -53,29 +35,29 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                         for event in response_stream:
                             events.append(event.type)
                         result = response_stream.get_final_response()
-                    assert events.count("response.completed") == 1
+                    check(events.count("response.completed") == 1)
                     event_counts.append(len(events))
                 else:
                     result = client.responses.parse(**params, text_format=Answer)
-                assert result.output_parsed == Answer(ok=True), "final body must come from modified IR"
+                check(result.output_parsed == Answer(ok=True), "final body must come from modified IR")
             elif stream:
                 events = []
                 with client.responses.stream(**params) as response_stream:
                     for event in response_stream:
                         events.append(event.type)
                     result = response_stream.get_final_response()
-                assert events.count("response.completed") == 1
+                check(events.count("response.completed") == 1)
                 event_counts.append(len(events))
             else:
                 result = client.responses.parse(**params)
-            assert result.status == "completed" and result.usage.total_tokens == 8
+            check(result.status == "completed" and result.usage.total_tokens == 8)
             if turn == 1:
                 calls = [item for item in result.output if item.type in ("function_call", "custom_tool_call")]
-                assert len(calls) == 2 and {call.call_id for call in calls} == {"c_lookup", "c_sql"}
-                assert any(item.type == "reasoning" for item in result.output)
+                check(len(calls) == 2 and {call.call_id for call in calls} == {"c_lookup", "c_sql"})
+                check(any(item.type == "reasoning" for item in result.output))
                 dumped = [item.model_dump(exclude_none=True) for item in result.output]
                 function = next(item for item in dumped if item["type"] == "function_call")
-                assert function["parsed_arguments"] == {"n": 1}, "dump must carry the derived view"
+                check(function["parsed_arguments"] == {"n": 1}, "dump must carry the derived view")
                 history.extend(dumped)
                 history.extend([
                     {"type": "custom_tool_call_output", "call_id": "c_sql", "output": "1"},
@@ -83,11 +65,11 @@ def run(base_url: str, stream: bool) -> dict[str, object]:
                 ])
             elif turn == 2:
                 dumped = [item.model_dump(exclude_none=True) for item in result.output]
-                assert any("parsed" in part for item in dumped if item["type"] == "message"
-                           for part in item["content"]), "dump must carry the derived view"
+                check(any("parsed" in part for item in dumped if item["type"] == "message"
+                           for part in item["content"]), "dump must carry the derived view")
                 history.extend(dumped)
             else:
-                assert result.output_text == '{"ok":false}', "raw body stays authoritative on replay"
+                check(result.output_text == '{"ok":false}', "raw body stays authoritative on replay")
         return {"turns": 3, "stream": stream, "event_counts": event_counts}
     finally:
         client.close()

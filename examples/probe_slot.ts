@@ -2,7 +2,8 @@
 // conservatively consume a local slot too; no refund/replay races.
 export class ProbeSlots {
   #used = 0;
-  constructor(limit) {
+  readonly limit: number;
+  constructor(limit: number) {
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('invalid slot limit');
     this.limit = limit;
   }

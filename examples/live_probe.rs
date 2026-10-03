@@ -535,11 +535,12 @@ async fn run_call(
         .or_else(|| request_json.get("max_output_tokens"))
         .and_then(Value::as_u64)
         .expect("fixed request has a cap");
-    probe_control::call("register", json!({"cases":[[ctx.label, scenario, cap]]}));
+    probe_control::call("register", json!({"cases":[[ctx.label, scenario, cap]]})).await;
     let id = probe_control::call(
         "reserve",
         json!({"model":ctx.label,"scenario":scenario,"tokens":cap}),
-    );
+    )
+    .await;
     let outcome = run_call_inner(client, ctx, request_json, round, &id).await;
     let report = &outcome.report;
     let stage = match report.stage.as_str() {
@@ -566,7 +567,8 @@ async fn run_call(
             "upstream_status":report.http_status,"stage":stage,"content_ok":report.ok,
             "elapsed_ms":report.latency_ms,"handed_off_bytes":report.delivered_bytes
         }}),
-    );
+    )
+    .await;
     outcome
 }
 
@@ -690,7 +692,7 @@ async fn run_call_inner(
         call = call.header(name, value);
     }
     call = call.header(&upstream.auth_header.0, &upstream.auth_header.1);
-    probe_control::call("dispatched", json!({"attempt":attempt_id}));
+    probe_control::call("dispatched", json!({"attempt":attempt_id})).await;
     let mut response = match call.body(upstream.body).send().await {
         Ok(response) => response,
         Err(error) => {
@@ -1267,7 +1269,7 @@ async fn main() {
         ],
     );
     let only = Some(only.unwrap_or_else(|| "nemotron-3-super".into()));
-    probe_control::call("check", json!({"model":only.as_deref().unwrap()}));
+    probe_control::call("check", json!({"model":only.as_deref().unwrap()})).await;
     let protocol_only = selection("OPENBRIDGE_PROBE_PROTOCOL", &["chat", "responses"]);
     let case_only = selection(
         "OPENBRIDGE_PROBE_CASE",
@@ -1369,8 +1371,8 @@ async fn main() {
         let directory_id = probe_control::call(
             "reserve",
             json!({"model":spec.label,"scenario":format!("native:{}:models",spec.label),"tokens":1}),
-        );
-        probe_control::call("dispatched", json!({"attempt":directory_id}));
+        ).await;
+        probe_control::call("dispatched", json!({"attempt":directory_id})).await;
         let definition = topology.provider(spec.provider).expect("fixed provider");
         let secret = secret_for(spec.pool);
         match model_listing(&client, definition.origin.as_str(), models_path, &secret).await {
@@ -1378,7 +1380,8 @@ async fn main() {
                 probe_control::call(
                     "finish",
                     json!({"attempt":directory_id,"state":"passed","metrics":{}}),
-                );
+                )
+                .await;
                 let endpoint = topology
                     .endpoint(&EndpointId::new(spec.chat_endpoint).expect("id"))
                     .expect("endpoint");
@@ -1397,7 +1400,8 @@ async fn main() {
                 probe_control::call(
                     "finish",
                     json!({"attempt":directory_id,"state":"failed","metrics":{"failure":"http"}}),
-                );
+                )
+                .await;
                 let error = "private details suppressed";
                 let _ = writeln!(
                     precheck,
