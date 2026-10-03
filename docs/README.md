@@ -9,7 +9,7 @@
 | [根 README](../README.md) | 产品定位、使用和构建入口 |
 | [AGENTS.md](../AGENTS.md) | 授权、安全、变更和验证规则；不复制架构或字段表 |
 | [当前架构](architecture.md) | 跨模块职责与数据流；细节链接源码 |
-| [设计与 ADR](architecture-v2/README.md) | 有效决策、理由和后果；设计不等于已经实现 |
+| [设计与 ADR](architecture-v2/README.md) / [Generation 交互合同](architecture-v2/interaction-contract.md) | 有效决策、跨模块方案、理由和后果；设计不等于已经实现 |
 | [Generation 缺口](implementation-status/generation.md) | 尚未准入、不可表示、未接线与验收缺口；不列完成记录 |
 | [当前焦点](implementation-plans/current-focus.md) / [下一步目标](implementation-plans/next-goal.md) | 获准行为切片 / 推进方向；不是授权来源 |
 | [开发指南](development.md) | 本地检查方法与验证层级，不记录执行结果 |

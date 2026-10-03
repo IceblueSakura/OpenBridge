@@ -23,7 +23,24 @@
 
 可读 reasoning 与 opaque continuation 分别验收：可读内容不能替代必要 signature，opaque 值必须定义格式、owner、origin、依赖和 finality。无 opaque 合同不强造密文；有回放要求则需验证真实交付→回传。不能静默修改控制或丢弃不可表示内容以通过测试。
 
-## 实施方向
+## Generation 交互路线
+
+按[交互合同](../architecture-v2/interaction-contract.md)先完善 IR，再接入 Gemini Developer API 原生 Interactions 推理。账号管理、Google OAuth、Vertex、订阅服务、真实凭据操作和 live/付费调用不在本路线内；必要请求认证独立于账号管理。
+
+| 切片 | 责任与退出边界 |
+|---|---|
+| A1：值权威 | 区分 raw/structured arguments，结果正文与执行报告独立，保留数值精度；插入/替换/删除、严格解析及不可表示反例闭合 |
+| A2：交互结论 | Outcome、reported progress、pending-result 与 readiness 分开；等待、未知、结束及编辑后的矛盾有独立约束，不启用调度 |
+| A3：关系与 replay | 格式/attachment/finality 与来源证明分开，选择有限 group/prefix/settings 依赖；变换失效、删除不复活，不误称跨请求或 issuer 验证 |
+| A4：计量与事件 | Scope、delta/cumulative/final 及计数关系明确；增量 materialization 与 static 一致，不重复计数或补造未知 |
+| A5：profile 边界 | 共用 carrier/error/metadata 与 requirements 去 OpenAI 耦合，Schema/控制/坐标归属清晰；保留现有 profile 严格合同，不预建框架 |
+| B：Developer 推理 | 固定 API/schema/SDK/profile 后实现原生 codec 与可信绑定；选定客户端的 JSON/SSE 与必要交付→保留→回传闭合后才激活 |
+
+A2/A3 概念共同定稿，实现按最低 owner 分片。每片在 current-focus 记录具体行为和非目标，用独立预期先失败再实现；未完成方向留在本页，不保存执行日记。
+
+库级范围先建立 required replay 的 typed 要求及拒绝边界。Scoped 客户端 carrier、原生入口与严格标准子集的选择，在相应公开 wire 或运行切片前明确；不能依赖 SDK 偶然保留未知字段。跨请求认证机制、完整媒体/hosted tools 和状态服务不作为第一阶段前置。
+
+## 其他实施方向
 
 | 优先级 | 建议切片 | 退出条件 |
 |---|---|---|

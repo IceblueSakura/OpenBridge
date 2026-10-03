@@ -49,7 +49,7 @@ ADR 是当前有效合同，不是决策历史。只保留最终方案、必要�
 
 ## 设计合同与来源
 
-- [Semantic IR](semantic-ir.md)：详细设计 owner；交互概念、控制转移、continuation、依赖/变换、能力域与扩展。
+- [Semantic IR](semantic-ir.md)：总体设计原则与能力域边界；[Generation 交互合同](interaction-contract.md)细化值权威、交互报告、依赖、计量与分层投影。
 - [Domain model](domain-model.md) / [capability model](capability-model.md)：task/model/profile/endpoint 与能力维度。
 - [Protocol and lowering](protocol-and-lowering.md)：codec、fidelity 和目标可表示性。
 - [Execution model](execution-model.md) / [invariants](invariants.md)：跨模块生命周期、安全和资源边界。

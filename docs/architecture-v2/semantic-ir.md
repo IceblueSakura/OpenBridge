@@ -1,6 +1,6 @@
 # Agent-first、协议中立的 IR 设计
 
-这是跨协议语义的设计基线，不是当前 Rust 类型、codec 或执行能力已完整落地的声明。项目尚未上线，处于设计探索阶段；稳定目标是概念、所有权和不变量，不是现有 struct 或 SDK DTO。当前实现边界见[Generation 缺口](../implementation-status/generation.md)，设计推进顺序见[next-goal](../implementation-plans/next-goal.md)。
+这是跨协议语义的设计基线，不是当前 Rust 类型、codec 或执行能力已完整落地的声明。项目尚未上线，处于设计探索阶段；稳定目标是概念、所有权和不变量，不是现有 struct 或 SDK DTO。交互、值权威、typed 依赖与计量的细化方案归[Generation 交互合同](interaction-contract.md)。当前实现边界见[Generation 缺口](../implementation-status/generation.md)，设计推进顺序见[next-goal](../implementation-plans/next-goal.md)。
 
 ## 1. 设计目标与参考边界
 
