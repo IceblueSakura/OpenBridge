@@ -670,6 +670,57 @@ fn pattern_syntax_stays_inside_the_admitted_ecmascript_subset() {
 }
 
 #[test]
+fn regex_work_is_bounded_before_recursive_syntax_parsing() {
+    for pattern in [
+        format!("{}a{}", "(".repeat(65), ")".repeat(65)),
+        "a".repeat(65_537),
+    ] {
+        for strict in [true, false] {
+            let error = admit(
+                closed_property(json!({"type":"string","pattern":pattern})),
+                strict,
+            )
+            .unwrap_err();
+            assert!(matches!(
+                error,
+                openbridge::protocol::openai::CodecError::Semantic(GenerationError::Limit)
+            ));
+        }
+        let error = admit(
+            json!({"patternProperties":{pattern:{"type":"string"}}}),
+            false,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            openbridge::protocol::openai::CodecError::Semantic(GenerationError::Limit)
+        ));
+    }
+}
+#[test]
+fn regex_unicode_syntax_rejects_legacy_escapes_unknown_properties_and_invalid_references() {
+    for pattern in [
+        r"\!",
+        r"\p{NotAProperty}",
+        r"\k<missing>",
+        r"\2(a)",
+        "(?<1bad>a)",
+        "(?i:a)",
+        r"\A",
+        r"\z",
+        r"\Z",
+    ] {
+        assert!(
+            admit(
+                closed_property(json!({"type":"string","pattern":pattern})),
+                false
+            )
+            .is_err(),
+            "{pattern}"
+        );
+    }
+}
+#[test]
 fn format_names_come_from_the_fixed_registry() {
     for good in [
         "date",

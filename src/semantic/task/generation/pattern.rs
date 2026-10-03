@@ -1,311 +1,119 @@
-//! Closed ECMAScript regular-expression subset admission for schema `pattern` values
-//! and `patternProperties` keys. Syntax only: nothing is compiled for matching and no
-//! instance is ever evaluated. Identity escapes cover non-alphanumeric characters;
-//! alphanumeric escapes must belong to the recognized set. Unescaped braces must form
-//! valid quantifiers, character-class ranges must ascend, and inline flags, class
-//! backreferences and unbounded numeric bounds are not admitted.
+//! Bounded ECMAScript Unicode syntax, never regex compilation or matching.
+use super::GenerationError;
+use oxc_allocator::Allocator;
+use oxc_regular_expression::{
+    LiteralParser, Options,
+    ast::{BoundaryAssertionKind, Term},
+};
 
-pub(super) fn valid(pattern: &str) -> bool {
-    let mut p = Parser {
-        chars: pattern.chars().collect(),
-        i: 0,
-    };
-    p.disjunction().is_ok() && p.i == p.chars.len()
-}
+const MAX_BYTES: usize = 65_536;
+const MAX_DEPTH: usize = 64;
+const MAX_GROUPS: usize = 1_024;
 
-struct Parser {
-    chars: Vec<char>,
-    i: usize,
-}
-
-impl Parser {
-    fn peek(&self) -> Option<char> {
-        self.chars.get(self.i).copied()
-    }
-    fn at(&self, offset: usize) -> Option<char> {
-        self.chars.get(self.i + offset).copied()
-    }
-    fn eat(&mut self, c: char) -> bool {
-        if self.peek() == Some(c) {
-            self.i += 1;
-            true
-        } else {
-            false
-        }
-    }
-    fn disjunction(&mut self) -> Result<(), ()> {
-        self.alternative()?;
-        while self.eat('|') {
-            self.alternative()?;
-        }
-        Ok(())
-    }
-    fn alternative(&mut self) -> Result<(), ()> {
-        while self.peek().is_some_and(|c| c != '|' && c != ')') {
-            self.term()?;
-        }
-        Ok(())
-    }
-    fn term(&mut self) -> Result<(), ()> {
-        if self.assertion()? {
-            // Assertions cannot be quantified.
-            return Ok(());
-        }
-        self.atom()?;
-        self.quantifier()
-    }
-    fn assertion(&mut self) -> Result<bool, ()> {
-        match self.peek() {
-            Some('^' | '$') => {
-                self.i += 1;
-                Ok(true)
-            }
-            Some('\\') if matches!(self.at(1), Some('b' | 'B')) => {
-                self.i += 2;
-                Ok(true)
-            }
-            Some('(') if self.at(1) == Some('?') => {
-                let lookahead = matches!(self.at(2), Some('=' | '!'));
-                let lookbehind = self.at(2) == Some('<') && matches!(self.at(3), Some('=' | '!'));
-                if lookahead {
-                    self.i += 3;
-                } else if lookbehind {
-                    self.i += 4;
-                } else {
-                    return Ok(false);
+pub(super) fn validate(pattern: &str) -> Result<(), GenerationError> {
+    preflight(pattern)?;
+    let allocator = Allocator::default();
+    // Pattern text is already JSON-decoded; ConstructorParser would unescape it twice.
+    // https://docs.rs/oxc_regular_expression/0.152.0/oxc_regular_expression/struct.LiteralParser.html
+    let ast = LiteralParser::new(&allocator, pattern, Some("u"), Options::default())
+        .parse()
+        .map_err(|_| GenerationError::InvalidSchema)?;
+    let mut pending: Vec<_> = ast.body.body.iter().flat_map(|a| a.body.iter()).collect();
+    while let Some(term) = pending.pop() {
+        let child = match term {
+            Term::IgnoreGroup(group) => {
+                if group.modifiers.is_some() {
+                    return Err(GenerationError::InvalidSchema);
                 }
-                self.disjunction()?;
-                if !self.eat(')') {
-                    return Err(());
+                Some(&group.body)
+            }
+            Term::CapturingGroup(group) => Some(&group.body),
+            Term::LookAroundAssertion(assertion) => Some(&assertion.body),
+            Term::Quantifier(quantifier) => {
+                pending.push(&quantifier.body);
+                None
+            }
+            Term::BoundaryAssertion(assertion) => {
+                if !matches!(
+                    assertion.kind,
+                    BoundaryAssertionKind::Start
+                        | BoundaryAssertionKind::End
+                        | BoundaryAssertionKind::Boundary
+                        | BoundaryAssertionKind::NegativeBoundary
+                ) {
+                    return Err(GenerationError::InvalidSchema);
                 }
-                Ok(true)
+                None
             }
-            _ => Ok(false),
-        }
-    }
-    fn atom(&mut self) -> Result<(), ()> {
-        match self.peek().ok_or(())? {
-            '(' => self.group(),
-            '[' => self.class(),
-            '.' => {
-                self.i += 1;
-                Ok(())
-            }
-            '\\' => self.escape(false).map(|_| ()),
-            // Nothing to repeat, or an unquantified brace.
-            '*' | '+' | '?' | '{' | '}' => Err(()),
-            _ => {
-                self.i += 1;
-                Ok(())
-            }
-        }
-    }
-    fn group(&mut self) -> Result<(), ()> {
-        self.i += 1;
-        if self.eat('?') && !self.eat(':') {
-            if !self.eat('<') {
-                // Inline flags and other extensions are not admitted.
-                return Err(());
-            }
-            self.group_name()?;
-        }
-        self.disjunction()?;
-        if !self.eat(')') {
-            return Err(());
-        }
-        Ok(())
-    }
-    fn group_name(&mut self) -> Result<(), ()> {
-        if self.word_run() == 0 || !self.eat('>') {
-            return Err(());
-        }
-        Ok(())
-    }
-    fn word_run(&mut self) -> usize {
-        let start = self.i;
-        while self
-            .peek()
-            .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$')
-        {
-            self.i += 1;
-        }
-        self.i - start
-    }
-    fn quantifier(&mut self) -> Result<(), ()> {
-        if self.eat('*') || self.eat('+') || self.eat('?') {
-            self.eat('?');
-            return Ok(());
-        }
-        if self.eat('{') {
-            self.counted()?;
-            self.eat('?');
-        }
-        Ok(())
-    }
-    fn counted(&mut self) -> Result<(), ()> {
-        let lower = self.digits()?;
-        let upper = if self.eat(',') {
-            self.opt_digits()?
-        } else {
-            Some(lower)
+            _ => None,
         };
-        if !self.eat('}') {
-            return Err(());
-        }
-        match upper {
-            Some(upper) if upper < lower => Err(()),
-            _ => Ok(()),
+        if let Some(child) = child {
+            pending.extend(child.body.iter().flat_map(|a| a.body.iter()));
         }
     }
-    fn digits(&mut self) -> Result<u128, ()> {
-        let mut value: u128 = 0;
-        let mut seen = false;
-        while let Some(c) = self.peek().filter(|c| c.is_ascii_digit()) {
-            self.i += 1;
-            seen = true;
-            value = value
-                .checked_mul(10)
-                .and_then(|v| v.checked_add(u128::from(c) - u128::from('0')))
-                .ok_or(())?;
-        }
-        seen.then_some(value).ok_or(())
+    Ok(())
+}
+
+/// Bound recursion and allocation before handing untrusted input to the parser.
+/// Escaped delimiters and class contents do not introduce group nesting in u mode.
+fn preflight(pattern: &str) -> Result<(), GenerationError> {
+    if pattern.len() > MAX_BYTES {
+        return Err(GenerationError::Limit);
     }
-    fn opt_digits(&mut self) -> Result<Option<u128>, ()> {
-        if self.peek().is_some_and(|c| c.is_ascii_digit()) {
-            self.digits().map(Some)
-        } else {
-            Ok(None)
+    let (mut depth, mut groups, mut class, mut escaped) = (0usize, 0usize, false, false);
+    for byte in pattern.bytes() {
+        if escaped {
+            escaped = false;
+            continue;
         }
-    }
-    fn escape(&mut self, in_class: bool) -> Result<Option<char>, ()> {
-        self.i += 1;
-        let Some(c) = self.peek() else { return Err(()) };
-        self.i += 1;
-        match c {
-            'd' | 'D' | 's' | 'S' | 'w' | 'W' => Ok(None),
-            'b' | 'B' if in_class => Ok(Some('\u{8}')),
-            'f' => Ok(Some('\u{c}')),
-            'n' => Ok(Some('\n')),
-            'r' => Ok(Some('\r')),
-            't' => Ok(Some('\t')),
-            'v' => Ok(Some('\u{b}')),
-            'p' | 'P' => self.property(),
-            'k' if !in_class => {
-                if !self.eat('<') {
-                    return Err(());
-                }
-                self.group_name()?;
-                Ok(None)
-            }
-            'x' => self.fixed_hex(2),
-            'u' => {
-                if self.eat('{') {
-                    self.braced_hex()
-                } else {
-                    self.fixed_hex(4)
+        match byte {
+            b'\\' => escaped = true,
+            b']' if class => class = false,
+            _ if class => (),
+            b'[' => class = true,
+            b'(' => {
+                depth += 1;
+                groups += 1;
+                if depth > MAX_DEPTH || groups > MAX_GROUPS {
+                    return Err(GenerationError::Limit);
                 }
             }
-            'c' => {
-                if self.peek().is_some_and(|c| c.is_ascii_alphabetic()) {
-                    self.i += 1;
-                    Ok(Some((self.chars[self.i - 1] as u8 % 32) as char))
-                } else {
-                    Err(())
-                }
-            }
-            '0' => Ok(Some('\0')),
-            '1'..='9' if !in_class => {
-                // Backreference; its numeric identity is not resolved here.
-                while self.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    self.i += 1;
-                }
-                Ok(None)
-            }
-            c if c.is_ascii_alphanumeric() => Err(()),
-            _ => Ok(Some(c)),
+            b')' => depth = depth.saturating_sub(1),
+            _ => (),
         }
     }
-    fn fixed_hex(&mut self, count: usize) -> Result<Option<char>, ()> {
-        let mut value: u32 = 0;
-        for _ in 0..count {
-            let c = self.peek().filter(|c| c.is_ascii_hexdigit()).ok_or(())?;
-            self.i += 1;
-            value = value * 16 + c.to_digit(16).ok_or(())?;
-        }
-        Ok(Some(char::from_u32(value).ok_or(())?))
-    }
-    fn braced_hex(&mut self) -> Result<Option<char>, ()> {
-        let mut value: u32 = 0;
-        let mut seen = false;
-        while let Some(c) = self.peek().filter(|c| c.is_ascii_hexdigit()) {
-            self.i += 1;
-            seen = true;
-            value = value
-                .checked_mul(16)
-                .and_then(|v| v.checked_add(c.to_digit(16).ok_or(()).ok()?))
-                .ok_or(())?;
-        }
-        if !seen || !self.eat('}') {
-            return Err(());
-        }
-        Ok(Some(char::from_u32(value).ok_or(())?))
-    }
-    fn property(&mut self) -> Result<Option<char>, ()> {
-        if !self.eat('{') {
-            return Err(());
-        }
-        if self.property_name() == 0 || (self.eat('=') && self.property_name() == 0) {
-            return Err(());
-        }
-        if !self.eat('}') {
-            return Err(());
-        }
-        Ok(None)
-    }
-    fn property_name(&mut self) -> usize {
-        let start = self.i;
-        while self
-            .peek()
-            .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '-')
-        {
-            self.i += 1;
-        }
-        self.i - start
-    }
-    fn class(&mut self) -> Result<(), ()> {
-        self.i += 1;
-        self.eat('^');
-        loop {
-            match self.peek() {
-                None => return Err(()),
-                Some(']') => {
-                    self.i += 1;
-                    return Ok(());
-                }
-                _ => {}
-            }
-            let lower = self.class_atom()?;
-            if self.peek() == Some('-') && self.at(1).is_some_and(|c| c != ']') {
-                self.i += 1;
-                let upper = self.class_atom()?;
-                if !matches!((lower, upper), (Some(lower), Some(upper)) if lower <= upper) {
-                    return Err(());
-                }
-            }
-        }
-    }
-    fn class_atom(&mut self) -> Result<Option<char>, ()> {
-        match self.peek().ok_or(())? {
-            '\\' => self.escape(true),
-            '-' => {
-                self.i += 1;
-                Ok(Some('-'))
-            }
-            _ => {
-                let c = self.chars[self.i];
-                self.i += 1;
-                Ok(Some(c))
-            }
-        }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn extreme_nesting_and_flat_work_are_rejected_on_a_small_worker_stack() {
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                assert_eq!(
+                    validate(&format!("{}a{}", "(".repeat(50_000), ")".repeat(50_000))),
+                    Err(GenerationError::Limit)
+                );
+                assert_eq!(
+                    validate(&"()".repeat(MAX_GROUPS + 1)),
+                    Err(GenerationError::Limit)
+                );
+                assert!(
+                    validate(&format!(
+                        "{}a{}",
+                        "(".repeat(MAX_DEPTH),
+                        ")".repeat(MAX_DEPTH)
+                    ))
+                    .is_ok()
+                );
+                assert!(validate(&"a".repeat(MAX_BYTES)).is_ok());
+                assert!(validate(&r"\(\)[()]".repeat(64)).is_ok());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }

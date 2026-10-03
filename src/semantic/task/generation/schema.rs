@@ -206,8 +206,8 @@ impl<'a> Check<'a> {
                         )?;
                     }
                     for (name, child) in map {
-                        if key == "patternProperties" && !pattern::valid(name) {
-                            return Err(invalid());
+                        if key == "patternProperties" {
+                            pattern::validate(name)?;
                         }
                         if key == "properties" || key == "$defs" {
                             self.strings(name.chars().count())?;
@@ -298,9 +298,7 @@ impl<'a> Check<'a> {
                     }
                 }
                 "pattern" => {
-                    if !value.as_str().is_some_and(pattern::valid) {
-                        return Err(invalid());
-                    }
+                    pattern::validate(value.as_str().ok_or_else(invalid)?)?;
                 }
                 "format" => {
                     if !value.as_str().is_some_and(format_admitted) {
