@@ -175,6 +175,21 @@ fn unpublished_keys_require_explicit_recovery_and_missing_mutations_create_nothi
         .unwrap();
 }
 #[test]
+fn secret_json_cannot_bypass_validation_or_echo_invalid_material() {
+    for input in ["", "synthetic secret", "synthetic\nsecret", "非 ASCII"] {
+        let error =
+            serde_json::from_str::<Secret>(&serde_json::to_string(input).unwrap()).unwrap_err();
+        assert!(!error.to_string().contains("synthetic"));
+    }
+    let secret: Secret = serde_json::from_str(r#""synthetic-file-secret""#).unwrap();
+    assert_eq!(secret.expose(), "synthetic-file-secret");
+    assert!(!format!("{secret:?}").contains("synthetic-file-secret"));
+    assert_eq!(
+        serde_json::to_string(&secret).unwrap(),
+        r#""synthetic-file-secret""#
+    );
+}
+#[test]
 fn out_of_band_material_edit_cannot_reuse_a_pinned_replay_identity() {
     let dir = Directory::new();
     let manager = manager(&dir);

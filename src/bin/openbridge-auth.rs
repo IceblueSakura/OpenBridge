@@ -134,7 +134,11 @@ fn secret(path: &std::path::Path) -> Result<Secret, Error> {
             bytes.pop();
         }
     }
-    Secret::new(String::from_utf8(bytes).map_err(|_| Error::InvalidInput)?)
+    Secret::new(
+        std::str::from_utf8(&bytes)
+            .map_err(|_| Error::InvalidInput)?
+            .to_owned(),
+    )
 }
 fn prompt(prompt: &LoginPrompt) {
     match prompt {

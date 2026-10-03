@@ -29,66 +29,45 @@ pub struct TrustedOrigin(String);
 
 impl TrustedOrigin {
     pub fn parse(s: &str) -> Result<Self, ProviderError> {
-        let (scheme, rest) = s.split_once("://").ok_or(ProviderError::InvalidOrigin)?;
-        let scheme = match scheme.to_ascii_lowercase().as_str() {
-            "https" => "https",
-            "http" => "http",
-            _ => return Err(ProviderError::InvalidOrigin),
-        };
-        if rest.is_empty() || rest.contains(['/', '?', '#', '@', ' ']) {
-            return Err(ProviderError::InvalidOrigin);
-        }
-        // IPv6 literals keep brackets; everything else is `host` or `host:port`.
-        let (host, port) = if let Some(addr) = rest.strip_prefix('[') {
-            let (inner, tail) = addr.split_once(']').ok_or(ProviderError::InvalidOrigin)?;
-            if inner.is_empty()
-                || !inner
-                    .chars()
-                    .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.')
-            {
-                return Err(ProviderError::InvalidOrigin);
-            }
-            let port = match tail {
-                "" => None,
-                _ => Some(tail.strip_prefix(':').ok_or(ProviderError::InvalidOrigin)?),
-            };
-            (format!("[{}]", inner.to_ascii_lowercase()), port)
-        } else {
-            match rest.split_once(':') {
-                Some((host, port)) => {
-                    if host.is_empty() || host.contains(['[', ']']) || port.contains(':') {
-                        return Err(ProviderError::InvalidOrigin);
-                    }
-                    (host.to_ascii_lowercase(), Some(port))
-                }
-                None => {
-                    if rest.contains(['[', ']']) {
-                        return Err(ProviderError::InvalidOrigin);
-                    }
-                    (rest.to_ascii_lowercase(), None)
-                }
-            }
-        };
-        if host.is_empty() {
-            return Err(ProviderError::InvalidOrigin);
-        }
-        let port = match port {
-            Some(p) => {
-                let p: u16 = p.parse().map_err(|_| ProviderError::InvalidOrigin)?;
-                if p == 0 {
-                    return Err(ProviderError::InvalidOrigin);
-                }
-                Some(p)
-            }
-            None => None,
-        };
-        if scheme == "http" && !matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1" | "[::1]")
+        let invalid = || ProviderError::InvalidOrigin;
+        let (_, authority) = s.split_once("://").ok_or_else(invalid)?;
+        // Reject raw syntax before URL normalization can strip controls, decode a
+        // host escape or turn a backslash into a path delimiter.
+        if s.len() > 8192
+            || s.bytes()
+                .any(|b| b.is_ascii_control() || b.is_ascii_whitespace())
+            || authority.contains(['/', '?', '#', '@', '\\', '%'])
         {
-            return Err(ProviderError::InvalidOrigin);
+            return Err(invalid());
         }
-        let mut normalized = format!("{scheme}://{host}");
-        if let Some(p) = port {
-            normalized.push_str(&format!(":{p}"));
+        let url = url::Url::parse(s).map_err(|_| invalid())?;
+        if !matches!(url.scheme(), "https" | "http") {
+            return Err(invalid());
+        }
+        let host = url.host_str().ok_or_else(invalid)?;
+        // Url canonicalizes default ports away. Retain an explicitly configured
+        // port, but let the standard parser validate its syntax and range first.
+        let (raw_host, port) = if !authority.ends_with(']')
+            && let Some((host, port)) = authority.rsplit_once(':')
+        {
+            let port: u16 = port.parse().map_err(|_| invalid())?;
+            if port == 0 {
+                return Err(invalid());
+            }
+            (host, Some(port))
+        } else {
+            (authority, None)
+        };
+        if url.scheme() == "http"
+            && !["localhost", "127.0.0.1", "[::1]"]
+                .iter()
+                .any(|allowed| raw_host.eq_ignore_ascii_case(allowed))
+        {
+            return Err(invalid());
+        }
+        let mut normalized = format!("{}://{host}", url.scheme());
+        if let Some(port) = port {
+            normalized.push_str(&format!(":{port}"));
         }
         Ok(Self(normalized))
     }
@@ -172,6 +151,29 @@ mod tests {
         }
     }
 
+    #[test]
+    fn origin_rejects_invalid_ip_and_normalization_bypasses() {
+        for value in [
+            "https://[::::]",
+            "https://api.invalid\n",
+            "https://host\\other",
+            "https://%65xample.com",
+            "http://127.1",
+            "http://2130706433",
+            "http://[0:0:0:0:0:0:0:1]",
+            "https://host:",
+            "https://host:65536",
+        ] {
+            assert!(TrustedOrigin::parse(value).is_err(), "{value:?}");
+        }
+        for (input, expected) in [
+            ("https://EXAMPLE.com:443", "https://example.com:443"),
+            ("http://LOCALHOST:80", "http://localhost:80"),
+            ("https://[2001:0db8::1]:444", "https://[2001:db8::1]:444"),
+        ] {
+            assert_eq!(TrustedOrigin::parse(input).unwrap().as_str(), expected);
+        }
+    }
     #[test]
     fn trusted_origin_normalizes_case_and_keeps_port() {
         let origin = TrustedOrigin::parse("HTTPS://API.DeepSeek.COM").unwrap();

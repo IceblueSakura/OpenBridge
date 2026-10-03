@@ -26,6 +26,8 @@ fs-mistrust = { version = "0.16", default-features = false }
 atomicwrites = "0.4.4"
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage"] }
 serde_with = { version = "3", default-features = false, features = ["std"] }
+secrecy = "0.10.3"
+zeroize = "1.9"
 os_info = { version = "=3.14.0", default-features = false }
 jsonwebtoken = { version = "11.1", default-features = false, features = ["aws_lc_rs"] }
 httparse = "1"

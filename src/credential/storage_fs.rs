@@ -1,5 +1,5 @@
 //! Private local files: fs-mistrust verifies paths; atomicwrites owns durable replacement.
-use super::CredentialError as Error;
+use super::{CredentialError as Error, SecretBytes};
 use fs_mistrust::{CheckedDir, Mistrust};
 use std::{
     fs::{File, OpenOptions, TryLockError},
@@ -59,7 +59,7 @@ impl Directory {
         super::storage_windows::check(self.checked.as_path())?;
         Ok(())
     }
-    pub fn read(&self, name: &str, limit: u64) -> Result<Option<Vec<u8>>, Error> {
+    pub fn read(&self, name: &str, limit: u64) -> Result<Option<SecretBytes>, Error> {
         self.check()?;
         let Some(_) = self.metadata(name)? else {
             return Ok(None);
@@ -68,7 +68,7 @@ impl Directory {
             .checked
             .open(name, OpenOptions::new().read(true))
             .map_err(|_| Error::Storage)?;
-        let mut bytes = Vec::new();
+        let mut bytes = SecretBytes::new(Vec::new());
         file.take(limit + 1)
             .read_to_end(&mut bytes)
             .map_err(|_| Error::Storage)?;

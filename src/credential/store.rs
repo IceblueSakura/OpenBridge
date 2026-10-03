@@ -418,7 +418,9 @@ impl Transaction<'_> {
             return Err(Error::PoolFull);
         }
         document.revision = document.revision.checked_add(1).ok_or(Error::Storage)?;
-        let bytes = serde_json::to_vec_pretty(document).map_err(|_| Error::Storage)?;
+        let bytes = super::SecretBytes::new(
+            serde_json::to_vec_pretty(document).map_err(|_| Error::Storage)?,
+        );
         if bytes.len() as u64 > DOCUMENT_BYTES {
             return Err(Error::Storage);
         }

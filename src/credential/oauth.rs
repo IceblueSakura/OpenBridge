@@ -34,7 +34,7 @@ pub(super) async fn exchange_code(
     exchange: CodeExchange<'_>,
     metadata: &[(&str, &str)],
     deadline: tokio::time::Instant,
-) -> Result<(u16, Vec<u8>), Error> {
+) -> Result<(u16, super::SecretBytes), Error> {
     http.request_with_metadata(
         path,
         &[

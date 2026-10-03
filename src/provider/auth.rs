@@ -5,6 +5,7 @@
 //! never enters topology, logs or reports.
 
 use crate::provider::{errors::ProviderError, ident_ok};
+use secrecy::{ExposeSecret, SecretString};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialKind {
@@ -64,7 +65,7 @@ impl CredentialBindingId {
 /// Secret bytes for one credential binding. Construction rejects empty material
 /// and anything outside printable ASCII so a secret can never inject headers.
 /// Debug output is redacted.
-pub struct SecretMaterial(String);
+pub struct SecretMaterial(SecretString);
 
 impl SecretMaterial {
     pub fn new(secret: &str) -> Result<Self, ProviderError> {
@@ -74,12 +75,12 @@ impl SecretMaterial {
         {
             return Err(ProviderError::InvalidSecret);
         }
-        Ok(Self(secret.into()))
+        Ok(Self(SecretString::from(secret)))
     }
 
     /// Name makes secret reads visible in review; only auth assembly uses it.
     pub fn expose(&self) -> &str {
-        &self.0
+        self.0.expose_secret()
     }
 }
 

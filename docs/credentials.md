@@ -60,7 +60,7 @@ Provider 文件中的 `pools` 使用已编译的 credential binding ID 为键。
 - 同账户 operation lock 排斥竞争修改，事务锁不跨网络或人工交互。`busy` 返回调用者，不偷偷等待、重试或换账户。
 - 每条记录的恢复 marker 在替换前持久化。标记文件保存 armed/cleared 状态，不手动删除；不确定发布隔离该条目，不能恢复旧 token。API key 显式 replace/remove、OAuth 显式 login/logout 才可恢复。
 
-仅面向满足这些保证的本地文件系统；不是分布式 store。平台库存在或交叉编译不证明实际文件系统、ACL、断电或原生运行语义。此方案不隔离恶意同用户/管理员进程，不保证 secure erasure。
+仅面向满足这些保证的本地文件系统；不是分布式 store。平台库存在或交叉编译不证明实际文件系统、ACL、断电或原生运行语义。`secrecy` 在自持有 secret 值释放时归零；`zeroize` 保护主要私有文件和 authority 响应字节缓冲。显式持久化仍会暴露给受保护文件；Serde、HTTP、分配器或系统可能另有副本。此方案不隔离恶意同用户/管理员进程，不保证全进程或存储介质的 secure erasure。
 
 ## 命令
 

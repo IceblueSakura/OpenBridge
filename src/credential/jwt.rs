@@ -35,7 +35,7 @@ pub(super) struct Policy<'a> {
 }
 pub(super) struct VerifiedClaims {
     pub subject: String,
-    pub payload: Vec<u8>,
+    pub payload: super::SecretBytes,
 }
 #[derive(Deserialize)]
 struct PayloadEncoding {
@@ -194,8 +194,10 @@ fn validate_claims(claims: &Claims, policy: &Policy<'_>, timestamp: u64) -> Resu
     }
     Ok(())
 }
-fn decode(value: &str) -> Result<Vec<u8>, Error> {
-    B64.decode(value).map_err(|_| Error::Protocol)
+fn decode(value: &str) -> Result<super::SecretBytes, Error> {
+    B64.decode(value)
+        .map(super::SecretBytes::new)
+        .map_err(|_| Error::Protocol)
 }
 /// Access expiry is metadata from an authenticated token response, not identity
 /// proof. An opaque access token is never run through the ID-token verifier.
@@ -206,7 +208,7 @@ pub(super) fn access_expiry(access: &str) -> Result<Option<u64>, Error> {
     let Ok((_, payload, _)) = parts(access) else {
         return Ok(None);
     };
-    let Ok(bytes) = B64.decode(payload) else {
+    let Ok(bytes) = decode(payload) else {
         return Ok(None);
     };
     let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| Error::Protocol)?;

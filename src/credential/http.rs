@@ -1,5 +1,5 @@
 //! Bounded authority HTTP, with no redirects, ambient proxies or automatic retries.
-use super::CredentialError as Error;
+use super::{CredentialError as Error, SecretBytes};
 use futures_util::StreamExt;
 use reqwest::{Client, Method, header::HeaderValue};
 use std::time::Duration;
@@ -80,7 +80,7 @@ impl AuthHttp {
         fields: &[(&str, &str)],
         bearer: Option<&str>,
         deadline: Instant,
-    ) -> Result<(u16, Vec<u8>), Error> {
+    ) -> Result<(u16, SecretBytes), Error> {
         self.request_with_metadata(path, fields, bearer, &[], deadline)
             .await
     }
@@ -91,7 +91,7 @@ impl AuthHttp {
         bearer: Option<&str>,
         metadata: &[(&str, &str)],
         deadline: Instant,
-    ) -> Result<(u16, Vec<u8>), Error> {
+    ) -> Result<(u16, SecretBytes), Error> {
         if let Some(token) = bearer {
             return self.send(path, None, Some(token), metadata, deadline).await;
         }
@@ -115,7 +115,7 @@ impl AuthHttp {
         value: &serde_json::Value,
         metadata: &[(&str, &str)],
         deadline: Instant,
-    ) -> Result<(u16, Vec<u8>), Error> {
+    ) -> Result<(u16, SecretBytes), Error> {
         let body = serde_json::to_string(value).map_err(|_| Error::Protocol)?;
         self.send(
             path,
@@ -126,7 +126,7 @@ impl AuthHttp {
         )
         .await
     }
-    pub async fn get(&self, path: &str, deadline: Instant) -> Result<(u16, Vec<u8>), Error> {
+    pub async fn get(&self, path: &str, deadline: Instant) -> Result<(u16, SecretBytes), Error> {
         self.send(path, None, None, &[], deadline).await
     }
     async fn send(
@@ -136,7 +136,7 @@ impl AuthHttp {
         bearer: Option<&str>,
         metadata: &[(&str, &str)],
         deadline: Instant,
-    ) -> Result<(u16, Vec<u8>), Error> {
+    ) -> Result<(u16, SecretBytes), Error> {
         let deadline = deadline.min(Instant::now() + REQUEST_TIMEOUT);
         if deadline <= Instant::now() {
             return Err(Error::Timeout);
@@ -181,7 +181,7 @@ impl AuthHttp {
                 return Err(Error::Protocol);
             }
             let mut stream = response.bytes_stream();
-            let mut bytes = Vec::new();
+            let mut bytes = SecretBytes::new(Vec::new());
             while let Some(chunk) = stream.next().await {
                 let chunk = chunk.map_err(|_| Error::Network)?;
                 if chunk.len() > BODY_LIMIT - bytes.len() {

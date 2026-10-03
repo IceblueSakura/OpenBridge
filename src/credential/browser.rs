@@ -27,7 +27,7 @@ pub(super) struct BrowserGrant {
 }
 pub(super) struct BrowserResponse {
     pub status: u16,
-    pub body: Vec<u8>,
+    pub body: super::SecretBytes,
     pub nonce: Secret,
     pub client: String,
 }

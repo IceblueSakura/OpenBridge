@@ -1,23 +1,36 @@
 //! Shared credential semantics, independent of product wire and filesystem layout.
 use super::CredentialError as Error;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+pub type SecretBytes = zeroize::Zeroizing<Vec<u8>>;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Secret(String);
+pub struct Secret(SecretString);
+// Persistence is an explicit exposure boundary; secrecy does not implicitly serialize.
+impl Serialize for Secret {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.expose())
+    }
+}
+impl<'de> Deserialize<'de> for Secret {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
 impl Secret {
     pub fn new(value: String) -> Result<Self, Error> {
-        if value.is_empty() || value.len() > 16384 || !value.bytes().all(|c| c.is_ascii_graphic()) {
+        let secret = Self(SecretString::from(value));
+        if !secret.valid() {
             return Err(Error::Protocol);
         }
-        Ok(Self(value))
+        Ok(secret)
     }
     pub fn expose(&self) -> &str {
-        &self.0
+        self.0.expose_secret()
     }
     pub(crate) fn valid(&self) -> bool {
-        !self.0.is_empty() && self.0.len() <= 16384 && self.0.bytes().all(|c| c.is_ascii_graphic())
+        let value = self.expose();
+        !value.is_empty() && value.len() <= 16384 && value.bytes().all(|c| c.is_ascii_graphic())
     }
 }
 impl std::fmt::Debug for Secret {

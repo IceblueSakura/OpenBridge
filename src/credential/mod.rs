@@ -29,12 +29,15 @@ pub use driver::{AuthDriver, DriverFuture, LoginObserver};
 pub use manager::CredentialManager;
 pub use model::{
     AccessState, AccountState, AccountStatus, BrowserPrompt, Credential, DevicePrompt, Grant,
-    LoginMethod, LoginOptions, LoginPrompt, LogoutOutcome, Secret, VerifiedIdentity,
+    LoginMethod, LoginOptions, LoginPrompt, LogoutOutcome, Secret, SecretBytes, VerifiedIdentity,
 };
 pub use profiles::builtin_drivers;
 
 /// Read one explicitly selected private file, never an environment value or auth cache.
-pub fn read_private_file(path: &std::path::Path, limit: u64) -> Result<Vec<u8>, CredentialError> {
+pub fn read_private_file(
+    path: &std::path::Path,
+    limit: u64,
+) -> Result<SecretBytes, CredentialError> {
     if !(1..=8 * 1024 * 1024).contains(&limit) {
         return Err(CredentialError::InvalidInput);
     }
