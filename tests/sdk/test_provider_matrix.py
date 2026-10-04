@@ -43,6 +43,16 @@ class SelectionTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             select_bindings("opencode-go", models=["gpt-6-luna"])
 
+    def test_modelbest_is_explicit_and_does_not_expand_default_live_selections(self):
+        from probe_support.catalog import select_protocol
+        self.assertNotIn("modelbest", [row[0] for row in select_bindings()])
+        rows = select_bindings("modelbest", models=["minicpm5-2b", "minicpm-v-4.6"])
+        self.assertEqual([row[1] for row in rows], ["minicpm5-2b", "minicpm-v-4.6"])
+        self.assertTrue(all(row[2:5] == ("modelbest-api-key", None, ("chat",)) for row in rows))
+        self.assertEqual(select_protocol("minicpm-v-4.6"), "chat")
+        with self.assertRaises(RuntimeError):
+            select_protocol("minicpm-v-4.6", "responses")
+
     def test_paused_unknown_and_duplicate_selections_fail_closed(self):
         rows = select_bindings()
         self.assertEqual(rows[0][0], "nvidia")

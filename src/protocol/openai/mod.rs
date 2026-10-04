@@ -12,6 +12,7 @@ pub mod envelope;
 pub mod events;
 mod function_tools;
 mod image;
+mod inference_shapes;
 pub(crate) mod json;
 mod reasoning;
 pub mod responses;

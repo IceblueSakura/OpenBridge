@@ -58,7 +58,7 @@ struct ModelSpec {
     responses_endpoint: Option<&'static str>,
 }
 
-const MODELS: [ModelSpec; 11] = [
+const MODELS: [ModelSpec; 14] = [
     ModelSpec {
         label: "deepseek-flash",
         pool: "deepseek-api-key",
@@ -123,6 +123,30 @@ const MODELS: [ModelSpec; 11] = [
         models_path: None,
         chat_endpoint: "aliyun-tokenplan-cn-chat",
         responses_endpoint: Some("aliyun-tokenplan-cn-responses"),
+    },
+    ModelSpec {
+        label: "minicpm5-1b",
+        pool: "modelbest-api-key",
+        provider: "modelbest",
+        models_path: Some("/v1/models"),
+        chat_endpoint: "modelbest-minicpm5-1b-chat",
+        responses_endpoint: None,
+    },
+    ModelSpec {
+        label: "minicpm5-2b",
+        pool: "modelbest-api-key",
+        provider: "modelbest",
+        models_path: Some("/v1/models"),
+        chat_endpoint: "modelbest-minicpm5-2b-chat",
+        responses_endpoint: None,
+    },
+    ModelSpec {
+        label: "minicpm-v-4.6",
+        pool: "modelbest-api-key",
+        provider: "modelbest",
+        models_path: Some("/v1/models"),
+        chat_endpoint: "modelbest-minicpm-v-4.6-chat",
+        responses_endpoint: None,
     },
     ModelSpec {
         label: "kimi-k3",
@@ -1267,6 +1291,9 @@ async fn main() {
             "kimi-k3",
             "glm-5.3",
             "glm-5.3-flash",
+            "minicpm5-1b",
+            "minicpm5-2b",
+            "minicpm-v-4.6",
         ],
     );
     let only = Some(only.unwrap_or_else(|| "nemotron-3-super".into()));

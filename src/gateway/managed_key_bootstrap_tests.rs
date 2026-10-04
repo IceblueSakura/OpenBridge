@@ -31,6 +31,129 @@ fn setup() -> (tempfile::TempDir, CredentialManager) {
     (dir, manager)
 }
 #[test]
+fn modelbest_pool_binds_distinct_chat_targets_and_vision_is_not_text_admission() {
+    let dir = crate::credential::test_support::private_directory();
+    let manager = CredentialManager::new(dir.path(), vec![]).unwrap();
+    manager.write_gateway_config_for_test(&serde_json::json!({
+        "client_key":"synthetic-gateway-key-at-least-32-bytes",
+        "models":["minicpm5-1b","minicpm5-2b","minicpm-v-4.6"]
+    }));
+    manager
+        .add_api_key(
+            "modelbest",
+            "one",
+            Secret::new("synthetic-modelbest-key".into()).unwrap(),
+        )
+        .unwrap();
+    manager
+        .set_pool(
+            "modelbest",
+            "modelbest-api-key",
+            0,
+            CredentialPool {
+                members: vec![CredentialRef::ApiKey {
+                    alias: "one".into(),
+                }],
+                fallback: false,
+                max_attempts: 1,
+            },
+        )
+        .unwrap();
+    let boot = Bootstrap::from_directory(dir.path()).unwrap();
+    assert_eq!(boot.gateway.state.entries.len(), 3);
+    for (public, upstream, endpoint) in [
+        ("minicpm5-1b", "MiniCPM5-1B", "modelbest-minicpm5-1b-chat"),
+        ("minicpm5-2b", "MiniCPM5-2B", "modelbest-minicpm5-2b-chat"),
+        (
+            "minicpm-v-4.6",
+            "MiniCPM-V-4.6",
+            "modelbest-minicpm-v-4.6-chat",
+        ),
+    ] {
+        let entry =
+            &boot.gateway.state.entries[&(super::super::family(Profile::Chat), public.into())];
+        assert_eq!(entry.public.canonical_model.as_str(), public);
+        assert_eq!(
+            entry.public.route.as_str(),
+            format!("modelbest-{public}-generation")
+        );
+        let candidate = &entry.candidates[0];
+        assert_eq!(candidate.endpoint.id.as_str(), endpoint);
+        assert_eq!(candidate.endpoint.credential.as_str(), "modelbest-api-key");
+        assert!(candidate.provider.responses.is_none());
+        let body = serde_json::json!({"model":public,"messages":[{"role":"user","content":"hello"}],"max_completion_tokens":37});
+        let (_, request) = super::super::admission::prepare(
+            &boot.gateway.state,
+            Profile::Chat,
+            &serde_json::to_vec(&body).unwrap(),
+        )
+        .unwrap();
+        let prepared = crate::execution::prepare(
+            &candidate.endpoint,
+            &candidate.provider,
+            &candidate.secret.resolve().unwrap().0,
+            &request,
+        )
+        .unwrap();
+        assert_eq!(prepared.origin, "https://api.modelbest.cn");
+        assert_eq!(prepared.path, "/v1/chat/completions");
+        assert_eq!(
+            prepared.auth_header,
+            (
+                "authorization".into(),
+                "Bearer synthetic-modelbest-key".into()
+            )
+        );
+        let wire: serde_json::Value = serde_json::from_slice(&prepared.body).unwrap();
+        assert_eq!(wire["model"], upstream);
+        assert_eq!(wire["max_tokens"], 37);
+        assert!(wire.get("max_completion_tokens").is_none());
+        let response_request = serde_json::json!({"model":public,"input":"hello"});
+        assert_eq!(
+            super::super::admission::prepare(
+                &boot.gateway.state,
+                Profile::Responses,
+                &serde_json::to_vec(&response_request).unwrap()
+            )
+            .err()
+            .unwrap()
+            .status,
+            404
+        );
+    }
+    for (model, accepts) in [
+        ("minicpm5-1b", false),
+        ("minicpm5-2b", false),
+        ("minicpm-v-4.6", true),
+    ] {
+        let body = serde_json::json!({"model":model,"messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AQID"}}]}]});
+        let decoded = super::super::admission::prepare(
+            &boot.gateway.state,
+            Profile::Chat,
+            &serde_json::to_vec(&body).unwrap(),
+        );
+        assert_eq!(decoded.is_ok(), accepts);
+        if let Ok((_, request)) = decoded {
+            let entry =
+                &boot.gateway.state.entries[&(super::super::family(Profile::Chat), model.into())];
+            let candidate = &entry.candidates[0];
+            let prepared = crate::execution::prepare(
+                &candidate.endpoint,
+                &candidate.provider,
+                &candidate.secret.resolve().unwrap().0,
+                &request,
+            )
+            .unwrap();
+            let wire: serde_json::Value = serde_json::from_slice(&prepared.body).unwrap();
+            assert_eq!(
+                wire["messages"][0]["content"],
+                body["messages"][0]["content"]
+            );
+        }
+    }
+}
+
+#[test]
 fn bootstrap_loads_selected_key_and_requires_reactivation_after_rotation() {
     let (dir, manager) = setup();
     let first = Bootstrap::from_directory(dir.path()).unwrap();

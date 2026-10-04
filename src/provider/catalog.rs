@@ -64,8 +64,8 @@ fn chat_provider(id: &str, origin: &str, path: &str) -> ProviderDefinition {
     }
 }
 
-/// Explicit Chat entry; no native Responses endpoint is inferred.
-/// Source: <https://api.modelbest.cn/v1/chat/completions>.
+/// Hosted OpenAI-compatible Chat; no native Responses operation is inferred.
+/// Source: <https://github.com/OpenBMB/MiniCPM-V/blob/main/docs/api.md>.
 pub fn modelbest() -> ProviderDefinition {
     chat_provider(
         "modelbest",

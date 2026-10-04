@@ -28,6 +28,7 @@ pub enum Dialect {
     OpenRouter,
     OpenCodeGo,
     LongCat,
+    ModelBest,
     Nvidia,
     Bailian,
     Kimi,
@@ -117,6 +118,25 @@ impl Dialect {
                     zero_usage_details: true,
                     responses_usage_detail_view: true,
                     chunk_created_drift: true,
+                    ..Default::default()
+                },
+            ),
+            // Hosted Chat grammar and readable reasoning are distinct from
+            // reasoning control admission; no native Responses operation is inferred.
+            // https://github.com/OpenBMB/MiniCPM-V/blob/main/docs/api.md
+            Self::ModelBest => (
+                "modelbest-v1",
+                WireRules {
+                    readable_reasoning: true,
+                    reasoning_alias: true,
+                    chat_stop_diagnostics: true,
+                    chat_reasoning_usage_alias: true,
+                    chunk_created_drift: true,
+                    inactive_chat_fields: true,
+                    chat_inference_response_shape: true,
+                    chat_image_usage: true,
+                    legacy_max_tokens: true,
+                    reject_reasoning_controls: true,
                     ..Default::default()
                 },
             ),

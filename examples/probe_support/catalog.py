@@ -68,6 +68,9 @@ BINDINGS = (
         None,
         ("chat",),
     ),
+    ("modelbest", "minicpm5-1b", "modelbest-api-key", None, ("chat",)),
+    ("modelbest", "minicpm5-2b", "modelbest-api-key", None, ("chat",)),
+    ("modelbest", "minicpm-v-4.6", "modelbest-api-key", None, ("chat",)),
     ("zhipu", "glm-5.3", "zhipu-api-key", None, ("chat", "responses")),
     (
         "zhipu",
@@ -97,7 +100,7 @@ def select_bindings(selection=None, *, models=None):
         if selection is not None
         else [
             name for name in available
-            if name not in ("aliyun-tokenplan-cn", "opencode-go", *OAUTH_PROVIDERS)
+            if name not in ("aliyun-tokenplan-cn", "opencode-go", "modelbest", *OAUTH_PROVIDERS)
         ]
     )
     if (

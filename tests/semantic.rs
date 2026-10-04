@@ -44,6 +44,8 @@ mod interaction_progress;
 mod message_groups;
 #[path = "semantic/model_constraints.rs"]
 mod model_constraints;
+#[path = "semantic/modelbest.rs"]
+mod modelbest;
 #[path = "semantic/parsed_replay.rs"]
 mod parsed_replay;
 #[path = "semantic/phase.rs"]

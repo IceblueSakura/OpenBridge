@@ -84,19 +84,19 @@ pub(super) fn usage(
             "output_tokens_details",
         ),
     };
-    fields(
-        usage,
-        &[
-            input_key,
-            output_key,
-            "total_tokens",
-            input_details,
-            output_details,
-            // DeepSeek Chat reports these aliases of the standard details.
-            "prompt_cache_hit_tokens",
-            "prompt_cache_miss_tokens",
-        ],
-    )?;
+    let mut allowed = vec![
+        input_key,
+        output_key,
+        "total_tokens",
+        input_details,
+        output_details,
+        "prompt_cache_hit_tokens",
+        "prompt_cache_miss_tokens",
+    ];
+    if profile == Profile::Chat && adaptation.rules.chat_reasoning_usage_alias {
+        allowed.push("reasoning_tokens");
+    }
+    fields(usage, &allowed)?;
     let image_usage = match profile {
         Profile::Chat => adaptation.rules.chat_image_usage,
         Profile::Responses => adaptation.rules.responses_image_usage,
@@ -145,6 +145,28 @@ pub(super) fn usage(
             None
         },
     };
+    if profile == Profile::Chat
+        && adaptation.rules.chat_reasoning_usage_alias
+        && let Some(value) = usage.get("reasoning_tokens")
+    {
+        let reported = if value.is_null() {
+            None
+        } else {
+            Some(
+                value
+                    .as_u64()
+                    .ok_or(CodecError::Invalid("reasoning usage alias"))?,
+            )
+        };
+        if parsed
+            .reasoning_tokens
+            .zip(reported)
+            .is_some_and(|(left, right)| left != right)
+        {
+            return Err(CodecError::Invalid("reasoning usage alias conflict"));
+        }
+        parsed.reasoning_tokens = parsed.reasoning_tokens.or(reported);
+    }
     // DeepSeek Chat reports `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`
     // as aliases of the standard details. Normalize the hit count into
     // `cached_input_tokens` and validate both aliases against the reported
@@ -266,15 +288,23 @@ pub(super) fn encode_usage(
                 "input_tokens_details"
             })
             .or_insert_with(|| json!({}));
-        details["cache_write_tokens"] = json!(written);
+        details[if profile == Profile::Chat && rules.chat_inference_response_shape {
+            "created_cache_tokens"
+        } else {
+            "cache_write_tokens"
+        }] = json!(written);
     }
     if let Some(reasoning) = usage.reasoning_tokens {
-        let key = if profile == Profile::Chat {
-            "completion_tokens_details"
+        if profile == Profile::Chat && rules.chat_reasoning_usage_alias {
+            object.insert("reasoning_tokens".into(), json!(reasoning));
         } else {
-            "output_tokens_details"
-        };
-        object.insert(key.into(), json!({"reasoning_tokens": reasoning}));
+            let key = if profile == Profile::Chat {
+                "completion_tokens_details"
+            } else {
+                "output_tokens_details"
+            };
+            object.insert(key.into(), json!({"reasoning_tokens": reasoning}));
+        }
     }
     if let Some(images) = usage.input_image_tokens {
         // Lowering has already checked the explicitly selected extension slot.
@@ -283,7 +313,12 @@ pub(super) fn encode_usage(
         } else {
             "input_tokens_details"
         };
-        object.entry(key).or_insert_with(|| json!({}))["image_tokens"] = json!(images);
+        let details = object.entry(key).or_insert_with(|| json!({}));
+        if profile == Profile::Chat && rules.chat_inference_response_shape {
+            details["multimodal_tokens"] = json!({"image":images});
+        } else {
+            details["image_tokens"] = json!(images);
+        }
     }
     for (details, count) in [
         (

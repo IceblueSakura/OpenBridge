@@ -41,6 +41,10 @@ pub struct WireRules {
     pub reject_reasoning_controls: bool,
     /// Cache hit/miss aliases must agree with reported totals and cached counts.
     pub usage_aliases: bool,
+    /// SGLang-shaped Chat reports reasoning tokens beside totals, not inside details.
+    /// Normalize one typed count; conflicting aliases fail and unknown is not zero.
+    /// Source: https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/openai/protocol.py
+    pub chat_reasoning_usage_alias: bool,
     /// Default absent/null cache-write to zero only inside valid usage. Never
     /// replace a reported/invalid count or invent whole usage; record provenance.
     /// This compatibility value is not evidence of cache activity or billing.
@@ -117,6 +121,10 @@ pub struct WireRules {
     pub responses_inactive_state: bool,
     /// Documented null placeholders do not enable active media or legacy calls.
     pub inactive_chat_fields: bool,
+    /// vLLM-shaped null-only debug slots and typed cache/image report aliases.
+    /// Active unsupported values fail; no defaults or modality estimates are added.
+    /// Source: https://github.com/vllm-project/vllm/blob/main/vllm/entrypoints/openai/chat_completion/protocol.py
+    pub chat_inference_response_shape: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

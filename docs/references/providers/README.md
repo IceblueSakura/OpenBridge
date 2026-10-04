@@ -15,6 +15,14 @@
 
 GenerateContent、Interactions 和 OpenAI-compatible 接口是不同合同；选择具体 API 版本后分别核对，不混用 guide 示例或推定本地已接入。Vertex AI 的资源与认证边界需另行核对。
 
+## ModelBest
+
+- [Hosted Chat API guide](https://github.com/OpenBMB/MiniCPM-V/blob/main/docs/api.md)
+- [MiniCPM model and local inference sources](https://github.com/OpenBMB/MiniCPM)
+- [Operator platform](https://platform.modelbest.cn)
+
+Hosted API examples, local model deployment and authenticated model discovery are distinct sources. Example model spelling is not an automatic alias; precise upstream IDs and admission belong to the current catalogs. OpenAI compatibility does not imply a native Responses operation, complete media union or verified inference access.
+
 ## Anthropic
 
 - [Messages reference](https://platform.claude.com/docs/en/api/messages)、[streaming](https://platform.claude.com/docs/en/build-with-claude/streaming)

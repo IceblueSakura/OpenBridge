@@ -49,6 +49,18 @@ pub const MODELS: &[ModelDefinition] = &[
         images: false,
     },
     ModelDefinition {
+        id: "minicpm5-1b",
+        images: false,
+    },
+    ModelDefinition {
+        id: "minicpm5-2b",
+        images: false,
+    },
+    ModelDefinition {
+        id: "minicpm-v-4.6",
+        images: true,
+    },
+    ModelDefinition {
         id: "hy4-preview",
         images: false,
     },
