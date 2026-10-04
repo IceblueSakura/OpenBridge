@@ -38,4 +38,10 @@ Authenticated bounded HTTP input
 - **缓存不是会话管理**：[cache projection](../src/protocol/cache.rs) 投影显式 Provider carrier；标准 identity hints 与 cache hints 独立。无网关回答缓存、负载均衡或跨请求粘性路由。
 - **探测不是产品合同**：[probe tooling](../examples/probe_support/) 拥有计划、共享预算与脱敏结果，[diagnostics](../src/gateway/diagnostics.rs) 提供有界元数据。工具可选项、执行历史和 sink 状态不能决定产品准入。
 
+## 依赖与复用边界
+
+`semantic` 是任务值、validation、requirements 与 reducer 的唯一 owner，不依赖 protocol/provider/topology/execution。Codec、lowering 与 adapter 保持纯映射；协议共同类型不放入某家 Provider IR。Gateway、未来 Agent 的类型化入口都消费同一语义模型，具体 Agent runtime 尚未实现。
+
+模块按职责拆分，保留必要公共路径的显式 re-export，不复制 SDK 目录、预建未实现 task 模块或引入万能 raw-JSON 请求。当前保持一个 crate；独立 SDK/crate 与持久化格式仅在有明确消费者后定稿。Loss-aware Chat 是[目标投影设计](architecture-v2/protocol-and-lowering.md#semantic-loss)，不是已接线事实，也不改变共享输入或运行时权限。
+
 启动和公共 HTTP 用法见[网关指南](http-gateway.md)，检查命令见[开发指南](development.md)，真实调用的授权与预算见[Probe 指南](probes.md)。

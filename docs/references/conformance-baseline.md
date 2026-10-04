@@ -17,7 +17,9 @@
 | 拒绝 | unknown、错类型、身份/状态冲突、不可表示目标、跨 issuer 或错误后恢复 |
 | 资源 | bytes、items、深度/nodes、schema references、padding、partial payload 与总状态预算 |
 
-设计全景不等于每轮实现全部，但每轮完成的范围必须真正闭合。媒体和状态服务缺实现不是删掉语义目标的理由；一个协议能接收请求不证明它能交付并回传所需 continuation。
+设计全景不等于每轮实现全部，但每轮完成的范围必须真正闭合。媒体和状态服务缺实现不是删掉语义目标的理由；一个协议能接收请求不证明它能交付并回传所需 continuation。标准规范性、能力覆盖度、保真度与自定义 carrier 分别验收：标准场景不能靠 `_openbridge`、本地事件名或 SDK 宽松保留额外字段才成立。Chat 兼容规则需独立断言实际损失、必要语义保留、依赖影响及静态/事件一致性；规范 wire 不等于无损，round trip 也不能要求恢复已声明丢失的信息。扩展的独立测试不能替代标准消费者检查。
+
+多模态切片须固定 task 与标准 operation，覆盖来源/编码、输出类型与完整性、适用事件、资源引用及失败预算；vector 不能作为文本通过检查，语音不能用 transcript 代替媒体。发现 typed 承载不足时，先按 [IR 缺口规则](../architecture-v2/semantic-ir.md#4-ir-不足与标准载体缺口)报告结构选择，再确定对应 oracle，不用当前 encoder 的输出反推目标设计。
 
 ## 2. 四个独立验证层
 
@@ -38,7 +40,7 @@
 - 每种 SDK derived view 都需要独立的回放准入与一致性规则；一种派生 view 通过不证明另一种也支持。
 - 标准 phase、configuration update、媒体、工具与 state 必须分支验收，不靠一个两轮 fixture 声明完整。
 
-新交互设计还须独立审查以下边界，未实现前不能视作现有测试覆盖：
+涉及 Generation 续轮的切片还须独立审查以下相关边界，未实现前不能视作现有覆盖；这些不是全部媒体/Embedding 的前置，更不要求先细化 Realtime：
 
 - 正常 response 终止但仍等待工具结果或 continuation；后继 response 不复活旧 reducer，工具失败不冒充生成失败。
 - Opaque-only 内容、非 reasoning attachment、成组回放与跨响应关联；缺失载体、变换失效或 scope 不匹配时拒绝，不自动丢失历史。

@@ -1,128 +1,38 @@
 # Execution Model
 
-## Principle
+Execution owns trusted I/O, attempts and delivery, not model semantics or Agent orchestration. [Protocol/lowering](protocol-and-lowering.md) prepares a valid target representation, including any declared compatibility loss; execution cannot invent a new downgrade after encoding. Current owners are linked from [architecture](../architecture.md).
 
-Execution consumes a compiled plan. It does not interpret model semantics.
-
-```text
-Validated Task IR
-  -> Requirements
-  -> Public Contract Check
-  -> Fixed Route
-  -> Candidate Lowering
-  -> Encoded Candidate
-  -> Credential Binding
-  -> Transport Attempt
-  -> Response Decode
-  -> Delivery
-```
-
-## Compiled topology
-
-Startup compilation produces an immutable topology:
+## Fixed plan and attempt
 
 ```text
-PublicContract
-  task contracts
-  route ids
-
-Route
-  ordered EndpointId[]
-
-Endpoint
-  ProviderId
-  trusted target
-  TaskKind
-  ProtocolProfile
-  upstream model binding
-  RepresentationContract
-  ExecutionContract
-  CredentialBindingId
+validated immutable IR → public requirements → fixed Route
+ → independent candidate projection → encoded request + trusted auth/target
+ → transport → selected response/event codec → IR validation
+ → fixed downstream projection → body publication / handoff / completion
 ```
 
-The runtime request cannot create or modify these relations.
+Startup compiles Public Model/task → Route → ordered Endpoints, with explicit representation/execution contracts and credential bindings. Business input cannot create, reorder or expand these relations. Candidate policy is pure; no executable closures or dynamic discovery are part of a request plan.
 
-## Plan types
+Each candidate starts from the same final IR. A projection may produce a separate validated view under its declared policy, but cannot mutate the input for another candidate. Endpoint equality does not imply credential/replay-scope equality. Fallback is fixed, opt-in, bounded and limited to eligible failures; current execution never repeats or races a candidate. See [ADR 0010](decisions/0010-canonical-model-fixed-fallback.md).
 
-Planning should produce immutable data rather than executable closures.
+## Publication, commit and completion
 
-```text
-ExecutionPlan {
-  task,
-  delivery,
-  candidates: [CandidatePlan]
-}
+Encoding and queueing do not commit. First downstream-frame publication conservatively freezes fallback before the HTTP response escapes; actual body handoff acknowledges commit, not peer receipt. Completion requires strict upstream closure and final downstream handoff. Once published/committed, errors can only abort the current body, never splice another attempt or fabricate success.
 
-CandidatePlan {
-  endpoint_id,
-  representation_contract,
-  execution_contract
-}
-```
+`Attempt::push` consumes at most one frame; the I/O owner retains unconsumed bytes and controls readiness. Terminal output is withheld until strict EOF. Delivery remains incremental and bounded, without a retained replay log; backpressure does not suspend the absolute deadline.
 
-The semantic request itself remains shared and immutable. Candidate-specific encoded bytes are created lazily per attempt from that request.
+Response/item completion, semantic incomplete/failure/refusal, transport error and cancellation are separate observations. A compatibility policy cannot promote one to successful completion. `StrictComplete` may reject late after partial output; callers needing pre-delivery completeness use bounded static delivery.
 
-## Attempt lifecycle
+One chain shares its permit, attempt budget and deadline. Tighter endpoint limits still apply. Drop, shutdown, timeout and consumers that stop polling must release upstream resources. No sleep-based race masking, unbounded queues or post-commit replay is permitted.
 
-For each fixed candidate:
+## Runtime authority
 
-1. lower immutable final IR to the endpoint representation;
-2. encode it using the endpoint protocol profile;
-3. bind upstream model identity and trusted execution metadata;
-4. acquire the endpoint's credential binding;
-5. send through transport;
-6. classify HTTP/framing failures;
-7. decode response with the same endpoint task/profile;
-8. validate response/event IR;
-9. lower to the downstream protocol/profile;
-10. commit only valid downstream semantic output.
+Transport receives only prepared trusted origin/path/method, safe headers, sensitive auth, encoded bytes/stream and resource policy. It does not receive Task IR, forward inbound headers, inherit ambient proxies or follow redirects implicitly. Response task/profile remains the selected endpoint's contract, never inferred from body content.
 
-Retry/fallback cannot change semantic IR or expand/reorder the route.
+Credential material is acquired only at execution; ordinary requests do not log in, refresh or discover accounts. Secret ownership and recovery belong to [credentials](../credentials.md), not context/fidelity. Uncertain upstream completion may already have incurred work or billing; cancellation is not proof of remote termination.
 
-A semantic continuation is a requirement for a subsequent operation, not a failed-attempt retry. It may retain logical-turn/call/resource dependencies while starting a new response. Whether to continue, execute tools or resolve remote state belongs to a separately authorized caller/orchestration boundary; the transport attempt must not infer those actions from a stop reason. A terminal response reducer is never reopened. See the [interaction contract](semantic-ir.md#5-响应结果控制转移与续轮).
+A continuation describes later-operation requirements, not retry permission. Agent callers separately decide tool execution, subsequent requests and budgets. A terminal reducer cannot reopen. Necessary state for future Realtime is deferred rather than approximated by the current request lifecycle.
 
-## Commit boundary
+## Verification boundary
 
-Execution tracks a monotonic delivery state:
-
-```text
-Uncommitted -> Committed -> Terminal
-```
-
-Only Uncommitted requests may advance under an explicit bounded Route policy; the current gateway never repeats a candidate. First downstream-frame publication additionally freezes advancement conservatively before the HTTP response escapes, closing the receive/timeout race without claiming delivery commit. See [ADR 0010](decisions/0010-canonical-model-fixed-fallback.md).
-
-For streaming, `Attempt::push` consumes at most one upstream frame and returns semantic events without retaining a replay log. `ResponseDelivery::encode_events` projects these incrementally. Only the terminal is withheld until `Attempt::finish` validates strict EOF; `finish_stream` then emits it. The I/O caller retains unconsumed suffixes and controls readiness/backpressure.
-
-Encoding bytes does not commit. The I/O owner calls `ResponseDelivery::commit` at the external visibility boundary and `complete` only after upstream closure and final downstream delivery. After commit, fallback is forbidden. Late errors poison the chain; cancellation releases owned decoder/encoder state. `StrictComplete` may reject at terminal after partial delivery; complete-result consumers must choose bounded non-streaming delivery if they require pre-delivery completeness.
-
-## Credential and transport isolation
-
-Credentials are referenced by opaque binding identity in compiled endpoint topology but secret material is acquired only at execution.
-
-Transport receives:
-
-- trusted target;
-- relative path;
-- method;
-- safe headers;
-- sensitive auth headers;
-- encoded bounded body or streaming body;
-- timeout/resource policy.
-
-Transport never receives Task IR and cannot make semantic decisions.
-
-## Response symmetry
-
-Response processing uses the selected endpoint contract; it does not infer provider/task from response body.
-
-```text
-upstream bytes/events
- -> endpoint protocol codec
- -> Response/Event IR
- -> semantic validation
- -> downstream representability
- -> downstream codec
- -> delivery
-```
-
-This symmetry is required even when upstream and downstream protocols are identical.
+Request/profile, byte framing, body lifecycle and actual Router checks have separate owners. Isolation, bounded timeouts, cancellation and non-secret diagnostics are required. Synthetic behavior does not establish Provider/TLS/network acceptance, long-running load, cache benefit or future Agent support. Methods and commands belong to [development](../development.md), not execution diaries.

@@ -1,6 +1,6 @@
 # Chat citations and generated audio
 
-This bounded library profile extends the shared Chat codec, not a Provider dialect or a second IR. Product admission remains independently controlled by semantic contracts and compiled topology. No audio model, voice account service or real request is activated by these mappings.
+This bounded library profile extends the shared Chat codec, not a Provider dialect or a second IR. Product admission remains independently controlled by semantic contracts and compiled topology. No audio model, voice account service or real request is activated by these mappings. This fixed Chat value/closure contract is not the universal audio model; general content/artifact/reference design belongs to [Semantic Model](semantic-ir.md#5-内容产物与引用). The [Chat loss policy](protocol-and-lowering.md#semantic-loss) does not silently relax these existing checks.
 
 ## Sources and ownership
 

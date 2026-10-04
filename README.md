@@ -1,6 +1,8 @@
 # OpenBridge
 
-OpenBridge 的目标是**以一套 Agent-first、协议中立的 IR 支撑多协议、多模态、Agent 交互与 Provider 原生缓存的网关**。项目尚未上线，处于设计探索阶段；稳定目标是概念、所有权与不变量，不是当前 Rust 类型或某家 SDK DTO。产品判据与有效合同见[语义架构](docs/architecture-v2/README.md)。
+OpenBridge 建立**可由 Gateway 与未来自研 Agent 复用的模型交互 Semantic Model / IR**，以尽量低的语义损失连接不同 Provider，并向下游提供稳定的标准 API。项目尚未上线；优先稳定概念、所有权与不变量，不冻结当前 Rust 类型或照搬协议 DTO。
+
+当前主线是请求型多模态 Generation 与 Embedding：Generation 以规范 Responses 为主，Chat Completions 提供允许声明损失的兼容投影；Embedding 使用独立标准接口。Realtime 详细设计与其他原生协议接入后置。有效合同归[语义架构](docs/architecture-v2/README.md)，具体步骤归[后续计划](docs/implementation-plans/next-goal.md)，不代表当前能力已经扩大。
 
 ## 当前范围
 

@@ -1,117 +1,70 @@
-# Protocol Codec and Target Lowering
+# Protocol Codec、目标投影与语义损失
 
-## Two distinct projections
+[Semantic Model](semantic-ir.md)是唯一语义权威。本页定义 wire 映射、能力检查、损失与 fidelity；具体已实现字段归 owning codec/profile，不在这里复制 schema。执行与提交归[execution model](execution-model.md)。
 
-OpenBridge separates protocol translation from endpoint-specific lowering. [Generation IR](semantic-ir.md) is Agent-first and protocol-neutral, with typed domains and scoped extensions; it is neither a wire DTO, a field union nor a lowest common denominator. The [source index](../references/README.md) provides protocol references; the [fixed OpenAI/Codex baseline](../references/upstream-sync.md) distinguishes their public standard, SDK consumer and product profile, not a universal IR schema.
-
-### Protocol codec
-
-A codec owns syntax and protocol semantics:
+## Codec 与 lowering
 
 ```text
-decode(profile, task, wire) -> Decoded<TaskIR>
-encode(profile, task, representation) -> wire
+外部 wire → codec/profile → typed IR + bounded source records
+                                ↓ validation / requirements
+                    fixed target + projection policy
+                                ↓ lowering
+                     validated representation → codec → wire
 ```
 
-A codec knows wire shapes, field names, event grammar and profile-level presence rules. `adapter::Adapter` composes a protocol family with trusted `Adaptation` rules and scope; Standard, OpenBridge-client and the fixed Provider profiles (selected in [`src/adapter/mod.rs`](../../src/adapter/mod.rs)) are distinct contracts, not one global vendor superset. Shared concepts have typed owners; extensions require a declared schema, attachment and scope. Wire containers do not determine semantic identity: a tool result remains a result even inside a user message. Known unsupported protocol branches must not become arbitrary JSON passthrough. Existing codec admission remains governed by its own profile. A codec does not access credentials, routes or provider selection.
+- Codec 拥有语法、envelope、presence、事件 grammar 与已声明 carrier；adapter 组合受信规则，不成为第二份语义模型。完整响应、请求简写和 SDK 派生视图分别验证。
+- Lowering 判断最终 typed 值是否能按指定目标和投影策略表达。它不选择 Provider、查 registry、取 credential 或联网，不在 encode 后修改 JSON。
+- 等价别名、已验证派生视图、精确数值推导与字段级兼容默认必须具名、有限且有前提。默认不覆盖实际报告或 malformed 值，来源记录在语义外；编码不能重做 intake 默认来恢复删除值。
+- 同协议与跨协议使用同一链路。对原始字节必须在丢失键序列前拒绝重复 JSON key，并限制解析深度/节点/bytes；预解析 Value 不能证明原字节合法。共享 parser 归 [JSON owner](../../src/semantic/value/json.rs)。
 
-The [shared JSON leaf parser](../../src/semantic/value/json.rs) preserves bounded exact numbers and rejects duplicate keys before Value construction; codecs translate its safe errors. Raw Responses JSON enters through `envelope::decode_request_bytes` / `decode_response_bytes`; SSE data uses the same bounded, duplicate-rejecting parser before event decoding. Existing Value APIs validate envelope/task semantics, not the lost raw JSON representation. Caller-side body collection remains independently bounded. Exact admission and limits are in the [text profile](responses-text-profile.md#raw-json-admission).
+## 能力与固定目标
 
-The single-candidate Chat boundary is `chat_envelope::decode_request_bytes` / `decode_response_bytes` with `chat_sse::ChatSseDecoder` / `ChatSseEncoder`. It shares JSON parsing, SSE framing and Generation event/reducer machinery, but has its own delivery options and `[DONE]` terminal contract. See [Chat admission](chat-text-profile.md).
+四层合同回答不同问题：**semantic** 描述何种任务含义及模型能力，**representation** 能用何种 wire 表达，**execution** 具有什么 I/O/资源属性，**public** 向下游承诺什么。宽泛 tools/media 标志不证明每个值都可用，公共能力不能取全部候选的并集。
 
-### Target lowering
+Canonical Model 拥有模型语义身份；Public Model 绑定 task 和固定 Route；Route 按顺序列出 Endpoint；Endpoint 绑定 Provider、可信 origin/path、upstream model、协议和表示/执行合同。Provider/auth/selected endpoint 不是 task 内容。编译关系归 [topology](../../src/topology/mod.rs)，现场激活按 [AGENTS](../../AGENTS.md#current-provider-model-and-compatibility-information)查询。
 
-Lowering answers whether a final semantic request can be represented by one fixed endpoint:
+Requirements 从最终值和 delivery 推导，不含路由选择。每个固定候选独立从同一不可变 IR 投影，不能让前一候选的降级污染后一候选。投影若改变值，需重验剩余结构、依赖、大小与要求；它不能扩张已批准公共请求或目标能力，也不能靠换目标绕过授权。
 
-```text
-lower(final_ir, source_records, endpoint_contract)
-  -> TargetRepresentation
-  | RepresentationError
-```
+## Semantic loss
 
-It owns explicit target mappings such as supported reasoning-level mapping, approved omission of semantically inactive hints, and endpoint-specific representation restrictions.
+目标是**低损而不是任意无损**，不构造通用保真百分比。投影分为：
 
-It cannot mutate the shared final IR. Representability covers ownership/grouping, continuation and source-bound dependencies as well as field shapes. A target that accepts a first request but cannot deliver the required replay carrier through the client and back into history is not a closed Agent mapping. `adapter::Request` carries shared task semantics, `semantic::context` hints/delivery and separate source records; target context projection lives in the adapter rather than execution. Context/extension mappings use the same rule: a candidate may project an admitted session fact or source-bound resource only where its profile permits, not create a second semantic authority. Pure codecs must validate complete envelopes separately from permissive input abbreviations and low-level snapshots. Response requirements derive directly from output rather than a fabricated request; the common decoded/error/metadata owner is [`protocol::decoded`](../../src/protocol/decoded.rs), with explicit OpenAI-path re-exports.
+| 类别 | 合同 |
+|---|---|
+| 精确映射 | 值、行为、关系及必要依赖保持，仅改变 wire 形式 |
+| 等价归一化 | 在已声明前提下含义不变，具名规则和独立反例保护 |
+| 有损兼容 | 明确哪些语义被省略/合并/降级，保证剩余结果仍满足目标合同 |
+| 不可表示 | 无合法映射或超出允许损失时明确失败，不伪装成成功 |
 
-## Why encode does not consume raw IR blindly
+**公开 Chat Completions 是兼容投影，允许部分语义损失。** 这项产品决策允许后续切片定义默认或显式选择的兼容规则，不要求每次调用重新批准；它不是立即放开所有字段，也不改变当前 strict lowering。Responses 的主要接口和 Embedding 的标准接口不因此继承 Chat 的损失策略。
 
-A protocol may have multiple profiles and an endpoint may expose only a subset. Therefore target lowering first proves representability and produces a typed representation accepted by the codec.
+每条有损规则至少固定：方向（request/history/response/event）、目标 profile、受影响 owner、具体损失、前提、保留的约束、对续轮/依赖的影响及独立预期。非必要展示信息的省略、多个文本单元的目标排列、附加报告的降级可作为分析对象，**不是本页已经批准的字段白名单**。精确取舍由实施切片定稿，不靠碰到错误时临时丢字段。
 
-```text
-Task IR
-   |
-   +-- EndpointContract
-   v
-TargetRepresentation
-   |
-   +-- ProtocolProfile
-   v
-Wire
-```
+以下不属于普通 Chat 兼容损失：
 
-This prevents the codec from silently dropping unsupported semantics.
+- 弱化指令 authority、安全/权限、工具选择或行为约束来让请求通过；
+- 改写工具 call identity、参数或结果关联，丢弃必要 opaque/replay 依赖却继续承诺同等续轮；
+- 将音频、图片或向量冒充普通文本；未经明确内容变换合同用 transcript/caption 代替媒体；
+- 把 refusal、失败、取消、截断或未闭合流改为完整成功；
+- 补造 usage、timestamp、resource access、issuer 真实性，或绕过资源/提交边界。
+
+损失应可由类型化投影结果或有界非敏感观察判别，不保存原始正文来说明损失；不能把“被省略”混同于“上游未报告”。观察的具体 API/存储在相应切片定稿，不为通知损失而默认添加私有 wire 字段。静态与流式须使用同一策略，不能在已经发布内容后改换策略或撤回事实。
+
+**标准 wire 正确性、功能覆盖和保真度分别验收。** 有损输出必须仍是规范 Chat，而不是借兼容名义增加任意字段；往返不能被要求恢复已经声明丢失的信息。核心 IR 保留原始权威值，不为 Chat 的限制缩减设计。
 
 ## Source records
 
-Decode returns:
+Source/fidelity records 只保存有界的表示形式、wire identity、来源与依赖证明，不保存能覆盖 typed 值的第二正文。复用要求 owner 仍存在、目标/profile/scope 兼容、依赖未失效，且不能恢复删除值。请求、静态响应与事件分别检查。
 
-```text
-Decoded<T> {
-  semantic: T,
-  fidelity: FidelityRecords,
-  delivery: SourceDeliveryFacts
-}
-```
+Opaque 值归 typed owner；fidelity 只绑定格式、来源/依赖。Replay 同时要求 value 和 owner 满足其格式的最终性及目标 scope；partial intake 不等于 history 可重用。绑定不能通过重新 hash 已修改历史伪造原始完整性，普通 scope 标签也不是 issuer 认证。具体依赖归[交互合同](interaction-contract.md)，实现归 [fidelity](../../src/protocol/fidelity.rs)。
 
-Fidelity records may preserve classified representation extras and exact spelling/form choices only when bounded. Modeled opaque values belong to their typed owners; source records retain proofs, never a second payload.
+SDK parsed/output-text 等派生视图只在所选合同下验证后丢弃，不覆盖 raw/structured authority。Classified extras 不承载未建模行为；需要 declared profile、预算、owner 和最终语义依赖。它们的省略条件与业务语义损失不能混同。
 
-They are keyed to stable semantic identities where applicable. Response-wide classified extras also bind protocol, adapter contract, trusted scope and a digest of the final typed response. Partial extras are validated but not captured; final extras project only at a compatible terminal and invalidate after semantic edits. Normalization audit records identify intake defaults without restoring or overriding semantic values.
+## 静态、事件与 Provider 边界
 
-During lowering, fidelity may be reused only if:
+- Response requirements 从实际结果推导，不伪造 request 做检查。Public Model 的输入准入不充当响应 reported facts 白名单。
+- Event lowering 与静态投影保持一致；terminal snapshot 不得补缺失事件、改写已交付值或完成不合法 partial。`StrictComplete` 可在终态前失败；要求先验证完整结果的消费者使用有界静态交付。
+- Provider 只声明可信 origin/path/auth、安全 headers、错误分类与具体 profile；不能在 encode 后手术式改写 JSON，不能通过业务字段切换规则。
+- 产品 profile 的事件终态摘要、可读 reasoning 或计量别名只有具名规则允许时成立，不扩张公共标准，也不成为新协议的通用开关集合。
 
-1. the semantic owner still exists;
-2. the record is valid for the target profile/provider according to portability;
-3. it does not override a modeled field;
-4. any content dependency still validates.
-
-Otherwise it is dropped or causes a deterministic representability error according to policy. Classified nested billing/router facts use this same lifecycle and dependency boundary without changing typed Usage; their current allow-list and mapping live in [`adapter_shapes.rs`](../../src/protocol/openai/adapter_shapes.rs).
-
-The [replay design](decisions/0006-reasoning-ownership.md) separates typed opaque values from their source/dependency proofs. `ReasoningItem::replay` owns the format-bound value and phase; its source binding covers that value, readable parts and owner status without storing another token. Removing the value cannot restore it from fidelity; removing only its proof leaves an unrepresentable value, not implicit permission to discard it. Independent owner reordering preserves identity-bound proofs; changed dependencies require rejection or explicit removal. Explicit in-process group/prefix/ordered-owner and selected-settings dependency proofs are owned by [Generation dependencies](../../src/semantic/task/generation/dependency.rs). A trusted source contract may bind one proof to an existing reasoning record with `bind_replay_dependency`; request lowering checks it against final typed history. The owner-only API cannot accept such a binding, and rebinding cannot weaken its scope. Repeating an identical owner report preserves the bound history proof; replacing a dependency-bound owner through intake is rejected without changing its record. Default codec intake remains owner-bound unless its contract explicitly declares broader dependencies. Proofs are not persistent/wire identities, issuer authentication or new downstream carriers; other opaque attachment types and stateless client carriage remain separate gaps. Known behavior, cache policy and control transfer need typed owners, not classified-extra shortcuts.
-
-For admitted Responses encrypted reasoning, static decode returns typed values and unbound dependency records. A trusted caller binds their source scope with `FidelityRecords::bind_replay_origin`, which does not recapture edited dependencies; event decoding receives the same scope through `EventDecoder::with_replay_origin`. `GenerationRepresentationContract::replay_origin` identifies the fixed target's compatible scope. Missing proofs, missing/mismatched scope or changed dependencies fail lowering. Request replay requires both a final value and a completed owner; reporting a partial Responses output is distinct from reusing it as history. A completed owner can remain replayable when its response later ends incomplete. These labels must not be supplied by business JSON or contain credential/endpoint locators. Scope construction is an execution-boundary responsibility, not provider discovery inside a codec.
-
-Event codecs use `src/lowering/events.rs` for incremental representability and the same semantic reducer for lifecycle validation. `EventEncoder` checks a fixed target contract before rendering each event and validates the complete static projection at the terminal. A semantic event has authority over its final replay value; passed source fidelity supplies wire identities, not an alternative token. Chat output returns payloads only; framing owns `[DONE]`. A Chat decoder requires `done()` after finish and optional usage, and `finish()` rejects EOF without that terminal.
-
-## Provider boundary
-
-Provider code may contribute:
-
-- trusted origin and relative paths;
-- authentication binding;
-- fixed/safe headers;
-- status/error classification;
-- endpoint contracts;
-- provider-specific protocol profile declarations.
-
-Provider code may not perform arbitrary semantic JSON mutation after encoding.
-
-A provider quirk that changes meaning must be modeled as endpoint lowering or an explicit adapter rule, not a body hook. Mapping, validated derived views, scoped fidelity and field-specific compatibility defaults are defined in [ADR 0008](decisions/0008-stable-core-and-vendor-adapters.md). DeepSeek may default an unreported cache-write detail to zero in otherwise valid usage; that does not invent whole usage, mask malformed input or claim measured billing. Client and Provider adapters share these boundaries.
-
-### Event-owned terminal output
-
-A fixed product Responses adapter may declare that an explicitly empty `completed.output` is a terminal summary rather than a second output authority. Only actual, independently validated `output_item.done` snapshots with closed parts supply the final typed output; missing/null output, unfinished items and nonempty conflicting snapshots still fail. The standard profile retains full terminal-snapshot equality. This does not invent a terminal, tolerate EOF truncation or restore deleted request history. The rule and counterexamples belong to [event decoding](../../src/protocol/openai/events/decode.rs) and [independent tests](../../tests/semantic/subscription_accounting.rs).
-
-Closed product/accounting views remain bounded, source-bound fidelity: program-access reports do not authorize execution, hosted-tool counters must remain inactive in this slice, and context-window/per-coordinate attribution never substitutes for per-call billed token usage. Attribution coordinates remain issuer-owned, never local semantic item IDs or replay authority. Exact schema and rejection rules belong to [accounting shapes](../../src/protocol/openai/accounting_shapes.rs); another adapter or an edited semantic response cannot restore them.
-
-## Native and cross-protocol
-
-There is no semantic distinction between Native and Bridge. The currently implemented protocol pairs illustrate the rule, not its architectural limit:
-
-```text
-Chat -> IR -> Chat
-Chat -> IR -> Responses
-Responses -> IR -> Responses
-Responses -> IR -> Chat
-```
-
-All four paths use the same authority rules. Same-protocol paths may reuse fidelity records more often, but fidelity is never authority.
+Owners：[Adapter](../../src/adapter/mod.rs)、[WireRules](../../src/protocol/adaptation.rs)、[request/response lowering](../../src/lowering/generation.rs)、[event lowering](../../src/lowering/events.rs)、[shared protocol types](../../src/protocol/mod.rs)。当前 Responses/Chat 拒绝边界归相应 profiles；缺少 IR 概念按[缺口决策](semantic-ir.md#4-ir-不足与标准载体缺口)先报告结构方案，而不是添加兼容特例。

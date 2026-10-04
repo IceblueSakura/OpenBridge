@@ -1,6 +1,8 @@
 # OpenBridge-client Responses scoped carrier
 
-This is the explicitly selected `Dialect::OpenBridge` client contract over the existing Responses envelope, not a change to standard Chat/Responses or a native Interactions ingress. Low-level standard codecs and standard target lowering remain closed. Trusted adapter selection admits the extension; business JSON cannot select an adapter, origin, endpoint or credential. HTTP wiring belongs to the [gateway](../http-gateway.md), not this profile.
+This documents the existing nonstandard `Dialect::OpenBridge` client attachment contract over the Responses envelope, not standard Chat/Responses or a native Interactions ingress. Low-level standard codecs and standard target lowering reject these attachments. Trusted adapter selection admits them; business JSON cannot select an adapter, origin, endpoint or credential. HTTP wiring belongs to the [gateway](../http-gateway.md), not this profile.
+
+The primary client target is [standard Responses](semantic-ir.md#3-客户端-api-目标与扩展边界). This bounded carrier is not the default route for new capabilities, Chat compatibility or missing IR semantics. A future Agent may consume the same Semantic Model through a typed library boundary rather than depend on this private wire. Its existing contract remains in force; expansion, replacement or removal requires a scoped decision and corresponding implementation/consumer changes. Passing this carrier's checks does not prove standard-client compatibility.
 
 ## Ownership and schema
 

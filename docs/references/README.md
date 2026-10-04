@@ -12,7 +12,7 @@
 | [ChatGPT 登录：Codex 与 pi](chatgpt-login.md) | Codex 产品流程与公开 SIWC 动态 registration；身份、账户、refresh 和推理隔离 |
 | [多模态与资源](multimodal-and-resources.md) | task、wire、资源与媒体的语义边界 |
 | [Codec 验收方法](conformance-baseline.md) | 独立 oracle、变换和失败/资源边界；不是执行记录 |
-| [OpenAI operation 参考](openai/README.md) | 按 operation 定位标准资料；不代表本地支持 |
+| [OpenAI operation 导航](openai/README.md) | 集中定位标准资料与既有日期；Embedding 有独立任务来源，不复制多份字段/事件快照 |
 | [Provider 官方入口](providers/README.md) | 包括 Google Gemini、Anthropic Messages 的一手设计参照；是查询导航，不是兼容清单 |
 
 IR 的共享语义由[设计基线](../architecture-v2/semantic-ir.md)定义，不由任一参考协议独占。现有 OpenAI SDK/Codex 固定版本保持原有用途；新增协议前另行固定所选 operation、API/schema/SDK 版本与许可，不从动态网页推定稳定合同。

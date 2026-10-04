@@ -9,9 +9,9 @@
 | [根 README](../README.md) | 产品定位、使用和构建入口 |
 | [AGENTS.md](../AGENTS.md) | 授权、安全、变更和验证规则；不复制架构或字段表 |
 | [当前架构](architecture.md) | 跨模块职责与数据流；细节链接源码 |
-| [设计与 ADR](architecture-v2/README.md) / [Generation 交互合同](architecture-v2/interaction-contract.md) | 有效决策、跨模块方案、理由和后果；设计不等于已经实现 |
-| [Generation 缺口](implementation-status/generation.md) | 尚未准入、不可表示、未接线与验收缺口；不列完成记录 |
-| [当前焦点](implementation-plans/current-focus.md) / [下一步目标](implementation-plans/next-goal.md) | 获准行为切片 / 推进方向；不是授权来源 |
+| [设计与 ADR](architecture-v2/README.md) / [Semantic Model](architecture-v2/semantic-ir.md) | Gateway/Agent 共用语义，标准 API 与缺口决策；[投影合同](architecture-v2/protocol-and-lowering.md)拥有 Chat 损失规则；子域不另设主线 |
+| [模型交互缺口](implementation-status/generation.md) | 尚未准入、不可表示、未接线与验收缺口；不列完成记录 |
+| [当前焦点](implementation-plans/current-focus.md) / [后续计划](implementation-plans/next-goal.md) | 获准行为切片 / 推进方向；不是授权来源 |
 | [开发指南](development.md) | 本地检查方法与验证层级，不记录执行结果 |
 | [HTTP 指南](http-gateway.md) / [OpenAPI](openapi.json) | 启动与公共 HTTP 接口 |
 | [凭据管理](credentials.md) | API key / OAuth 的统一文件管理、各自生命周期与存储恢复边界 |
@@ -23,7 +23,7 @@
 
 - 新规则先落在 owning type、validation、codec 或独立回归；非显然的协议、兼容、安全和资源理由放在邻近注释。不要用文档弥补缺失的可执行约束。
 - ADR 只维护当前生效方案、必要理由和约束，不记录决策过程、弃用方案或实施先后。字段、默认值、预算、注册和测试场景归代码；操作命令归指南。跨模块合同不能仅因实现尚缺而删除。
-- 一项事实只保留一个 owner，并从索引或上层指南直接链接；README 不复制模块目录、计划或 profile 字段表，布局页只定义依赖约束。避免相邻文档互相转述或形成阅读依赖链。profile 文档解释准入，精确 wire 接受/拒绝由源码和独立预期维护；不能把偶然行为当成设计。
+- 一项事实只保留一个 owner，并从索引或上层指南直接链接；README 不复制模块目录、计划或 profile 字段表；依赖约束只归架构 owner。避免相邻文档互相转述或形成阅读依赖链。profile 文档解释准入，精确 wire 接受/拒绝由源码和独立预期维护；不能把偶然行为当成设计。
 - 不保留历史分析、项目比较、审计报告、测试结果或完成日记，离线/SDK 结果也不例外。历史问题查 Git；当次结果在交付中报告，获准产物仅留 ignored run，不迁入注释。
 - Provider/模型、实例启用及上游可用性按 [查询流程](../AGENTS.md#current-provider-model-and-compatibility-information)核对。资料链接、类型和测试存在都不是成功执行的证明；评估时分别报告设计、库级表示、HTTP 接线、消费者与外部执行，不用字段数、测试数或无明确分母的百分比替代闭合判据。
 - 跨会话记忆只保留必要的用户偏好、决策背景与 canonical owner 导航，不复制合同、动态库存或运行结果。旧记忆与现行来源冲突时明确更正，不复活失效报告、旧入口或历史授权。

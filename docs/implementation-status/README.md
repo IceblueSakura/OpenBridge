@@ -1,6 +1,6 @@
 # 实施边界
 
-[Generation 缺口](generation.md)只维护相对当前设计尚未解决的边界，不保留已完成列表、历史审计或执行报告。
+[模型交互缺口](generation.md)只维护相对当前设计尚未解决的边界，不保留已完成列表、历史审计或执行报告。
 
 - 跨模块结构见[架构](../architecture.md)，行为细节查 owning code、注释和独立测试。
 - 推进方向见[下一步目标](../implementation-plans/next-goal.md)，获准切片见[当前焦点](../implementation-plans/current-focus.md)。

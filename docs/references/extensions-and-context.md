@@ -2,7 +2,7 @@
 
 本页拥有 session/cache/turn 的来源与生命周期边界，不记录调查或执行结果。[固定标准/codec 基线](upstream-sync.md)保持原用途；下面的 Codex 上下文参考采用 `d25c114d494ddb693290b76bf5e5f64ecbdb38fc` 的 [client][codex-client]、[metadata][codex-metadata]和 [Responses endpoint][codex-responses]，不隐式升级 SDK、codec 或本地准入。登录与 credential 合同分别归 [ChatGPT](chatgpt-login.md)和 [Grok](grok-login.md)参考。
 
-本页区分外部事实与设计约束；接受的 IR 所有权由 [semantic-ir](../architecture-v2/semantic-ir.md)维护。扩展不是裸 `extra_body` 或 `extra_headers` 透传口。
+本页区分外部事实与设计约束；接受的 IR 所有权与[客户端扩展决策](../architecture-v2/semantic-ir.md#3-客户端-api-目标与扩展边界)由 semantic IR 维护。内部 scoped 语义不自动授权新的公开 API，固定产品的私有 carrier 也不替代标准 Responses。扩展不是裸 `extra_body` 或 `extra_headers` 透传口。
 
 ## 1. 扩展的三种用途
 
@@ -85,7 +85,7 @@ session/thread/cache/turn 值即使不是密码，也可能敏感且高基数；
 
 当 scoped 能力可以被独立、稳定地定义，或参考协议发生标准化变化时，先核对含义、presence、生命周期与依赖是否等价，再迁入唯一共享 owner。另一家出现同名字段不自动证明可合并；相同事实不能同时保留两份权威。旧 wire spelling 如仍需接受，由显式 profile codec 处理，不在 IR 保留 legacy alias。
 
-当前 `reasoning.summary:false` 由 Responses 文本 profile 作为本地兼容形式接受并重发。SDK `3.19.0` 和固定公开 reference 的标准 summary 是字符串枚举或 null；这不是标准枚举，也不是已发布的 downstream extension。
+现有非标准形式及其准入只由 [Responses profile](../architecture-v2/responses-text-profile.md#control-message-and-annotation-admission-details)维护；本页不将其归为官方标准或批准进一步扩展。
 
 ## 6. 需要单独定稿的事项
 

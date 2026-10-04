@@ -1,11 +1,11 @@
-# OpenAI Embeddings Create 调研
+# OpenAI Embeddings Create 协议参考
 
 ## 来源、范围与快照
 
 本文是 `POST /v1/embeddings` JSON request/response 的唯一协议 owner。Embeddings 是独立向量 operation，不属于文本或媒体生成。
 
 - 官方来源：[Create embeddings](https://developers.openai.com/api/reference/resources/embeddings/methods/create)、[Embeddings guide](https://developers.openai.com/api/docs/guides/embeddings)、[Python SDK request type](https://github.com/openai/openai-python/blob/main/src/openai/types/embedding_create_params.py)
-- 原始资料复核日期：2026-08-04；本次结构整理未重新在线复核动态 model、limit 或 SDK surface。
+- 原始资料复核日期：2026-08-04；使用前须重新核对动态 model、limit 或 SDK surface。
 
 ## 1. Request
 

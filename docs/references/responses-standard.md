@@ -58,9 +58,9 @@ Schema baseline 是 **OpenAI Structured Outputs 文档化子集**，不是随意
 3. strict 规则与 model/profile 额外限制；
 4. 模型返回内容的 schema adherence（这是另外一层验证）。
 
-本次文档快照要求 strict 根为 object 且不能在根使用 `anyOf`、对象明确 `additionalProperties:false`、字段全部 required；可用 nullable value 表达语义上的可空字段。支持 `$defs`、本地 `$ref` 与递归 schema，不能靠无限展开实现验证。输出遵循 schema key 顺序，因此 schema 的属性顺序不能默认当作无关表示而排序。
+固定基线要求 strict 根为 object 且不能在根使用 `anyOf`、对象明确 `additionalProperties:false`、字段全部 required；可用 nullable value 表达语义上的可空字段。支持 `$defs`、本地 `$ref` 与递归 schema，不能靠无限展开实现验证。输出遵循 schema key 顺序，因此 schema 的属性顺序不能默认当作无关表示而排序。
 
-本次公布的限制为总计 5000 个 object properties、10 层 nesting、相关 schema strings 合计 120000 characters、总计 1000 enum values；这些是有日期的 API profile 限制，不是所有任务 IR 的永久常量。部分 string/number/array 限制对 fine-tuned 模型不同。不支持的 composition 关键字如 `allOf`、`not`、`if/then/else` 需按本次文档规则拒绝，不默默删除。
+该来源基线的限制为总计 5000 个 object properties、10 层 nesting、相关 schema strings 合计 120000 characters、总计 1000 enum values；这些是有日期的 API profile 限制，不是所有任务 IR 的永久常量。部分 string/number/array 限制对 fine-tuned 模型不同。不支持的 composition 关键字如 `allOf`、`not`、`if/then/else` 需按选定标准 profile 拒绝，不默默删除。
 
 function strict 的省略默认与显式 false/true、response format strict 的规则分开；任何 normalization 都需要命名与可验证前提。core 不为了“严格”擅自改变用户 schema。
 
@@ -68,7 +68,7 @@ function strict 的省略默认与显式 false/true、response format strict 的
 
 响应保存 id、model、created/completed time、output 顺序、status、error/incomplete details、reported usage 和 settings/execution echoes。请求 service tier/reasoning context 与实际返回值可能不同，不能直接复制 request 冒充 response facts。
 
-`queued/in_progress/completed/incomplete/failed/cancelled` 是 response 状态；不意味着每个状态都有同名标准 SSE event。固定 SDK 事件 union 含 `response.queued`（携带完整 response snapshot 与 sequence_number）而没有 `response.cancelled` 事件；当前本地接受分支已归类为 profile extension，不是标准事件名。
+`queued/in_progress/completed/incomplete/failed/cancelled` 是 response 状态；不意味着每个状态都有同名标准 SSE event。固定 SDK 事件 union 含 `response.queued`（携带完整 response snapshot 与 sequence_number）而没有 `response.cancelled` 事件；本地兼容准入归 [Responses profile](../architecture-v2/responses-text-profile.md#control-message-and-annotation-admission-details)，不改变标准事件名。
 
 事件家族包括 response 生命周期、output item、content part、text/refusal、reasoning summary/text、function/custom input、annotations、工具执行进度/结果、audio/transcript、compaction progress、shell command/output 等。必须按 event 分支验证 required/nullable 字段、sequence、身份和 snapshot，而不是对全部 event 使用宽松字段超集。
 
@@ -85,6 +85,6 @@ function strict 的省略默认与显式 false/true、response format strict 的
 
 ## 6. Transport 与资源服务
 
-HTTP JSON、HTTP SSE、Responses WebSocket、Realtime 是不同 transport/operation 合同。WS 最新指南支持 `stream_id` lane、并行与 fork、steering 的 response 后继关系；来源见[WebSocket 官方指南](https://developers.openai.com/api/docs/guides/websocket-mode)。单 response reducer 保持唯一 terminal，外层负责 multiplexing 和 successor。
+HTTP JSON、HTTP SSE、Responses WebSocket、Realtime 是不同 transport/operation 合同，不能从单 response reducer 推定双向交互。WebSocket/Realtime 当前只保留[官方来源导航](openai/README.md#deferred-operations)，详细状态机、并发和后继关系待相应阶段定稿，不作为请求型主线前置。
 
 retrieve/delete/cancel/input-items、conversation、compaction、文件与 container 服务需要独立资源/执行合同，不自动由 create codec 提供；也不能因为当前 runtime 未实现就从标准目标中删除其引用语义。

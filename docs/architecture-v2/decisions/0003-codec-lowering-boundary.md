@@ -8,7 +8,7 @@ Accepted.
 
 Protocol/profile codecs own wire syntax, structural validation and declared extension mappings. Lowering owns representability and explicit conversion policy for a fixed target. Neither performs registry lookup, credential resolution or network I/O.
 
-Unsupported task semantics must fail explicitly rather than disappear during encoding. Provider adaptation uses typed contracts or explicit profiles, never a post-encode body hook.
+Unsupported semantics must fail unless a named target policy explicitly admits their loss. Chat compatibility may use such bounded policies; codecs cannot silently decide omissions or fabricate facts. Projection preserves the immutable source, validates its resulting view and dependency effects, and never uses a post-encode body hook.
 
 ## Rationale and consequences
 

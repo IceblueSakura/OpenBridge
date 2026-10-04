@@ -1,6 +1,6 @@
 # 最小 Generation HTTP 网关
 
-`openbridge` binary 与可嵌入的 `gateway::Gateway` 将共享 IR、双向 adapters、固定目标和实际 HTTP body 接通，不是完整标准实现或生产网关。HTTP 决策归 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，公共接口摘要归 [OpenAPI](openapi.json)，模块接线归[架构](architecture.md)。
+`openbridge` binary 与可嵌入的 `gateway::Gateway` 将共享 IR、双向 adapters、固定目标和实际 HTTP body 接通，不是完整标准实现或生产网关。本文描述当前接线：HTTP 客户端由配置层选择 OpenBridge profile，并非纯 Standard profile；同名路径不证明完全标准兼容。规范客户端目标与扩展政策归[语义设计](architecture-v2/semantic-ir.md#3-客户端-api-目标与扩展边界)，允许有损的 Chat 投影、独立 Embeddings 接口与标准路径收敛均属于设计/计划，方向调整不自动改变现行 wire。HTTP 决策归 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，公共接口摘要归 [OpenAPI](openapi.json)，模块接线归[架构](architecture.md)。
 
 ## 启动
 
@@ -29,7 +29,7 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 - `model` 仅接受已激活的 public label，不带 `provider/` 前缀。顶层 `provider` 字段即使为 null 也拒绝。目标 URL/path、上游 model、auth、adapter 与 scope 都来自受信绑定；入站 headers 不透传。
 - 每个 `(public model, client protocol)` 显式激活编译 Route 成员。保持 Route 和 pool 顺序，从同一最终 IR 独立预检每个固定 `(endpoint, credential)`；无兼容成员在 I/O 前失败。注册、Chat 激活与 Responses 激活不互相推定，查询方法见 [AGENTS](../AGENTS.md#current-provider-model-and-compatibility-information)。
 - operator 缺省输出上限先写入最终 IR，再派生 requirements/admission/lowering；显式超限拒绝，不静默裁剪。响应 reported facts 不从请求补齐。
-- 文本数组、工具选择/结果、概率、Schema 与 reported context 的精确接受/拒绝由上述 profiles 和 owning code 维护，不因路由存在而扩大 Public Model/Endpoint 合同。跨协议不可表示时明确拒绝，不丢字段换取成功。
+- 文本数组、工具选择/结果、概率、Schema 与 reported context 的精确接受/拒绝由上述 profiles 和 owning code 维护，不因路由存在而扩大 Public Model/Endpoint 合同。当前跨协议不可表示时仍明确拒绝；设计允许的 Chat 有损规则尚需逐片实现，不能提前按该方向丢字段换取成功。
 - user 与 Responses 工具结果的 URL/inline 图片有独立准入，见[图片输入](architecture-v2/responses-text-profile.md#user-image-input)与[工具图片结果](architecture-v2/responses-text-profile.md#tool-image-results)。不下载、转码或自动放宽 body 预算；file ID、Chat 工具图片、图片输出与资源服务不因此启用。
 - HTTP Responses 客户端使用显式 [OpenBridge-client scoped carrier](architecture-v2/client-generation-profile.md)保留已声明 message-call 归属、typed replay、结构化值/执行报告及响应事实。标准上游 Responses 仍缺少对应 carrier，不可表示的 history 在 I/O 前拒绝；不可交付的静态输出失败，提交后的 SSE 只能中止，不伪造终态或前移。客户端准入不证明目标或实例已准入。
 - 标准 identity/cache hints 与客户端 `session_id` body 扩展使用各自声明的目标投影，不互相派生，不透传 session headers。`session_id` 不提供网关会话或粘性路由；精确 carrier 归 [adapter request](../src/adapter/request.rs)与[cache projection](../src/protocol/cache.rs)。未声明 carrier 的 advisory cache hint 可按合同省略，行为控制与 identity/session 要求不能随之静默丢弃。

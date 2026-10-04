@@ -40,7 +40,8 @@ encoded 与 decoded bytes、单资源与总请求、解压/解析深度、增量
 - Responses hosted image generation 属于 Generation 的 tool 生命周期；独立 Images generation/edit 是独立 task/operation。
 - 标准 Audio transcription/speech 与 Realtime session 各有独立 contract。
 - 特殊 Provider 用 Chat envelope 提供语音时，wire 名称不决定任务类型。
-- Agent-first 的一套 IR 是共享原则与值类型下的 task family，不要求把 Embedding、VoiceDesign 等塞进 Generation 或任何协议的 message union。
+- [Embeddings](openai/embeddings-create.md)是 vector 输出的独立标准 operation 参考；数值结果、输入关联与维度不是文本 message，也不是 [Vector Store](openai/README.md#files) 的资源管理。
+- Agent-first 的一套 IR 是共享原则与值类型下的 task family，不要求把 Embedding、VoiceDesign 等塞进 Generation 或任何协议的 message union。Responses 是主要参考，不提供其他 task 的默认 envelope；缺少标准载体按[设计决策规则](../architecture-v2/semantic-ir.md#4-ir-不足与标准载体缺口)报告。
 
 ## 5. 后续验收的最小单元
 
