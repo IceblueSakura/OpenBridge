@@ -51,7 +51,7 @@ fn group_proof_rejects_value_and_membership_edits_but_ignores_unrelated_items() 
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::MessageGroup(ItemId::new(1)),
-        false,
+        openbridge::semantic::task::generation::SettingsDependency::None,
     )
     .unwrap();
     proof.check(&source).unwrap();
@@ -70,7 +70,7 @@ fn group_proof_rejects_value_and_membership_edits_but_ignores_unrelated_items() 
         RequestDependencyProof::capture(
             &source,
             HistoryDependency::MessageGroup(ItemId::new(2)),
-            false
+            openbridge::semantic::task::generation::SettingsDependency::None
         )
         .is_err()
     );
@@ -81,7 +81,7 @@ fn prefix_proof_preserves_append_but_rejects_insertion_reorder_and_settings_chan
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(2)),
-        true,
+        openbridge::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     let mut items = source.items().to_vec();
@@ -108,7 +108,7 @@ fn prefix_proof_preserves_append_but_rejects_insertion_reorder_and_settings_chan
     let unbound = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(2)),
-        false,
+        openbridge::semantic::task::generation::SettingsDependency::None,
     )
     .unwrap();
     let mut settings = source.settings().clone();
@@ -144,7 +144,10 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
             Item::Reasoning(ReasoningItem {
                 status: ItemLifecycle::Completed,
                 parts: vec![],
-                encrypted: Some(EncryptedReasoning::Final(text(value))),
+                replay: Some(ReplayValue::final_value(
+                    ReplayFormat::ResponsesEncrypted,
+                    text(value),
+                )),
             }),
         )
     };
@@ -152,7 +155,7 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(1)),
-        true,
+        openbridge::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     assert!(
@@ -182,7 +185,7 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(1)),
-        true,
+        openbridge::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     assert!(
@@ -206,7 +209,7 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(1)),
-        true,
+        openbridge::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     let OutputConstraint::JsonSchema { schema, .. } = settings.text.format.value().unwrap() else {
@@ -236,7 +239,10 @@ fn prefix_bound_replay_lowers_only_unchanged_final_history() {
     let reasoning = ReasoningItem {
         status: ItemLifecycle::Completed,
         parts: vec![],
-        encrypted: Some(EncryptedReasoning::Final(text("synthetic-token"))),
+        replay: Some(ReplayValue::final_value(
+            ReplayFormat::ResponsesEncrypted,
+            text("synthetic-token"),
+        )),
     };
     let source = history(vec![(ItemId::new(1), Item::Reasoning(reasoning.clone()))]);
     let mut fidelity = FidelityRecords::default();
@@ -249,7 +255,7 @@ fn prefix_bound_replay_lowers_only_unchanged_final_history() {
             RequestDependencyProof::capture(
                 &source,
                 HistoryDependency::PrefixThrough(ItemId::new(1)),
-                true,
+                openbridge::semantic::task::generation::SettingsDependency::All,
             )
             .unwrap(),
             &source,
@@ -281,16 +287,22 @@ fn repeating_a_bound_report_cannot_erase_history_dependencies() {
     let reasoning = ReasoningItem {
         status: ItemLifecycle::Completed,
         parts: vec![],
-        encrypted: Some(EncryptedReasoning::Final(text("synthetic-token"))),
+        replay: Some(ReplayValue::final_value(
+            ReplayFormat::ResponsesEncrypted,
+            text("synthetic-token"),
+        )),
     };
     let source = history(vec![(owner, Item::Reasoning(reasoning.clone()))]);
     let mut fidelity = FidelityRecords::default();
     fidelity
         .record_replay(owner, &reasoning, Some(origin.clone()))
         .unwrap();
-    let proof =
-        RequestDependencyProof::capture(&source, HistoryDependency::PrefixThrough(owner), true)
-            .unwrap();
+    let proof = RequestDependencyProof::capture(
+        &source,
+        HistoryDependency::PrefixThrough(owner),
+        openbridge::semantic::task::generation::SettingsDependency::All,
+    )
+    .unwrap();
     fidelity
         .bind_replay_dependency(owner, proof, &source)
         .unwrap();
@@ -311,7 +323,10 @@ fn repeating_a_bound_report_cannot_erase_history_dependencies() {
     ));
     let old = fidelity.clone();
     let mut changed = reasoning.clone();
-    changed.encrypted = Some(EncryptedReasoning::Final(text("synthetic-replacement")));
+    changed.replay = Some(ReplayValue::final_value(
+        ReplayFormat::ResponsesEncrypted,
+        text("synthetic-replacement"),
+    ));
     assert!(
         fidelity
             .record_replay(owner, &changed, Some(origin.clone()))
@@ -336,7 +351,10 @@ fn group_bound_replay_cannot_bypass_final_history_checks() {
     let reasoning = ReasoningItem {
         status: ItemLifecycle::Completed,
         parts: vec![],
-        encrypted: Some(EncryptedReasoning::Final(text("synthetic-token"))),
+        replay: Some(ReplayValue::final_value(
+            ReplayFormat::ResponsesEncrypted,
+            text("synthetic-token"),
+        )),
     };
     let request = history(vec![
         (ItemId::new(9), Item::Reasoning(reasoning.clone())),
@@ -350,7 +368,7 @@ fn group_bound_replay_cannot_bypass_final_history_checks() {
     let proof = RequestDependencyProof::capture(
         &request,
         HistoryDependency::MessageGroup(ItemId::new(1)),
-        true,
+        openbridge::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     fidelity
@@ -379,7 +397,7 @@ fn group_bound_replay_cannot_bypass_final_history_checks() {
                 RequestDependencyProof::capture(
                     &changed,
                     HistoryDependency::MessageGroup(ItemId::new(1)),
-                    false
+                    openbridge::semantic::task::generation::SettingsDependency::None
                 )
                 .unwrap(),
                 &changed

@@ -20,7 +20,7 @@ pub enum Continuation<'a> {
     ToolResults(Vec<CallReference<'a>>),
 }
 
-fn pending_results(items: &[(ItemId, Item)]) -> Continuation<'_> {
+pub(super) fn pending_results(items: &[(ItemId, Item)]) -> Continuation<'_> {
     // Scan backwards so only a later result can resolve a call. Response program
     // outputs may be self-describing; an earlier or wrong-kind output cannot do so.
     // Both collections are bounded by the validated item budget and borrow values.

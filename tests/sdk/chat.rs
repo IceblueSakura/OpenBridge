@@ -113,7 +113,7 @@ pub(super) async fn handle(
             .semantic
             .items()
             .iter()
-            .any(|(_, i)| matches!(i, Item::ToolCall(c) if c.arguments == "{\"n\":1}"))
+            .any(|(_, i)| matches!(i, Item::ToolCall(c) if c.arguments.as_raw()==Some("{\"n\":1}")))
     {
         return failure(
             StatusCode::BAD_REQUEST,

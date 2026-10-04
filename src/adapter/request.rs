@@ -126,7 +126,10 @@ impl Adapter {
                 }
             }
             Profile::Responses => {
-                let decoded = envelope::decode_request(&value)?;
+                let decoded = envelope::decode_request_with(
+                    &value,
+                    openai::client::enabled(&self.adaptation),
+                )?;
                 let options = match decoded.context.delivery.options {
                     Presence::Absent => Presence::Absent,
                     Presence::Null => Presence::Null,

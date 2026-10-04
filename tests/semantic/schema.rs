@@ -17,6 +17,31 @@ use serde_json::{Value, json};
 
 const SCHEMA: &str = r#"{"type":"object","properties":{"zeta":{"type":"object","properties":{"omega":{"type":"string"},"beta":{"type":"integer"}},"required":["omega","beta"],"additionalProperties":false},"middle":{"type":"boolean"},"alpha":{"type":"string"}},"required":["zeta","middle","alpha"],"additionalProperties":false}"#;
 
+#[test]
+fn exact_numeric_schema_checks_never_round_values_or_expand_large_exponents() {
+    for source in [
+        r#"{"enum":[9007199254740993.0,9007199254740992]}"#,
+        r#"{"multipleOf":1e-9999}"#,
+        r#"{"minLength":1e9999,"maxLength":2e9999}"#,
+    ] {
+        assert!(
+            admit(serde_json::from_str(source).unwrap(), false).is_ok(),
+            "{source}"
+        );
+    }
+    for source in [
+        r#"{"enum":[123.4500,1.2345e2]}"#,
+        r#"{"minLength":1.0000000000000000000001}"#,
+        r#"{"minLength":2e9999,"maxLength":1e9999}"#,
+        r#"{"multipleOf":-1e-9999}"#,
+    ] {
+        assert!(
+            admit(serde_json::from_str(source).unwrap(), false).is_err(),
+            "{source}"
+        );
+    }
+}
+
 fn assert_order(schema: &Value, expected: &[&str]) {
     assert_eq!(
         schema["properties"]

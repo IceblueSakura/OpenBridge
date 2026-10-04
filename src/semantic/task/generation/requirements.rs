@@ -1,4 +1,6 @@
-use super::{ContentPart, GenerationRequest, Item, OutputConstraint, ResourceKind};
+use super::{
+    ContentPart, GenerationRequest, GenerationResponse, Item, OutputConstraint, ResourceKind,
+};
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct GenerationRequirements {
     pub instruction_count: usize,
@@ -18,8 +20,9 @@ pub struct GenerationRequirements {
     pub parallel_tool_calls: Option<bool>,
     pub strict_function_tools: bool,
     pub tool_history: bool,
+    pub structured_arguments: bool,
     pub structured_tool_results: bool,
-    pub tool_result_errors: bool,
+    pub tool_execution_reports: bool,
     pub tool_result_images: usize,
     pub structured_output: bool,
     pub reasoning: bool,
@@ -74,13 +77,17 @@ impl GenerationRequirements {
                         }
                     }
                 }
-                Item::ToolCall(_) => x.tool_history = true,
+                Item::ToolCall(call) => {
+                    x.tool_history = true;
+                    x.structured_arguments |=
+                        !matches!(call.arguments, super::ToolArguments::Raw(_));
+                }
                 Item::ToolResult(result) | Item::CustomResult(result) => {
                     x.tool_history = true;
                     x.custom_tools |= matches!(i, Item::CustomResult(_));
+                    x.tool_execution_reports |= result.execution.is_some();
                     match &result.output {
                         super::ToolOutput::Structured(_) => x.structured_tool_results = true,
-                        super::ToolOutput::Error(_) => x.tool_result_errors = true,
                         super::ToolOutput::Parts(parts) => {
                             for (_, part) in parts {
                                 if matches!(part, super::ToolResultPart::Resource(resource) if resource.kind == ResourceKind::Image)
@@ -106,5 +113,56 @@ impl GenerationRequirements {
             }
         }
         x
+    }
+}
+
+/// Actual output domains, independent of input controls or tool declarations.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct GenerationResponseRequirements {
+    pub instructions: bool,
+    pub tools: bool,
+    pub custom_tools: bool,
+    pub structured_arguments: bool,
+    pub reasoning: bool,
+    pub text_metadata: bool,
+    pub logprobs: bool,
+}
+impl GenerationResponseRequirements {
+    pub fn derive(response: &GenerationResponse) -> Self {
+        let mut q = Self::default();
+        for (_, item) in response.items() {
+            match item {
+                Item::Instruction(_) => q.instructions = true,
+                Item::ToolCall(call) => {
+                    q.tools = true;
+                    q.structured_arguments |=
+                        !matches!(call.arguments, super::ToolArguments::Raw(_));
+                }
+                Item::CustomCall(_) => {
+                    q.tools = true;
+                    q.custom_tools = true;
+                }
+                Item::Program(_) | Item::ProgramOutput(_) => q.tools = true,
+                Item::Reasoning(_) | Item::ConfigurationUpdate(_) => q.reasoning = true,
+                Item::Message(message) => {
+                    for part in &message.parts {
+                        match &part.content {
+                            ContentPart::Text(text) => {
+                                q.text_metadata |= !text.is_plain();
+                                q.logprobs |= !text.logprobs().is_absent();
+                            }
+                            ContentPart::Refusal(text) => {
+                                q.text_metadata |= !text.logprobs().is_absent();
+                                q.logprobs |= !text.logprobs().is_absent();
+                            }
+                            ContentPart::Resource(_) => {}
+                        }
+                    }
+                }
+                // Complete response validation, not request admission, rejects these.
+                Item::ToolResult(_) | Item::CustomResult(_) => {}
+            }
+        }
+        q
     }
 }

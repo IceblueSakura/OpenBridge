@@ -29,16 +29,14 @@
 
 | 切片 | 责任与退出边界 |
 |---|---|
-| A1：值权威 | 区分 raw/structured arguments，结果正文与执行报告独立，保留数值精度；插入/替换/删除、严格解析及不可表示反例闭合 |
-| A2：交互结论 | Outcome、reported progress、pending-result 与 readiness 分开；等待、未知、结束及编辑后的矛盾有独立约束，不启用调度 |
-| A3：关系与 replay | 格式/attachment/finality 与来源证明分开，选择有限 group/prefix/settings 依赖；变换失效、删除不复活，不误称跨请求或 issuer 验证 |
-| A4：计量与事件 | Scope、delta/cumulative/final 及计数关系明确；增量 materialization 与 static 一致，不重复计数或补造未知 |
-| A5：profile 边界 | 共用 carrier/error/metadata 与 requirements 去 OpenAI 耦合，Schema/控制/坐标归属清晰；保留现有 profile 严格合同，不预建框架 |
+| A3：关系与 replay | 在库级格式/phase 与有限依赖选择上继续闭合真正 group membership、其他 attachment、跨响应身份及客户端回传；不误称跨请求或 issuer 验证 |
+| A4：计量与事件 | 按选定来源闭合报告的真实 scope、完整关系及客户端投影，补充必要工具/模态计量；不重复计数、补造未知或把 SDK float view 当结构化权威 |
+| A5：profile 边界 | 继续分离 shared Schema/adherence 与 fixed profile 限额、reasoning mode/预算、带单位引用、timestamp/metadata presence；保留现有严格 wire 合同，不预建框架 |
 | B：Developer 推理 | 固定 API/schema/SDK/profile 后实现原生 codec 与可信绑定；选定客户端的 JSON/SSE 与必要交付→保留→回传闭合后才激活 |
 
 A2/A3 概念共同定稿，实现按最低 owner 分片。每片在 current-focus 记录具体行为和非目标，用独立预期先失败再实现；未完成方向留在本页，不保存执行日记。
 
-库级范围先建立 required replay 的 typed 要求及拒绝边界。Scoped 客户端 carrier、原生入口与严格标准子集的选择，在相应公开 wire 或运行切片前明确；不能依赖 SDK 偶然保留未知字段。跨请求认证机制、完整媒体/hosted tools 和状态服务不作为第一阶段前置。
+库级范围先建立 required replay 的 typed 要求及拒绝边界。现有客户端选择 [OpenBridge-client Responses scoped carrier](../architecture-v2/client-generation-profile.md)；标准目标仍严格。更广 attachment、原生入口及依赖证明的公开 wire 边界须在相应切片前明确；不能依赖未经固定消费者验证的未知字段保留。跨请求认证机制、完整媒体/hosted tools 和状态服务不作为第一阶段前置。
 
 ## 其他实施方向
 

@@ -87,7 +87,7 @@ fn router_facts_are_scoped_and_reasoning_and_usage_are_typed() {
                     ItemId::new(99),
                     Item::Reasoning(ReasoningItem {
                         status: ItemLifecycle::Completed,
-                        encrypted: None,
+                        replay: None,
                         parts: vec![(
                             PartId::new(99),
                             ReasoningContent::Text(
@@ -113,9 +113,13 @@ fn router_facts_are_scoped_and_reasoning_and_usage_are_typed() {
         .semantic
         .clone()
         .with_usage(Usage {
-            input_tokens: 4,
-            output_tokens: 2,
-            total_tokens: 6,
+            scope: UsageScope::Operation,
+            basis: UsageBasis::Final,
+            output_relation: OutputTokenRelation::IncludesReasoning,
+            total_relation: TotalTokenRelation::InputAndOutput,
+            input_tokens: Some(4),
+            output_tokens: Some(2),
+            total_tokens: Some(6),
             cached_input_tokens: None,
             input_cache_write_tokens: None,
             reasoning_tokens: None,
@@ -287,9 +291,7 @@ fn structured_reasoning_stream_binds_late_identity_and_rejects_duplicate_replay(
             panic!("reasoning")
         };
         assert_eq!(
-            r.encrypted
-                .as_ref()
-                .and_then(EncryptedReasoning::replay_token),
+            r.replay.as_ref().and_then(ReplayValue::replay_token),
             Some("synthetic-replay")
         );
         let mut broken = source.event_decoder();

@@ -64,7 +64,7 @@ impl CachePrefixIntent {
             history: RequestDependencyProof::capture(
                 request,
                 HistoryDependency::PrefixThrough(self.through),
-                true,
+                crate::semantic::task::generation::SettingsDependency::All,
             )?,
             context: context_digest(context)?,
         })

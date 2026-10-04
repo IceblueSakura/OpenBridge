@@ -19,6 +19,7 @@ fn result(id: u64, call_id: &str, status: ItemLifecycle) -> (ItemId, Item) {
     (
         ItemId::new(id),
         Item::ToolResult(ToolResult {
+            execution: None,
             call_id: text(call_id),
             output: "done".into(),
             status: Some(status),
@@ -143,7 +144,7 @@ fn declared_dependencies_are_checked_even_after_results_arrive() {
     let proofs = [RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(1)),
-        true,
+        openbridge::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap()];
     let exchange = ResponseContinuation::new(relation(), &response).with_dependencies(&proofs);

@@ -62,7 +62,7 @@ impl BoundEntry {
                     .semantic
                     .items()
                     .iter()
-                    .any(|(_, item)| matches!(item, crate::semantic::task::generation::Item::Reasoning(r) if r.encrypted.is_some())))
+                    .any(|(_, item)| matches!(item, crate::semantic::task::generation::Item::Reasoning(r) if r.replay.is_some())))
         {
             return Err(ApiError::invalid());
         }

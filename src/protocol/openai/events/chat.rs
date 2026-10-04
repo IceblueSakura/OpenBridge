@@ -157,18 +157,17 @@ impl EventDecoder {
                 &mut out,
             )?;
         }
-        if let Some((wire_id, data)) = details.and_then(|d| d.encrypted) {
+        if let Some((wire_id, data)) = details.and_then(|d| d.responses_encrypted) {
             if self.chat_replay.is_some() {
                 return Err(CodecError::Invalid("duplicate reasoning replay"));
             }
             let item = self.reasoning_owner(&mut out)?;
             self.fidelity.record_response_item_id(item, &wire_id)?;
             self.chat_replay = Some(ReasoningReplay {
-                value: EncryptedReasoning::Final(text(
-                    &data,
-                    "encrypted reasoning",
-                    MAX_TEXT_BYTES,
-                )?),
+                value: ReplayValue::final_value(
+                    ReplayFormat::ResponsesEncrypted,
+                    text(&data, "encrypted reasoning", MAX_TEXT_BYTES)?,
+                ),
                 origin: self.origin.clone(),
             });
             // The complete encrypted detail closes its reasoning owner before
@@ -357,6 +356,7 @@ impl EventDecoder {
                 let item = if n == self.chat_calls.len() {
                     let item = self.allocate_item()?;
                     let kind = ItemKind::ToolCall {
+                        format: ArgumentFormat::Raw,
                         call_id: text(string(call, "id")?, "call id", 256)?,
                         name: text(string(f, "name")?, "name", 128)?,
                         message: self.chat_owner,

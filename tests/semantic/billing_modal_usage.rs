@@ -58,6 +58,12 @@ fn modality_billing_view_promotes_typed_facts_and_edits_cannot_restore_the_view(
         .semantic
         .clone()
         .with_usage(Usage {
+            scope: openbridge::semantic::task::generation::UsageScope::Operation,
+            basis: openbridge::semantic::task::generation::UsageBasis::Final,
+            output_relation:
+                openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
+            total_relation:
+                openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
             input_image_tokens: Some(5),
             input_text_tokens: Some(2),
             ..usage
@@ -75,6 +81,12 @@ fn modality_billing_view_promotes_typed_facts_and_edits_cannot_restore_the_view(
         .semantic
         .clone()
         .with_usage(Usage {
+            scope: openbridge::semantic::task::generation::UsageScope::Operation,
+            basis: openbridge::semantic::task::generation::UsageBasis::Final,
+            output_relation:
+                openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
+            total_relation:
+                openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
             input_image_tokens: None,
             input_text_tokens: None,
             output_text_tokens: None,

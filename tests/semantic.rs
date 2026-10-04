@@ -16,6 +16,8 @@ mod cache_projection;
 mod chat_logprobs;
 #[path = "semantic/chat_wire.rs"]
 mod chat_wire;
+#[path = "semantic/client_carrier.rs"]
+mod client_carrier;
 #[path = "semantic/continuation.rs"]
 mod continuation;
 #[path = "semantic/contract_ownership.rs"]
@@ -36,6 +38,8 @@ mod image_usage;
 mod images;
 #[path = "semantic/instructions.rs"]
 mod instructions;
+#[path = "semantic/interaction_progress.rs"]
+mod interaction_progress;
 #[path = "semantic/message_groups.rs"]
 mod message_groups;
 #[path = "semantic/model_constraints.rs"]
@@ -50,16 +54,24 @@ mod provider_profiles;
 mod reasoning;
 #[path = "semantic/reasoning_boundary.rs"]
 mod reasoning_boundary;
+#[path = "semantic/replay_formats.rs"]
+mod replay_formats;
 #[path = "semantic/replay_ownership.rs"]
 mod replay_ownership;
 #[path = "semantic/response.rs"]
 mod response;
+#[path = "semantic/response_requirements.rs"]
+mod response_requirements;
 #[path = "semantic/router_adapter.rs"]
 mod router_adapter;
 #[path = "semantic/schema.rs"]
 mod schema;
+#[path = "semantic/scoped_usage.rs"]
+mod scoped_usage;
 #[path = "semantic/string_enums.rs"]
 mod string_enums;
+#[path = "semantic/structured_events.rs"]
+mod structured_events;
 #[path = "semantic/subscription_accounting.rs"]
 mod subscription_accounting;
 #[path = "semantic/text_admission.rs"]
@@ -70,6 +82,8 @@ mod text_events;
 mod text_profile;
 #[path = "semantic/tool_results.rs"]
 mod tool_results;
+#[path = "semantic/tool_values.rs"]
+mod tool_values;
 #[path = "semantic/tools.rs"]
 mod tools;
 #[path = "semantic/turn_continuation.rs"]

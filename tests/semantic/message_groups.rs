@@ -192,6 +192,7 @@ fn refusal_and_attached_calls_conflict_at_the_first_known_event_in_either_order(
         let call = start(
             2,
             ItemKind::ToolCall {
+                format: ArgumentFormat::Raw,
                 call_id: text("a"),
                 name: text("lookup"),
                 message: Some(ItemId::new(1)),

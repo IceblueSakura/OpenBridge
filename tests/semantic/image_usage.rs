@@ -83,6 +83,12 @@ fn readable_chat_modality_counters_remain_typed_without_claiming_responses_slots
         .semantic
         .clone()
         .with_usage(openbridge::semantic::task::generation::Usage {
+            scope: openbridge::semantic::task::generation::UsageScope::Operation,
+            basis: openbridge::semantic::task::generation::UsageBasis::Final,
+            output_relation:
+                openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
+            total_relation:
+                openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
             input_image_tokens: Some(5),
             ..usage
         })
@@ -115,6 +121,12 @@ fn image_usage_presence_edits_and_bounds_do_not_restore_deleted_counts() {
                 count.as_u64().map(|_| &count)
             );
             let changed = Usage {
+                scope: openbridge::semantic::task::generation::UsageScope::Operation,
+                basis: openbridge::semantic::task::generation::UsageBasis::Final,
+                output_relation:
+                    openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
+                total_relation:
+                    openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
                 input_image_tokens: Some(3),
                 ..usage
             };
@@ -125,6 +137,7 @@ fn image_usage_presence_edits_and_bounds_do_not_restore_deleted_counts() {
                 .semantic
                 .clone()
                 .with_usage(Usage {
+                    scope: openbridge::semantic::task::generation::UsageScope::Operation, basis: openbridge::semantic::task::generation::UsageBasis::Final, output_relation: openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning, total_relation: openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
                     input_image_tokens: None,
                     ..usage
                 })

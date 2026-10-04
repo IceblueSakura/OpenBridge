@@ -1,5 +1,5 @@
 //! Client-executed tools. Payloads and grammar are data; this module never executes them.
-use super::ItemId;
+use super::{GenerationError, ItemId, MAX_TEXT_BYTES, StructuredValue};
 use crate::semantic::value::Text;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StrictDefault {
@@ -128,11 +128,56 @@ pub enum ItemLifecycle {
     Incomplete,
     InProgress,
 }
+/// A parsed view cannot replace raw authority; structured values own no second string.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArgumentFormat {
+    Raw,
+    Json,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ToolArguments {
+    Raw(String),
+    Structured(StructuredValue),
+    StructuredPartial(String),
+}
+impl ToolArguments {
+    pub fn as_raw(&self) -> Option<&str> {
+        match self {
+            Self::Raw(value) => Some(value),
+            Self::Structured(_) | Self::StructuredPartial(_) => None,
+        }
+    }
+    pub fn as_structured(&self) -> Option<&StructuredValue> {
+        match self {
+            Self::Structured(value) => Some(value),
+            Self::Raw(_) | Self::StructuredPartial(_) => None,
+        }
+    }
+    pub(crate) fn bytes(&self) -> Result<usize, GenerationError> {
+        match self {
+            Self::Raw(value) | Self::StructuredPartial(value) if value.len() <= MAX_TEXT_BYTES => {
+                Ok(value.len())
+            }
+            Self::Raw(_) | Self::StructuredPartial(_) => Err(GenerationError::Limit),
+            Self::Structured(value) => value.bytes(),
+        }
+    }
+}
+impl From<String> for ToolArguments {
+    fn from(value: String) -> Self {
+        Self::Raw(value)
+    }
+}
+impl From<&str> for ToolArguments {
+    fn from(value: &str) -> Self {
+        Self::Raw(value.into())
+    }
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToolCall {
     pub call_id: Text,
     pub name: Text,
-    pub arguments: String,
+    pub arguments: ToolArguments,
     /// Explicit assistant owner. Absence does not declare membership in a neighboring group.
     pub message: Option<ItemId>,
     pub status: ItemLifecycle,

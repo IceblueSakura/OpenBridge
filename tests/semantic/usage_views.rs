@@ -2,9 +2,13 @@
 use openbridge::semantic::task::generation::*;
 fn usage() -> Usage {
     Usage {
-        input_tokens: 12,
-        output_tokens: 10,
-        total_tokens: 22,
+        scope: UsageScope::Operation,
+        basis: UsageBasis::Final,
+        output_relation: OutputTokenRelation::IncludesReasoning,
+        total_relation: TotalTokenRelation::InputAndOutput,
+        input_tokens: Some(12),
+        output_tokens: Some(10),
+        total_tokens: Some(22),
         cached_input_tokens: Some(7),
         input_cache_write_tokens: Some(9),
         reasoning_tokens: Some(6),
@@ -32,7 +36,7 @@ fn formulas_have_explicit_provenance_and_do_not_subtract_overlapping_details() {
     assert_eq!(output.tokens(), 4);
     // This is not visible text, billing, or a sum of modality/prediction counts.
     assert_ne!(Some(output.tokens()), usage.output_text_tokens);
-    assert_eq!(usage.total_tokens, 22);
+    assert_eq!(usage.total_tokens, Some(22));
 }
 #[test]
 fn absent_zero_maximum_and_invalid_reports_are_distinct() {
@@ -80,14 +84,18 @@ fn absent_zero_maximum_and_invalid_reports_are_distinct() {
             .tokens(),
         0
     );
-    usage.output_tokens = 1;
+    usage.output_tokens = Some(1);
     assert!(usage.derive(UsageFormula::InputMinusCacheRead).is_err());
 }
 fn super_usage_max() -> Usage {
     Usage {
-        input_tokens: u64::MAX,
-        output_tokens: 0,
-        total_tokens: u64::MAX,
+        scope: UsageScope::Operation,
+        basis: UsageBasis::Final,
+        output_relation: OutputTokenRelation::IncludesReasoning,
+        total_relation: TotalTokenRelation::InputAndOutput,
+        input_tokens: Some(u64::MAX),
+        output_tokens: Some(0),
+        total_tokens: Some(u64::MAX),
         cached_input_tokens: Some(u64::MAX),
         input_cache_write_tokens: None,
         reasoning_tokens: None,

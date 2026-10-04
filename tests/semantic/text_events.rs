@@ -149,9 +149,13 @@ fn chat_refusal_and_empty_text_survive_usage_and_done() {
         e.extend(part(1, 1, kind, value));
         e.push(close(1, ItemLifecycle::Completed));
         e.push(StreamEvent::Usage(Usage {
-            input_tokens: 3,
-            output_tokens: 2,
-            total_tokens: 5,
+            scope: UsageScope::Operation,
+            basis: UsageBasis::Final,
+            output_relation: OutputTokenRelation::IncludesReasoning,
+            total_relation: TotalTokenRelation::InputAndOutput,
+            input_tokens: Some(3),
+            output_tokens: Some(2),
+            total_tokens: Some(5),
             reasoning_tokens: Some(1),
             cached_input_tokens: Some(0),
             input_cache_write_tokens: None,

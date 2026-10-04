@@ -24,6 +24,9 @@ pub fn json_size(value: &impl serde::Serialize, max: usize) -> Result<usize, Val
     })?;
     Ok(count.bytes)
 }
+mod json;
+pub(crate) use json::parse_json_view;
+pub use json::{JsonError, JsonLimits, parse_json};
 mod presence;
 mod replay;
 pub use presence::Presence;

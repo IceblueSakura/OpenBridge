@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 pub(super) struct Details {
     pub part: Option<(PartKind, String)>,
-    pub encrypted: Option<(String, String)>,
+    pub responses_encrypted: Option<(String, String)>,
 }
 /// One ordered readable part plus an optional final encrypted token. Fragment
 /// indices belong to the carrier, not to separately invented semantic items.
@@ -37,7 +37,7 @@ pub(super) fn parse(
     }
     let mut result = Details {
         part: None,
-        encrypted: None,
+        responses_encrypted: None,
     };
     for value in values {
         let o = object(value)?;
@@ -65,7 +65,7 @@ pub(super) fn parse(
                     PartKind::ReasoningText
                 };
                 if result.part.is_some()
-                    || result.encrypted.is_some()
+                    || result.responses_encrypted.is_some()
                     || prior.is_some_and(|p| p != part_kind)
                     || o.get("index").and_then(Value::as_u64) != Some(0)
                 {
@@ -80,14 +80,14 @@ pub(super) fn parse(
             "reasoning.encrypted" => {
                 fields(o, &["type", "format", "index", "id", "data"])?;
                 let expected = u64::from(prior.is_some() || result.part.is_some());
-                if result.encrypted.is_some()
+                if result.responses_encrypted.is_some()
                     || o.get("index").and_then(Value::as_u64) != Some(expected)
                 {
                     return Err(CodecError::Invalid("reasoning detail order"));
                 }
                 let id = text(string(o, "id")?, "reasoning identity", 256)?;
                 let data = text(string(o, "data")?, "encrypted reasoning", MAX_TEXT_BYTES)?;
-                result.encrypted = Some((id.as_str().into(), data.as_str().into()));
+                result.responses_encrypted = Some((id.as_str().into(), data.as_str().into()));
             }
             _ => return Err(CodecError::Unsupported("reasoning detail kind".into())),
         }
@@ -130,20 +130,19 @@ pub(super) fn decode_static(
         } else {
             vec![]
         };
-        let encrypted = if let Some((wire_id, data)) = details.encrypted {
+        let encrypted = if let Some((wire_id, data)) = details.responses_encrypted {
             b.fidelity.record_response_item_id(id, &wire_id)?;
-            Some(EncryptedReasoning::Final(text(
-                &data,
-                "encrypted reasoning",
-                MAX_TEXT_BYTES,
-            )?))
+            Some(ReplayValue::final_value(
+                ReplayFormat::ResponsesEncrypted,
+                text(&data, "encrypted reasoning", MAX_TEXT_BYTES)?,
+            ))
         } else {
             None
         };
         let item = ReasoningItem {
             parts,
             status: ItemLifecycle::Completed,
-            encrypted,
+            replay: encrypted,
         };
         b.fidelity.record_replay(id, &item, a.scope.clone())?;
         b.items.push((id, Item::Reasoning(item)));
@@ -174,11 +173,7 @@ pub(super) fn wire(id: ItemId, item: &ReasoningItem, fidelity: &FidelityRecords)
         }
         details.push(value);
     }
-    if let Some(token) = item
-        .encrypted
-        .as_ref()
-        .and_then(EncryptedReasoning::replay_token)
-    {
+    if let Some(token) = item.replay.as_ref().and_then(ReplayValue::replay_token) {
         details.push(json!({"format":"openai-responses-v1","index":details.len(),"type":"reasoning.encrypted","data":token,"id":fidelity.response_item_id(id).map(str::to_owned).unwrap_or_else(||format!("item_{}",id.get()))}));
     }
     details

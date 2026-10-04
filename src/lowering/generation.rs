@@ -1,8 +1,9 @@
 //! Candidate-local representability over immutable final IR. No route or credential access.
 use crate::{
     protocol::{
+        ResponseMetadata,
         fidelity::FidelityRecords,
-        openai::{Profile, RequestRepresentation, ResponseMetadata, ResponseRepresentation},
+        openai::{Profile, RequestRepresentation, ResponseRepresentation},
     },
     semantic::task::generation::*,
 };
@@ -101,7 +102,7 @@ pub fn lower_request<'a>(
         fidelity,
         profile,
         c.replay_origin.as_ref(),
-        c.adaptation.rules.structured_chat_reasoning,
+        &c.adaptation,
         Some(r),
     )?;
     c.images
@@ -124,7 +125,12 @@ pub fn lower_request<'a>(
         crate::protocol::openai::responses::validate_program_history(r)
             .map_err(|_| RepresentationError::Tools)?;
     }
-    text_items(r.items(), profile, true)?;
+    text_items(
+        r.items(),
+        profile,
+        true,
+        profile == Profile::Responses && crate::protocol::openai::client::enabled(&c.adaptation),
+    )?;
     let expected_default = if profile == Profile::Chat {
         StrictDefault::NonStrict
     } else {
@@ -220,6 +226,16 @@ pub(super) fn check_usage(
     rules: &crate::protocol::adaptation::WireRules,
 ) -> Result<(), RepresentationError> {
     usage.validate()?;
+    if usage.scope != UsageScope::Operation
+        || usage.basis != UsageBasis::Final
+        || usage.output_relation != OutputTokenRelation::IncludesReasoning
+        || usage.total_relation != TotalTokenRelation::InputAndOutput
+        || usage.input_tokens.is_none()
+        || usage.output_tokens.is_none()
+        || usage.total_tokens.is_none()
+    {
+        return Err(RepresentationError::UsageProjection);
+    }
     if usage.input_image_tokens.is_some()
         && !(match profile {
             Profile::Chat => rules.chat_image_usage,
@@ -246,8 +262,26 @@ pub fn lower_response<'a>(
     profile: Profile,
     c: GenerationRepresentationContract,
 ) -> Result<ResponseRepresentation<'a>, RepresentationError> {
+    if r.progress() != InteractionProgress::Unreported
+        && !(profile == Profile::Responses
+            && crate::protocol::openai::client::enabled(&c.adaptation))
+    {
+        return Err(RepresentationError::InteractionProgress);
+    }
+    let client =
+        profile == Profile::Responses && crate::protocol::openai::client::enabled(&c.adaptation);
+    if !client
+        && (r.usage_reports().len() > 1
+            || r.usage_reports().iter().any(|report| {
+                report.scope != UsageScope::Operation || report.basis != UsageBasis::Final
+            }))
+    {
+        return Err(RepresentationError::UsageProjection);
+    }
     require_reported_facts(r, metadata, &c)?;
-    if let Some(usage) = r.usage() {
+    if let Some(usage) = r.usage()
+        && (!client || crate::protocol::openai::client::base_usage(r.usage_reports()))
+    {
         check_usage(usage, profile, &c.adaptation.rules)?;
     }
     if profile == Profile::Chat
@@ -270,18 +304,14 @@ pub fn lower_response<'a>(
     {
         return Err(RepresentationError::UnmigratedSemantic);
     }
-    // Reuse the same pure requirement projection for supported output items.
-    if !r.items().is_empty() {
-        let request = GenerationRequest::new(r.items().to_vec(), GenerationControls::default())?;
-        check(&request, c.clone())?;
-    }
+    c.semantics.check_response(r)?;
     represent_reasoning(
         &ReasoningRequest::absent(),
         r.items(),
         fidelity,
         profile,
         c.replay_origin.as_ref(),
-        c.adaptation.rules.structured_chat_reasoning,
+        &c.adaptation,
         None,
     )?;
     let chat_status = if r.outcome() == Outcome::Incomplete {
@@ -294,13 +324,18 @@ pub fn lower_response<'a>(
             let completed_replay_owner = c.adaptation.rules.structured_chat_reasoning
                 && chat_status == ItemLifecycle::Incomplete
                 && matches!(item, Item::Reasoning(r) if r.status == ItemLifecycle::Completed
-                    && r.encrypted.as_ref().and_then(EncryptedReasoning::replay_token).is_some());
+                    && r.replay.as_ref().and_then(ReplayValue::replay_token).is_some());
             item.lifecycle().is_some_and(|status| status != chat_status) && !completed_replay_owner
         })
     {
         return Err(RepresentationError::Terminal);
     }
-    text_items(r.items(), profile, false)?;
+    text_items(
+        r.items(),
+        profile,
+        false,
+        profile == Profile::Responses && crate::protocol::openai::client::enabled(&c.adaptation),
+    )?;
     if profile == Profile::Chat && chat_message_count(r.items()) != 1 {
         return Err(RepresentationError::MessageGrouping);
     }
@@ -375,18 +410,26 @@ fn represent_reasoning(
     fidelity: &FidelityRecords,
     profile: Profile,
     origin: Option<&crate::semantic::value::ReplayOrigin>,
-    structured_chat: bool,
+    adaptation: &crate::protocol::adaptation::Adaptation,
     history: Option<&GenerationRequest>,
 ) -> Result<(), RepresentationError> {
+    let client =
+        profile == Profile::Responses && crate::protocol::openai::client::enabled(adaptation);
+    let structured_chat = adaptation.rules.structured_chat_reasoning;
     let request = history.is_some();
     for (id, item) in items {
+        if !client
+            && matches!(item, Item::Reasoning(r) if r.replay.as_ref().is_some_and(|value| value.format() != ReplayFormat::ResponsesEncrypted))
+        {
+            return Err(RepresentationError::ReplayFormat);
+        }
         if (profile == Profile::Chat || request)
-            && matches!(item, Item::Reasoning(r) if r.encrypted.is_some() && r.status != ItemLifecycle::Completed)
+            && matches!(item, Item::Reasoning(r) if r.replay.is_some() && r.status != ItemLifecycle::Completed)
         {
             return Err(RepresentationError::Terminal);
         }
         if let Item::Reasoning(reasoning) = item
-            && let Some(replay) = &reasoning.encrypted
+            && let Some(replay) = &reasoning.replay
             && (profile != Profile::Responses && !(profile == Profile::Chat && structured_chat)
                 || !history.map_or_else(
                     || fidelity.replay_matches(*id, reasoning, origin),
@@ -414,7 +457,7 @@ fn represent_reasoning(
             || structured_chat && items.iter().enumerate().all(|(n,(_,item))| match item {
                 Item::Reasoning(r) => r.parts.len() <= 1
                     && !r.parts.iter().any(|(_,p)|matches!(p,ReasoningContent::Text(t) if t.as_str().is_empty()))
-                    && (!r.parts.is_empty() || r.encrypted.is_some())
+                    && (!r.parts.is_empty() || r.replay.is_some())
                     && matches!(items.get(n+1),Some((_,Item::Message(m))) if m.role==MessageRole::Assistant),
                 _ => true,
             })))
@@ -433,19 +476,26 @@ fn text_items(
     items: &[(ItemId, Item)],
     profile: Profile,
     request: bool,
+    client: bool,
 ) -> Result<(), RepresentationError> {
     for (_, i) in items {
-        // Structured/error values still lack a carrier. Standard Responses
-        // admits image result parts in request history only; Chat does not.
+        // These profiles have neither structured argument nor execution-report carriers.
+        if !client
+            && matches!(i, Item::ToolCall(call) if !matches!(call.arguments, ToolArguments::Raw(_)))
+        {
+            return Err(RepresentationError::Tools);
+        }
+        // Standard Responses admits image result parts in history; Chat does not.
         if matches!(i, Item::ToolResult(result) | Item::CustomResult(result)
-            if matches!(result.output, ToolOutput::Structured(_) | ToolOutput::Error(_))
+            if !client && (result.execution.is_some() || matches!(result.output, ToolOutput::Structured(_)))
                 || (!request || profile == Profile::Chat) && !result.output.is_text_only())
         {
             return Err(RepresentationError::Tools);
         }
         // Standard Responses has no message-call membership carrier. Keeping
         // both items is insufficient to preserve this relation through history.
-        if profile == Profile::Responses
+        if !client
+            && profile == Profile::Responses
             && matches!(i, Item::ToolCall(call) if call.message.is_some())
         {
             return Err(RepresentationError::MessageGrouping);
@@ -599,6 +649,8 @@ pub enum RepresentationError {
     ReportedFacts,
     #[error("target cannot represent text metadata")]
     TextMetadata,
+    #[error("target has no reported interaction-progress carrier")]
+    InteractionProgress,
     #[error("target cannot represent generation controls")]
     Controls,
     #[error("target cannot represent instructions")]
@@ -619,6 +671,10 @@ pub enum RepresentationError {
     StructuredOutput,
     #[error("target cannot represent reasoning")]
     Reasoning,
+    #[error("target cannot represent this replay-value phase at item start")]
+    ReplayPhase,
+    #[error("target has no carrier for this replay format")]
+    ReplayFormat,
     #[error("opaque replay requires a final token and a matching trusted origin")]
     ReplayOrigin,
     #[error("target cannot represent image input")]

@@ -25,7 +25,7 @@ fn accounting_keeps_distinct_counters_scoped_and_invalidates_after_edits() {
     let mut decoded = source
         .decode_response(response.to_string().as_bytes())
         .unwrap();
-    assert_eq!(decoded.semantic.usage().unwrap().output_tokens, 5);
+    assert_eq!(decoded.semantic.usage().unwrap().output_tokens, Some(5));
     let wire = source.encode_response(&decoded, &Contract::full()).unwrap();
     assert_eq!(
         wire["usage"]["context_details"],
@@ -45,8 +45,8 @@ fn accounting_keeps_distinct_counters_scoped_and_invalidates_after_edits() {
         assert!(wire["usage"].get("context_details").is_none());
     }
     let mut usage = decoded.semantic.usage().unwrap();
-    usage.output_tokens = 7;
-    usage.total_tokens = 10;
+    usage.output_tokens = Some(7);
+    usage.total_tokens = Some(10);
     decoded.semantic = decoded.semantic.with_usage(usage).unwrap();
     assert!(
         source.encode_response(&decoded, &Contract::full()).unwrap()["usage"]

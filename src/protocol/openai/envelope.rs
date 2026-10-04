@@ -116,6 +116,12 @@ pub fn decode_request_bytes(bytes: &[u8]) -> Result<DecodedResponsesRequest, Cod
 }
 /// Decode a pre-parsed value; original duplicate keys and raw byte size cannot be checked here.
 pub fn decode_request(v: &Value) -> Result<DecodedResponsesRequest, CodecError> {
+    decode_request_with(v, false)
+}
+pub(crate) fn decode_request_with(
+    v: &Value,
+    client: bool,
+) -> Result<DecodedResponsesRequest, CodecError> {
     bounded(v)?;
     let o = object(v)?;
     let allowed: Vec<_> = settings::FIELDS
@@ -147,7 +153,7 @@ pub fn decode_request(v: &Value) -> Result<DecodedResponsesRequest, CodecError> 
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     Ok(DecodedResponsesRequest {
-        task: super::responses::decode_generation(&Value::Object(task))?,
+        task: super::responses::decode_generation_with(&Value::Object(task), client)?,
         context,
     })
 }
@@ -252,7 +258,7 @@ pub fn decode_response(v: &Value) -> Result<super::DecodedResponse, CodecError> 
 pub fn encode_response(target: &super::ResponseRepresentation<'_>) -> Result<Value, CodecError> {
     target.metadata.context.validate()?;
     let v = super::responses::encode_response(target)?;
-    validate_response_snapshot(&v)?;
+    validate_response_snapshot_with(&v, &target.adaptation)?;
     Ok(v)
 }
 /// Vendor adaptation (ADR 0008): validate-then-drop derived views, then record
@@ -334,7 +340,12 @@ pub(crate) fn validate_response_snapshot_with(
     // Complete-envelope validation sees the same explicit wire mapping as the
     // task codec. Required identity, items and state rejection remain intact.
     let (v, _) = super::adapter_shapes::decode(v, Profile::Responses, adaptation)?;
-    let o = object(&v)?;
+    let mut clean = object(&v)?.clone();
+    super::client::read_progress(
+        clean.remove(super::client::FIELD).as_ref(),
+        super::client::enabled(adaptation),
+    )?;
+    let o = &clean;
     ResponseContext::read(o)?.0.validate()?;
     // A complete Response snapshot requires the output array; an absent value is
     // never the explicit empty array and no lower layer may backfill it.

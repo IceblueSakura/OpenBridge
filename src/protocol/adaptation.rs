@@ -119,8 +119,15 @@ pub struct WireRules {
     pub inactive_chat_fields: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ClientExtension {
+    #[default]
+    None,
+    GenerationV1,
+}
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Adaptation {
+    pub client: ClientExtension,
     pub rules: WireRules,
     /// Profile image admission is intersected with independently configured Endpoint limits.
     pub images: super::image_constraints::ImageConstraints,

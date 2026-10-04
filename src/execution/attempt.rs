@@ -4,9 +4,10 @@ use crate::{
     adapter::{Adapter, AdapterError, Request},
     lowering::generation::RepresentationError,
     protocol::{
+        CodecError, DecodedResponse, ResponseMetadata,
         fidelity::FidelityRecords,
         openai::{
-            CodecError, DecodedResponse, Profile, ResponseMetadata,
+            Profile,
             chat_sse::ChatSseDecoder,
             sse::{ResponsesSseDecoder, SseError, SseLimits},
         },

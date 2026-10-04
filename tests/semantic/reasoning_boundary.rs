@@ -55,7 +55,7 @@ fn readable_only_output_is_reasoning_not_fabricated_assistant_text_and_replays()
         matches!(&decoded.semantic.items()[0].1,Item::Reasoning(r) if r.parts[0].1==ReasoningContent::Text(text("检查 alpha")))
     );
     assert!(matches!(&decoded.semantic.items()[1].1,Item::Message(m) if m.parts.is_empty()));
-    assert!(matches!(&decoded.semantic.items()[0].1, Item::Reasoning(r) if r.encrypted.is_none()));
+    assert!(matches!(&decoded.semantic.items()[0].1, Item::Reasoning(r) if r.replay.is_none()));
     let output = client.encode_response(&decoded, &Contract::full()).unwrap();
     assert_eq!(
         output["choices"][0]["message"],
@@ -154,8 +154,8 @@ fn completed_encrypted_owner_survives_an_incomplete_carrier_in_json_and_events()
 fn chat_ciphertext_requires_both_final_value_and_completed_owner() {
     let client = adapter(Dialect::OpenBridge);
     for value in [
-        EncryptedReasoning::Partial(text("synthetic-partial")),
-        EncryptedReasoning::Final(text("synthetic-final")),
+        ReplayValue::partial(ReplayFormat::ResponsesEncrypted, text("synthetic-partial")),
+        ReplayValue::final_value(ReplayFormat::ResponsesEncrypted, text("synthetic-final")),
     ] {
         let reasoning = ReasoningItem {
             parts: vec![(
@@ -163,7 +163,7 @@ fn chat_ciphertext_requires_both_final_value_and_completed_owner() {
                 ReasoningContent::Summary(text("partial summary")),
             )],
             status: ItemLifecycle::Incomplete,
-            encrypted: Some(value.clone()),
+            replay: Some(value.clone()),
         };
         let replay = ReasoningReplay {
             value,
@@ -248,7 +248,7 @@ fn chat_event_final_value_replaces_or_removes_stale_ciphertext() {
             item: ItemId::new(1),
             status: ItemLifecycle::Completed,
             replay: replacement.map(|v| ReasoningReplay {
-                value: EncryptedReasoning::Final(text(v)),
+                value: ReplayValue::final_value(ReplayFormat::ResponsesEncrypted, text(v)),
                 origin: Some(origin()),
             }),
         });
@@ -275,9 +275,7 @@ fn chat_event_final_value_replaces_or_removes_stale_ciphertext() {
             panic!("reasoning")
         };
         assert_eq!(
-            r.encrypted
-                .as_ref()
-                .and_then(EncryptedReasoning::replay_token),
+            r.replay.as_ref().and_then(ReplayValue::replay_token),
             replacement
         );
         assert!(
@@ -307,7 +305,7 @@ fn chat_replay_edits_deletion_and_origin_are_checked_independently_of_plain_text
     let Item::Reasoning(reason) = &mut items[0].1 else {
         panic!("reasoning")
     };
-    reason.encrypted = None;
+    reason.replay = None;
     request.task.semantic = request.task.semantic.clone().with_items(items).unwrap();
     let edited = source.encode_request(&request, "m", &contract()).unwrap();
     assert_eq!(

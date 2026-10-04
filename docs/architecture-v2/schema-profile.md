@@ -44,7 +44,7 @@ Both strict modes require an object root (possibly reached through a local refer
 
 Explicit strict additionally requires every object to use additionalProperties=false and requires exactly its declared property names, with no duplicates. Empty objects may omit an empty required list. Nested anyOf branches and definition schemas receive the same checks. allOf/oneOf/not/if/then/else, dynamic-object/tuple/contains/unevaluated policies, uniqueItems and property-count constraints are outside this strict subset. General structural mode may preserve the listed forms.
 
-Supported string/number/array constraints receive shape and basic bound checks. This validates `pattern`/`format` syntax against the closed admission below, but no regex execution, format semantics, model-specific restrictions, schema satisfiability or generated data. No schema is rewritten to satisfy strictness.
+Supported string/number/array constraints receive shape and basic bound checks. This validates `pattern`/`format` syntax against the closed admission below, but no regex execution, format semantics, model-specific restrictions, schema satisfiability or generated data. No schema is rewritten to satisfy strictness. Numeric comparisons and enum equality are exact; exponent-sized integers are never allocated. The bounded normalization domain is owned by [schema numbers](../../src/semantic/task/generation/schema_number.rs), and exceeding it fails rather than rounding.
 
 ## Pattern and format syntax
 

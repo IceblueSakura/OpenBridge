@@ -16,6 +16,30 @@ use serde_json::{Value, json};
 
 const RAW: &str = "{\"ok\":true}";
 
+#[test]
+fn parsed_views_preserve_reserved_object_keys_and_naive_duplicate_semantics() {
+    for (raw, parsed) in [
+        (
+            r#"{"$serde_json::private::Number":"1"}"#,
+            json!({"$serde_json::private::Number":"1"}),
+        ),
+        (r#"{"a":1,"a":2}"#, json!({"a":2})),
+    ] {
+        let d = decode_call(responses_call(raw, Some(parsed.clone()))).unwrap();
+        assert_eq!(arguments(&d), raw);
+        let d = decode_chat(chat_tool_call(fn_view(raw, Some(parsed)))).unwrap();
+        assert_eq!(arguments(&d), raw);
+    }
+}
+
+#[test]
+fn sdk_float_views_round_only_the_view_not_the_raw_authority() {
+    let raw = r#"{"n":0.123456789012345678901}"#;
+    let parsed = json!({"n":0.12345678901234568});
+    let decoded = decode_call(responses_call(raw, Some(parsed))).unwrap();
+    assert_eq!(arguments(&decoded), raw);
+}
+
 fn output_part(parsed: Option<Value>) -> Value {
     let mut p = json!({"type":"output_text","text":RAW,"annotations":[]});
     if let Some(v) = parsed {
@@ -75,7 +99,7 @@ fn arguments(d: &DecodedRequest) -> String {
         .items()
         .iter()
         .find_map(|(_, i)| match i {
-            Item::ToolCall(c) => Some(c.arguments.clone()),
+            Item::ToolCall(c) => c.arguments.as_raw().map(str::to_owned),
             _ => None,
         })
         .unwrap()

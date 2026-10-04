@@ -3,10 +3,13 @@ use crate::{
     adapter::Adapter,
     execution::{Attempt, AttemptError, Lifecycle},
     lowering::generation::GenerationRepresentationContract,
-    protocol::openai::{
-        Profile, ResponseMetadata,
-        chat_sse::ChatSseEncoder,
-        sse::{Obfuscation, ResponsesSseEncoder, SseLimits},
+    protocol::{
+        ResponseMetadata,
+        openai::{
+            Profile,
+            chat_sse::ChatSseEncoder,
+            sse::{Obfuscation, ResponsesSseEncoder, SseLimits},
+        },
     },
     semantic::{context::StreamOptions, task::generation::StreamEvent},
 };

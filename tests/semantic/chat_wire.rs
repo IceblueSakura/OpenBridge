@@ -329,7 +329,7 @@ fn deferred_empty_carriers_and_nullable_call_identity_remain_consistent() {
         matches!(&decoded.semantic.items()[0].1,Item::Message(m) if m.parts.len()==1 && matches!(&m.parts[0].content,ContentPart::Text(t) if t.as_str().is_empty()))
     );
     assert!(
-        matches!(&decoded.semantic.items()[1].1,Item::ToolCall(c) if c.call_id.as_str()=="call_a" && c.arguments=="{\"k\":1}")
+        matches!(&decoded.semantic.items()[1].1,Item::ToolCall(c) if c.call_id.as_str()=="call_a" && c.arguments.as_raw()==Some("{\"k\":1}"))
     );
     let mut conflict = vendor().event_decoder();
     conflict.push(&chunks[0]).unwrap();

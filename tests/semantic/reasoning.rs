@@ -106,7 +106,7 @@ fn independent_reasoning_stream_closes_and_preserves_both_part_domains_and_token
         e,
         StreamEvent::ItemStarted {
             replay: Some(ReasoningReplay {
-                value: EncryptedReasoning::Partial(_),
+                value: ReplayValue::Partial { .. },
                 ..
             }),
             ..
@@ -128,9 +128,7 @@ fn independent_reasoning_stream_closes_and_preserves_both_part_domains_and_token
     assert_eq!(r.parts[1].1, ReasoningContent::Text(text("reasoning")));
     assert_ne!(r.parts[0].0, r.parts[1].0);
     assert_eq!(
-        r.encrypted
-            .as_ref()
-            .and_then(EncryptedReasoning::replay_token),
+        r.replay.as_ref().and_then(ReplayValue::replay_token),
         Some("final-synthetic")
     );
     let encoded = encode(&events, Profile::Responses, &decoded.fidelity);
@@ -239,7 +237,10 @@ fn partial_final_phases_and_resource_limits_fail_without_panics() {
     let mut owner = ReasoningItem {
         parts: vec![],
         status: ItemLifecycle::Completed,
-        encrypted: Some(EncryptedReasoning::Final(text("x"))),
+        replay: Some(ReplayValue::final_value(
+            ReplayFormat::ResponsesEncrypted,
+            text("x"),
+        )),
     };
     for i in 0..MAX_ITEMS {
         f.record_replay(ItemId::new(i as u64), &owner, Some(origin()))
@@ -249,12 +250,18 @@ fn partial_final_phases_and_resource_limits_fail_without_panics() {
         f.record_replay(ItemId::new(MAX_ITEMS as u64), &owner, Some(origin()))
             .is_err()
     );
-    owner.encrypted = Some(EncryptedReasoning::Partial(text("partial")));
+    owner.replay = Some(ReplayValue::partial(
+        ReplayFormat::ResponsesEncrypted,
+        text("partial"),
+    ));
     assert!(
         f.record_replay(ItemId::new(0), &owner, Some(origin()))
             .is_err()
     );
-    owner.encrypted = Some(EncryptedReasoning::Final(text("final")));
+    owner.replay = Some(ReplayValue::final_value(
+        ReplayFormat::ResponsesEncrypted,
+        text("final"),
+    ));
     assert!(f.record_replay(ItemId::new(0), &owner, None).is_err());
 }
 #[test]
@@ -296,9 +303,13 @@ fn reasoning_and_parallel_call_results_preserve_continuation_history() {
     events.extend(call(22, 70, "a", "{\"key\":1}"));
     events.extend(call(33, 60, "b", "{\"key\":2}"));
     events.push(StreamEvent::Usage(Usage {
-        input_tokens: 4,
-        output_tokens: 6,
-        total_tokens: 10,
+        scope: UsageScope::Operation,
+        basis: UsageBasis::Final,
+        output_relation: OutputTokenRelation::IncludesReasoning,
+        total_relation: TotalTokenRelation::InputAndOutput,
+        input_tokens: Some(4),
+        output_tokens: Some(6),
+        total_tokens: Some(10),
         reasoning_tokens: Some(3),
         cached_input_tokens: Some(0),
         input_cache_write_tokens: None,
@@ -370,7 +381,7 @@ fn wire_reasoning_identity_is_required_and_fresh_items_assign_request_ids() {
                 Item::Reasoning(ReasoningItem {
                     parts: vec![(PartId::new(1), ReasoningContent::Summary(text("plan")))],
                     status: ItemLifecycle::Completed,
-                    encrypted: None,
+                    replay: None,
                 }),
             ),
             (

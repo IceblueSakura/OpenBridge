@@ -258,6 +258,7 @@ fn independent_ir_encodes_call_and_empty_result_without_source_wire() {
         (
             ItemId::new(20),
             Item::ToolResult(ToolResult {
+                execution: None,
                 call_id: text("call_new"),
                 output: "".into(),
                 status: None,
@@ -336,6 +337,7 @@ fn replacement_insertion_and_reordering_drive_both_encoders() {
     items.push((
         ItemId::new(100),
         Item::ToolResult(ToolResult {
+            execution: None,
             call_id: text("call_c"),
             output: "rain".into(),
             status: None,
@@ -674,6 +676,7 @@ fn static_response_encodes_independent_expectations_and_replays_into_history() {
     history.push((
         ItemId::new(50),
         Item::ToolResult(ToolResult {
+            execution: None,
             call_id: text("call_b"),
             output: "rain".into(),
             status: None,
@@ -683,6 +686,7 @@ fn static_response_encodes_independent_expectations_and_replays_into_history() {
     history.push((
         ItemId::new(51),
         Item::ToolResult(ToolResult {
+            execution: None,
             call_id: text("call_a"),
             output: "sunny".into(),
             status: None,
@@ -807,9 +811,13 @@ fn usage_projects_known_totals_across_profiles_without_estimating() {
     assert_eq!(
         d.semantic.usage(),
         Some(Usage {
-            input_tokens: 5,
-            output_tokens: 3,
-            total_tokens: 8,
+            scope: UsageScope::Operation,
+            basis: UsageBasis::Final,
+            output_relation: OutputTokenRelation::IncludesReasoning,
+            total_relation: TotalTokenRelation::InputAndOutput,
+            input_tokens: Some(5),
+            output_tokens: Some(3),
+            total_tokens: Some(8),
             reasoning_tokens: Some(2),
             cached_input_tokens: None,
             input_cache_write_tokens: None,
@@ -858,7 +866,7 @@ fn usage_projects_known_totals_across_profiles_without_estimating() {
             .usage()
             .unwrap()
             .total_tokens,
-        0
+        Some(0)
     );
     wire["usage"] = json!({"prompt_tokens":1,"completion_tokens":1,"total_tokens":3});
     assert!(chat::decode_response(&wire).is_err());

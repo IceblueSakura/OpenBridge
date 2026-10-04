@@ -105,9 +105,15 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                     &mut bytes,
                     &c.call_id,
                     &c.name,
-                    &c.arguments,
+                    "",
                     CallKind::Function,
                 )?;
+                charge(&mut bytes, c.arguments.bytes()?)?;
+                if c.status == ItemLifecycle::Completed
+                    && matches!(c.arguments, ToolArguments::StructuredPartial(_))
+                {
+                    return Err(GenerationError::InvalidArguments);
+                }
                 if let Some(owner) = c.message {
                     if active_owner != Some(owner) {
                         return Err(GenerationError::InvalidMessageGroup);
@@ -161,7 +167,7 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
             }
             Item::Reasoning(r) => {
                 active_owner = None;
-                if let Some(value) = &r.encrypted {
+                if let Some(value) = &r.replay {
                     value.validate()?;
                     add(&mut bytes, value.as_str())?;
                 }
@@ -211,17 +217,16 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                         }
                     }
                     ToolOutput::Structured(value) => charge(&mut bytes, value.bytes()?)?,
-                    ToolOutput::Error(error) => {
-                        if r.status == Some(ItemLifecycle::InProgress) {
-                            return Err(GenerationError::InvalidToolResult);
+                }
+                if let Some(execution) = &r.execution {
+                    if r.status == Some(ItemLifecycle::InProgress) {
+                        return Err(GenerationError::InvalidToolResult);
+                    }
+                    if let ToolExecution::Failed { code: Some(code) } = execution {
+                        if code.as_str().is_empty() || code.as_str().len() > 128 {
+                            return Err(GenerationError::Limit);
                         }
-                        if let Some(code) = &error.code {
-                            if code.as_str().is_empty() || code.as_str().len() > 128 {
-                                return Err(GenerationError::Limit);
-                            }
-                            add(&mut bytes, code.as_str())?;
-                        }
-                        add(&mut bytes, error.message.as_str())?;
+                        add(&mut bytes, code.as_str())?;
                     }
                 }
             }

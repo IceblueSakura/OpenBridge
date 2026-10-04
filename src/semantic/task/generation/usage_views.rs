@@ -1,5 +1,5 @@
 //! Named, premise-checked views over one reported usage snapshot, never billing.
-use super::{GenerationError, Usage};
+use super::{GenerationError, OutputTokenRelation, Usage};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UsageFormula {
@@ -25,14 +25,18 @@ impl<'a> DerivedTokenCount<'a> {
     pub fn tokens(&self) -> u64 {
         match self.formula {
             UsageFormula::InputMinusCacheRead => {
-                self.source.input_tokens
+                self.source
+                    .input_tokens
+                    .expect("validated reported premise")
                     - self
                         .source
                         .cached_input_tokens
                         .expect("validated reported premise")
             }
             UsageFormula::OutputMinusReasoning => {
-                self.source.output_tokens
+                self.source
+                    .output_tokens
+                    .expect("validated reported premise")
                     - self
                         .source
                         .reasoning_tokens
@@ -50,8 +54,13 @@ impl Usage {
     ) -> Result<Option<DerivedTokenCount<'_>>, GenerationError> {
         self.validate()?;
         let premise = match formula {
-            UsageFormula::InputMinusCacheRead => self.cached_input_tokens,
-            UsageFormula::OutputMinusReasoning => self.reasoning_tokens,
+            UsageFormula::InputMinusCacheRead => self.input_tokens.zip(self.cached_input_tokens),
+            UsageFormula::OutputMinusReasoning
+                if self.output_relation == OutputTokenRelation::IncludesReasoning =>
+            {
+                self.output_tokens.zip(self.reasoning_tokens)
+            }
+            UsageFormula::OutputMinusReasoning => None,
         };
         Ok(premise.map(|_| DerivedTokenCount {
             source: self,

@@ -75,8 +75,8 @@ pub(super) fn admit_parsed(
         (None | Some(Value::Null), _) => Ok(()),
         (Some(_), None) => Err(CodecError::Invalid(key)),
         (Some(v), Some(raw)) => {
-            let expected: Value =
-                serde_json::from_str(raw).map_err(|_| CodecError::Invalid(key))?;
+            let expected: Value = crate::semantic::value::parse_json_view(raw.as_bytes())
+                .map_err(|_| CodecError::Invalid(key))?;
             if *v != expected {
                 return Err(CodecError::Invalid(key));
             }
@@ -278,7 +278,7 @@ pub(super) fn tool_call(
     Ok(ToolCall {
         call_id: text(id, "call_id", 256)?,
         name: text(string(f, "name")?, "function name", 128)?,
-        arguments: raw_string(f, "arguments")?,
+        arguments: raw_string(f, "arguments")?.into(),
         message,
         status,
         context: if profile == Profile::Responses {
@@ -287,6 +287,51 @@ pub(super) fn tool_call(
             CallContext::default()
         },
     })
+}
+pub(super) fn check_response_carriers(response: &GenerationResponse) -> Result<(), CodecError> {
+    check_response_carriers_with(response, false)
+}
+pub(super) fn check_response_carriers_with(
+    response: &GenerationResponse,
+    client: bool,
+) -> Result<(), CodecError> {
+    if !client
+        && (response.usage_reports().len() > 1
+            || response.usage_reports().iter().any(|usage| {
+                usage.scope != UsageScope::Operation
+                    || usage.basis != UsageBasis::Final
+                    || usage.output_relation != OutputTokenRelation::IncludesReasoning
+                    || usage.total_relation != TotalTokenRelation::InputAndOutput
+                    || usage.input_tokens.is_none()
+                    || usage.output_tokens.is_none()
+                    || usage.total_tokens.is_none()
+            }))
+    {
+        return Err(CodecError::Unsupported("usage projection".into()));
+    }
+    if !client && response.progress() != InteractionProgress::Unreported {
+        return Err(CodecError::Unsupported("interaction progress".into()));
+    }
+    Ok(())
+}
+
+pub(super) fn check_item_carriers(items: &[(ItemId, Item)]) -> Result<(), CodecError> {
+    check_item_carriers_with(items, false)
+}
+pub(super) fn check_item_carriers_with(
+    items: &[(ItemId, Item)],
+    client: bool,
+) -> Result<(), CodecError> {
+    if client {
+        return Ok(());
+    }
+    if items.iter().any(|(_, item)| matches!(item, Item::Reasoning(r) if r.replay.as_ref().is_some_and(|value| value.format() != ReplayFormat::ResponsesEncrypted))) {
+        return Err(CodecError::Unsupported("replay format".into()));
+    }
+    if items.iter().any(|(_, item)| matches!(item, Item::ToolCall(call) if !matches!(call.arguments, ToolArguments::Raw(_)))) {
+        return Err(CodecError::Unsupported("structured arguments".into()));
+    }
+    Ok(())
 }
 pub(super) fn accept_status(o: &Map<String, Value>, expected: &str) -> Result<(), CodecError> {
     let actual = o.get("status").and_then(Value::as_str);

@@ -195,7 +195,7 @@ pub(super) fn decode_message(
             Item::Reasoning(ReasoningItem {
                 parts: vec![(part_id, ReasoningContent::Text(text))],
                 status: ItemLifecycle::Completed,
-                encrypted: None,
+                replay: None,
             }),
         ));
     }
@@ -236,6 +236,7 @@ pub(super) fn decode_message(
             b.items.push((
                 id,
                 Item::ToolResult(ToolResult {
+                    execution: None,
                     call_id: text(string(m, "tool_call_id")?, "call_id", 256)?,
                     output,
                     status: None,
@@ -381,7 +382,8 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     if target.profile != Profile::Chat {
         return Err(CodecError::ProfileMismatch);
     }
-    if target.semantic.items().iter().any(|(_, item)| matches!(item, Item::ToolResult(result) | Item::CustomResult(result) if !result.output.is_text_only())) {
+    check_item_carriers(target.semantic.items())?;
+    if target.semantic.items().iter().any(|(_, item)| matches!(item, Item::ToolResult(result) | Item::CustomResult(result) if result.execution.is_some() || !result.output.is_text_only())) {
         return Err(CodecError::Unsupported("tool result semantics".into()));
     }
     let mut messages = encode_items_with(
@@ -424,7 +426,7 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     Ok(v)
 }
 pub(super) fn call_wire(c: &ToolCall) -> Value {
-    json!({"id":c.call_id.as_str(),"type":"function","function":{"name":c.name.as_str(),"arguments":c.arguments}})
+    json!({"id":c.call_id.as_str(),"type":"function","function":{"name":c.name.as_str(),"arguments":c.arguments.as_raw().expect("checked raw arguments")}})
 }
 pub(super) fn encode_items_with(
     items: &[(ItemId, Item)],
@@ -441,7 +443,7 @@ pub(super) fn encode_items_with(
                 // Chat carries readable reasoning text on its carrier message.
                 standalone_calls = false;
                 if structured
-                    && (r.encrypted.is_some()
+                    && (r.replay.is_some()
                         || r.parts
                             .iter()
                             .any(|(_, p)| matches!(p, ReasoningContent::Summary(_))))
@@ -541,7 +543,7 @@ pub(super) fn encode_items_with(
                     json!({"role":"tool","tool_call_id":r.call_id.as_str(),"content":match &r.output {
                         ToolOutput::Text(s)=>json!(s),
                         ToolOutput::Parts(parts)=>json!(parts.iter().map(|(_,t)|json!({"type":"text","text":t.as_text().expect("lowering admits text-only tool parts")})).collect::<Vec<_>>()),
-                        ToolOutput::Structured(_) | ToolOutput::Error(_) => unreachable!("lowering rejects tool result semantics without a carrier"),
+                        ToolOutput::Structured(_) => unreachable!("lowering rejects tool result semantics without a carrier"),
                     }}),
                 );
             }

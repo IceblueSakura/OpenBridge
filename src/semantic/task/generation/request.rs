@@ -339,6 +339,10 @@ pub enum GenerationError {
     InvalidSchema,
     #[error("tool choice refers to an unavailable tool")]
     InvalidToolChoice,
+    #[error("invalid structured JSON value")]
+    InvalidJsonValue,
+    #[error("incomplete structured tool arguments cannot complete their owner")]
+    InvalidArguments,
     #[error("semantic value exceeds limits")]
     Limit,
     #[error("invalid response semantics")]

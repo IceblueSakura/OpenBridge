@@ -1,5 +1,5 @@
 //! Completed or partial Generation output, independent of transport success.
-use super::{GenerationError, Item, ItemId, ItemLifecycle, MAX_TEXT_BYTES};
+use super::{GenerationError, Item, ItemId, ItemLifecycle, MAX_TEXT_BYTES, Usage};
 use crate::semantic::value::Text;
 
 /// Result of one response, not completion of the logical turn or tool execution.
@@ -66,64 +66,12 @@ impl TerminalDetails {
         Ok(())
     }
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Usage {
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub total_tokens: u64,
-    pub reasoning_tokens: Option<u64>,
-    pub cached_input_tokens: Option<u64>,
-    pub input_cache_write_tokens: Option<u64>,
-    /// Reported text counts may overlap reasoning/cache/prediction accounting.
-    /// Absence is unknown, not zero; no modality breakdown is inferred.
-    pub input_text_tokens: Option<u64>,
-    /// Reported image input tokens; unknown stays absent, never inferred from pixels.
-    pub input_image_tokens: Option<u64>,
-    pub output_text_tokens: Option<u64>,
-    /// Accepted and rejected draft tokens are disjoint subsets of output usage.
-    /// Rejected tokens still count toward output billing and limits.
-    pub accepted_prediction_tokens: Option<u64>,
-    pub rejected_prediction_tokens: Option<u64>,
-}
-impl Usage {
-    pub fn validate(self) -> Result<(), GenerationError> {
-        if self.input_tokens.checked_add(self.output_tokens) != Some(self.total_tokens)
-            || self
-                .reasoning_tokens
-                .is_some_and(|n| n > self.output_tokens)
-            || self
-                .cached_input_tokens
-                .is_some_and(|n| n > self.input_tokens)
-            || self
-                .input_cache_write_tokens
-                .is_some_and(|n| n > self.input_tokens)
-            || self
-                .input_text_tokens
-                .is_some_and(|n| n > self.input_tokens)
-            || self
-                .input_image_tokens
-                .is_some_and(|n| n > self.input_tokens)
-            || self
-                .output_text_tokens
-                .is_some_and(|n| n > self.output_tokens)
-            || self
-                .accepted_prediction_tokens
-                .is_some_and(|n| n > self.output_tokens)
-            || self
-                .rejected_prediction_tokens
-                .is_some_and(|n| n > self.output_tokens)
-            || matches!((self.accepted_prediction_tokens, self.rejected_prediction_tokens), (Some(a),Some(b)) if a.checked_add(b).is_none_or(|n|n>self.output_tokens))
-        {
-            return Err(GenerationError::InvalidResponse);
-        }
-        Ok(())
-    }
-}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenerationResponse {
     items: Vec<(ItemId, Item)>,
     outcome: Outcome,
-    usage: Option<Usage>,
+    progress: super::InteractionProgress,
+    usage: Vec<Usage>,
     details: TerminalDetails,
 }
 impl GenerationResponse {
@@ -141,14 +89,37 @@ impl GenerationResponse {
         Ok(Self {
             items,
             outcome,
-            usage: None,
+            progress: super::InteractionProgress::Unreported,
+            usage: vec![],
             details: TerminalDetails::default(),
         })
     }
-    pub fn with_usage(mut self, usage: Usage) -> Result<Self, GenerationError> {
-        usage.validate()?;
-        self.usage = Some(usage);
+    pub fn with_progress(
+        mut self,
+        progress: super::InteractionProgress,
+    ) -> Result<Self, GenerationError> {
+        progress.validate(self.outcome, &self.items)?;
+        self.progress = progress;
         Ok(self)
+    }
+    pub const fn progress(&self) -> super::InteractionProgress {
+        self.progress
+    }
+    pub fn with_usage(self, usage: Usage) -> Result<Self, GenerationError> {
+        self.with_usage_reports(vec![usage])
+    }
+    pub fn with_usage_reports(mut self, reports: Vec<Usage>) -> Result<Self, GenerationError> {
+        if reports.len() > super::MAX_ITEMS {
+            return Err(GenerationError::Limit);
+        }
+        let mut values = Vec::new();
+        for report in reports {
+            Usage::update(&mut values, report)?;
+        }
+        Usage::check_owners(&values, &self.items)?;
+        self.usage = values;
+        let details = self.details.clone();
+        self.with_details(details)
     }
     pub fn with_details(mut self, details: TerminalDetails) -> Result<Self, GenerationError> {
         details.validate(self.outcome)?;
@@ -160,7 +131,11 @@ impl GenerationResponse {
         } else {
             super::validate::items(&self.items, true)?
         };
-        if bytes.saturating_add(details.bytes()) > super::MAX_TOTAL_BYTES {
+        if bytes
+            .saturating_add(details.bytes())
+            .saturating_add(self.usage.len() * std::mem::size_of::<Usage>())
+            > super::MAX_TOTAL_BYTES
+        {
             return Err(GenerationError::Limit);
         }
         self.details = details;
@@ -172,16 +147,21 @@ impl GenerationResponse {
     pub const fn outcome(&self) -> Outcome {
         self.outcome
     }
-    pub const fn usage(&self) -> Option<Usage> {
-        self.usage
+    pub fn usage(&self) -> Option<Usage> {
+        Usage::final_operation(&self.usage)
+    }
+    pub fn usage_reports(&self) -> &[Usage] {
+        &self.usage
     }
     pub fn details(&self) -> &TerminalDetails {
         &self.details
     }
     /// Editing content never changes response outcome or discards terminal details.
     pub fn with_items(self, items: Vec<(ItemId, Item)>) -> Result<Self, GenerationError> {
-        let mut response = Self::new(items, self.outcome)?.with_details(self.details)?;
-        response.usage = self.usage;
+        let mut response = Self::new(items, self.outcome)?
+            .with_progress(self.progress)?
+            .with_details(self.details)?;
+        response = response.with_usage_reports(self.usage)?;
         Ok(response)
     }
 }

@@ -185,7 +185,10 @@ impl EventEncoder {
     fn coordinates(&self, item: ItemId, part: PartId) -> Result<Value, CodecError> {
         let kind = self.state()?.part(item, part)?.kind;
         let mut v = json!({"output_index":self.index(item)?,"item_id":self.fidelity.response_item_id(item).ok_or(CodecError::Invalid("wire identity"))?});
-        if !matches!(kind, PartKind::Arguments | PartKind::CustomInput) {
+        if !matches!(
+            kind,
+            PartKind::Arguments | PartKind::StructuredArguments | PartKind::CustomInput
+        ) {
             v[if kind == PartKind::Summary {
                 "summary_index"
             } else {
@@ -272,8 +275,14 @@ impl EventEncoder {
                         v
                     }
                 };
-                if let Some(r) = replay {
+                if let Some(r) = replay
+                    && r.value.format() == ReplayFormat::ResponsesEncrypted
+                {
                     v["encrypted_content"] = json!(r.value.as_str());
+                }
+                if super::super::client::enabled(&self.contract.adaptation) {
+                    let snapshot = self.state()?.item(*item)?.snapshot()?;
+                    super::super::client::write_item(&mut v, *item, &snapshot, &self.fidelity)?;
                 }
                 vec![
                     json!({"type":"response.output_item.added","output_index":self.index(*item)?,"item":v}),
@@ -282,7 +291,10 @@ impl EventEncoder {
             StreamEvent::PartStarted { item, part, kind } => {
                 if matches!(
                     kind,
-                    PartKind::Arguments | PartKind::CustomInput | PartKind::ReasoningText
+                    PartKind::Arguments
+                        | PartKind::StructuredArguments
+                        | PartKind::CustomInput
+                        | PartKind::ReasoningText
                 ) {
                     vec![]
                 } else {
@@ -316,11 +328,11 @@ impl EventEncoder {
                 let mut v = self.coordinates(*item, *part)?;
                 v["type"] = json!(format!("response.{}.done", event_stem(p.kind)));
                 v[match p.kind {
-                    PartKind::Arguments => "arguments",
+                    PartKind::Arguments | PartKind::StructuredArguments => "arguments",
                     PartKind::CustomInput => "input",
                     PartKind::Refusal => "refusal",
                     _ => "text",
-                }] = json!(p.text);
+                }] = json!(p.value().wire_text());
                 if p.kind == PartKind::Text {
                     v["logprobs"] = super::super::text::event_logprobs(
                         p.logprobs.value().map(Vec::as_slice).unwrap_or_default(),
@@ -332,7 +344,10 @@ impl EventEncoder {
                 let p = self.state()?.part(*item, *part)?;
                 if matches!(
                     p.kind,
-                    PartKind::Arguments | PartKind::CustomInput | PartKind::ReasoningText
+                    PartKind::Arguments
+                        | PartKind::StructuredArguments
+                        | PartKind::CustomInput
+                        | PartKind::ReasoningText
                 ) {
                     vec![]
                 } else {
@@ -344,7 +359,8 @@ impl EventEncoder {
                     });
                     v["part"] = if p.kind == PartKind::Text {
                         let text = crate::semantic::value::Text::allowing_empty(
-                            &p.text,
+                            p.text()
+                                .ok_or(CodecError::Unsupported("structured arguments".into()))?,
                             "text",
                             MAX_TEXT_BYTES,
                         )
@@ -354,13 +370,17 @@ impl EventEncoder {
                             "output_text",
                         )
                     } else {
-                        part_wire(p.kind, &p.text)
+                        part_wire(
+                            p.kind,
+                            p.text()
+                                .ok_or(CodecError::Unsupported("structured arguments".into()))?,
+                        )
                     };
                     vec![v]
                 }
             }
             StreamEvent::ItemFinished { item, .. } => vec![
-                json!({"type":"response.output_item.done","output_index":self.index(*item)?,"item":item_wire(self.state()?,*item,&self.fidelity)?}),
+                json!({"type":"response.output_item.done","output_index":self.index(*item)?,"item":item_wire(self.state()?,*item,&self.fidelity,super::super::client::enabled(&self.contract.adaptation))?}),
             ],
             StreamEvent::AnnotationAdded {
                 item,
@@ -380,6 +400,14 @@ impl EventEncoder {
             StreamEvent::LogprobsSnapshot { .. }
             | StreamEvent::TextMetadata { .. }
             | StreamEvent::Usage(_) => vec![],
+            StreamEvent::Progress(_) => {
+                if !super::super::client::enabled(&self.contract.adaptation) {
+                    return Err(CodecError::Unsupported("interaction progress".into()));
+                }
+                // The strict SDK event union excludes custom types. The real terminal
+                // snapshot owns progress; do not invent an unconsumable event.
+                vec![]
+            }
             StreamEvent::Terminal {
                 terminal: StreamTerminal::Error,
                 details,
@@ -432,6 +460,7 @@ fn event_stem(kind: PartKind) -> &'static str {
         PartKind::Summary => "reasoning_summary_text",
         PartKind::ReasoningText => "reasoning_text",
         PartKind::Arguments => "function_call_arguments",
+        PartKind::StructuredArguments => "function_call_arguments",
         PartKind::CustomInput => "custom_tool_call_input",
     }
 }

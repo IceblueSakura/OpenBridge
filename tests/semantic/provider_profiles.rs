@@ -677,7 +677,7 @@ fn inactive_response_state_placeholders_do_not_enable_remote_state() {
     let decoded = provider
         .decode_response(value.to_string().as_bytes())
         .unwrap();
-    assert_eq!(decoded.semantic.usage().unwrap().total_tokens, 8);
+    assert_eq!(decoded.semantic.usage().unwrap().total_tokens, Some(8));
     let encoded = provider
         .encode_response(&decoded, &Contract::full())
         .unwrap();
@@ -757,7 +757,7 @@ fn null_billing_placeholder_does_not_admit_active_billing_or_usage_views() {
     let decoded = provider
         .decode_response(value.to_string().as_bytes())
         .unwrap();
-    assert_eq!(decoded.semantic.usage().unwrap().total_tokens, 8);
+    assert_eq!(decoded.semantic.usage().unwrap().total_tokens, Some(8));
     let same = provider
         .encode_response(&decoded, &Contract::full())
         .unwrap();
@@ -1030,7 +1030,7 @@ fn response_billing_view_is_checked_not_a_second_usage_authority() {
             usage.total_tokens,
             usage.reasoning_tokens
         ),
-        (3, 5, 8, Some(2))
+        (Some(3), Some(5), Some(8), Some(2))
     );
     let same = provider
         .encode_response(&decoded, &Contract::full())
@@ -1063,8 +1063,8 @@ fn response_billing_view_is_checked_not_a_second_usage_authority() {
     );
     let mut edited = decoded.clone();
     let mut changed = usage;
-    changed.input_tokens = 4;
-    changed.total_tokens = 9;
+    changed.input_tokens = Some(4);
+    changed.total_tokens = Some(9);
     edited.semantic = edited.semantic.with_usage(changed).unwrap();
     let projected = provider
         .encode_response(&edited, &Contract::full())

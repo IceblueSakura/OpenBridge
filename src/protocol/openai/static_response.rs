@@ -121,9 +121,13 @@ pub(super) fn usage(
         return Err(CodecError::Unsupported("text_tokens".into()));
     }
     let mut parsed = Usage {
-        input_tokens: count(usage, input_key)?,
-        output_tokens: count(usage, output_key)?,
-        total_tokens: count(usage, "total_tokens")?,
+        scope: crate::semantic::task::generation::UsageScope::Operation,
+        basis: crate::semantic::task::generation::UsageBasis::Final,
+        output_relation: crate::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
+        total_relation: crate::semantic::task::generation::TotalTokenRelation::InputAndOutput,
+        input_tokens: Some(count(usage, input_key)?),
+        output_tokens: Some(count(usage, output_key)?),
+        total_tokens: Some(count(usage, "total_tokens")?),
         cached_input_tokens: detail(usage, input_details, "cached_tokens")?,
         input_image_tokens: detail(usage, input_details, "image_tokens")?,
         input_cache_write_tokens: detail(usage, input_details, "cache_write_tokens")?,
@@ -158,7 +162,11 @@ pub(super) fn usage(
     if let Some(miss) = usage.get("prompt_cache_miss_tokens") {
         let miss = miss.as_u64().ok_or(CodecError::Invalid("usage detail"))?;
         let cached = parsed.cached_input_tokens.unwrap_or(0);
-        if parsed.input_tokens.checked_sub(cached) != Some(miss) {
+        if parsed
+            .input_tokens
+            .and_then(|input| input.checked_sub(cached))
+            != Some(miss)
+        {
             return Err(CodecError::Invalid("usage alias"));
         }
     }
@@ -166,7 +174,12 @@ pub(super) fn usage(
         parsed.input_cache_write_tokens = Some(0);
         fidelity.record_cache_write_default(adaptation.profile_id);
     }
-    if parsed.input_tokens.checked_add(parsed.output_tokens) != Some(parsed.total_tokens) {
+    if parsed
+        .input_tokens
+        .zip(parsed.output_tokens)
+        .and_then(|(input, output)| input.checked_add(output))
+        != parsed.total_tokens
+    {
         return Err(CodecError::Invalid("usage total"));
     }
     Ok(Some(parsed))
@@ -379,9 +392,9 @@ pub(crate) fn decode_chat_with(
                 // A complete encrypted detail already closed its owner. The
                 // carrier can truncate later without making that token partial.
                 Item::Reasoning(r)
-                    if r.encrypted
+                    if r.replay
                         .as_ref()
-                        .and_then(EncryptedReasoning::replay_token)
+                        .and_then(ReplayValue::replay_token)
                         .is_none() =>
                 {
                     r.status = ItemLifecycle::Incomplete;
@@ -432,7 +445,11 @@ pub(crate) fn decode_responses_with(
     adaptation: &crate::protocol::adaptation::Adaptation,
 ) -> Result<DecodedResponse, CodecError> {
     let (v, extras) = super::adapter_shapes::decode(v, Profile::Responses, adaptation)?;
-    let o = object(&v)?;
+    let mut clean = object(&v)?.clone();
+    let carrier = clean.remove(super::client::FIELD);
+    let progress =
+        super::client::read_progress(carrier.as_ref(), super::client::enabled(adaptation))?;
+    let o = &clean;
     adaptation.validate_response(Profile::Responses, o)?;
     super::envelope::response_fields(o)?;
     if string(o, "object")? != "response" {
@@ -455,15 +472,29 @@ pub(crate) fn decode_responses_with(
     } else {
         "incomplete"
     };
-    responses::decode_items(&mut b, output, true, item_status)?;
+    responses::decode_items_with(
+        &mut b,
+        output,
+        true,
+        item_status,
+        super::client::enabled(adaptation),
+    )?;
     let usage = usage(
         o.get("usage"),
         Profile::Responses,
         adaptation,
         &mut b.fidelity,
     )?;
-    let semantic =
-        response_with_usage(b.items, outcome, usage)?.with_details(decode_details(o)?)?;
+    let reports = super::client::read_usage(carrier.as_ref(), &b.items, &b.fidelity)?;
+    if usage.is_some() && reports.is_some() {
+        return Err(CodecError::Invalid("competing usage authorities"));
+    }
+    let mut semantic = response_with_usage(b.items, outcome, usage)?
+        .with_progress(progress)?
+        .with_details(decode_details(o)?)?;
+    if let Some(reports) = reports {
+        semantic = semantic.with_usage_reports(reports)?;
+    }
     super::envelope::record_vendor_shapes(
         Profile::Responses,
         adaptation,
@@ -500,6 +531,8 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
     if target.profile != Profile::Chat {
         return Err(CodecError::ProfileMismatch);
     }
+    check_response_carriers(target.semantic)?;
+    check_item_carriers(target.semantic.items())?;
     let finish = chat_finish(target.semantic)?;
     let mut messages = chat::encode_items_with(
         target.semantic.items(),
@@ -554,16 +587,20 @@ pub fn encode_responses(target: &ResponseRepresentation<'_>) -> Result<Value, Co
     if target.profile != Profile::Responses {
         return Err(CodecError::ProfileMismatch);
     }
+    let client = super::client::enabled(&target.adaptation);
+    check_response_carriers_with(target.semantic, client)?;
+    check_item_carriers_with(target.semantic.items(), client)?;
     let status = match target.semantic.outcome() {
         Outcome::Completed => "completed",
         Outcome::Incomplete => "incomplete",
         Outcome::Failed => "failed",
         Outcome::Cancelled => "cancelled",
     };
-    let output = responses::encode_items(target.semantic.items(), target.fidelity, true);
+    let output =
+        responses::encode_items_with(target.semantic.items(), target.fidelity, true, client);
     let m = target.metadata;
     let mut value = json!({"id":m.id,"object":"response","created_at":m.created,"model":m.model,"status":status,
-        "output":output,"usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Responses, &target.adaptation.rules))});
+        "output":output,"usage":if !client || super::client::base_usage(target.semantic.usage_reports()) {target.semantic.usage().map(|usage| encode_usage(usage, Profile::Responses, &target.adaptation.rules))} else {None}});
     super::envelope::write_metadata(
         m,
         value.as_object_mut().expect("object"),
@@ -583,6 +620,10 @@ pub fn encode_responses(target: &ResponseRepresentation<'_>) -> Result<Value, Co
     if target.semantic.details().incomplete.is_some() {
         value["incomplete_details"] =
             encode_incomplete(target.semantic.details().incomplete.as_ref());
+    }
+    if client {
+        super::client::write_progress(&mut value, target.semantic.progress());
+        super::client::write_usage(&mut value, target.semantic.usage_reports(), target.fidelity);
     }
     bounded(&value)?;
     Ok(value)

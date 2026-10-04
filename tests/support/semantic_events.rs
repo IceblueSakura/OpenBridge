@@ -35,9 +35,9 @@ pub fn token(s: &str, final_value: bool) -> ReasoningReplay {
     ReasoningReplay {
         origin: Some(origin()),
         value: if final_value {
-            EncryptedReasoning::Final(text(s))
+            ReplayValue::final_value(ReplayFormat::ResponsesEncrypted, text(s))
         } else {
-            EncryptedReasoning::Partial(text(s))
+            ReplayValue::partial(ReplayFormat::ResponsesEncrypted, text(s))
         },
     }
 }
@@ -80,6 +80,7 @@ pub fn call(item: u64, part_id: u64, id: &str, s: &str) -> Vec<StreamEvent> {
     let mut events = vec![start(
         item,
         ItemKind::ToolCall {
+            format: ArgumentFormat::Raw,
             call_id: text(id),
             name: text("lookup"),
             message: None,

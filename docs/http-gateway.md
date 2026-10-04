@@ -31,7 +31,7 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 - operator 缺省输出上限先写入最终 IR，再派生 requirements/admission/lowering；显式超限拒绝，不静默裁剪。响应 reported facts 不从请求补齐。
 - 文本数组、工具选择/结果、概率、Schema 与 reported context 的精确接受/拒绝由上述 profiles 和 owning code 维护，不因路由存在而扩大 Public Model/Endpoint 合同。跨协议不可表示时明确拒绝，不丢字段换取成功。
 - user 与 Responses 工具结果的 URL/inline 图片有独立准入，见[图片输入](architecture-v2/responses-text-profile.md#user-image-input)与[工具图片结果](architecture-v2/responses-text-profile.md#tool-image-results)。不下载、转码或自动放宽 body 预算；file ID、Chat 工具图片、图片输出与资源服务不因此启用。
-- 标准 Responses 无 Chat message-call 归属 carrier：显式分组 history 在上游 I/O 前拒绝；无法交付的静态输出返回 502，SSE 在首次 attached-call 事件失败，已发布前缀只能中止，不能伪造成功或前移。独立 calls 与同协议分组仍按[分组合同](architecture-v2/responses-text-profile.md#message-owners-and-cross-protocol-grouping)处理。
+- HTTP Responses 客户端使用显式 [OpenBridge-client scoped carrier](architecture-v2/client-generation-profile.md)保留已声明 message-call 归属、typed replay、结构化值/执行报告及响应事实。标准上游 Responses 仍缺少对应 carrier，不可表示的 history 在 I/O 前拒绝；不可交付的静态输出失败，提交后的 SSE 只能中止，不伪造终态或前移。客户端准入不证明目标或实例已准入。
 - 标准 identity/cache hints 与客户端 `session_id` body 扩展使用各自声明的目标投影，不互相派生，不透传 session headers。`session_id` 不提供网关会话或粘性路由；精确 carrier 归 [adapter request](../src/adapter/request.rs)与[cache projection](../src/protocol/cache.rs)。未声明 carrier 的 advisory cache hint 可按合同省略，行为控制与 identity/session 要求不能随之静默丢弃。
 - [Continuation](architecture-v2/responses-text-profile.md#response-outcome-and-continuation)库视图不增加 HTTP 字段、执行就绪证明或自动 Agent loop。低层 CustomSections/CodexHeaders 也不等于 HTTP 接线；仅开放表中路由，不提供 `/v1/models`；状态资源、WebSocket、hosted-tool/program 执行等[缺口](implementation-status/generation.md)仍独立。
 

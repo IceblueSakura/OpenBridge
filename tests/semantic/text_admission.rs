@@ -177,7 +177,7 @@ fn chat_nullable_continuation_fields_do_not_replace_call_identity_or_arguments()
     else {
         panic!("call")
     };
-    assert_eq!(call.arguments, "{}");
+    assert_eq!(call.arguments.as_raw(), Some("{}"));
     assert_eq!(call.call_id.as_str(), "call");
     let mut decoder = adapter.event_decoder();
     assert!(
@@ -293,6 +293,7 @@ fn known_unrepresentable_event_fields_and_changed_bound_metadata_fail_early() {
             phase: Some(Phase::FinalAnswer),
         },
         ItemKind::ToolCall {
+            format: ArgumentFormat::Raw,
             call_id: Text::new("call", "test", 128).unwrap(),
             name: Text::new("lookup", "test", 128).unwrap(),
             message: None,

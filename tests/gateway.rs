@@ -208,6 +208,33 @@ async fn answer(
         .body(Body::from(bytes))
         .unwrap()
 }
+fn responses_client_delivery(body: &[u8], streaming: bool) -> DecodedResponse {
+    let adapter = Adapter::new(
+        Profile::Responses,
+        Dialect::OpenBridge,
+        Some(ReplayOrigin::new("fixture").unwrap()),
+    );
+    if !streaming {
+        return adapter.decode_response(body).unwrap();
+    }
+    let mut decoder = ResponsesSseDecoder::with_decoder(
+        200,
+        "text/event-stream",
+        Default::default(),
+        adapter.event_decoder(),
+    )
+    .unwrap();
+    for fragment in body.chunks(13) {
+        let mut rest = fragment;
+        while !rest.is_empty() {
+            let (used, _) = decoder.consume(rest).unwrap();
+            assert!(used > 0);
+            rest = &rest[used..];
+        }
+    }
+    decoder.finish().unwrap();
+    decoder.materialize().unwrap()
+}
 fn responses_delivery(body: &[u8], streaming: bool) -> DecodedResponse {
     let scope = Some(ReplayOrigin::new("fixture").unwrap());
     if !streaming {
@@ -370,7 +397,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
                 let finished = responses_delivery(&followup.bytes().await.unwrap(), stream);
                 assert_eq!(finished.semantic.outcome(), Outcome::Completed);
                 assert_eq!(finished.semantic.continuation(), Continuation::Unreported);
-                assert_eq!(finished.semantic.usage().unwrap().total_tokens, 8);
+                assert_eq!(finished.semantic.usage().unwrap().total_tokens, Some(8));
 
                 let before = observed.0.lock().unwrap().len();
                 history.last_mut().unwrap()["call_id"] = json!("unmatched-call");
@@ -578,41 +605,22 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         assert_eq!(response.status(), 400);
         assert_eq!(observed.0.lock().unwrap().len(), before + 1);
     }
-    // A standard Responses target cannot flatten a Chat message-call group.
-    // Static projection fails before publication; SSE may have published an
-    // independent prefix, but must abort without a call or successful terminal.
+    // The explicitly selected client carrier preserves Chat message-call membership.
+    // Standard upstream projection in the opposite direction remains rejected.
     for stream in [false, true] {
         let before = observed.0.lock().unwrap().len();
-        let mut response = client
+        let response = client
             .post(format!("{url}/v1/responses"))
             .bearer_auth(support::CLIENT_KEY)
             .json(&json!({"model":"cross-model","input":"lookup","stream":stream}))
             .send()
             .await
             .unwrap();
-        if stream {
-            assert_eq!(response.status(), 200);
-            let mut prefix = Vec::new();
-            loop {
-                match response.chunk().await {
-                    Ok(Some(chunk)) => {
-                        prefix.extend_from_slice(&chunk);
-                        assert!(prefix.len() < 16 << 10);
-                    }
-                    Err(_) => break,
-                    Ok(None) => panic!("group projection must abort the published body"),
-                }
-            }
-            let prefix = String::from_utf8(prefix).unwrap();
-            assert!(prefix.contains("response.created"));
-            assert!(!prefix.contains("response.completed"));
-            assert!(!prefix.contains("function_call"));
-            assert!(!prefix.contains("private-model"));
-        } else {
-            assert_eq!(response.status(), 502);
-            let error: Value = response.json().await.unwrap();
-            assert_eq!(error["error"]["code"], "upstream_error");
-        }
+        assert_eq!(response.status(), 200);
+        let body = response.bytes().await.unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains("private-model"));
+        let output = responses_client_delivery(&body, stream);
+        assert!(output.semantic.items().iter().any(|(_,item)|matches!(item,openbridge::semantic::task::generation::Item::ToolCall(call) if call.message.is_some())));
         assert_eq!(observed.0.lock().unwrap().len(), before + 1);
 
         // Opposite request direction: explicit Chat history must be rejected

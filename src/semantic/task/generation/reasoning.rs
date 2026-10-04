@@ -101,57 +101,11 @@ impl ReasoningRequest {
         Ok(())
     }
 }
-/// Opaque Responses replay token.
-///
-/// SSE has no encrypted-content delta event. `output_item.added` may carry a
-/// partial value, and only `output_item.done` carries the replayable token.
-#[derive(Clone, Eq, PartialEq)]
-pub enum EncryptedReasoning {
-    /// Incomplete value from `response.output_item.added`. Not replayable.
-    Partial(Text),
-    /// Final value from `response.output_item.done`. This is the only replay token.
-    Final(Text),
-}
-impl std::fmt::Debug for EncryptedReasoning {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Partial(_) => "Partial([REDACTED])",
-            Self::Final(_) => "Final([REDACTED])",
-        })
-    }
-}
-impl EncryptedReasoning {
-    pub fn validate(&self) -> Result<(), super::GenerationError> {
-        if self.as_str().is_empty() || self.as_str().len() > super::MAX_TEXT_BYTES {
-            return Err(super::GenerationError::Limit);
-        }
-        Ok(())
-    }
-    // Dependency hashing must not use redacted Debug output as a value identity.
-    pub(crate) fn fingerprint(&self) -> [u8; 32] {
-        use sha2::{Digest, Sha256};
-        let mut hash = Sha256::new();
-        hash.update([u8::from(matches!(self, Self::Final(_)))]);
-        hash.update(self.as_str().as_bytes());
-        hash.finalize().into()
-    }
-    pub fn replay_token(&self) -> Option<&str> {
-        match self {
-            Self::Partial(_) => None,
-            Self::Final(value) => Some(value.as_str()),
-        }
-    }
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Partial(value) | Self::Final(value) => value.as_str(),
-        }
-    }
-}
 /// Event-owned value and trusted intake scope. Materialization moves the value
 /// into its reasoning item; fidelity retains only a source/dependency binding.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReasoningReplay {
-    pub value: EncryptedReasoning,
+    pub value: super::ReplayValue,
     pub origin: Option<crate::semantic::value::ReplayOrigin>,
 }
 impl ReasoningReplay {
@@ -172,5 +126,5 @@ pub enum ReasoningContent {
 pub struct ReasoningItem {
     pub parts: Vec<(PartId, ReasoningContent)>,
     pub status: super::ItemLifecycle,
-    pub encrypted: Option<EncryptedReasoning>,
+    pub replay: Option<super::ReplayValue>,
 }

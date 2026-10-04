@@ -8,9 +8,30 @@ pub fn check_event(
     profile: Profile,
     contract: &GenerationRepresentationContract,
 ) -> Result<(), RepresentationError> {
+    let client = profile == Profile::Responses
+        && crate::protocol::openai::client::enabled(&contract.adaptation);
+    if !client
+        && matches!(event, StreamEvent::ItemStarted { replay: Some(replay), .. } | StreamEvent::ItemFinished { replay: Some(replay), .. }
+        if replay.value.format() != ReplayFormat::ResponsesEncrypted)
+    {
+        return Err(RepresentationError::ReplayFormat);
+    }
+    if matches!(event, StreamEvent::ItemStarted { replay: Some(replay), .. } if replay.value.format()==ReplayFormat::ResponsesEncrypted && replay.value.replay_token().is_some())
+    {
+        return Err(RepresentationError::ReplayPhase);
+    }
     match event {
+        StreamEvent::PartStarted {
+            kind: PartKind::StructuredArguments,
+            ..
+        } if !client => return Err(RepresentationError::Tools),
+        StreamEvent::Progress(_) if !client => {
+            return Err(RepresentationError::InteractionProgress);
+        }
         StreamEvent::Usage(usage) => {
-            super::generation::check_usage(*usage, profile, &contract.adaptation.rules)?
+            if !client {
+                super::generation::check_usage(*usage, profile, &contract.adaptation.rules)?;
+            }
         }
         StreamEvent::ItemStarted { kind, replay, .. } => {
             match kind {
@@ -18,11 +39,17 @@ pub fn check_event(
                 // repair membership lost from an already delivered item.
                 ItemKind::ToolCall {
                     message: Some(_), ..
-                } if profile == Profile::Responses => {
+                } if profile == Profile::Responses && !client => {
                     return Err(RepresentationError::MessageGrouping);
                 }
                 ItemKind::Message { phase: Some(_) } if profile == Profile::Chat => {
                     return Err(RepresentationError::UnmigratedSemantic);
+                }
+                ItemKind::ToolCall {
+                    format: ArgumentFormat::Json,
+                    ..
+                } if !client || !contract.semantics.structured_arguments => {
+                    return Err(RepresentationError::Tools);
                 }
                 ItemKind::ToolCall { context, .. }
                     if profile == Profile::Chat && !context.is_direct() =>

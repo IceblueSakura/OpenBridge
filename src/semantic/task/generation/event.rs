@@ -18,6 +18,7 @@ pub enum ItemKind {
         phase: Option<Phase>,
     },
     ToolCall {
+        format: ArgumentFormat,
         call_id: Text,
         name: Text,
         message: Option<ItemId>,
@@ -72,6 +73,7 @@ pub enum PartKind {
     Summary,
     ReasoningText,
     Arguments,
+    StructuredArguments,
     CustomInput,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -125,6 +127,7 @@ pub enum StreamEvent {
         replay: Option<ReasoningReplay>,
     },
     Usage(Usage),
+    Progress(InteractionProgress),
     Terminal {
         terminal: StreamTerminal,
         details: TerminalDetails,
@@ -149,13 +152,21 @@ pub enum EventError {
 pub struct StreamPart {
     pub id: PartId,
     pub kind: PartKind,
-    pub text: String,
+    data: StreamPartValue,
     pub value_finished: bool,
     pub finished: bool,
     pub annotations: Vec<Annotation>,
     pub logprobs: crate::semantic::value::Presence<Vec<Logprob>>,
     metadata_bytes: usize,
     metadata_finished: bool,
+}
+impl StreamPart {
+    pub fn value(&self) -> &StreamPartValue {
+        &self.data
+    }
+    pub fn text(&self) -> Option<&str> {
+        self.data.as_text()
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamItem {
@@ -172,7 +183,8 @@ pub struct StreamState {
     items: Vec<StreamItem>,
     part_ids: BTreeSet<PartId>,
     terminal: Option<StreamTerminal>,
-    usage: Option<Usage>,
+    usage: Vec<Usage>,
+    progress: InteractionProgress,
     details: TerminalDetails,
     bytes: usize,
 }
@@ -203,7 +215,13 @@ impl StreamState {
         self.terminal
     }
     pub fn usage(&self) -> Option<Usage> {
-        self.usage
+        Usage::final_operation(&self.usage)
+    }
+    pub fn usage_reports(&self) -> &[Usage] {
+        &self.usage
+    }
+    pub const fn progress(&self) -> InteractionProgress {
+        self.progress
     }
     pub fn details(&self) -> &TerminalDetails {
         &self.details
@@ -230,7 +248,10 @@ impl StreamState {
     }
 }
 pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState, EventError> {
-    if state.terminal.is_some() {
+    if state.terminal.is_some()
+        || state.progress != InteractionProgress::Unreported
+            && !matches!(event, StreamEvent::Usage(_) | StreamEvent::Terminal { .. })
+    {
         return Err(EventError::Lifecycle);
     }
     if !state.started
@@ -327,7 +348,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             }
             if let Some(r) = &replay {
                 r.validate()?;
-                if !matches!(kind, ItemKind::Reasoning) || r.value.replay_token().is_some() {
+                if !matches!(kind, ItemKind::Reasoning) {
                     return Err(EventError::Lifecycle);
                 }
                 state.charge(r.value.as_str().len())?;
@@ -361,19 +382,38 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                         ItemKind::Reasoning,
                         PartKind::Summary | PartKind::ReasoningText
                     )
-                    | (ItemKind::ToolCall { .. }, PartKind::Arguments)
+                    | (
+                        ItemKind::ToolCall {
+                            format: ArgumentFormat::Raw,
+                            ..
+                        },
+                        PartKind::Arguments
+                    )
+                    | (
+                        ItemKind::ToolCall {
+                            format: ArgumentFormat::Json,
+                            ..
+                        },
+                        PartKind::StructuredArguments
+                    )
                     | (ItemKind::CustomCall { .. }, PartKind::CustomInput)
             );
             if !valid
-                || matches!(kind, PartKind::Arguments | PartKind::CustomInput)
-                    && !owner.parts.is_empty()
+                || matches!(
+                    kind,
+                    PartKind::Arguments | PartKind::StructuredArguments | PartKind::CustomInput
+                ) && !owner.parts.is_empty()
             {
                 return Err(EventError::Lifecycle);
             }
             owner.parts.push(StreamPart {
                 id: part,
                 kind,
-                text: String::new(),
+                data: if kind == PartKind::StructuredArguments {
+                    StreamPartValue::JsonFragments(String::new())
+                } else {
+                    StreamPartValue::Text(String::new())
+                },
                 value_finished: false,
                 finished: false,
                 annotations: vec![],
@@ -393,8 +433,8 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                 return Err(EventError::Lifecycle);
             }
             if target
-                .text
-                .len()
+                .data
+                .bytes()?
                 .saturating_add(fragment.len())
                 .saturating_add(target.metadata_bytes)
                 > MAX_TEXT_BYTES
@@ -402,7 +442,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                 return Err(EventError::Limit);
             }
             state.charge(fragment.len())?;
-            state.open_part(item, part)?.text.push_str(&fragment);
+            state.open_part(item, part)?.data.push(&fragment)?;
             if !logprobs.is_empty() {
                 if !matches!(
                     state.part(item, part)?.kind,
@@ -424,7 +464,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                 )?;
                 state.charge(bytes.saturating_sub(state.part(item, part)?.metadata_bytes))?;
                 let p = state.open_part(item, part)?;
-                if p.text.len().saturating_add(bytes) > MAX_TEXT_BYTES {
+                if p.data.bytes()?.saturating_add(bytes) > MAX_TEXT_BYTES {
                     return Err(EventError::Limit);
                 }
                 p.metadata_bytes = bytes;
@@ -450,7 +490,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             let value = crate::semantic::value::Presence::Value(logprobs);
             let n = metadata_cost(&p.annotations, &value)?;
             let old = p.metadata_bytes;
-            if p.text.len().saturating_add(n) > MAX_TEXT_BYTES {
+            if p.data.bytes()?.saturating_add(n) > MAX_TEXT_BYTES {
                 return Err(EventError::Limit);
             }
             state.bytes -= old;
@@ -477,7 +517,7 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             let old = p.metadata_bytes;
             state.charge(n.saturating_sub(old))?;
             let p = state.open_part(item, part)?;
-            if p.text.len().saturating_add(n) > MAX_TEXT_BYTES {
+            if p.data.bytes()?.saturating_add(n) > MAX_TEXT_BYTES {
                 return Err(EventError::Limit);
             }
             p.annotations = annotations;
@@ -504,8 +544,12 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                 return Err(EventError::Lifecycle);
             }
             let content = TextContent::new(
-                Text::allowing_empty(&p.text, "text", MAX_TEXT_BYTES)
-                    .map_err(|_| EventError::Limit)?,
+                Text::allowing_empty(
+                    p.text().ok_or(EventError::Lifecycle)?,
+                    "text",
+                    MAX_TEXT_BYTES,
+                )
+                .map_err(|_| EventError::Limit)?,
                 annotations.clone(),
                 logprobs.clone(),
             )?;
@@ -524,6 +568,13 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             if p.value_finished {
                 return Err(EventError::Lifecycle);
             }
+            let old = p.data.bytes()?;
+            let value =
+                std::mem::replace(&mut p.data, StreamPartValue::Text(String::new())).finish()?;
+            state.bytes -= old;
+            state.charge(value.bytes()?)?;
+            let p = state.open_part(item, part)?;
+            p.data = value;
             p.value_finished = true;
         }
         StreamEvent::PartFinished { item, part } => {
@@ -533,8 +584,12 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             }
             if matches!(p.kind, PartKind::Text | PartKind::Refusal) {
                 TextContent::new(
-                    Text::allowing_empty(&p.text, "text", MAX_TEXT_BYTES)
-                        .map_err(|_| EventError::Limit)?,
+                    Text::allowing_empty(
+                        p.text().ok_or(EventError::Lifecycle)?,
+                        "text",
+                        MAX_TEXT_BYTES,
+                    )
+                    .map_err(|_| EventError::Limit)?,
                     p.annotations.clone(),
                     p.logprobs.clone(),
                 )?;
@@ -576,12 +631,26 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             owner.replay = replay;
             owner.status = Some(status);
         }
-        StreamEvent::Usage(usage) => {
-            usage.validate()?;
-            if state.usage.is_some() {
+        StreamEvent::Progress(progress) => {
+            if progress == InteractionProgress::Unreported
+                || state.items.iter().any(|item| item.status.is_none())
+            {
                 return Err(EventError::Lifecycle);
             }
-            state.usage = Some(usage);
+            progress.validate(Outcome::Completed, &snapshot_items(&state)?)?;
+            state.progress = progress;
+        }
+        StreamEvent::Usage(usage) => {
+            if matches!(usage.scope, UsageScope::Item(id) if state.item(id).is_err()) {
+                return Err(EventError::Identity);
+            }
+            usage.validate()?;
+            let old = state.usage.len();
+            Usage::update(&mut state.usage, usage).map_err(|error| match error {
+                GenerationError::Limit => EventError::Limit,
+                _ => EventError::Lifecycle,
+            })?;
+            state.charge((state.usage.len() - old) * std::mem::size_of::<Usage>())?;
         }
         StreamEvent::Terminal { terminal, details } => {
             if terminal == StreamTerminal::Completed
@@ -593,6 +662,9 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                 return Err(EventError::Lifecycle);
             }
             let outcome = outcome(terminal);
+            if state.progress != InteractionProgress::Unreported {
+                state.progress.validate(outcome, &snapshot_items(&state)?)?;
+            }
             details.validate(outcome)?;
             state.charge(details.bytes())?;
             state.details = details;
@@ -651,8 +723,12 @@ impl StreamItem {
         let i = self;
         let status = i.status.unwrap_or(ItemLifecycle::InProgress);
         let bounded = |p: &StreamPart| {
-            Text::allowing_empty(&p.text, "event part", MAX_TEXT_BYTES)
-                .map_err(|_| EventError::Limit)
+            Text::allowing_empty(
+                p.text().ok_or(EventError::Lifecycle)?,
+                "event part",
+                MAX_TEXT_BYTES,
+            )
+            .map_err(|_| EventError::Limit)
         };
         let item = match &i.kind {
             ItemKind::Message { phase } => Item::Message(Message {
@@ -682,6 +758,7 @@ impl StreamItem {
                     .collect::<Result<_, EventError>>()?,
             }),
             ItemKind::ToolCall {
+                format,
                 call_id,
                 name,
                 message,
@@ -691,7 +768,14 @@ impl StreamItem {
                 name: name.clone(),
                 message: *message,
                 status,
-                arguments: i.parts.first().map(|p| p.text.clone()).unwrap_or_default(),
+                arguments: i
+                    .parts
+                    .first()
+                    .map(|p| p.data.arguments())
+                    .unwrap_or_else(|| match format {
+                        ArgumentFormat::Raw => "".into(),
+                        ArgumentFormat::Json => ToolArguments::StructuredPartial(String::new()),
+                    }),
                 context: context.clone(),
             }),
             ItemKind::CustomCall {
@@ -701,12 +785,17 @@ impl StreamItem {
             } => Item::CustomCall(CustomCall {
                 call_id: call_id.clone(),
                 name: name.clone(),
-                input: i.parts.first().map(|p| p.text.clone()).unwrap_or_default(),
+                input: i
+                    .parts
+                    .first()
+                    .map(|p| p.text().map(str::to_owned).ok_or(EventError::Lifecycle))
+                    .transpose()?
+                    .unwrap_or_default(),
                 context: context.clone(),
             }),
             ItemKind::Reasoning => Item::Reasoning(ReasoningItem {
                 status,
-                encrypted: i.replay.as_ref().map(|r| r.value.clone()),
+                replay: i.replay.as_ref().map(|r| r.value.clone()),
                 parts: i
                     .parts
                     .iter()
@@ -749,9 +838,8 @@ pub fn materialize(state: &StreamState) -> Result<GenerationResponse, EventError
         return Err(EventError::TerminalFailure(terminal));
     }
     let mut response = GenerationResponse::new(snapshot_items(state)?, outcome(terminal))?
+        .with_progress(state.progress)?
         .with_details(state.details.clone())?;
-    if let Some(usage) = state.usage {
-        response = response.with_usage(usage)?;
-    }
+    response = response.with_usage_reports(state.usage.clone())?;
     Ok(response)
 }

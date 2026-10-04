@@ -192,7 +192,7 @@ fn content_filter_stream_keeps_partial_output_usage_and_requires_done() {
         r.semantic.details().incomplete,
         Some(IncompleteReason::ContentFilter)
     );
-    assert_eq!(r.semantic.usage().unwrap().total_tokens, 5);
+    assert_eq!(r.semantic.usage().unwrap().total_tokens, Some(5));
     let mut static_wire = wire::response(2);
     static_wire["choices"][0]["finish_reason"] = json!("content_filter");
     assert_eq!(

@@ -25,12 +25,20 @@ fn request(
     output: ToolOutput,
     status: Option<ItemLifecycle>,
 ) -> Result<GenerationRequest, GenerationError> {
+    request_with_execution(output, status, None)
+}
+fn request_with_execution(
+    output: ToolOutput,
+    status: Option<ItemLifecycle>,
+    execution: Option<ToolExecution>,
+) -> Result<GenerationRequest, GenerationError> {
     GenerationRequest::new(
         vec![
             call(),
             (
                 ItemId::new(2),
                 Item::ToolResult(ToolResult {
+                    execution,
                     call_id: text("c"),
                     output,
                     status,
@@ -58,7 +66,7 @@ fn media(url: &str) -> ToolOutput {
 fn structured_value_preserves_integer_precision_order_and_bounds() {
     let value: serde_json::Value =
         serde_json::from_str(r#"{"z":18446744073709551615,"a":null}"#).unwrap();
-    let structured = StructuredToolOutput::new(value.clone()).unwrap();
+    let structured = StructuredValue::new(value.clone()).unwrap();
     assert_eq!(structured.value()["z"].as_u64(), Some(u64::MAX));
     assert_eq!(
         structured
@@ -78,20 +86,28 @@ fn structured_value_preserves_integer_precision_order_and_bounds() {
         deep = json!([deep]);
     }
     assert_eq!(
-        StructuredToolOutput::new(deep).unwrap_err(),
+        StructuredValue::new(deep).unwrap_err(),
         GenerationError::Limit
     );
-    assert!(StructuredToolOutput::new(json!(vec![0; 8193])).is_err());
-    assert!(StructuredToolOutput::new(json!("x".repeat(MAX_TEXT_BYTES + 1))).is_err());
+    assert!(StructuredValue::new(json!(vec![0; 8193])).is_err());
+    assert!(StructuredValue::new(json!("x".repeat(MAX_TEXT_BYTES + 1))).is_err());
 }
 #[test]
 fn execution_error_is_a_terminal_result_not_a_generation_failure() {
-    let error = ToolOutput::Error(ToolExecutionError {
+    let error = ToolExecution::Failed {
         code: Some(text("not_found")),
-        message: text("synthetic failure"),
-    });
-    assert!(request(error.clone(), Some(ItemLifecycle::InProgress)).is_err());
-    let history = request(error, Some(ItemLifecycle::Completed)).unwrap();
+    };
+    let payload = ToolOutput::Text("synthetic failure".into());
+    assert!(
+        request_with_execution(
+            payload.clone(),
+            Some(ItemLifecycle::InProgress),
+            Some(error.clone())
+        )
+        .is_err()
+    );
+    let history =
+        request_with_execution(payload, Some(ItemLifecycle::Completed), Some(error)).unwrap();
     let response = GenerationResponse::new(vec![call()], Outcome::Completed).unwrap();
     let exchange = ResponseContinuation::new(
         ResponseRelation::new(TurnId::new(1), ResponseId::new(1)),
@@ -102,7 +118,7 @@ fn execution_error_is_a_terminal_result_not_a_generation_failure() {
         ResultReadiness::ResultsComplete
     );
     assert_eq!(response.outcome(), Outcome::Completed);
-    assert!(GenerationRequirements::derive(&history).tool_result_errors);
+    assert!(GenerationRequirements::derive(&history).tool_execution_reports);
 }
 #[test]
 fn ordered_media_has_unique_parts_and_distinct_requirements() {
@@ -117,7 +133,7 @@ fn ordered_media_has_unique_parts_and_distinct_requirements() {
     let proof = RequestDependencyProof::capture(
         &history,
         HistoryDependency::PrefixThrough(ItemId::new(2)),
-        true,
+        openbridge::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     assert!(
@@ -280,6 +296,7 @@ fn custom_image_results_share_the_carrier_without_becoming_function_results() {
             (
                 ItemId::new(21),
                 Item::CustomResult(ToolResult {
+                    execution: None,
                     call_id: text("c"),
                     output: ToolOutput::Parts(vec![(
                         PartId::new(40),
@@ -511,14 +528,17 @@ fn replacing_inserting_reordering_and_deleting_tool_parts_never_revives_old_medi
 #[test]
 fn structured_and_error_results_fail_lowering_without_a_carrier() {
     let outputs = [
-        ToolOutput::Structured(StructuredToolOutput::new(json!({"answer":42})).unwrap()),
-        ToolOutput::Error(ToolExecutionError {
-            code: None,
-            message: text("failed"),
-        }),
+        (
+            ToolOutput::Structured(StructuredValue::new(json!({"answer":42})).unwrap()),
+            None,
+        ),
+        (
+            ToolOutput::Text("failed".into()),
+            Some(ToolExecution::Failed { code: None }),
+        ),
     ];
-    for output in outputs {
-        let history = request(output, None).unwrap();
+    for (output, execution) in outputs {
+        let history = request_with_execution(output, None, execution).unwrap();
         let fidelity = FidelityRecords::default();
         for profile in [Profile::Chat, Profile::Responses] {
             assert_eq!(

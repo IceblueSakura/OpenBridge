@@ -30,6 +30,7 @@ fn result(item: u64, id: &str) -> (ItemId, Item) {
     (
         ItemId::new(item),
         Item::ToolResult(ToolResult {
+            execution: None,
             call_id: text(id),
             output: "".into(),
             status: None,
@@ -191,6 +192,7 @@ fn custom_and_program_results_match_kind_identity_and_final_order() {
     let custom_result = (
         ItemId::new(900),
         Item::CustomResult(ToolResult {
+            execution: None,
             call_id: text("custom"),
             output: "done".into(),
             status: None,
@@ -262,6 +264,7 @@ fn custom_and_program_results_match_kind_identity_and_final_order() {
             (
                 ItemId::new(900),
                 Item::CustomResult(ToolResult {
+                    execution: None,
                     call_id: text("x"),
                     output: "wrong kind".into(),
                     status: None,

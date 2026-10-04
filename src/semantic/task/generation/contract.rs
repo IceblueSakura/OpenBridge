@@ -1,5 +1,7 @@
 //! Task admission vocabulary. No wire profiles, routing, credentials or cache policy.
-use super::{GenerationRequest, GenerationRequirements};
+use super::{
+    GenerationRequest, GenerationRequirements, GenerationResponse, GenerationResponseRequirements,
+};
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum GenerationFeature {
@@ -11,8 +13,9 @@ pub enum GenerationFeature {
     Controls,
     ParallelTools,
     StrictTools,
+    StructuredArguments,
     StructuredToolResult,
-    ToolResultError,
+    ToolExecutionReport,
     ToolResultImage,
     StructuredOutput,
     Reasoning,
@@ -27,8 +30,9 @@ pub struct GenerationSemanticContract {
     pub max_output_tokens: bool,
     pub tools: bool,
     pub custom_tools: bool,
+    pub structured_arguments: bool,
     pub structured_tool_results: bool,
-    pub tool_result_errors: bool,
+    pub tool_execution_reports: bool,
     pub tool_result_images: bool,
     pub text_metadata: bool,
     pub top_p: bool,
@@ -52,8 +56,9 @@ impl GenerationSemanticContract {
             max_output_tokens: true,
             tools: true,
             custom_tools: true,
+            structured_arguments: true,
             structured_tool_results: true,
-            tool_result_errors: true,
+            tool_execution_reports: true,
             tool_result_images: true,
             text_metadata: true,
             top_p: true,
@@ -77,8 +82,9 @@ impl GenerationSemanticContract {
             max_output_tokens: true,
             tools: true,
             custom_tools: false,
+            structured_arguments: false,
             structured_tool_results: false,
-            tool_result_errors: false,
+            tool_execution_reports: false,
             tool_result_images: false,
             text_metadata: true,
             top_p: true,
@@ -101,11 +107,12 @@ impl GenerationSemanticContract {
             (promise.max_output_tokens, self.max_output_tokens),
             (promise.tools, self.tools),
             (promise.custom_tools, self.custom_tools),
+            (promise.structured_arguments, self.structured_arguments),
             (
                 promise.structured_tool_results,
                 self.structured_tool_results,
             ),
-            (promise.tool_result_errors, self.tool_result_errors),
+            (promise.tool_execution_reports, self.tool_execution_reports),
             (promise.tool_result_images, self.tool_result_images),
             (promise.text_metadata, self.text_metadata),
             (promise.top_p, self.top_p),
@@ -122,6 +129,32 @@ impl GenerationSemanticContract {
         ]
         .into_iter()
         .all(|(required, supported)| !required || supported)
+    }
+    /// Actual output facts have their own requirements, not a fabricated request.
+    pub fn check_response(
+        &self,
+        response: &GenerationResponse,
+    ) -> Result<GenerationResponseRequirements, GenerationFeature> {
+        use GenerationFeature::*;
+        let q = GenerationResponseRequirements::derive(response);
+        for (needed, supported, feature) in [
+            (q.instructions, self.instructions, Instructions),
+            (q.tools, self.tools, Tools),
+            (q.custom_tools, self.custom_tools, Tools),
+            (
+                q.structured_arguments,
+                self.structured_arguments,
+                StructuredArguments,
+            ),
+            (q.reasoning, self.reasoning, Reasoning),
+            (q.text_metadata, self.text_metadata, TextMetadata),
+            (q.logprobs, self.logprobs, Controls),
+        ] {
+            if needed && !supported {
+                return Err(feature);
+            }
+        }
+        Ok(q)
     }
     /// Validation remains owned by GenerationRequest; this checks semantic support only.
     pub fn check(
@@ -148,14 +181,19 @@ impl GenerationSemanticContract {
             ),
             (q.custom_tools, self.custom_tools, Tools),
             (
+                q.structured_arguments,
+                self.structured_arguments,
+                StructuredArguments,
+            ),
+            (
                 q.structured_tool_results,
                 self.structured_tool_results,
                 StructuredToolResult,
             ),
             (
-                q.tool_result_errors,
-                self.tool_result_errors,
-                ToolResultError,
+                q.tool_execution_reports,
+                self.tool_execution_reports,
+                ToolExecutionReport,
             ),
             (
                 q.tool_result_images > 0,

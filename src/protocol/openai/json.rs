@@ -1,149 +1,18 @@
-//! Raw JSON admission shared by complete Responses envelopes and SSE payloads.
+//! Protocol error translation over the shared strict JSON value parser.
 use super::CodecError;
-use crate::semantic::task::generation::MAX_TOTAL_BYTES;
-use serde::{
-    Deserialize,
-    de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor},
-};
-use serde_json::{Map, Number, Value};
-use std::fmt;
+use crate::semantic::value::{JsonError, JsonLimits, parse_json};
 
-const MAX_DEPTH: usize = 64;
-const MAX_NODES: usize = 65_536;
-
-/// Bound the raw input before parsing; never expose parser diagnostics containing wire data.
-pub(crate) fn decode(input: &[u8]) -> Result<Value, CodecError> {
-    if input.len() > MAX_TOTAL_BYTES {
-        return Err(CodecError::Limit);
-    }
-    let mut budget = Budget {
-        nodes: 0,
-        exhausted: false,
-    };
-    let mut parser = serde_json::Deserializer::from_slice(input);
-    let result = Seed {
-        budget: &mut budget,
-        depth: 0,
-    }
-    .deserialize(&mut parser)
-    .and_then(|value| {
-        parser.end()?;
-        Ok(value)
-    });
-    result.map_err(|_| {
-        if budget.exhausted {
-            CodecError::Limit
-        } else {
-            CodecError::Invalid("JSON")
-        }
+pub(crate) fn decode(input: &[u8]) -> Result<serde_json::Value, CodecError> {
+    parse_json(input, JsonLimits::ENVELOPE).map_err(|error| match error {
+        JsonError::Limit => CodecError::Limit,
+        JsonError::Invalid => CodecError::Invalid("JSON"),
     })
 }
-
-struct Budget {
-    nodes: usize,
-    exhausted: bool,
-}
-impl Budget {
-    fn charge<E: de::Error>(&mut self) -> Result<(), E> {
-        if self.nodes == MAX_NODES {
-            self.exhausted = true;
-            return Err(E::custom("JSON limit"));
-        }
-        self.nodes += 1;
-        Ok(())
-    }
-}
-struct Key<'a>(&'a mut Budget);
-impl<'de> DeserializeSeed<'de> for Key<'_> {
-    type Value = String;
-    fn deserialize<D: de::Deserializer<'de>>(self, parser: D) -> Result<String, D::Error> {
-        self.0.charge()?;
-        String::deserialize(parser)
-    }
-}
-struct Seed<'a> {
-    budget: &'a mut Budget,
-    depth: usize,
-}
-impl Seed<'_> {
-    fn container<E: de::Error>(&mut self) -> Result<(), E> {
-        if self.depth >= MAX_DEPTH {
-            self.budget.exhausted = true;
-            return Err(E::custom("JSON depth"));
-        }
-        Ok(())
-    }
-}
-impl<'de> DeserializeSeed<'de> for Seed<'_> {
-    type Value = Value;
-    fn deserialize<D: de::Deserializer<'de>>(self, parser: D) -> Result<Value, D::Error> {
-        self.budget.charge()?;
-        parser.deserialize_any(self)
-    }
-}
-impl<'de> Visitor<'de> for Seed<'_> {
-    type Value = Value;
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("JSON value")
-    }
-    fn visit_unit<E: de::Error>(self) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-    fn visit_bool<E: de::Error>(self, value: bool) -> Result<Value, E> {
-        Ok(Value::Bool(value))
-    }
-    fn visit_i64<E: de::Error>(self, value: i64) -> Result<Value, E> {
-        Ok(Value::Number(value.into()))
-    }
-    fn visit_u64<E: de::Error>(self, value: u64) -> Result<Value, E> {
-        Ok(Value::Number(value.into()))
-    }
-    fn visit_f64<E: de::Error>(self, value: f64) -> Result<Value, E> {
-        Number::from_f64(value)
-            .map(Value::Number)
-            .ok_or_else(|| E::custom("JSON number"))
-    }
-    fn visit_str<E: de::Error>(self, value: &str) -> Result<Value, E> {
-        Ok(Value::String(value.to_owned()))
-    }
-    fn visit_string<E: de::Error>(self, value: String) -> Result<Value, E> {
-        Ok(Value::String(value))
-    }
-    fn visit_seq<A: SeqAccess<'de>>(mut self, mut seq: A) -> Result<Value, A::Error> {
-        self.container()?;
-        // No size-hint allocation: each child is charged before its value is built.
-        let mut values = Vec::new();
-        while let Some(value) = seq.next_element_seed(Seed {
-            budget: &mut *self.budget,
-            depth: self.depth + 1,
-        })? {
-            values.push(value);
-        }
-        Ok(Value::Array(values))
-    }
-    fn visit_map<A: MapAccess<'de>>(mut self, mut map: A) -> Result<Value, A::Error> {
-        self.container()?;
-        let mut values = Map::new();
-        while let Some(key) = map.next_key_seed(Key(&mut *self.budget))? {
-            // Compare decoded keys before reading/inserting their values; no overwrite is allowed.
-            if values.contains_key(&key) {
-                return Err(de::Error::custom("duplicate JSON key"));
-            }
-            let value = map.next_value_seed(Seed {
-                budget: &mut *self.budget,
-                depth: self.depth + 1,
-            })?;
-            values.insert(key, value);
-        }
-        Ok(Value::Object(values))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::semantic::task::generation::MAX_TOTAL_BYTES;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     #[test]
     fn duplicate_keys_are_compared_after_unescaping_at_every_level() {
@@ -174,7 +43,6 @@ mod tests {
             b"null x",
             b"{\"a\":}",
             b"[1,]",
-            b"1e9999",
             b"\xef\xbb\xbf{}",
         ] {
             let error = decode(input).unwrap_err();
@@ -188,6 +56,20 @@ mod tests {
         assert_eq!(
             decode(b"[-9223372036854775808,1.25,-0.0,true,false,null]").unwrap(),
             json!([i64::MIN, 1.25, -0.0, true, false, null])
+        );
+    }
+
+    #[test]
+    fn exact_numbers_do_not_turn_reserved_keys_into_numeric_values() {
+        let input = br#"{"big":18446744073709551616001,"decimal":0.123456789012345678901,"nested":{"$serde_json::private::Number":"1"}}"#;
+        let value = decode(input).unwrap();
+        assert_eq!(value["big"].to_string(), "18446744073709551616001");
+        assert_eq!(value["decimal"].to_string(), "0.123456789012345678901");
+        assert_eq!(value["nested"]["$serde_json::private::Number"], "1");
+        assert!(value["nested"].is_object());
+        assert_eq!(
+            decode(br#"{"$serde_json::private::Number":"1","$serde_json::private::Number":"2"}"#),
+            Err(CodecError::Invalid("JSON"))
         );
     }
 

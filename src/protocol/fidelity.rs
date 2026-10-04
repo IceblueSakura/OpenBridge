@@ -1,5 +1,5 @@
 //! Bounded representation records. Only surviving semantic owners may reuse them.
-use super::openai::CodecError;
+use super::CodecError;
 use crate::semantic::{
     task::generation::*,
     value::{ReplayOrigin, Text},
@@ -107,7 +107,7 @@ impl FidelityRecords {
         semantic: &ReasoningItem,
         origin: Option<ReplayOrigin>,
     ) -> Result<(), CodecError> {
-        let Some(value) = &semantic.encrypted else {
+        let Some(value) = &semantic.replay else {
             self.remove_replay(owner);
             return Ok(());
         };
@@ -377,7 +377,7 @@ fn response_dependency(response: &GenerationResponse) -> [u8; 32] {
     // Opaque Debug is redacted; bind its bytes separately without formatting them.
     for (id, item) in response.items() {
         if let Item::Reasoning(r) = item
-            && let Some(value) = &r.encrypted
+            && let Some(value) = &r.replay
         {
             hash.update(id.get().to_le_bytes());
             hash.update(value.fingerprint());
@@ -395,7 +395,7 @@ fn fingerprint(item: &ReasoningItem) -> [u8; 32] {
         ItemLifecycle::Incomplete => 1,
         ItemLifecycle::InProgress => 2,
     }]);
-    match &item.encrypted {
+    match &item.replay {
         None => hash.update([0]),
         Some(value) => {
             hash.update([1]);

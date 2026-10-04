@@ -311,7 +311,9 @@ impl<'a> Check<'a> {
                     }
                 }
                 "multipleOf" => {
-                    if !value.as_f64().is_some_and(|n| n > 0.0) {
+                    if !super::schema_number::Decimal::new(value.as_number().ok_or_else(invalid)?)?
+                        .positive()
+                    {
                         return Err(invalid());
                     }
                 }
@@ -335,7 +337,7 @@ impl<'a> Check<'a> {
         ] {
             if let (Some(a), Some(b)) = (o.get(min), o.get(max)) {
                 let (a, b) = (natural(a)?, natural(b)?);
-                if (a.len(), &a) > (b.len(), &b) {
+                if a.cmp(&b).is_gt() {
                     return Err(invalid());
                 }
             }
@@ -431,19 +433,8 @@ fn unique_strings(v: &Value) -> Result<BTreeSet<&str>, GenerationError> {
     }
     Ok(seen)
 }
-fn natural(v: &Value) -> Result<String, GenerationError> {
-    if let Some(n) = v.as_u64() {
-        return Ok(n.to_string());
-    }
-    let n = v
-        .as_f64()
-        .filter(|n| *n >= 0.0 && n.fract() == 0.0)
-        .ok_or_else(invalid)?;
-    Ok(if n == 0.0 {
-        "0".into()
-    } else {
-        format!("{n:.0}")
-    })
+fn natural(v: &Value) -> Result<super::schema_number::Natural, GenerationError> {
+    super::schema_number::Decimal::new(v.as_number().ok_or_else(invalid)?)?.natural()
 }
 fn escape(s: &str) -> String {
     s.replace('~', "~0").replace('/', "~1")
@@ -504,35 +495,31 @@ fn string_chars(v: &Value) -> usize {
     }
 }
 fn canonical_enum(v: &Value) -> Result<String, GenerationError> {
-    // Only temporary enum data is canonicalized, never the authoritative schema.
-    fn normalize(v: &mut Value) {
+    // Canonicalize only the comparison copy, never the authoritative schema.
+    fn normalize(v: &mut Value) -> Result<(), GenerationError> {
         match v {
             Value::Object(o) => {
                 o.sort_keys();
                 for child in o.values_mut() {
-                    normalize(child);
+                    normalize(child)?;
                 }
             }
             Value::Array(a) => {
                 for child in a {
-                    normalize(child);
+                    normalize(child)?;
                 }
             }
-            Value::Number(n) if n.is_f64() => {
-                if let Some(f) = n.as_f64() {
-                    if f == 0.0 {
-                        *n = 0.into();
-                    } else if f.fract() == 0.0
-                        && let Ok(integer) = format!("{f:.0}").parse()
-                    {
-                        *n = integer;
-                    }
-                }
+            Value::Number(n) => {
+                *n = super::schema_number::Decimal::new(n)?
+                    .canonical()
+                    .parse()
+                    .map_err(|_| invalid())?;
             }
             _ => {}
         }
+        Ok(())
     }
     let mut copy = v.clone();
-    normalize(&mut copy);
+    normalize(&mut copy)?;
     serde_json::to_string(&copy).map_err(|_| invalid())
 }

@@ -4,9 +4,9 @@ use super::{
     common::{fields, object, put_presence, read_presence, string, text},
 };
 use crate::semantic::task::generation::{
-    EncryptedReasoning, ItemLifecycle, MAX_TEXT_BYTES, PartId, ReasoningContent, ReasoningContext,
-    ReasoningEffort, ReasoningItem, ReasoningMode, ReasoningPresence, ReasoningRequest,
-    ReasoningSummary,
+    ItemLifecycle, MAX_TEXT_BYTES, PartId, ReasoningContent, ReasoningContext, ReasoningEffort,
+    ReasoningItem, ReasoningMode, ReasoningPresence, ReasoningRequest, ReasoningSummary,
+    ReplayFormat, ReplayValue,
 };
 use serde_json::{Map, Value, json};
 
@@ -207,9 +207,9 @@ pub(super) fn decode_item(
         Some(Value::String(value)) if !value.is_empty() => {
             let value = text(value, "encrypted reasoning", MAX_TEXT_BYTES)?;
             Some(if status == ItemLifecycle::InProgress {
-                EncryptedReasoning::Partial(value)
+                ReplayValue::partial(ReplayFormat::ResponsesEncrypted, value)
             } else {
-                EncryptedReasoning::Final(value)
+                ReplayValue::final_value(ReplayFormat::ResponsesEncrypted, value)
             })
         }
         _ => return Err(CodecError::Invalid("encrypted reasoning")),
@@ -217,7 +217,7 @@ pub(super) fn decode_item(
     Ok(ReasoningItem {
         parts,
         status,
-        encrypted,
+        replay: encrypted,
     })
 }
 pub(super) fn encode_item(item: &ReasoningItem, response: bool) -> Value {
@@ -246,11 +246,9 @@ pub(super) fn encode_item(item: &ReasoningItem, response: bool) -> Value {
         value["content"] = json!(content);
     }
     let encrypted = if response {
-        item.encrypted.as_ref().map(EncryptedReasoning::as_str)
+        item.replay.as_ref().map(ReplayValue::as_str)
     } else {
-        item.encrypted
-            .as_ref()
-            .and_then(EncryptedReasoning::replay_token)
+        item.replay.as_ref().and_then(ReplayValue::replay_token)
     };
     if let Some(encrypted) = encrypted {
         value["encrypted_content"] = json!(encrypted);

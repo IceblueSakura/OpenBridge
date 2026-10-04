@@ -21,7 +21,7 @@ fn exact_arguments_and_deleted_fragments_drive_static_and_event_output() {
     let Item::ToolCall(c) = &r.items()[0].1 else {
         panic!()
     };
-    assert_eq!(c.arguments, "{broken");
+    assert_eq!(c.arguments.as_raw(), Some("{broken"));
     assert_eq!(c.call_id.as_str(), "c");
     let wire = encode(&events, Profile::Responses, &FidelityRecords::default());
     assert_eq!(
@@ -50,7 +50,7 @@ fn independent_wire_decodes_arguments_and_close_without_inventing_a_terminal() {
     let Item::ToolCall(c) = &decoded.semantic.items()[0].1 else {
         panic!()
     };
-    assert_eq!(c.arguments, "{");
+    assert_eq!(c.arguments.as_raw(), Some("{"));
     assert_eq!(c.status, ItemLifecycle::Incomplete);
 }
 #[test]
@@ -122,6 +122,7 @@ fn duplicate_call_part_and_item_identity_and_open_success_fail() {
         start(
             1,
             ItemKind::ToolCall {
+                format: ArgumentFormat::Raw,
                 call_id: text("a"),
                 name: text("f"),
                 message: None,
@@ -136,6 +137,7 @@ fn duplicate_call_part_and_item_identity_and_open_success_fail() {
             start(
                 2,
                 ItemKind::ToolCall {
+                    format: ArgumentFormat::Raw,
                     call_id: text("a"),
                     name: text("g"),
                     message: None,
@@ -172,6 +174,7 @@ fn non_success_terminals_keep_partial_output_and_error_is_not_materializable() {
             start(
                 1,
                 ItemKind::ToolCall {
+                    format: ArgumentFormat::Raw,
                     call_id: text("a"),
                     name: text("f"),
                     message: None,
@@ -237,7 +240,7 @@ fn chat_usage_tail_requires_actual_done_and_closes_to_same_function_semantics() 
     d.push(&json!({"id":"r","object":"chat.completion.chunk","created":0,"model":"synthetic","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}})).unwrap();
     d.done().unwrap();
     let r = d.materialize().unwrap().semantic;
-    assert_eq!(r.usage().unwrap().total_tokens, 5);
+    assert_eq!(r.usage().unwrap().total_tokens, Some(5));
     assert_eq!(r.outcome(), Outcome::Completed);
     assert_eq!(
         r.continuation(),

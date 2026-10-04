@@ -40,7 +40,7 @@ fn opaque_value_is_semantic_and_debug_is_redacted() {
         panic!("reasoning")
     };
     assert_eq!(
-        r.encrypted.as_ref().unwrap().replay_token(),
+        r.replay.as_ref().unwrap().replay_token(),
         Some("synthetic-secret-a")
     );
     assert_eq!(
@@ -53,7 +53,7 @@ fn opaque_value_is_semantic_and_debug_is_redacted() {
 fn deleting_value_never_restores_source_payload_and_removing_proof_never_removes_value() {
     let d = request(json!([wire("rs", "synthetic-old", "completed")]));
     let mut items = d.semantic.items().to_vec();
-    reason(&mut items, 0).encrypted = None;
+    reason(&mut items, 0).replay = None;
     let cleared = d.semantic.clone().with_items(items).unwrap();
     assert!(
         encode(&cleared, &d.fidelity).unwrap()["input"][0]
@@ -76,8 +76,10 @@ fn replacements_and_owner_transplants_cannot_reuse_proofs() {
         let mut items = d.semantic.items().to_vec();
         match mutation {
             0 => {
-                reason(&mut items, 0).encrypted =
-                    Some(EncryptedReasoning::Final(text("synthetic-new")))
+                reason(&mut items, 0).replay = Some(ReplayValue::final_value(
+                    ReplayFormat::ResponsesEncrypted,
+                    text("synthetic-new"),
+                ))
             }
             1 => reason(&mut items, 0)
                 .parts
@@ -148,7 +150,10 @@ fn independently_authored_ir_encodes_only_its_typed_value() {
     let r = ReasoningItem {
         parts: vec![],
         status: ItemLifecycle::Completed,
-        encrypted: Some(EncryptedReasoning::Final(text("synthetic-independent"))),
+        replay: Some(ReplayValue::final_value(
+            ReplayFormat::ResponsesEncrypted,
+            text("synthetic-independent"),
+        )),
     };
     let id = ItemId::new(17);
     let mut f = FidelityRecords::default();
@@ -185,7 +190,10 @@ fn token_only_edits_invalidate_extras_even_when_debug_is_identical() {
     let mut items = d.semantic.items().to_vec();
     let id = items[0].0;
     let r = reason(&mut items, 0);
-    r.encrypted = Some(EncryptedReasoning::Final(text("synthetic-new")));
+    r.replay = Some(ReplayValue::final_value(
+        ReplayFormat::ResponsesEncrypted,
+        text("synthetic-new"),
+    ));
     // Simulate an independently admitted replacement value, not a new extras report.
     d.fidelity.record_replay(id, r, Some(origin())).unwrap();
     d.semantic = d.semantic.with_items(items).unwrap();
@@ -224,7 +232,7 @@ fn stream_snapshots_and_materialization_own_partial_final_and_removed_values() {
                 let Item::Reasoning(r) = &items[0].1 else {
                     panic!("reasoning")
                 };
-                assert_eq!(r.encrypted, Some(token("synthetic-partial", false).value));
+                assert_eq!(r.replay, Some(token("synthetic-partial", false).value));
             }
         }
         let decoded = decoder.materialize().unwrap();
@@ -232,9 +240,7 @@ fn stream_snapshots_and_materialization_own_partial_final_and_removed_values() {
             panic!("reasoning")
         };
         assert_eq!(
-            r.encrypted
-                .as_ref()
-                .and_then(EncryptedReasoning::replay_token),
+            r.replay.as_ref().and_then(ReplayValue::replay_token),
             final_token
         );
         let static_value =
@@ -332,9 +338,9 @@ fn stream_replacement_releases_budget_and_materialization_does_not_double_charge
     state = reduce(state, terminal(StreamTerminal::Completed)).unwrap();
     let response = materialize(&state).unwrap();
     assert_eq!(response.items().len(), 4);
-    assert!(matches!(&response.items()[0].1, Item::Reasoning(r) if r.encrypted.is_none()));
+    assert!(matches!(&response.items()[0].1, Item::Reasoning(r) if r.replay.is_none()));
     assert!(
-        matches!(&response.items()[1].1, Item::Reasoning(r) if r.encrypted.as_ref().unwrap().replay_token() == Some(large.as_str()))
+        matches!(&response.items()[1].1, Item::Reasoning(r) if r.replay.as_ref().unwrap().replay_token() == Some(large.as_str()))
     );
 }
 
@@ -350,7 +356,10 @@ fn opaque_and_readable_values_share_the_semantic_budget() {
         let owner = ReasoningItem {
             parts: vec![],
             status: ItemLifecycle::Completed,
-            encrypted: Some(EncryptedReasoning::Final(invalid)),
+            replay: Some(ReplayValue::final_value(
+                ReplayFormat::ResponsesEncrypted,
+                invalid,
+            )),
         };
         assert!(
             FidelityRecords::default()
@@ -373,7 +382,10 @@ fn opaque_and_readable_values_share_the_semantic_budget() {
                 Item::Reasoning(ReasoningItem {
                     parts: vec![],
                     status: ItemLifecycle::Completed,
-                    encrypted: Some(EncryptedReasoning::Final(payload.clone())),
+                    replay: Some(ReplayValue::final_value(
+                        ReplayFormat::ResponsesEncrypted,
+                        payload.clone(),
+                    )),
                 }),
             )
         })

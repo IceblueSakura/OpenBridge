@@ -221,7 +221,7 @@ struct CallReport {
 struct ToolCallInfo {
     call_id: String,
     name: String,
-    arguments: String,
+    arguments: openbridge::semantic::task::generation::ToolArguments,
     history: Vec<Value>,
 }
 
@@ -889,8 +889,9 @@ async fn run_call_inner(
                 tool_call.as_ref().is_some_and(|c| {
                     c.name == "lookup"
                         && !c.history.is_empty()
-                        && serde_json::from_str::<Value>(&c.arguments)
-                            .ok()
+                        && c.arguments
+                            .as_raw()
+                            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
                             .is_some_and(|v| v["key"] == "alpha")
                 }) && finished
                     .semantic

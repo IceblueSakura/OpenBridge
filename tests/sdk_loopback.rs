@@ -4,6 +4,8 @@
 mod chat_sdk;
 #[path = "../examples/support/child_process.rs"]
 mod child_process;
+#[path = "sdk/client_carrier.rs"]
+mod client_carrier_sdk;
 #[path = "sdk/gateway.rs"]
 mod gateway_sdk;
 #[path = "sdk/process.rs"]

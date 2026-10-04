@@ -1,43 +1,82 @@
 //! In-process proofs of explicitly selected history dependencies, never payload stores.
 use super::*;
 use sha2::{Digest, Sha256};
-use std::fmt::Write;
+use std::{collections::BTreeSet, fmt::Write};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HistoryDependency {
     MessageGroup(ItemId),
     PrefixThrough(ItemId),
+    /// A source-declared ordered selection, not inferred group membership.
+    Owners(Vec<ItemId>),
 }
-/// Not a serialized identity, issuer signature or permission to replay. The
-/// contract chooses the scope; capture never infers it from item adjacency.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SettingsField {
+    Instructions,
+    Controls,
+    Tools,
+    ToolChoice,
+    ParallelTools,
+    Text,
+    Reasoning,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SettingsDependency {
+    None,
+    All,
+    Fields(BTreeSet<SettingsField>),
+}
+impl SettingsDependency {
+    pub fn only(field: SettingsField) -> Self {
+        Self::Fields(BTreeSet::from([field]))
+    }
+    pub fn union(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::All, _) | (_, Self::All) => Self::All,
+            (Self::None, other) | (other, Self::None) => other,
+            (Self::Fields(mut left), Self::Fields(mut right)) => {
+                left.append(&mut right);
+                Self::Fields(left)
+            }
+        }
+    }
+    fn includes(&self, field: SettingsField) -> bool {
+        match self {
+            Self::None => false,
+            Self::All => true,
+            Self::Fields(fields) => fields.contains(&field),
+        }
+    }
+}
+/// Not a serialized identity, issuer signature or replay permission.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequestDependencyProof {
     scope: HistoryDependency,
-    settings: bool,
+    settings: SettingsDependency,
     digest: [u8; 32],
 }
 impl RequestDependencyProof {
     pub fn capture(
         request: &GenerationRequest,
         scope: HistoryDependency,
-        settings: bool,
+        settings: SettingsDependency,
     ) -> Result<Self, GenerationError> {
+        let digest = dependency(request, &scope, &settings)?;
         Ok(Self {
             scope,
             settings,
-            digest: dependency(request, scope, settings)?,
+            digest,
         })
     }
     pub fn check(&self, request: &GenerationRequest) -> Result<(), GenerationError> {
-        if self.digest != dependency(request, self.scope, self.settings)? {
+        if self.digest != dependency(request, &self.scope, &self.settings)? {
             return Err(GenerationError::InvalidDependency);
         }
         Ok(())
     }
 }
-// Debug is an in-process structural encoding, not a persistent hash format.
-// Stream it into the digest to avoid allocating a second body. Schema Map Debug
-// preserves insertion order unlike Value equality. Redacted values bind separately.
+// Debug is an in-process encoding, not a persistent format. Stream into the digest;
+// schema order stays visible and redacted opaque/resource bytes bind separately.
 struct HashWriter {
     hash: Sha256,
     remaining: usize,
@@ -54,38 +93,84 @@ impl std::fmt::Write for HashWriter {
 }
 fn dependency(
     request: &GenerationRequest,
-    scope: HistoryDependency,
-    settings: bool,
+    scope: &HistoryDependency,
+    settings: &SettingsDependency,
 ) -> Result<[u8; 32], GenerationError> {
     request.validate()?;
-    let items = match scope {
+    let items: Vec<&(ItemId, Item)> = match scope {
         HistoryDependency::MessageGroup(owner) => request
             .message_groups()
-            .find(|g| g.owner() == owner)
+            .find(|g| g.owner() == *owner)
             .ok_or(GenerationError::InvalidDependency)?
-            .items(),
+            .items()
+            .iter()
+            .collect(),
         HistoryDependency::PrefixThrough(owner) => {
             let end = request
                 .items()
                 .iter()
-                .position(|(id, _)| *id == owner)
+                .position(|(id, _)| id == owner)
                 .ok_or(GenerationError::InvalidDependency)?;
-            &request.items()[..=end]
+            request.items()[..=end].iter().collect()
+        }
+        HistoryDependency::Owners(owners) => {
+            if owners.is_empty() {
+                return Err(GenerationError::InvalidDependency);
+            }
+            if owners.len() > MAX_ITEMS {
+                return Err(GenerationError::Limit);
+            }
+            let mut previous = None;
+            let mut selected = Vec::with_capacity(owners.len());
+            for owner in owners {
+                let index = request
+                    .items()
+                    .iter()
+                    .position(|(id, _)| id == owner)
+                    .ok_or(GenerationError::InvalidDependency)?;
+                if previous.is_some_and(|old| index <= old) {
+                    return Err(GenerationError::InvalidDependency);
+                }
+                previous = Some(index);
+                selected.push(&request.items()[index]);
+            }
+            selected
         }
     };
     let mut writer = HashWriter {
         hash: Sha256::new(),
         remaining: MAX_TOTAL_BYTES * 8,
     };
-    write!(writer, "{scope:?}:{settings}:{items:?}").map_err(|_| GenerationError::Limit)?;
-    if settings {
-        write!(writer, "{:?}", request.settings()).map_err(|_| GenerationError::Limit)?;
+    write!(writer, "{scope:?}:{settings:?}:{items:?}").map_err(|_| GenerationError::Limit)?;
+    let s = request.settings();
+    for field in [
+        SettingsField::Instructions,
+        SettingsField::Controls,
+        SettingsField::Tools,
+        SettingsField::ToolChoice,
+        SettingsField::ParallelTools,
+        SettingsField::Text,
+        SettingsField::Reasoning,
+    ] {
+        if !settings.includes(field) {
+            continue;
+        }
+        let result = match field {
+            SettingsField::Instructions => write!(writer, "{field:?}:{:?}", s.instructions),
+            SettingsField::Controls => write!(writer, "{field:?}:{:?}", s.controls),
+            SettingsField::Tools => write!(writer, "{field:?}:{:?}", s.tools),
+            SettingsField::ToolChoice => write!(writer, "{field:?}:{:?}", s.tool_choice),
+            SettingsField::ParallelTools => write!(writer, "{field:?}:{:?}", s.parallel_tool_calls),
+            SettingsField::Text => write!(writer, "{field:?}:{:?}", s.text),
+            SettingsField::Reasoning => write!(writer, "{field:?}:{:?}", s.reasoning),
+        };
+        result.map_err(|_| GenerationError::Limit)?;
     }
     for (id, item) in items {
         writer.hash.update(id.get().to_le_bytes());
         match item {
             Item::Reasoning(r) => {
-                if let Some(value) = &r.encrypted {
+                if let Some(value) = &r.replay {
                     writer.hash.update(value.fingerprint());
                 }
             }

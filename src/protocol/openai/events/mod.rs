@@ -47,14 +47,41 @@ fn replay(
             Ok(Some(ReasoningReplay {
                 origin: origin.cloned(),
                 value: if final_value {
-                    EncryptedReasoning::Final(value)
+                    ReplayValue::final_value(ReplayFormat::ResponsesEncrypted, value)
                 } else {
-                    EncryptedReasoning::Partial(value)
+                    ReplayValue::partial(ReplayFormat::ResponsesEncrypted, value)
                 },
             }))
         }
         _ => Err(CodecError::Invalid("encrypted reasoning")),
     }
+}
+fn replay_with(
+    value: &Map<String, Value>,
+    origin: Option<&ReplayOrigin>,
+    final_value: bool,
+    client: bool,
+) -> Result<Option<ReasoningReplay>, CodecError> {
+    let base = replay(value, origin, final_value)?;
+    let Some(extra) = value.get(super::client::FIELD) else {
+        return Ok(base);
+    };
+    if !client {
+        return Err(CodecError::Unsupported("client extension".into()));
+    }
+    let mut item = Item::Reasoning(ReasoningItem {
+        parts: vec![],
+        status: ItemLifecycle::InProgress,
+        replay: base.map(|value| value.value),
+    });
+    super::client::apply_item(&mut item, Some(extra), &[], &FidelityRecords::default())?;
+    let Item::Reasoning(item) = item else {
+        unreachable!()
+    };
+    Ok(item.replay.map(|value| ReasoningReplay {
+        origin: origin.cloned(),
+        value,
+    }))
 }
 fn kind_name(kind: PartKind) -> &'static str {
     match kind {
@@ -63,6 +90,7 @@ fn kind_name(kind: PartKind) -> &'static str {
         PartKind::Summary => "summary_text",
         PartKind::ReasoningText => "reasoning_text",
         PartKind::Arguments => "arguments",
+        PartKind::StructuredArguments => unreachable!("profile rejects structured argument parts"),
         PartKind::CustomInput => "input",
     }
 }
@@ -131,9 +159,10 @@ fn item_wire(
     state: &StreamState,
     id: ItemId,
     fidelity: &FidelityRecords,
+    client: bool,
 ) -> Result<Value, CodecError> {
     let item = state.item(id)?.snapshot()?;
-    super::responses::encode_items(&[(id, item)], fidelity, true)
+    super::responses::encode_items_with(&[(id, item)], fidelity, true, client)
         .into_iter()
         .next()
         .ok_or(CodecError::Invalid("item snapshot"))
