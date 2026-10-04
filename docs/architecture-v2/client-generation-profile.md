@@ -1,40 +1,22 @@
-# OpenBridge-client Responses scoped carrier
+# 客户端 Generation 边界
 
-This documents the existing nonstandard `Dialect::OpenBridge` client attachment contract over the Responses envelope, not standard Chat/Responses or a native Interactions ingress. Low-level standard codecs and standard target lowering reject these attachments. Trusted adapter selection admits them; business JSON cannot select an adapter, origin, endpoint or credential. HTTP wiring belongs to the [gateway](../http-gateway.md), not this profile.
+公开主目标是[规范 Responses](semantic-ir.md#3-客户端-api-目标与扩展边界)，Chat 仅作有界有损的兼容路径。当前 HTTP 仍选择 `Dialect::OpenBridge` 的具名规则，不代表全部标准已经符合；现有 reasoning、usage、cache 等差异按 owning codec/profile 分别核对。
 
-The primary client target is [standard Responses](semantic-ir.md#3-客户端-api-目标与扩展边界). This bounded carrier is not the default route for new capabilities, Chat compatibility or missing IR semantics. A future Agent may consume the same Semantic Model through a typed library boundary rather than depend on this private wire. Its existing contract remains in force; expansion, replacement or removal requires a scoped decision and corresponding implementation/consumer changes. Passing this carrier's checks does not prove standard-client compatibility.
+## 无独立私有 attachment
 
-## Ownership and schema
+请求、响应及事件的 envelope/item **不接受或输出独立 `_openbridge` 字段**，包括 null、空对象及带版本的对象。不存在开关恢复、同义替代字段或私有事件。普通文本、raw tool arguments/output 或允许任意键的用户 metadata 中的同名业务数据不被当作协议 attachment。
 
-A bounded `_openbridge` object with integer `version: 1` carries only the finite declarations owned by the [item codec](../../src/protocol/openai/client.rs) and [usage codec](../../src/protocol/openai/client/usage.rs). Unknown versions, fields, formats and misplaced attachments fail. The extension is decoded into existing typed semantics, then discarded; it is not raw fidelity payload or another Provider IR.
+需要标准载体的正文、工具 call/result、图片与原生 Responses encrypted content 继续使用其标准位置。Typed 结构化参数/结果、执行报告、message-call membership、显式 interaction progress、scoped usage 和其他格式 replay 仍由共享语义 owner 表达；无载体时按目标拒绝，不能把它们 stringify、去掉关联或藏入 fidelity。
 
-- A function call can declare structured JSON argument authority and an explicit preceding assistant-message wire-ID reference. No label means the standard raw-string authority. One base `arguments` string is the only body; the label determines strict typed recovery rather than storing a competing JSON value.
-- A reasoning item can carry a format/phase-bound Google Interactions thought attachment, independently of readable summary. It does not impersonate standard `encrypted_content`; competing replay values are rejected. Native Responses encrypted content keeps its existing carrier.
-- Function/custom results in request history can declare structured JSON output authority and a separate execution report. Failure is not a payload kind; the reported body remains available and must not be replaced by an error string.
-- The response can report interaction progress and scoped token reports. Neither infers logical-turn completion, continuation readiness or execution permission. A report's scope refers to operation, session or a delivered item wire ID, not an internal allocation ID. Relationships and delta/cumulative/final basis are explicit; unknown counts stay omitted, never zero-filled.
+必要 replay 的 format、finality、scope 与依赖规则不因客户端字段删除而减弱。未来 Agent 可以直接消费同一 typed 模型，不要求客户端保留 unknown fields，也不从普通 hash 或 scope label 推定 issuer 认证。
 
-Existing base fields remain their sole value authority. Standard-representable usage stays in the base usage object. Other admitted usage reports reside only in the root attachment, with base `usage: null`; competing non-null base usage is rejected. Counts, relations, report updates and owner checks use the [semantic usage owner](../../src/semantic/task/generation/usage.rs). Profile structural syntax does not expand billing or modality semantics.
+## 交付与失败
 
-Illustrative synthetic history item, not a model/Provider activation claim:
+- 含私有 attachment 的请求在上游 I/O 前拒绝；标准 field presence 与 raw JSON 验证继续生效。
+- 不可表示的静态输出失败；已经发布的事件流只能中止，不能补造 successful terminal 或切换 attempt。
+- 静态、opening/done 与 terminal snapshot 使用一致准入；拒绝后 decoder/encoder 不能恢复成功。
+- 客户端接收了标准形状不证明全部语义可跨协议回放；Chat 损失必须遵循[具名投影合同](protocol-and-lowering.md#semantic-loss)，不反向放宽 Responses。
 
-```json
-{"type":"function_call","id":"call-wire-id","call_id":"call-logical-id","name":"lookup","arguments":"{\"n\":18446744073709551616001}","status":"completed","_openbridge":{"version":1,"arguments":"json","message":"preceding-assistant-wire-id"}}
-```
+Owners：[Responses codec](../../src/protocol/openai/responses.rs)、[静态结果](../../src/protocol/openai/static_response.rs)、[事件](../../src/protocol/openai/events/mod.rs)、[lowering](../../src/lowering/generation.rs)。独立反例见[客户端边界](../../tests/semantic/client_carrier.rs)，实际 HTTP admission/abort 见[Gateway smoke](../../tests/gateway.rs)；typed 值与依赖的测试仍留在各语义 owner。
 
-The referenced assistant message must actually survive in the preceding history with that wire identity. Array adjacency, call names and local item counters are not membership proof. Removing or changing a typed owner cannot resurrect its old attachment through fidelity. Structured bodies use the shared exact, duplicate-rejecting, bounded [JSON parser](../../src/semantic/value/json.rs), not the discarded SDK parsed view.
-
-## Static, events and client return
-
-The semantic event opening declares argument format before a part/delta is published. Structured argument events use the existing function-argument wire event grammar, with partial authority in the opening and completed authority only after a valid complete value. Completion of an invalid or truncated JSON builder is rejected. Item-done and real terminal snapshots must agree with event-owned values, identity and membership; a terminal cannot fill a missing attachment or complete an unfinished part.
-
-Response progress and scoped usage are reported in the real terminal snapshot. No custom event type is emitted: the pinned strict SDK event union does not admit it. Initial snapshots do not carry these root facts. This does not fabricate a terminal, widen the standard event grammar or promise a terminal after failure. Existing stream framing, budgets, poisoning and post-commit abort rules remain binding.
-
-Clients preserve delivered item fields through SDK `model_dump`, actual JSON persistence and next-request history. They append independently reported tool results and retain each item's wire identity/attachment; they do not replay the root response object as request settings. Root facts remain response reports, not new execution directives. A client that drops unknown fields is incompatible with this scoped contract; standard profiles must reject rather than silently accept a reduced history.
-
-Independent owners and checks: [JSON/event/edit oracles](../../tests/semantic/client_carrier.rs), [wire fixtures](../../tests/support/client_carrier.rs), [fixed SDK HTTP boundary](../../tests/sdk/client_carrier.rs) and [SDK persistence/return](../../tests/sdk/client_carrier_loop.py). Commands and isolation requirements belong to [development](../development.md#固定-openai-sdk-loopback); execution results do not belong here.
-
-## Trust and remaining boundaries
-
-A format label, client wire reference or ordinary dependency hash is not issuer authentication. The attachment carries no origin, credential locator, endpoint locator, account or execution grant. Trust scope is supplied separately by the adapter; local binding and finite dependency checks cannot prove cross-request integrity or real Google acceptance. Client-provided opaque bytes must never be treated as authenticated issuer data merely because they parse.
-
-This carrier closes the selected syntactic client boundary for existing assistant/function membership and reasoning attachments. It does not provide general turn/group identity, authenticated group/prefix proofs, other attachment kinds, Google codec/activation, account management, a session service, media-resource lifecycle or orchestration. Standard target representability remains independently required on the next request; an admitted client history may still be rejected before upstream I/O. Broader directions remain in [Generation gaps](../implementation-status/generation.md).
+是否重建私有扩展在迁移完成后另行决定；当前不维护旧 wire 兼容承诺，不提前设计替代 carrier。HTTP 接线归[网关指南](../http-gateway.md)，实施顺序归[后续计划](../implementation-plans/next-goal.md)。

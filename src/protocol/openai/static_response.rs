@@ -500,11 +500,7 @@ pub(crate) fn decode_responses_with(
     adaptation: &crate::protocol::adaptation::Adaptation,
 ) -> Result<DecodedResponse, CodecError> {
     let (v, extras) = super::adapter_shapes::decode(v, Profile::Responses, adaptation)?;
-    let mut clean = object(&v)?.clone();
-    let carrier = clean.remove(super::client::FIELD);
-    let progress =
-        super::client::read_progress(carrier.as_ref(), super::client::enabled(adaptation))?;
-    let o = &clean;
+    let o = object(&v)?;
     adaptation.validate_response(Profile::Responses, o)?;
     super::envelope::response_fields(o)?;
     if string(o, "object")? != "response" {
@@ -527,29 +523,15 @@ pub(crate) fn decode_responses_with(
     } else {
         "incomplete"
     };
-    responses::decode_items_with(
-        &mut b,
-        output,
-        true,
-        item_status,
-        super::client::enabled(adaptation),
-    )?;
+    responses::decode_items(&mut b, output, true, item_status)?;
     let usage = usage(
         o.get("usage"),
         Profile::Responses,
         adaptation,
         &mut b.fidelity,
     )?;
-    let reports = super::client::read_usage(carrier.as_ref(), &b.items, &b.fidelity)?;
-    if usage.is_some() && reports.is_some() {
-        return Err(CodecError::Invalid("competing usage authorities"));
-    }
-    let mut semantic = response_with_usage(b.items, outcome, usage)?
-        .with_progress(progress)?
-        .with_details(decode_details(o)?)?;
-    if let Some(reports) = reports {
-        semantic = semantic.with_usage_reports(reports)?;
-    }
+    let semantic =
+        response_with_usage(b.items, outcome, usage)?.with_details(decode_details(o)?)?;
     super::envelope::record_vendor_shapes(
         Profile::Responses,
         adaptation,
@@ -643,20 +625,18 @@ pub fn encode_responses(target: &ResponseRepresentation<'_>) -> Result<Value, Co
     if target.profile != Profile::Responses {
         return Err(CodecError::ProfileMismatch);
     }
-    let client = super::client::enabled(&target.adaptation);
-    check_response_carriers_with(target.semantic, client)?;
-    check_item_carriers_with(target.semantic.items(), client)?;
+    check_response_carriers(target.semantic)?;
+    check_item_carriers(target.semantic.items())?;
     let status = match target.semantic.outcome() {
         Outcome::Completed => "completed",
         Outcome::Incomplete => "incomplete",
         Outcome::Failed => "failed",
         Outcome::Cancelled => "cancelled",
     };
-    let output =
-        responses::encode_items_with(target.semantic.items(), target.fidelity, true, client);
+    let output = responses::encode_items(target.semantic.items(), target.fidelity, true);
     let m = target.metadata;
     let mut value = json!({"id":m.id,"object":"response","created_at":m.created,"model":m.model,"status":status,
-        "output":output,"usage":if !client || super::client::base_usage(target.semantic.usage_reports()) {target.semantic.usage().map(|usage| encode_usage(usage, Profile::Responses, &target.adaptation.rules))} else {None}});
+        "output":output,"usage":target.semantic.usage().map(|usage| encode_usage(usage, Profile::Responses, &target.adaptation.rules))});
     super::envelope::write_metadata(
         m,
         value.as_object_mut().expect("object"),
@@ -676,10 +656,6 @@ pub fn encode_responses(target: &ResponseRepresentation<'_>) -> Result<Value, Co
     if target.semantic.details().incomplete.is_some() {
         value["incomplete_details"] =
             encode_incomplete(target.semantic.details().incomplete.as_ref());
-    }
-    if client {
-        super::client::write_progress(&mut value, target.semantic.progress());
-        super::client::write_usage(&mut value, target.semantic.usage_reports(), target.fidelity);
     }
     bounded(&value)?;
     Ok(value)

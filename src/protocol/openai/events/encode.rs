@@ -285,10 +285,6 @@ impl EventEncoder {
                 {
                     v["encrypted_content"] = json!(r.value.as_str());
                 }
-                if super::super::client::enabled(&self.contract.adaptation) {
-                    let snapshot = self.state()?.item(*item)?.snapshot()?;
-                    super::super::client::write_item(&mut v, *item, &snapshot, &self.fidelity)?;
-                }
                 vec![
                     json!({"type":"response.output_item.added","output_index":self.index(*item)?,"item":v}),
                 ]
@@ -385,7 +381,7 @@ impl EventEncoder {
                 }
             }
             StreamEvent::ItemFinished { item, .. } => vec![
-                json!({"type":"response.output_item.done","output_index":self.index(*item)?,"item":item_wire(self.state()?,*item,&self.fidelity,super::super::client::enabled(&self.contract.adaptation))?}),
+                json!({"type":"response.output_item.done","output_index":self.index(*item)?,"item":item_wire(self.state()?,*item,&self.fidelity)?}),
             ],
             StreamEvent::AnnotationAdded {
                 item,
@@ -406,12 +402,7 @@ impl EventEncoder {
             | StreamEvent::TextMetadata { .. }
             | StreamEvent::Usage(_) => vec![],
             StreamEvent::Progress(_) => {
-                if !super::super::client::enabled(&self.contract.adaptation) {
-                    return Err(CodecError::Unsupported("interaction progress".into()));
-                }
-                // The strict SDK event union excludes custom types. The real terminal
-                // snapshot owns progress; do not invent an unconsumable event.
-                vec![]
+                return Err(CodecError::Unsupported("interaction progress".into()));
             }
             StreamEvent::Terminal {
                 terminal: StreamTerminal::Error,

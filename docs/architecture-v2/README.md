@@ -20,7 +20,7 @@ OpenBridge 以一套独立 Semantic Model / IR 支撑低损 Provider 映射、�
 - [Responses](responses-text-profile.md)：请求型 Generation 的现有边界及本地兼容形式。
 - [Chat](chat-text-profile.md)：单候选兼容路径；[Chat media](chat-media-profile.md)单独限定 citations/audio 值、事件与引用。
 - [Schema](schema-profile.md)：当前结构/strict/reference 准入，不证明生成 adherence。
-- [OpenBridge-client carrier](client-generation-profile.md)：已有非标准客户端合同，不是未来主要 API 或 Agent 必需入口。
+- [客户端 Generation 边界](client-generation-profile.md)：无独立 `_openbridge` attachment；typed 语义保留，缺少目标载体时明确拒绝。
 
 ## 架构决策
 

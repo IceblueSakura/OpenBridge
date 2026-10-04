@@ -289,42 +289,26 @@ pub(super) fn tool_call(
     })
 }
 pub(super) fn check_response_carriers(response: &GenerationResponse) -> Result<(), CodecError> {
-    check_response_carriers_with(response, false)
-}
-pub(super) fn check_response_carriers_with(
-    response: &GenerationResponse,
-    client: bool,
-) -> Result<(), CodecError> {
-    if !client
-        && (response.usage_reports().len() > 1
-            || response.usage_reports().iter().any(|usage| {
-                usage.scope != UsageScope::Operation
-                    || usage.basis != UsageBasis::Final
-                    || usage.output_relation != OutputTokenRelation::IncludesReasoning
-                    || usage.total_relation != TotalTokenRelation::InputAndOutput
-                    || usage.input_tokens.is_none()
-                    || usage.output_tokens.is_none()
-                    || usage.total_tokens.is_none()
-            }))
+    if response.usage_reports().len() > 1
+        || response.usage_reports().iter().any(|usage| {
+            usage.scope != UsageScope::Operation
+                || usage.basis != UsageBasis::Final
+                || usage.output_relation != OutputTokenRelation::IncludesReasoning
+                || usage.total_relation != TotalTokenRelation::InputAndOutput
+                || usage.input_tokens.is_none()
+                || usage.output_tokens.is_none()
+                || usage.total_tokens.is_none()
+        })
     {
         return Err(CodecError::Unsupported("usage projection".into()));
     }
-    if !client && response.progress() != InteractionProgress::Unreported {
+    if response.progress() != InteractionProgress::Unreported {
         return Err(CodecError::Unsupported("interaction progress".into()));
     }
     Ok(())
 }
 
 pub(super) fn check_item_carriers(items: &[(ItemId, Item)]) -> Result<(), CodecError> {
-    check_item_carriers_with(items, false)
-}
-pub(super) fn check_item_carriers_with(
-    items: &[(ItemId, Item)],
-    client: bool,
-) -> Result<(), CodecError> {
-    if client {
-        return Ok(());
-    }
     if items.iter().any(|(_, item)| matches!(item, Item::Reasoning(r) if r.replay.as_ref().is_some_and(|value| value.format() != ReplayFormat::ResponsesEncrypted))) {
         return Err(CodecError::Unsupported("replay format".into()));
     }

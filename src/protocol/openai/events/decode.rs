@@ -443,18 +443,14 @@ impl EventDecoder {
         if index(o, "output_index")? != self.ids.len() {
             return Err(CodecError::Invalid("output index"));
         }
-        let (clean, carrier) = super::super::client::clean_item(
-            o.get("item").ok_or(CodecError::Invalid("item"))?,
-            super::super::client::enabled(&self.adaptation),
-        )?;
-        let v = object(&clean)?;
+        let v = object(o.get("item").ok_or(CodecError::Invalid("item"))?)?;
         if v.get("status")
             .filter(|v| !v.is_null())
             .is_some_and(|s| s.as_str() != Some("in_progress"))
         {
             return Err(CodecError::Invalid("item status"));
         }
-        let mut kind = match string(v, "type")? {
+        let kind = match string(v, "type")? {
             "message" => {
                 fields(v, &["type", "id", "role", "status", "content", "phase"])?;
                 if string(v, "role")? != "assistant"
@@ -562,47 +558,11 @@ impl EventDecoder {
             }
             _ => return Err(CodecError::Unsupported("item kind".into())),
         };
-        if let ItemKind::ToolCall {
-            format, message, ..
-        } = &mut kind
-        {
-            let mut item = Item::ToolCall(ToolCall {
-                call_id: text(string(v, "call_id")?, "call id", 256)?,
-                name: text(string(v, "name")?, "name", 128)?,
-                arguments: raw_string(v, "arguments")?.into(),
-                message: None,
-                status: ItemLifecycle::InProgress,
-                context: super::super::responses::call_context(v)?,
-            });
-            super::super::client::apply_item(
-                &mut item,
-                carrier.as_ref(),
-                &snapshot_items(self.state()?)?,
-                &self.fidelity,
-            )?;
-            let Item::ToolCall(item) = item else {
-                unreachable!()
-            };
-            *format = if matches!(item.arguments, ToolArguments::Raw(_)) {
-                ArgumentFormat::Raw
-            } else {
-                ArgumentFormat::Json
-            };
-            *message = item.message;
-        } else if !matches!(kind, ItemKind::Reasoning) && carrier.is_some() {
-            return Err(CodecError::Invalid("client opening attachment"));
-        }
         let item = self.allocate_item()?;
         self.fidelity
             .record_response_item_id(item, string(v, "id")?)?;
         let replay = if matches!(kind, ItemKind::Reasoning) {
-            let original = object(o.get("item").ok_or(CodecError::Invalid("item"))?)?;
-            replay_with(
-                original,
-                self.origin.as_ref(),
-                false,
-                super::super::client::enabled(&self.adaptation),
-            )?
+            replay(v, self.origin.as_ref(), false)?
         } else {
             None
         };
@@ -1098,12 +1058,7 @@ impl EventDecoder {
             }
         }
         let token = if matches!(self.state()?.item(item)?.kind, ItemKind::Reasoning) {
-            replay_with(
-                p,
-                self.origin.as_ref(),
-                true,
-                super::super::client::enabled(&self.adaptation),
-            )?
+            replay(p, self.origin.as_ref(), true)?
         } else {
             None
         };
@@ -1115,38 +1070,16 @@ impl EventDecoder {
             },
             out,
         )?;
-        let expected = item_wire(
-            self.state()?,
-            item,
-            &self.fidelity,
-            super::super::client::enabled(&self.adaptation),
-        )?;
+        let expected = item_wire(self.state()?, item, &self.fidelity)?;
         let wrapper = json!({"id":"snapshot","object":"response","created_at":0,"model":"snapshot","status":"incomplete","output":[v]});
-        let mut wrapper = wrapper;
-        if super::super::client::enabled(&self.adaptation) {
-            let mut context = super::super::responses::encode_items_with(
-                &snapshot_items(self.state()?)?,
-                &self.fidelity,
-                true,
-                true,
-            );
-            context[index(o, "output_index")?] = v.clone();
-            wrapper["output"] = json!(context);
-        }
         let decoded =
             super::super::static_response::decode_responses_with(&wrapper, &self.adaptation)?;
-        let normalized = super::super::responses::encode_items_with(
+        let normalized = super::super::responses::encode_items(
             decoded.semantic.items(),
             &decoded.fidelity,
             true,
-            super::super::client::enabled(&self.adaptation),
         );
-        let position = if super::super::client::enabled(&self.adaptation) {
-            index(o, "output_index")?
-        } else {
-            0
-        };
-        if normalized.get(position) != Some(&expected) {
+        if normalized.first() != Some(&expected) {
             return Err(CodecError::Invalid("item snapshot"));
         }
         Ok(())
@@ -1279,30 +1212,18 @@ impl EventDecoder {
             &mut self.fidelity,
             None,
         )?;
-        let expected = super::super::responses::encode_items_with(
+        let expected = super::super::responses::encode_items(
             &snapshot_items(self.state()?)?,
             &self.fidelity,
             true,
-            super::super::client::enabled(&self.adaptation),
         );
-        let actual = super::super::responses::encode_items_with(
+        let actual = super::super::responses::encode_items(
             decoded.semantic.items(),
             &decoded.fidelity,
             true,
-            super::super::client::enabled(&self.adaptation),
         );
         if actual != expected {
             return Err(CodecError::Invalid("terminal snapshot"));
-        }
-        if self.state()?.progress() != InteractionProgress::Unreported
-            && decoded.semantic.progress() != self.state()?.progress()
-        {
-            return Err(CodecError::Invalid("terminal progress"));
-        }
-        if self.state()?.progress() == InteractionProgress::Unreported
-            && decoded.semantic.progress() != InteractionProgress::Unreported
-        {
-            self.emit(StreamEvent::Progress(decoded.semantic.progress()), out)?;
         }
         for usage in decoded.semantic.usage_reports() {
             self.emit(StreamEvent::Usage(*usage), out)?;

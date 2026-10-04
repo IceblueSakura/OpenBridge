@@ -8,7 +8,6 @@ pub mod chat_envelope;
 pub(crate) mod chat_logprobs;
 mod chat_reasoning;
 pub mod chat_sse;
-pub(crate) mod client;
 mod common;
 pub mod envelope;
 pub mod events;

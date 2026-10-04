@@ -147,12 +147,7 @@ pub fn lower_request<'a>(
         crate::protocol::openai::responses::validate_program_history(r)
             .map_err(|_| RepresentationError::Tools)?;
     }
-    text_items(
-        r.items(),
-        profile,
-        true,
-        profile == Profile::Responses && crate::protocol::openai::client::enabled(&c.adaptation),
-    )?;
+    text_items(r.items(), profile, true)?;
     let expected_default = if profile == Profile::Chat {
         StrictDefault::NonStrict
     } else {
@@ -286,19 +281,13 @@ pub fn lower_response<'a>(
     profile: Profile,
     c: GenerationRepresentationContract,
 ) -> Result<ResponseRepresentation<'a>, RepresentationError> {
-    if r.progress() != InteractionProgress::Unreported
-        && !(profile == Profile::Responses
-            && crate::protocol::openai::client::enabled(&c.adaptation))
-    {
+    if r.progress() != InteractionProgress::Unreported {
         return Err(RepresentationError::InteractionProgress);
     }
-    let client =
-        profile == Profile::Responses && crate::protocol::openai::client::enabled(&c.adaptation);
-    if !client
-        && (r.usage_reports().len() > 1
-            || r.usage_reports().iter().any(|report| {
-                report.scope != UsageScope::Operation || report.basis != UsageBasis::Final
-            }))
+    if r.usage_reports().len() > 1
+        || r.usage_reports().iter().any(|report| {
+            report.scope != UsageScope::Operation || report.basis != UsageBasis::Final
+        })
     {
         return Err(RepresentationError::UsageProjection);
     }
@@ -311,9 +300,7 @@ pub fn lower_response<'a>(
         return Err(RepresentationError::UnmigratedSemantic);
     }
     require_reported_facts(r, metadata, &c)?;
-    if let Some(usage) = r.usage()
-        && (!client || crate::protocol::openai::client::base_usage(r.usage_reports()))
-    {
+    if let Some(usage) = r.usage() {
         check_usage(usage, profile, &c.adaptation.rules)?;
     }
     if profile == Profile::Chat
@@ -362,12 +349,7 @@ pub fn lower_response<'a>(
     {
         return Err(RepresentationError::Terminal);
     }
-    text_items(
-        r.items(),
-        profile,
-        false,
-        profile == Profile::Responses && crate::protocol::openai::client::enabled(&c.adaptation),
-    )?;
+    text_items(r.items(), profile, false)?;
     if profile == Profile::Chat && chat_message_count(r.items()) != 1 {
         return Err(RepresentationError::MessageGrouping);
     }
@@ -445,13 +427,10 @@ fn represent_reasoning(
     adaptation: &crate::protocol::adaptation::Adaptation,
     history: Option<&GenerationRequest>,
 ) -> Result<(), RepresentationError> {
-    let client =
-        profile == Profile::Responses && crate::protocol::openai::client::enabled(adaptation);
     let structured_chat = adaptation.rules.structured_chat_reasoning;
     let request = history.is_some();
     for (id, item) in items {
-        if !client
-            && matches!(item, Item::Reasoning(r) if r.replay.as_ref().is_some_and(|value| value.format() != ReplayFormat::ResponsesEncrypted))
+        if matches!(item, Item::Reasoning(r) if r.replay.as_ref().is_some_and(|value| value.format() != ReplayFormat::ResponsesEncrypted))
         {
             return Err(RepresentationError::ReplayFormat);
         }
@@ -508,26 +487,22 @@ fn text_items(
     items: &[(ItemId, Item)],
     profile: Profile,
     request: bool,
-    client: bool,
 ) -> Result<(), RepresentationError> {
     for (_, i) in items {
         // These profiles have neither structured argument nor execution-report carriers.
-        if !client
-            && matches!(i, Item::ToolCall(call) if !matches!(call.arguments, ToolArguments::Raw(_)))
-        {
+        if matches!(i, Item::ToolCall(call) if !matches!(call.arguments, ToolArguments::Raw(_))) {
             return Err(RepresentationError::Tools);
         }
         // Standard Responses admits image result parts in history; Chat does not.
         if matches!(i, Item::ToolResult(result) | Item::CustomResult(result)
-            if !client && (result.execution.is_some() || matches!(result.output, ToolOutput::Structured(_)))
+            if result.execution.is_some() || matches!(result.output, ToolOutput::Structured(_))
                 || (!request || profile == Profile::Chat) && !result.output.is_text_only())
         {
             return Err(RepresentationError::Tools);
         }
         // Standard Responses has no message-call membership carrier. Keeping
         // both items is insufficient to preserve this relation through history.
-        if !client
-            && profile == Profile::Responses
+        if profile == Profile::Responses
             && matches!(i, Item::ToolCall(call) if call.message.is_some())
         {
             return Err(RepresentationError::MessageGrouping);

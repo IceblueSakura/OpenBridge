@@ -17,7 +17,7 @@
 | 拒绝 | unknown、错类型、身份/状态冲突、不可表示目标、跨 issuer 或错误后恢复 |
 | 资源 | bytes、items、深度/nodes、schema references、padding、partial payload 与总状态预算 |
 
-设计全景不等于每轮实现全部，但每轮完成的范围必须真正闭合。媒体和状态服务缺实现不是删掉语义目标的理由；一个协议能接收请求不证明它能交付并回传所需 continuation。标准规范性、能力覆盖度、保真度与自定义 carrier 分别验收：标准场景不能靠 `_openbridge`、本地事件名或 SDK 宽松保留额外字段才成立。Chat 兼容规则需独立断言实际损失、必要语义保留、依赖影响及静态/事件一致性；规范 wire 不等于无损，round trip 也不能要求恢复已声明丢失的信息。扩展的独立测试不能替代标准消费者检查。
+设计全景不等于每轮实现全部，但每轮完成的范围必须真正闭合。媒体和状态服务缺实现不是删掉语义目标的理由；一个协议能接收请求不证明它能交付并回传所需 continuation。标准规范性、能力覆盖度、保真度与自定义 carrier 分别验收：标准场景不能靠 `_openbridge`、本地事件名或 SDK 宽松保留额外字段才成立。Chat 兼容规则需独立断言实际损失、必要语义保留、依赖影响及静态/事件一致性；规范 wire 不等于无损，round trip 也不能要求恢复已声明丢失的信息。独立 `_openbridge` attachment 需作为拒绝输入验证，不构造新的 SDK unknown-field 回传承诺。扩展测试不能替代标准消费者检查。
 
 多模态切片须固定 task 与标准 operation，覆盖来源/编码、输出类型与完整性、适用事件、资源引用及失败预算；vector 不能作为文本通过检查，语音不能用 transcript 代替媒体。发现 typed 承载不足时，先按 [IR 缺口规则](../architecture-v2/semantic-ir.md#4-ir-不足与标准载体缺口)报告结构选择，再确定对应 oracle，不用当前 encoder 的输出反推目标设计。
 

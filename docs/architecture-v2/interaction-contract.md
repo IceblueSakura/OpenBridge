@@ -1,6 +1,6 @@
 # Generation 交互合同
 
-本页细化 [Semantic Model](semantic-ir.md)中的请求型 Generation，约束工具、结果、响应进度、replay 与报告；不规定新客户端 API，不是 Agent 调度器或 Realtime 设计。具体优先级归[计划](../implementation-plans/next-goal.md)，现有准入归 [Responses](responses-text-profile.md)、[Chat](chat-text-profile.md)和[客户端扩展](client-generation-profile.md)。
+本页细化 [Semantic Model](semantic-ir.md)中的请求型 Generation，约束工具、结果、响应进度、replay 与报告；不规定新客户端 API，不是 Agent 调度器或 Realtime 设计。具体优先级归[计划](../implementation-plans/next-goal.md)，现有准入归 [Responses](responses-text-profile.md)、[Chat](chat-text-profile.md)和[客户端边界](client-generation-profile.md)。
 
 ## 表示与唯一权威
 
@@ -61,7 +61,7 @@ Schema 结构/方言/引用、adherence 意图与目标 strict/配额分开。Re
 
 ## 客户端交付与验收
 
-标准 Responses、兼容 Chat 和现有 scoped carrier 分别验收。必要 replay/关联不能依赖 SDK 偶然保存 unknown fields；客户端丢弃字段后是否仍可安全续轮必须由对应投影合同决定，而不是由 HTTP 200 判断。
+标准 Responses 与兼容 Chat 分别验收，客户端边界不提供独立私有 attachment。必要 replay/关联不能依赖 SDK 偶然保存 unknown fields；客户端丢弃字段后是否仍可安全续轮必须由对应投影合同决定，而不是由 HTTP 200 判断。
 
 有回传要求的切片验证真实交付→保存→追加结果→回传，再检查 owner、值权威、依赖、目标准入与失败边界。IR 级工具结果齐备不是执行就绪证明。独立反例覆盖插入/替换/删除/重排、结构化精度、partial/invalid 值、错 call kind/identity、错误 scope/format、累计计量与发布后失败。
 

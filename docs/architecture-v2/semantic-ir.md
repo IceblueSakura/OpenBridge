@@ -1,6 +1,6 @@
 # Semantic Model 与 IR
 
-OpenBridge 的核心是**独立、可复用的模型交互语义体系**：承载模型 API 交互，尽量降低跨 Provider 映射的语义损失，并通过标准接口服务下游。Gateway 是其运行边界；未来自研 Agent 复用同一语义体系，而非另建 Agent/Provider IR。项目未发布，稳定目标是概念、所有权与不变量，不是当前 Rust 类型。
+OpenBridge 的核心是**独立、可复用的模型交互语义体系**：承载模型 API 交互，尽量降低跨 Provider 映射的语义损失，并通过标准接口服务下游。Gateway 是其运行边界；未来自研 Agent 复用同一语义体系，而非另建 Agent/Provider IR。项目未发布，稳定目标是概念、所有权与不变量，不是当前 Rust 类型；允许在明确迁移范围内大规模破坏性重写，不维持无必要的旧结构兼容。
 
 本页拥有总体合同；Generation 专项归[交互合同](interaction-contract.md)，映射与损失归[protocol/lowering](protocol-and-lowering.md)，当前接线归[架构](../architecture.md)。[计划](../implementation-plans/next-goal.md)决定实施顺序，[缺口](../implementation-status/generation.md)区分设计与当前实现。
 
@@ -31,7 +31,7 @@ OpenBridge 的核心是**独立、可复用的模型交互语义体系**：承�
 | Protocol / operation | 请求编码、响应 envelope、事件语法及 profile 必填性；不决定共享语义所有权 |
 | Delivery / execution | 交付意图与运行时实现分开；socket、已选目标、credential、attempt、retry/commit 不进入 task 数据 |
 
-当前设计主线是请求型多模态 Generation 与 Embedding；Realtime 等持续双向交互暂不细化类型、状态机或预建模块。长期涵盖 Omni/Realtime 的方向不要求当前预先设计全部交互模式，也不保证现有单 response reducer 可直接复用。
+当前阶段聚焦 Agent-first Text/Image/File 与 Responses 完善，Embedding 和其他独立媒体 operation 不作本阶段前置。音频 Realtime 明确要实现，但为降低每阶段关注度推迟其设计与实施，不预建类型/状态机，也不保证现有单 response reducer 可直接复用。具体顺序只归后续计划。
 
 Generation 保留有序异构 items 与必要 typed 关系，Message 只是其中一种 owner。Embedding 的输入关联、向量数值、维度与结果属于独立 task，不使用 assistant role、tool loop 或虚构 SSE 终态。其他任务只在实际标准 operation 需要时定稿，不由 TaskKind 名称推定实现。
 
@@ -41,9 +41,9 @@ Generation 保留有序异构 items 与必要 typed 关系，Message 只是其�
 - **Embedding：规范 OpenAI Embeddings 接口。** 与 Generation 共用语义体系和受信执行原则，不将 vector 塞进 Responses message。
 - **Chat Completions：必须维护的兼容接口，允许部分语义损失。** 损失发生在有合同的目标投影，不削弱核心 IR；具体规则与不可损失边界归 [Semantic loss](protocol-and-lowering.md#semantic-loss)。不是承诺与 Responses 功能等价。
 - 标准规范性、能力覆盖度和映射保真度分别判断。规范 wire 可以是有损投影；未实现分支、未批准的损失或缺失必要依赖仍须明确拒绝。
-- 现有 [OpenBridge-client carrier](client-generation-profile.md)是独立非标准合同，不是默认发展路线。新增/扩大扩展须说明需求、标准缺口、IR owner、消费者与回传影响并取得明确批准；既有行为的移除、隔离或替换须有对应实现切片。
+- 公开边界[不提供独立 `_openbridge` carrier](client-generation-profile.md)，不保留隐式兼容或替代字段。共享 typed 语义不因此删除；无标准载体且不属于已定稿 Chat 损失时仍拒绝。是否重建扩展在迁移完成后决定，新方案须说明标准缺口、IR owner 和消费者/回传后果。
 
-其他标准媒体 operation 在确有需要时另行选择。Responses 是主接口，不意味着任意模态或独立任务都有 Responses carrier；没有标准载体时报告选择，不伪造字段或隐式新增端点。
+允许后续为独立 TTS、转录、图片生成等增加符合 OpenAI 标准的 operation，但具体端点与资源服务范围仍需深入讨论。Responses 是主接口，不意味着任意模态或独立任务都有 Responses carrier；没有标准载体时报告选择，不伪造字段或隐式新增端点。
 
 ## 4. IR 不足与标准载体缺口
 

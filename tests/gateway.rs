@@ -208,33 +208,6 @@ async fn answer(
         .body(Body::from(bytes))
         .unwrap()
 }
-fn responses_client_delivery(body: &[u8], streaming: bool) -> DecodedResponse {
-    let adapter = Adapter::new(
-        Profile::Responses,
-        Dialect::OpenBridge,
-        Some(ReplayOrigin::new("fixture").unwrap()),
-    );
-    if !streaming {
-        return adapter.decode_response(body).unwrap();
-    }
-    let mut decoder = ResponsesSseDecoder::with_decoder(
-        200,
-        "text/event-stream",
-        Default::default(),
-        adapter.event_decoder(),
-    )
-    .unwrap();
-    for fragment in body.chunks(13) {
-        let mut rest = fragment;
-        while !rest.is_empty() {
-            let (used, _) = decoder.consume(rest).unwrap();
-            assert!(used > 0);
-            rest = &rest[used..];
-        }
-    }
-    decoder.finish().unwrap();
-    decoder.materialize().unwrap()
-}
 fn responses_delivery(body: &[u8], streaming: bool) -> DecodedResponse {
     let scope = Some(ReplayOrigin::new("fixture").unwrap());
     if !streaming {
@@ -605,22 +578,52 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         assert_eq!(response.status(), 400);
         assert_eq!(observed.0.lock().unwrap().len(), before + 1);
     }
-    // The explicitly selected client carrier preserves Chat message-call membership.
-    // Standard upstream projection in the opposite direction remains rejected.
-    for stream in [false, true] {
+    // Private attachments fail admission before any Provider I/O.
+    for input in [
+        json!({"model":"public-model","input":"hi","_openbridge":{"version":1,"progress":"turn_finished"}}),
+        json!({"model":"public-model","input":[{"type":"function_call","call_id":"c","name":"lookup","arguments":"{}","_openbridge":{"version":1,"arguments":"json"}}]}),
+    ] {
         let before = observed.0.lock().unwrap().len();
         let response = client
+            .post(format!("{url}/v1/responses"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&input)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+        assert_eq!(observed.0.lock().unwrap().len(), before);
+    }
+    // Responses has no message-call membership carrier: static projection fails,
+    // while an already-published stream aborts without a fabricated terminal.
+    for stream in [false, true] {
+        let before = observed.0.lock().unwrap().len();
+        let mut response = client
             .post(format!("{url}/v1/responses"))
             .bearer_auth(support::CLIENT_KEY)
             .json(&json!({"model":"cross-model","input":"lookup","stream":stream}))
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), 200);
-        let body = response.bytes().await.unwrap();
-        assert!(!String::from_utf8_lossy(&body).contains("private-model"));
-        let output = responses_client_delivery(&body, stream);
-        assert!(output.semantic.items().iter().any(|(_,item)|matches!(item,openbridge::semantic::task::generation::Item::ToolCall(call) if call.message.is_some())));
+        if stream {
+            assert_eq!(response.status(), 200);
+            let mut body = Vec::new();
+            loop {
+                match response.chunk().await {
+                    Ok(Some(chunk)) => body.extend_from_slice(&chunk),
+                    Err(_) => break,
+                    Ok(None) => panic!("unrepresentable output completed its HTTP body"),
+                }
+            }
+            let text = String::from_utf8_lossy(&body);
+            assert!(!text.contains("private-model"));
+            assert!(!text.contains("_openbridge"));
+            assert!(!text.contains("response.completed"));
+        } else {
+            assert_eq!(response.status(), 502);
+            let value: Value = response.json().await.unwrap();
+            assert_eq!(value["error"]["code"], "upstream_error");
+        }
         assert_eq!(observed.0.lock().unwrap().len(), before + 1);
 
         // Opposite request direction: explicit Chat history must be rejected

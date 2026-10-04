@@ -1,6 +1,6 @@
 # Responses：当前无状态 Generation profile
 
-本页描述当前库级合同，不是完整标准符合性声明。标准目标归 [Semantic Model](semantic-ir.md#3-客户端-api-目标与扩展边界)；已有本地兼容形式与 [OpenBridge-client carrier](client-generation-profile.md)必须单独识别。精确字段/预算/拒绝分支归 [OpenAI codecs](../../src/protocol/openai/mod.rs)、[lowering](../../src/lowering/generation.rs)和独立测试，HTTP 接线归[网关指南](../http-gateway.md)。
+本页描述当前库级合同，不是完整标准符合性声明。标准目标归 [Semantic Model](semantic-ir.md#3-客户端-api-目标与扩展边界)；本地兼容形式仍需单独识别；[客户端边界](client-generation-profile.md)不提供独立私有 attachment。精确字段/预算/拒绝分支归 [OpenAI codecs](../../src/protocol/openai/mod.rs)、[lowering](../../src/lowering/generation.rs)和独立测试，HTTP 接线归[网关指南](../http-gateway.md)。
 
 当前范围是有序文本/选定图片 history、文本/工具/reasoning 输出及适用事件。单个 profile 能解析不等于 Public Model/Endpoint 准入；未实现媒体、资源或 task 不由标准名称激活。标准来源和本地选择分开，见[固定基线](../references/responses-standard.md)。
 
@@ -12,11 +12,11 @@
 
 本地 `ResponseContinuation` 可检查调用方声明的后继关系、缺失/进行中结果与有限依赖；不验证真实 upstream turn identity、issuer、目标可表示性或执行权限。Program history 按当前 profile 要求配套 reported output 后才可 replay，不能由通用 pending view 放宽。
 
-标准 codec 不从 finish label 或 call 数量补 `InteractionProgress`。显式 progress 需要独立 carrier；[scoped client profile](client-generation-profile.md)的报告也不授权自动 Agent loop。Owners：[continuation](../../src/semantic/task/generation/continuation.rs)、[turn](../../src/semantic/task/generation/turn.rs)、[progress](../../src/semantic/task/generation/progress.rs)。
+标准 codec 不从 finish label 或 call 数量补 `InteractionProgress`。显式 progress 保留在 typed IR，但当前公开目标没有 carrier，投影拒绝；不推断报告或授权自动 Agent loop。Owners：[continuation](../../src/semantic/task/generation/continuation.rs)、[turn](../../src/semantic/task/generation/turn.rs)、[progress](../../src/semantic/task/generation/progress.rs)。
 
 ## Message owners and cross-protocol grouping
 
-当前标准 Responses 没有 `ToolCall.message` 的 carrier。Request/static lowering 拒绝显式 message-call membership，event 投影在 attached call 的 opening 拒绝；不能仅保留两个独立 item 就声称关系仍在。空的 tool-only message owner 也适用。OpenBridge-client 的 wire-ID 关联是另一个非标准合同。
+当前标准 Responses 没有 `ToolCall.message` 的 carrier。Request/static lowering 拒绝显式 message-call membership，event 投影在 attached call 的 opening 拒绝；不能仅保留两个独立 item 就声称关系仍在。空的 tool-only message owner 也适用。当前 OpenBridge adapter 也不提供私有 wire-ID 关联。
 
 独立 assistant message（包括空 owner）与独立 function call 按其身份/状态保留，不从邻接推断归属。Standalone-call run 的具名 Chat 投影不使反向 membership 自动获得标准位置。重排依赖 final typed identity，删除 owner 不能附到相同位置的新项。
 
@@ -30,7 +30,7 @@ Reasoning 控制、可读内容与格式绑定的 opaque 值分别拥有权威�
 
 ## Tool image results
 
-Responses function/custom result history 的标准 carrier 接受有序 `input_text` 与 URL/inline `input_image` parts。Text string、parts、空数组及单 part 不隐式互换。Call identity、kind、结果状态独立校验；structured result authority 与 execution report 仍需要单独 carrier，不能 stringify 后声称保留。
+Responses function/custom result history 的标准 carrier 接受有序 `input_text` 与 URL/inline `input_image` parts。Text string、parts、空数组及单 part 不隐式互换。Call identity、kind、结果状态独立校验；structured result authority 与 execution report 仍无公开 carrier，目标投影拒绝，不能 stringify 后声称保留。
 
 `tool_result_images` 准入独立于 user `image_input`；共用目标图片预算，不因此启用 Chat 工具图片、file ID、cache breakpoint 或输出图片事件。Owners：[tool results](../../src/semantic/task/generation/tool_result.rs)、[Responses codec](../../src/protocol/openai/responses.rs)、[independent oracles](../../tests/semantic/tool_results.rs)。固定 union 来源：[function result](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_function_call_output_item_list_param.py)、[custom result](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_custom_tool_call_output_param.py)。
 

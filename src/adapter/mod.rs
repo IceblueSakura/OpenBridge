@@ -238,11 +238,6 @@ impl Dialect {
             _ => Default::default(),
         };
         Adaptation {
-            client: if self == Self::OpenBridge {
-                crate::protocol::adaptation::ClientExtension::GenerationV1
-            } else {
-                Default::default()
-            },
             rules,
             images,
             cache,

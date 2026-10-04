@@ -42,7 +42,7 @@ This library API does not add a stateless issuer-proof carrier, registry, retent
 
 ## Usage and unsupported targets
 
-Reported prompt/completion `audio_tokens` retain independent typed counters. Unknown is not zero; counts must fit their respective reported totals. Older named zero-modality rules do not erase these now-mapped audio facts. Ordinary Responses usage has no such positions; standard projection rejects them, while the explicitly scoped client usage carrier can retain them.
+Reported prompt/completion `audio_tokens` retain independent typed counters. Unknown is not zero; counts must fit their respective reported totals. Older named zero-modality rules do not erase these now-mapped audio facts. Ordinary Responses usage has no such positions; projection rejects them rather than moving them into a private attachment.
 
 Complete audio values, audio history and audio output controls have no admitted Responses carrier. They fail rather than becoming text, ordinary resources or arbitrary metadata. The fixed SDK consumes complete audio/citations as typed values; raw stream chunks retain audio as an extra field. No claim is made about every SDK stream-accumulation helper, real audio quality or upstream availability.
 

@@ -9,12 +9,6 @@ use crate::{
 };
 use serde_json::{Map, Value, json};
 pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
-    decode_generation_with(v, false)
-}
-pub(super) fn decode_generation_with(
-    v: &Value,
-    client: bool,
-) -> Result<DecodedRequest, CodecError> {
     bounded(v)?;
     let o = object(v)?;
     let allowed: Vec<_> = settings::FIELDS.iter().copied().chain(["input"]).collect();
@@ -34,7 +28,7 @@ pub(super) fn decode_generation_with(
                 }),
             ));
         }
-        Some(Value::Array(a)) => decode_items_with(&mut b, a, false, "completed", client)?,
+        Some(Value::Array(a)) => decode_items(&mut b, a, false, "completed")?,
         None if o.get("instructions").is_some_and(Value::is_string) => {}
         _ => return Err(CodecError::Invalid("input")),
     }
@@ -235,24 +229,14 @@ pub(super) fn decode_items(
     response: bool,
     item_status: &str,
 ) -> Result<(), CodecError> {
-    decode_items_with(b, input, response, item_status, false)
-}
-pub(super) fn decode_items_with(
-    b: &mut Items,
-    input: &[Value],
-    response: bool,
-    item_status: &str,
-    client: bool,
-) -> Result<(), CodecError> {
     for value in input {
-        let (clean, carrier) = super::client::clean_item(value, client)?;
-        let o = object(&clean)?;
+        let o = object(value)?;
         let id = b.id()?;
         let typ = o
             .get("type")
             .map(|v| v.as_str().ok_or(CodecError::Invalid("item type")))
             .transpose()?;
-        let mut item = match typ {
+        let item = match typ {
             Some("function_call") => Item::ToolCall(tool_call(
                 o,
                 Profile::Responses,
@@ -528,10 +512,6 @@ pub(super) fn decode_items_with(
         {
             b.record_id(id, o)?;
         }
-        super::client::apply_item(&mut item, carrier.as_ref(), &b.items, &b.fidelity)?;
-        if let Item::Reasoning(reasoning) = &item {
-            b.fidelity.record_replay(id, reasoning, None)?;
-        }
         b.items.push((id, item));
     }
     Ok(())
@@ -541,16 +521,14 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
         return Err(CodecError::ProfileMismatch);
     }
     target.semantic.validate()?;
-    let client = super::client::enabled(&target.adaptation);
-    check_item_carriers_with(target.semantic.items(), client)?;
+    check_item_carriers(target.semantic.items())?;
     if target.semantic.items().iter().any(|(_, item)| matches!(item, Item::ToolResult(result) | Item::CustomResult(result)
-        if !client && (result.execution.is_some() || matches!(result.output, ToolOutput::Structured(_)))
+        if result.execution.is_some() || matches!(result.output, ToolOutput::Structured(_))
             || matches!(&result.output, ToolOutput::Parts(parts)
                 if parts.iter().any(|(id, part)| matches!(part, ToolResultPart::Resource(_)) && target.fidelity.cache_breakpoint(*id))))) {
         return Err(CodecError::Unsupported("tool result semantics".into()));
     }
-    let mut v =
-        json!({"input":encode_items_with(target.semantic.items(), target.fidelity, false, client)});
+    let mut v = json!({"input":encode_items(target.semantic.items(), target.fidelity, false)});
     settings::write(
         target.semantic.settings(),
         v.as_object_mut().expect("object"),
@@ -558,7 +536,7 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     bounded(&v)?;
     Ok(v)
 }
-fn output_wire(o: &ToolOutput, fidelity: &FidelityRecords, client: bool) -> Value {
+fn output_wire(o: &ToolOutput, fidelity: &FidelityRecords) -> Value {
     match o {
         ToolOutput::Text(s) => json!(s),
         ToolOutput::Parts(p) => json!(
@@ -570,7 +548,6 @@ fn output_wire(o: &ToolOutput, fidelity: &FidelityRecords, client: bool) -> Valu
                 })
                 .collect::<Vec<_>>()
         ),
-        ToolOutput::Structured(value) if client => json!(value.value().to_string()),
         ToolOutput::Structured(_) => {
             unreachable!("lowering rejects tool result semantics without a carrier")
         }
@@ -580,14 +557,6 @@ pub(super) fn encode_items(
     items: &[(ItemId, Item)],
     fidelity: &FidelityRecords,
     response: bool,
-) -> Vec<Value> {
-    encode_items_with(items, fidelity, response, false)
-}
-pub(super) fn encode_items_with(
-    items: &[(ItemId, Item)],
-    fidelity: &FidelityRecords,
-    response: bool,
-    client: bool,
 ) -> Vec<Value> {
     let mut out = vec![];
     for (id, item) in items {
@@ -610,7 +579,7 @@ pub(super) fn encode_items_with(
                 v
             }
             Item::ToolCall(c) => {
-                let mut v = json!({"type":"function_call","call_id":c.call_id.as_str(),"name":c.name.as_str(),"arguments":if client { super::client::argument_text(&c.arguments) } else { c.arguments.as_raw().expect("checked raw arguments").to_owned() }});
+                let mut v = json!({"type":"function_call","call_id":c.call_id.as_str(),"name":c.name.as_str(),"arguments":c.arguments.as_raw().expect("checked raw arguments")});
                 write_call_context(&c.context, v.as_object_mut().expect("object"));
                 v
             }
@@ -620,7 +589,7 @@ pub(super) fn encode_items_with(
                 v
             }
             Item::ToolResult(r) | Item::CustomResult(r) => {
-                let mut v = json!({"type":if matches!(item,Item::CustomResult(_)){"custom_tool_call_output"}else{"function_call_output"},"call_id":r.call_id.as_str(),"output":output_wire(&r.output, fidelity, client)});
+                let mut v = json!({"type":if matches!(item,Item::CustomResult(_)){"custom_tool_call_output"}else{"function_call_output"},"call_id":r.call_id.as_str(),"output":output_wire(&r.output, fidelity)});
                 if let Some(s) = r.status {
                     v["status"] = json!(status_label(s));
                 }
@@ -671,16 +640,6 @@ pub(super) fn encode_items_with(
                 .is_some_and(|s| s != ItemLifecycle::Completed)
             {
                 v["status"] = json!(status_label(item.lifecycle().expect("lifecycle")));
-            }
-        }
-        if client {
-            super::client::write_item(&mut v, *id, item, fidelity)
-                .expect("validated client attachment");
-            if items
-                .iter()
-                .any(|(_, item)| matches!(item,Item::ToolCall(call) if call.message==Some(*id)))
-            {
-                v["id"] = json!(super::client::wire_id(*id, fidelity));
             }
         }
         out.push(v);

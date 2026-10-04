@@ -23,7 +23,7 @@ Dialect/rules 从受信 [Adapter](../../src/adapter/mod.rs)选择，不是统一
 
 Chat assistant message 是显式 owner，包括 tool-only 输出；`ToolCall.message` 是 attached function calls 的唯一 membership 权威。`message_groups()` 只借用派生 contiguous group，不猜相邻独立 call 的归属。
 
-重排保持 identity 并重验 group，删除 owner 或移出组必须显式修复。Refusal 与 attached calls 的冲突在静态/事件首次发生时拒绝。标准 Responses 缺 membership carrier，现行 request/static/event 投影拒绝；[scoped client carrier](client-generation-profile.md)是独立非标准位置，不是已允许丢失关系的证明。
+重排保持 identity 并重验 group，删除 owner 或移出组必须显式修复。Refusal 与 attached calls 的冲突在静态/事件首次发生时拒绝。标准 Responses 缺 membership carrier，现行 request/static/event 投影拒绝；[客户端边界](client-generation-profile.md)也不提供私有位置，不能把缺少 carrier 理解为已经允许丢失关系。
 
 Owners：[group view](../../src/semantic/task/generation/group.rs)、[message group tests](../../tests/semantic/message_groups.rs)、[cross-profile tests](../../tests/semantic/group_projection.rs)。未来兼容策略必须区分仅展示信息与必要续轮关系，不能用通用 flatten 丢掉后者。
 
