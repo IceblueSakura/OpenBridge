@@ -69,6 +69,7 @@ impl ItemKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PartKind {
     Text,
+    Audio,
     Refusal,
     Summary,
     ReasoningText,
@@ -95,6 +96,11 @@ pub enum StreamEvent {
         part: PartId,
         fragment: String,
         logprobs: Vec<Logprob>,
+    },
+    AudioDelta {
+        item: ItemId,
+        part: PartId,
+        update: AudioUpdate,
     },
     LogprobsSnapshot {
         item: ItemId,
@@ -377,26 +383,25 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             let owner = state.open_item(item)?;
             let valid = matches!(
                 (&owner.kind, kind),
-                (ItemKind::Message { .. }, PartKind::Text | PartKind::Refusal)
-                    | (
-                        ItemKind::Reasoning,
-                        PartKind::Summary | PartKind::ReasoningText
-                    )
-                    | (
-                        ItemKind::ToolCall {
-                            format: ArgumentFormat::Raw,
-                            ..
-                        },
-                        PartKind::Arguments
-                    )
-                    | (
-                        ItemKind::ToolCall {
-                            format: ArgumentFormat::Json,
-                            ..
-                        },
-                        PartKind::StructuredArguments
-                    )
-                    | (ItemKind::CustomCall { .. }, PartKind::CustomInput)
+                (
+                    ItemKind::Message { .. },
+                    PartKind::Text | PartKind::Refusal | PartKind::Audio
+                ) | (
+                    ItemKind::Reasoning,
+                    PartKind::Summary | PartKind::ReasoningText
+                ) | (
+                    ItemKind::ToolCall {
+                        format: ArgumentFormat::Raw,
+                        ..
+                    },
+                    PartKind::Arguments
+                ) | (
+                    ItemKind::ToolCall {
+                        format: ArgumentFormat::Json,
+                        ..
+                    },
+                    PartKind::StructuredArguments
+                ) | (ItemKind::CustomCall { .. }, PartKind::CustomInput)
             );
             if !valid
                 || matches!(
@@ -409,7 +414,9 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
             owner.parts.push(StreamPart {
                 id: part,
                 kind,
-                data: if kind == PartKind::StructuredArguments {
+                data: if kind == PartKind::Audio {
+                    StreamPartValue::AudioFragments(AudioBuffer::default())
+                } else if kind == PartKind::StructuredArguments {
                     StreamPartValue::JsonFragments(String::new())
                 } else {
                     StreamPartValue::Text(String::new())
@@ -470,6 +477,19 @@ pub fn reduce(mut state: StreamState, event: StreamEvent) -> Result<StreamState,
                 p.metadata_bytes = bytes;
                 p.logprobs = crate::semantic::value::Presence::Value(probs);
             }
+        }
+        StreamEvent::AudioDelta { item, part, update } => {
+            let p = state.open_part(item, part)?;
+            if p.value_finished || p.kind != PartKind::Audio {
+                return Err(EventError::Lifecycle);
+            }
+            let old = p.data.bytes()?;
+            let StreamPartValue::AudioFragments(buffer) = &mut p.data else {
+                return Err(EventError::Lifecycle);
+            };
+            buffer.push(&update)?;
+            let new = p.data.bytes()?;
+            state.charge(new.saturating_sub(old))?;
         }
         StreamEvent::LogprobsSnapshot {
             item,
@@ -742,6 +762,12 @@ impl StreamItem {
                         Ok(Part {
                             id: p.id,
                             content: match p.kind {
+                                PartKind::Audio => match &p.data {
+                                    StreamPartValue::Audio(value) => {
+                                        ContentPart::Audio(value.clone())
+                                    }
+                                    _ => return Err(EventError::Lifecycle),
+                                },
                                 PartKind::Text => ContentPart::Text(TextContent::new(
                                     bounded(p)?,
                                     p.annotations.clone(),

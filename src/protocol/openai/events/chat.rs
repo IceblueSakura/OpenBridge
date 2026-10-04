@@ -95,6 +95,7 @@ impl EventDecoder {
                 "reasoning_content",
                 "reasoning",
                 "reasoning_details",
+                "audio",
             ],
         )?;
         if let Some(role) = delta.get("role").filter(|v| !v.is_null())
@@ -208,7 +209,8 @@ impl EventDecoder {
                 .get("refusal")
                 .and_then(Value::as_str)
                 .is_some_and(|fragment| !fragment.is_empty())
-            || delta.get("tool_calls").is_some_and(|v| !v.is_null());
+            || delta.get("tool_calls").is_some_and(|v| !v.is_null())
+            || delta.get("audio").is_some_and(|v| !v.is_null());
         if message_owned && self.chat_owner.is_none() {
             let id = self.allocate_item()?;
             self.emit(
@@ -238,8 +240,21 @@ impl EventDecoder {
                     .state()?
                     .item(item)?
                     .parts
-                    .first()
+                    .iter()
+                    .find(|p| p.kind != PartKind::Audio)
                     .map(|p| (p.id, p.kind));
+                if existing.is_none()
+                    && self
+                        .state()?
+                        .item(item)?
+                        .parts
+                        .iter()
+                        .any(|p| p.kind == PartKind::Audio)
+                {
+                    return Err(CodecError::Unsupported(
+                        "late text or refusal after audio".into(),
+                    ));
+                }
                 let part = if let Some((part, old_kind)) = existing {
                     if kind != old_kind {
                         return Err(CodecError::Unsupported("mixed Chat text/refusal".into()));
@@ -267,6 +282,41 @@ impl EventDecoder {
                     &mut out,
                 )?;
             }
+        }
+        if let Some(audio) = delta.get("audio").filter(|v| !v.is_null()) {
+            let item = self.chat_owner.ok_or(CodecError::Invalid("audio owner"))?;
+            if self
+                .state()?
+                .item(item)?
+                .parts
+                .iter()
+                .any(|p| p.kind == PartKind::Refusal)
+            {
+                return Err(CodecError::Invalid("audio with refusal"));
+            }
+            let existing = self
+                .state()?
+                .item(item)?
+                .parts
+                .iter()
+                .find(|p| p.kind == PartKind::Audio)
+                .map(|p| p.id);
+            let part = if let Some(part) = existing {
+                part
+            } else {
+                let part = self.allocate_part()?;
+                self.emit(
+                    StreamEvent::PartStarted {
+                        item,
+                        part,
+                        kind: PartKind::Audio,
+                    },
+                    &mut out,
+                )?;
+                part
+            };
+            let update = super::super::chat_audio::read_update(audio, &mut self.chat_audio_bytes)?;
+            self.emit(StreamEvent::AudioDelta { item, part, update }, &mut out)?;
         }
         for (kind, probs) in probabilities {
             let key = if kind == PartKind::Text {
@@ -465,6 +515,16 @@ impl EventDecoder {
                         },
                         &mut out,
                     )?;
+                    if part.kind == PartKind::Audio {
+                        let StreamPartValue::Audio(audio) =
+                            self.state()?.part(item.id, part.id)?.value()
+                        else {
+                            return Err(CodecError::Invalid("audio value"));
+                        };
+                        let content = ContentPart::Audio(audio.clone());
+                        self.fidelity
+                            .record_audio(part.id, &content, self.origin.clone())?;
+                    }
                     self.emit(
                         StreamEvent::PartFinished {
                             item: item.id,
@@ -608,12 +668,13 @@ impl EventEncoder {
         super::super::chat_logprobs::carrier(p.kind, &probs)
     }
     pub(super) fn chat(
-        &self,
+        &mut self,
         event: &StreamEvent,
         probabilities: Option<Value>,
     ) -> Result<Vec<Value>, CodecError> {
         let mut chunks = match event {
             StreamEvent::Started=>vec![self.chunk(json!({"role":"assistant"}),Value::Null)],
+            StreamEvent::AudioDelta{update,..}=>super::super::chat_audio::write_update(update,&mut self.chat_audio_pending).into_iter().map(|v|self.chunk(json!({"audio":v}),Value::Null)).collect(),
             StreamEvent::ItemStarted{item,kind:ItemKind::ToolCall{call_id,name,..},..}=>vec![self.chunk(json!({"tool_calls":[{"index":self.call_index(*item)?,"id":call_id.as_str(),"type":"function","function":{"name":name.as_str(),"arguments":""}}]}),Value::Null)],
             StreamEvent::PartStarted{kind:PartKind::Text,..}=>vec![self.chunk(json!({"content":""}),Value::Null)],
             StreamEvent::PartStarted{kind:PartKind::Refusal,..}=>vec![self.chunk(json!({"refusal":""}),Value::Null)],

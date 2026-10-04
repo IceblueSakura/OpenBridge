@@ -19,6 +19,8 @@ pub(super) const FIELDS: &[&str] = &[
     "response_format",
     "logprobs",
     "top_logprobs",
+    "audio",
+    "modalities",
 ];
 pub fn decode_generation(v: &Value) -> Result<DecodedRequest, CodecError> {
     decode_generation_with(v, &Default::default())
@@ -61,7 +63,7 @@ pub(crate) fn decode_generation_with(
         return Err(CodecError::Invalid("top_logprobs without logprobs"));
     }
     let format = read_presence(o, "response_format", read_response_format)?;
-    let settings = GenerationSettings {
+    let mut settings = GenerationSettings {
         controls,
         text: TextOptions {
             presence: !format.is_absent(),
@@ -71,6 +73,7 @@ pub(crate) fn decode_generation_with(
         reasoning: super::reasoning::chat_request(o)?,
         ..Default::default()
     };
+    super::chat_audio::settings(o, &mut settings)?;
     let r = GenerationRequest::from_settings(b.items, settings)?;
     Ok(DecodedRequest {
         semantic: function_tools::decode(r, o, Profile::Chat)?,
@@ -158,6 +161,8 @@ pub(super) fn decode_message(
             "refusal",
             "reasoning_content",
             "parsed",
+            "annotations",
+            "audio",
         ],
         "assistant" => &[
             "role",
@@ -165,6 +170,8 @@ pub(super) fn decode_message(
             "tool_calls",
             "refusal",
             "reasoning_content",
+            "annotations",
+            "audio",
         ],
         "tool" => &["role", "content", "tool_call_id"],
         "system" | "developer" | "user" => &["role", "content"],
@@ -304,7 +311,7 @@ pub(super) fn decode_message(
                 ),
                 _ => return Err(CodecError::Invalid("refusal")),
             };
-            let parts = match (m.get("content"), refusal) {
+            let mut parts = match (m.get("content"), refusal) {
                 (_, Some(_)) if calls.is_some() => {
                     return Err(CodecError::Invalid("refusal"));
                 }
@@ -344,6 +351,19 @@ pub(super) fn decode_message(
                 (None | Some(Value::Null), None) if role == "assistant" => Vec::new(),
                 _ => return Err(CodecError::Unsupported("message content".into())),
             };
+            super::chat_annotations::attach(&mut parts, m.get("annotations"))?;
+            if let Some(audio) = m.get("audio").filter(|v| !v.is_null()) {
+                if parts
+                    .iter()
+                    .any(|p| matches!(p.content, ContentPart::Refusal(_)))
+                {
+                    return Err(CodecError::Invalid("audio with refusal"));
+                }
+                parts.push(Part {
+                    id: b.part_id()?,
+                    content: super::chat_audio::read(audio, replay)?,
+                });
+            }
             b.items.push((
                 id,
                 Item::Message(Message {
@@ -390,6 +410,7 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
         target.semantic.items(),
         target.fidelity,
         target.adaptation.rules.structured_chat_reasoning,
+        false,
     );
     if let Some(t) = target.semantic.instructions().value() {
         messages.insert(0, json!({"role":"developer","content":t.as_str()}));
@@ -420,6 +441,7 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
         &target.semantic.text_options().format,
         write_response_format,
     );
+    super::chat_audio::write_settings(target.semantic.settings(), o);
     function_tools::encode(target.semantic, Profile::Chat, o);
     super::reasoning::write_request(target.semantic.reasoning(), o, Profile::Chat);
     bounded(&v)?;
@@ -432,6 +454,7 @@ pub(super) fn encode_items_with(
     items: &[(ItemId, Item)],
     fidelity: &crate::protocol::fidelity::FidelityRecords,
     structured: bool,
+    response: bool,
 ) -> Vec<Value> {
     let mut messages = Vec::<Value>::new();
     let mut standalone_calls = false;
@@ -481,13 +504,47 @@ pub(super) fn encode_items_with(
                 if let Some(value) = details.take() {
                     message["reasoning_details"] = json!(value);
                 }
-                match m.parts.as_slice() {
+                let text_parts: Vec<_> = m
+                    .parts
+                    .iter()
+                    .filter(|p| {
+                        !matches!(
+                            p.content,
+                            ContentPart::Audio(_) | ContentPart::AudioReference(_)
+                        )
+                    })
+                    .collect();
+                for p in &m.parts {
+                    match &p.content {
+                        ContentPart::Audio(audio) => {
+                            message["audio"] = if response {
+                                super::chat_audio::write(audio)
+                            } else {
+                                json!({"id":audio.reference().id()})
+                            }
+                        }
+                        ContentPart::AudioReference(reference) => {
+                            message["audio"] = json!({"id":reference.id()})
+                        }
+                        _ => {}
+                    }
+                }
+                match text_parts.as_slice() {
                     [] => message["content"] = Value::Null,
                     [part] => match &part.content {
-                        ContentPart::Text(t) => message["content"] = json!(t.as_str()),
+                        ContentPart::Text(t) => {
+                            message["content"] = json!(t.as_str());
+                            if !t.annotations().is_empty() {
+                                message["annotations"] =
+                                    super::chat_annotations::write(t.annotations());
+                            }
+                        }
                         ContentPart::Refusal(t) => {
                             message["content"] = Value::Null;
                             message["refusal"] = json!(t.as_str());
+                        }
+                        ContentPart::Audio(_) | ContentPart::AudioReference(_) => {
+                            unreachable!("filtered audio")
                         }
                         ContentPart::Resource(resource) => {
                             message["content"] =

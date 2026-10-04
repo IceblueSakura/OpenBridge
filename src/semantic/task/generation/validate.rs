@@ -90,6 +90,19 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                             t.validate()?;
                             charge(&mut bytes, t.bytes())?;
                         }
+                        ContentPart::Audio(audio) => {
+                            if m.role != MessageRole::Assistant {
+                                return Err(GenerationError::InvalidResource);
+                            }
+                            audio.validate()?;
+                            charge(&mut bytes, audio.bytes())?;
+                        }
+                        ContentPart::AudioReference(reference) => {
+                            if response || m.role != MessageRole::Assistant {
+                                return Err(GenerationError::InvalidResource);
+                            }
+                            charge(&mut bytes, reference.bytes())?;
+                        }
                         ContentPart::Resource(resource) => {
                             if response || m.role != MessageRole::User {
                                 return Err(GenerationError::InvalidResource);

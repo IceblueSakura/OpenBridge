@@ -21,6 +21,8 @@ pub enum GenerationFeature {
     Reasoning,
     ImageInput,
     AudioInput,
+    AudioOutput,
+    AudioHistory,
     FileInput,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,6 +45,8 @@ pub struct GenerationSemanticContract {
     pub reasoning: bool,
     pub image_input: bool,
     pub audio_input: bool,
+    pub audio_output: bool,
+    pub audio_history: bool,
     pub file_input: bool,
     pub parallel_tool_calls: bool,
     pub strict_tools: bool,
@@ -69,6 +73,8 @@ impl GenerationSemanticContract {
             reasoning: true,
             image_input: true,
             audio_input: true,
+            audio_output: true,
+            audio_history: true,
             file_input: true,
             parallel_tool_calls: true,
             strict_tools: true,
@@ -95,6 +101,8 @@ impl GenerationSemanticContract {
             reasoning: true,
             image_input: true,
             audio_input: false,
+            audio_output: false,
+            audio_history: false,
             file_input: false,
             parallel_tool_calls: true,
             strict_tools: false,
@@ -123,6 +131,8 @@ impl GenerationSemanticContract {
             (promise.reasoning, self.reasoning),
             (promise.image_input, self.image_input),
             (promise.audio_input, self.audio_input),
+            (promise.audio_output, self.audio_output),
+            (promise.audio_history, self.audio_history),
             (promise.file_input, self.file_input),
             (promise.parallel_tool_calls, self.parallel_tool_calls),
             (promise.strict_tools, self.strict_tools),
@@ -138,6 +148,7 @@ impl GenerationSemanticContract {
         use GenerationFeature::*;
         let q = GenerationResponseRequirements::derive(response);
         for (needed, supported, feature) in [
+            (q.audio_output, self.audio_output, AudioOutput),
             (q.instructions, self.instructions, Instructions),
             (q.tools, self.tools, Tools),
             (q.custom_tools, self.custom_tools, Tools),
@@ -223,6 +234,8 @@ impl GenerationSemanticContract {
             (q.reasoning, self.reasoning, Reasoning),
             (q.image_inputs > 0, self.image_input, ImageInput),
             (q.audio_inputs > 0, self.audio_input, AudioInput),
+            (q.audio_output, self.audio_output, AudioOutput),
+            (q.audio_history, self.audio_history, AudioHistory),
             (q.file_inputs > 0, self.file_input, FileInput),
         ] {
             if required && !supported {

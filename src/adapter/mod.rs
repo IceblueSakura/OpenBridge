@@ -295,6 +295,23 @@ impl Adapter {
         if let Some(scope) = &self.adaptation.scope {
             decoded.fidelity.bind_replay_origin(scope)?;
         }
+        for (_, item) in decoded.semantic.items() {
+            if let crate::semantic::task::generation::Item::Message(m) = item {
+                for p in &m.parts {
+                    if matches!(
+                        p.content,
+                        crate::semantic::task::generation::ContentPart::Audio(_)
+                            | crate::semantic::task::generation::ContentPart::AudioReference(_)
+                    ) {
+                        decoded.fidelity.record_audio(
+                            p.id,
+                            &p.content,
+                            self.adaptation.scope.clone(),
+                        )?;
+                    }
+                }
+            }
+        }
         Ok(decoded)
     }
     pub fn encode_response(

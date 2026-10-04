@@ -54,6 +54,6 @@ ADR 是当前有效合同，不是决策历史。只保留最终方案、必要�
 - [Protocol and lowering](protocol-and-lowering.md)：codec、fidelity 和目标可表示性。
 - [Execution model](execution-model.md) / [invariants](invariants.md)：跨模块生命周期、安全和资源边界。
 - [Rust layout](rust-layout.md)：职责划分方向，不复制文件树。
-- [Responses](responses-text-profile.md) / [Chat](chat-text-profile.md) / [Schema](schema-profile.md) profiles：设计准入与刻意拒绝的范围；[OpenBridge-client Responses carrier](client-generation-profile.md)单独拥有 scoped 客户端边界，不放宽标准目标。精确规则以 owning code 和独立预期维护。
+- [Responses](responses-text-profile.md) / [Chat](chat-text-profile.md)（[citations/audio](chat-media-profile.md)） / [Schema](schema-profile.md) profiles：设计准入与刻意拒绝的范围；[OpenBridge-client Responses carrier](client-generation-profile.md)单独拥有 scoped 客户端边界，不放宽标准目标。精确规则以 owning code 和独立预期维护。
 - [来源索引](../references/README.md)：各协议的一手入口；[固定来源](../references/upstream-sync.md)区分现有 OpenAI 标准/SDK 与 Codex 产品 profile，不是所有协议的共同 schema。
 - [验收方法](../references/conformance-baseline.md)：独立 decode/encode、IR 编辑、Static/Event 与失败/资源边界。执行命令归[开发指南](../development.md)，结果不保存在文档。

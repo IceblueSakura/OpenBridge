@@ -67,14 +67,8 @@ fn extract(o: &mut Map<String, Value>, profile: Profile) -> Result<Extras, Codec
         // The text-only profile can normalize explicit zero modality counts;
         // nonzero, null or malformed counts need a real semantic mapping.
         for (details, names) in [
-            (
-                "prompt_tokens_details",
-                &["audio_tokens", "video_tokens"][..],
-            ),
-            (
-                "completion_tokens_details",
-                &["audio_tokens", "image_tokens"][..],
-            ),
+            ("prompt_tokens_details", &["video_tokens"][..]),
+            ("completion_tokens_details", &["image_tokens"][..]),
         ] {
             if let Some(details) = usage.get_mut(details).and_then(Value::as_object_mut) {
                 for name in names {
@@ -361,7 +355,7 @@ pub(crate) fn decode<'a>(
             for choice in choices {
                 for field in ["message", "delta"] {
                     if let Some(message) = choice.get_mut(field).and_then(Value::as_object_mut) {
-                        for name in ["audio", "function_call"] {
+                        for name in ["function_call"] {
                             if let Some(value) = message.shift_remove(name)
                                 && !value.is_null()
                             {
@@ -419,7 +413,7 @@ pub(crate) fn decode<'a>(
         {
             for name in ["prompt_tokens_details", "completion_tokens_details"] {
                 if let Some(details) = usage.get_mut(name).and_then(Value::as_object_mut) {
-                    for name in ["audio_tokens", "image_tokens", "video_tokens"] {
+                    for name in ["image_tokens", "video_tokens"] {
                         if let Some(value) = details.shift_remove(name)
                             && value.as_u64() != Some(0)
                         {

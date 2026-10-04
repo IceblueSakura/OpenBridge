@@ -133,10 +133,9 @@ fn opencode_go_unversioned_readable_views_are_closed_and_never_restore_deleted_r
         wire["usage"]["completion_tokens_details"]["reasoning_tokens"],
         1
     );
-    assert!(
-        wire["usage"]["completion_tokens_details"]
-            .get("audio_tokens")
-            .is_none()
+    assert_eq!(
+        wire["usage"]["completion_tokens_details"]["audio_tokens"],
+        0
     );
     assert!(
         adapter(Dialect::OpenRouter)
@@ -154,8 +153,11 @@ fn opencode_go_unversioned_readable_views_are_closed_and_never_restore_deleted_r
             json!("arbitrary"),
         ),
         ("/choices/0/message/reasoning_details/0/index", json!(1)),
-        ("/usage/completion_tokens_details/audio_tokens", json!(1)),
-        ("/usage/prompt_tokens_details/audio_tokens", Value::Null),
+        ("/usage/completion_tokens_details/audio_tokens", json!(-1)),
+        (
+            "/usage/prompt_tokens_details/audio_tokens",
+            json!("unknown"),
+        ),
     ] {
         let mut invalid = source.clone();
         *invalid.pointer_mut(path).unwrap() = value;

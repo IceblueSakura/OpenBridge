@@ -130,6 +130,16 @@ pub(super) fn usage(
         total_tokens: Some(count(usage, "total_tokens")?),
         cached_input_tokens: detail(usage, input_details, "cached_tokens")?,
         input_image_tokens: detail(usage, input_details, "image_tokens")?,
+        input_audio_tokens: if profile == Profile::Chat {
+            detail(usage, input_details, "audio_tokens")?
+        } else {
+            None
+        },
+        output_audio_tokens: if profile == Profile::Chat {
+            detail(usage, output_details, "audio_tokens")?
+        } else {
+            None
+        },
         input_cache_write_tokens: detail(usage, input_details, "cache_write_tokens")?,
         reasoning_tokens: detail(usage, output_details, "reasoning_tokens")?,
         input_text_tokens: detail(usage, input_details, "text_tokens")?,
@@ -224,12 +234,14 @@ fn detail(
             // smuggled into the standard Responses detail objects.
             let allowed: &[&str] = match key {
                 "prompt_tokens_details" => &[
+                    "audio_tokens",
                     "cached_tokens",
                     "cache_write_tokens",
                     "text_tokens",
                     "image_tokens",
                 ],
                 "completion_tokens_details" => &[
+                    "audio_tokens",
                     "reasoning_tokens",
                     "text_tokens",
                     "accepted_prediction_tokens",
@@ -343,6 +355,14 @@ pub(super) fn encode_usage(
         }
     }
     if profile == Profile::Chat {
+        for (details, count) in [
+            ("prompt_tokens_details", usage.input_audio_tokens),
+            ("completion_tokens_details", usage.output_audio_tokens),
+        ] {
+            if let Some(count) = count {
+                object.entry(details).or_insert_with(|| json!({}))["audio_tokens"] = json!(count);
+            }
+        }
         for (details, name, count) in [
             (
                 "completion_tokens_details",
@@ -573,6 +593,7 @@ pub fn encode_chat(target: &ResponseRepresentation<'_>) -> Result<Value, CodecEr
         target.semantic.items(),
         target.fidelity,
         target.adaptation.rules.structured_chat_reasoning,
+        true,
     );
     if target.adaptation.rules.reasoning_alias {
         for message in &mut messages {

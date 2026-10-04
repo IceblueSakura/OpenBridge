@@ -56,6 +56,8 @@ pub enum ContentPart {
     Text(TextContent),
     Refusal(RefusalContent),
     Resource(Resource),
+    Audio(super::GeneratedAudio),
+    AudioReference(super::AudioReference),
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Part {
@@ -150,6 +152,8 @@ pub struct GenerationSettings {
     pub parallel_tool_calls: Option<bool>,
     pub text: TextOptions,
     pub reasoning: ReasoningRequest,
+    pub output_modalities: Presence<Vec<super::OutputModality>>,
+    pub audio: Presence<super::AudioOutputOptions>,
 }
 impl GenerationSettings {
     pub fn output(&self) -> &OutputConstraint {
@@ -172,11 +176,36 @@ impl GenerationSettings {
             return Err(GenerationError::InvalidControl);
         }
         self.reasoning.validate()?;
+        if let Some(modalities) = self.output_modalities.value()
+            && (modalities.is_empty()
+                || modalities.len() > 2
+                || (modalities.len() == 2 && modalities[0] == modalities[1]))
+        {
+            return Err(GenerationError::InvalidControl);
+        }
+        let audio = self
+            .output_modalities
+            .value()
+            .is_some_and(|v| v.contains(&super::OutputModality::Audio));
+        if audio != self.audio.value().is_some() {
+            return Err(GenerationError::InvalidControl);
+        }
+        if let Some(options) = self.audio.value() {
+            options.validate()?;
+        }
         let instructions = self.instructions.value().map_or(0, |t| t.as_str().len());
         if instructions > MAX_TEXT_BYTES {
             return Err(GenerationError::Limit);
         }
         let bytes = instructions
+            + self
+                .audio
+                .value()
+                .map_or(0, |v| v.voice.as_str().len() + v.format.label().len())
+            + self
+                .output_modalities
+                .value()
+                .map_or(0, |v| v.iter().map(|m| m.label().len()).sum::<usize>())
             + super::validate::tools(
                 self.tools.as_deref().unwrap_or_default(),
                 self.tool_choice.as_ref(),

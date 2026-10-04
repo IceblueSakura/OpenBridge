@@ -14,6 +14,8 @@ mod cache_prefix;
 mod cache_projection;
 #[path = "semantic/chat_logprobs.rs"]
 mod chat_logprobs;
+#[path = "semantic/chat_media.rs"]
+mod chat_media;
 #[path = "semantic/chat_wire.rs"]
 mod chat_wire;
 #[path = "semantic/client_carrier.rs"]

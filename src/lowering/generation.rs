@@ -24,6 +24,8 @@ pub enum ReportedFactPolicy {
 pub struct GenerationRepresentationContract {
     pub adaptation: crate::protocol::adaptation::Adaptation,
     pub replay_origin: Option<crate::semantic::value::ReplayOrigin>,
+    /// Caller-supplied clock for checking a reported remote-resource expiry.
+    pub resource_time: Option<u64>,
     /// Delivery policy for reported facts; `Faithful` unless a consumer
     /// explicitly demands the strict complete form.
     pub reported_facts: ReportedFactPolicy,
@@ -40,6 +42,7 @@ impl GenerationRepresentationContract {
         Self {
             adaptation: Default::default(),
             replay_origin: None,
+            resource_time: None,
             reported_facts: ReportedFactPolicy::Faithful,
             semantics: GenerationSemanticContract::full(),
             images: crate::protocol::image_constraints::ImageConstraints::all(),
@@ -63,6 +66,25 @@ pub fn lower_request<'a>(
     c: GenerationRepresentationContract,
 ) -> Result<RequestRepresentation<'a>, RepresentationError> {
     let q = check(r, c.clone())?;
+    if profile != Profile::Chat
+        && (!r.settings().audio.is_absent() || !r.settings().output_modalities.is_absent())
+    {
+        return Err(RepresentationError::UnmigratedSemantic);
+    }
+    for (_, item) in r.items() {
+        if let Item::Message(m) = item {
+            for p in &m.parts {
+                if matches!(
+                    p.content,
+                    ContentPart::Audio(_) | ContentPart::AudioReference(_)
+                ) {
+                    fidelity
+                        .check_audio(p.id, &p.content, c.replay_origin.as_ref(), c.resource_time)
+                        .map_err(|_| RepresentationError::ReplayOrigin)?;
+                }
+            }
+        }
+    }
     if profile == Profile::Chat
         && q.reasoning
         && !c.adaptation.rules.readable_reasoning
@@ -248,7 +270,9 @@ pub(super) fn check_usage(
         && ((usage.input_text_tokens.is_some() || usage.output_text_tokens.is_some())
             && !rules.responses_text_usage
             || usage.accepted_prediction_tokens.is_some()
-            || usage.rejected_prediction_tokens.is_some())
+            || usage.rejected_prediction_tokens.is_some()
+            || usage.input_audio_tokens.is_some()
+            || usage.output_audio_tokens.is_some())
     {
         return Err(RepresentationError::UsageDetails);
     }
@@ -277,6 +301,14 @@ pub fn lower_response<'a>(
             }))
     {
         return Err(RepresentationError::UsageProjection);
+    }
+    if metadata
+        .context
+        .settings
+        .as_ref()
+        .is_some_and(|s| !s.audio.is_absent() || !s.output_modalities.is_absent())
+    {
+        return Err(RepresentationError::UnmigratedSemantic);
     }
     require_reported_facts(r, metadata, &c)?;
     if let Some(usage) = r.usage()
@@ -535,11 +567,10 @@ fn text_items(
                 Item::Message(m)
                     if m.parts.iter().any(|p| match &p.content {
                         ContentPart::Text(t) => {
-                            if request {
-                                !t.is_plain()
-                            } else {
-                                !t.annotations().is_empty()
-                            }
+                            (request && !t.is_plain())
+                                || t.annotations()
+                                    .iter()
+                                    .any(|a| !matches!(a, Annotation::UrlCitation { .. }))
                         }
                         ContentPart::Refusal(t) => request && !t.logprobs().is_absent(),
                         _ => false,
@@ -572,6 +603,8 @@ fn text_items(
             if profile==Profile::Responses && m.parts.iter().any(|p|matches!(&p.content,ContentPart::Text(t) if t.logprobs().value().is_some_and(|v|v.iter().any(|p|p.bytes.is_none() || p.top_logprobs.as_ref().is_none_or(|v|v.iter().any(|p|p.token.is_none()||p.logprob.is_none()||p.bytes.is_none())))))){return Err(RepresentationError::TextMetadata);}
             if m.parts.iter().any(|p| match &p.content {
                 ContentPart::Text(_) | ContentPart::Refusal(_) => false,
+                ContentPart::Audio(_) => profile != Profile::Chat,
+                ContentPart::AudioReference(_) => profile != Profile::Chat || !request,
                 ContentPart::Resource(resource) => {
                     !request
                         || resource.kind != ResourceKind::Image
@@ -580,8 +613,47 @@ fn text_items(
             }) {
                 return Err(RepresentationError::UnmigratedSemantic);
             }
+            if profile == Profile::Chat {
+                let audio = m
+                    .parts
+                    .iter()
+                    .filter(|p| {
+                        matches!(
+                            p.content,
+                            ContentPart::Audio(_) | ContentPart::AudioReference(_)
+                        )
+                    })
+                    .count();
+                if audio > 1
+                    || (audio == 1
+                        && (m.parts.len() > 2
+                            || !m.parts.last().is_some_and(|p| {
+                                matches!(
+                                    p.content,
+                                    ContentPart::Audio(_) | ContentPart::AudioReference(_)
+                                )
+                            })
+                            || m.parts.iter().any(|p| {
+                                matches!(
+                                    p.content,
+                                    ContentPart::Refusal(_) | ContentPart::Resource(_)
+                                )
+                            })))
+                {
+                    return Err(RepresentationError::MessageGrouping);
+                }
+            }
             if profile == Profile::Chat
-                && m.parts.len() > 1
+                && m.parts
+                    .iter()
+                    .filter(|p| {
+                        !matches!(
+                            p.content,
+                            ContentPart::Audio(_) | ContentPart::AudioReference(_)
+                        )
+                    })
+                    .count()
+                    > 1
                 && (!request
                     || m.parts.iter().any(|p| {
                         !matches!(p.content, ContentPart::Text(_) | ContentPart::Resource(_))

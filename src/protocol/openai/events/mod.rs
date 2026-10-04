@@ -85,6 +85,7 @@ fn replay_with(
 }
 fn kind_name(kind: PartKind) -> &'static str {
     match kind {
+        PartKind::Audio => unreachable!("audio has no Responses event carrier"),
         PartKind::Text => "output_text",
         PartKind::Refusal => "refusal",
         PartKind::Summary => "summary_text",

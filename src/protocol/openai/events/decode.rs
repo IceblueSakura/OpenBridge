@@ -23,6 +23,7 @@ pub struct EventDecoder {
     pub(super) chat_reasoning: Option<ItemId>,
     pub(super) chat_replay: Option<ReasoningReplay>,
     pub(super) chat_pending_part: Option<PartKind>,
+    pub(super) chat_audio_bytes: super::super::chat_audio::ChunkBytes,
 }
 impl EventDecoder {
     pub fn new(profile: Profile) -> Self {
@@ -47,6 +48,7 @@ impl EventDecoder {
             chat_reasoning: None,
             chat_replay: None,
             chat_pending_part: None,
+            chat_audio_bytes: Default::default(),
         }
     }
     pub(crate) fn permits_responses_done(&self) -> bool {

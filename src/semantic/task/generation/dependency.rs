@@ -19,6 +19,7 @@ pub enum SettingsField {
     ParallelTools,
     Text,
     Reasoning,
+    Audio,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SettingsDependency {
@@ -151,6 +152,7 @@ fn dependency(
         SettingsField::ParallelTools,
         SettingsField::Text,
         SettingsField::Reasoning,
+        SettingsField::Audio,
     ] {
         if !settings.includes(field) {
             continue;
@@ -163,6 +165,9 @@ fn dependency(
             SettingsField::ParallelTools => write!(writer, "{field:?}:{:?}", s.parallel_tool_calls),
             SettingsField::Text => write!(writer, "{field:?}:{:?}", s.text),
             SettingsField::Reasoning => write!(writer, "{field:?}:{:?}", s.reasoning),
+            SettingsField::Audio => {
+                write!(writer, "{field:?}:{:?}:{:?}", s.output_modalities, s.audio)
+            }
         };
         result.map_err(|_| GenerationError::Limit)?;
     }
@@ -176,8 +181,15 @@ fn dependency(
             }
             Item::Message(m) => {
                 for part in &m.parts {
-                    if let ContentPart::Resource(resource) = &part.content {
-                        resource_dependency(&mut writer.hash, resource);
+                    match &part.content {
+                        ContentPart::Resource(resource) => {
+                            resource_dependency(&mut writer.hash, resource)
+                        }
+                        ContentPart::Audio(audio) => writer.hash.update(audio.fingerprint()),
+                        ContentPart::AudioReference(reference) => {
+                            writer.hash.update(reference.fingerprint())
+                        }
+                        _ => {}
                     }
                 }
             }

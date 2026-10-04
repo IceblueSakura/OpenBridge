@@ -17,6 +17,8 @@ const FIELDS: &[&str] = &[
     "input_cache_write_tokens",
     "reasoning_tokens",
     "input_image_tokens",
+    "input_audio_tokens",
+    "output_audio_tokens",
     "input_text_tokens",
     "output_text_tokens",
     "accepted_prediction_tokens",
@@ -24,7 +26,7 @@ const FIELDS: &[&str] = &[
 ];
 pub(crate) fn standard(reports: &[Usage]) -> bool {
     reports.is_empty()
-        || matches!(reports,[usage] if usage.scope==UsageScope::Operation && usage.basis==UsageBasis::Final && usage.output_relation==OutputTokenRelation::IncludesReasoning && usage.total_relation==TotalTokenRelation::InputAndOutput && usage.input_tokens.is_some() && usage.output_tokens.is_some() && usage.total_tokens.is_some() && usage.accepted_prediction_tokens.is_none() && usage.rejected_prediction_tokens.is_none())
+        || matches!(reports,[usage] if usage.scope==UsageScope::Operation && usage.basis==UsageBasis::Final && usage.output_relation==OutputTokenRelation::IncludesReasoning && usage.total_relation==TotalTokenRelation::InputAndOutput && usage.input_tokens.is_some() && usage.output_tokens.is_some() && usage.total_tokens.is_some() && usage.accepted_prediction_tokens.is_none() && usage.rejected_prediction_tokens.is_none() && usage.input_audio_tokens.is_none() && usage.output_audio_tokens.is_none())
 }
 pub(crate) fn read(
     root: Option<&Value>,
@@ -78,6 +80,8 @@ pub(crate) fn read(
             input_cache_write_tokens: None,
             reasoning_tokens: None,
             input_image_tokens: None,
+            input_audio_tokens: None,
+            output_audio_tokens: None,
             input_text_tokens: None,
             output_text_tokens: None,
             accepted_prediction_tokens: None,
@@ -92,6 +96,8 @@ pub(crate) fn read(
             input_cache_write_tokens,
             reasoning_tokens,
             input_image_tokens,
+            input_audio_tokens,
+            output_audio_tokens,
             input_text_tokens,
             output_text_tokens,
             accepted_prediction_tokens,
@@ -113,7 +119,7 @@ pub(crate) fn write(root: &mut Value, reports: &[Usage], fidelity: &FidelityReco
         let total=match usage.total_relation {TotalTokenRelation::Unreported=>"unreported",TotalTokenRelation::InputAndOutput=>"input_and_output",TotalTokenRelation::InputOutputAndReasoning=>"input_output_and_reasoning"};
         let mut value=json!({"scope":scope,"basis":basis,"output_relation":output,"total_relation":total});
         macro_rules! counters {($($field:ident),*)=>{$(if let Some(count)=usage.$field {value[stringify!($field)]=json!(count);})*};}
-        counters!(input_tokens,output_tokens,total_tokens,cached_input_tokens,input_cache_write_tokens,reasoning_tokens,input_image_tokens,input_text_tokens,output_text_tokens,accepted_prediction_tokens,rejected_prediction_tokens);
+        counters!(input_tokens,output_tokens,total_tokens,cached_input_tokens,input_cache_write_tokens,reasoning_tokens,input_image_tokens,input_audio_tokens,output_audio_tokens,input_text_tokens,output_text_tokens,accepted_prediction_tokens,rejected_prediction_tokens);
         value
     }).collect();
     if root.get(super::FIELD).is_none() {

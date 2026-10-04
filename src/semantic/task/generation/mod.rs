@@ -1,4 +1,11 @@
 //! Generation semantic IR.
+mod audio;
+mod audio_stream;
+pub use audio::{
+    AudioFormat, AudioOutputOptions, AudioReference, GeneratedAudio, MAX_AUDIO_DECODED_BYTES,
+    OutputModality,
+};
+pub use audio_stream::{AudioBuffer, AudioUpdate};
 mod continuation;
 mod dependency;
 pub use dependency::{

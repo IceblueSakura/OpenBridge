@@ -38,6 +38,8 @@ pub struct Usage {
     pub input_cache_write_tokens: Option<u64>,
     pub input_text_tokens: Option<u64>,
     pub input_image_tokens: Option<u64>,
+    pub input_audio_tokens: Option<u64>,
+    pub output_audio_tokens: Option<u64>,
     pub output_text_tokens: Option<u64>,
     pub accepted_prediction_tokens: Option<u64>,
     pub rejected_prediction_tokens: Option<u64>,
@@ -58,6 +60,8 @@ impl Usage {
             input_cache_write_tokens: None,
             input_text_tokens: None,
             input_image_tokens: None,
+            input_audio_tokens: None,
+            output_audio_tokens: None,
             output_text_tokens: None,
             accepted_prediction_tokens: None,
             rejected_prediction_tokens: None,
@@ -72,6 +76,8 @@ impl Usage {
             || !subset(self.input_cache_write_tokens, self.input_tokens)
             || !subset(self.input_text_tokens, self.input_tokens)
             || !subset(self.input_image_tokens, self.input_tokens)
+            || !subset(self.input_audio_tokens, self.input_tokens)
+            || !subset(self.output_audio_tokens, self.output_tokens)
             || !subset(self.output_text_tokens, self.output_tokens)
             || !subset(self.accepted_prediction_tokens, self.output_tokens)
             || !subset(self.rejected_prediction_tokens, self.output_tokens)
@@ -114,7 +120,7 @@ impl Usage {
         }
         Ok(())
     }
-    pub(crate) fn counters(self) -> [Option<u64>; 11] {
+    pub(crate) fn counters(self) -> [Option<u64>; 13] {
         [
             self.input_tokens,
             self.output_tokens,
@@ -124,6 +130,8 @@ impl Usage {
             self.input_cache_write_tokens,
             self.input_text_tokens,
             self.input_image_tokens,
+            self.input_audio_tokens,
+            self.output_audio_tokens,
             self.output_text_tokens,
             self.accepted_prediction_tokens,
             self.rejected_prediction_tokens,
@@ -148,7 +156,7 @@ impl Usage {
                     return Ok(());
                 }
                 (UsageBasis::Delta, UsageBasis::Delta | UsageBasis::Final) => {
-                    let mut lower = [0u64; 11];
+                    let mut lower = [0u64; 13];
                     for report in reports.iter().filter(|report| {
                         report.scope == next.scope && report.basis == UsageBasis::Delta
                     }) {

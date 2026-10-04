@@ -15,6 +15,8 @@
 
 共享图片/文件语义不能因当前实现没有 codec 就降格为“Provider 特殊能力”。上表只定位 Responses 来源，不将音频/视频永久限定为厂商扩展；共享内容值与仍具特定 profile 含义的控制应分别归属。同样，存在 audio 事件也不等于完整 request/response 合同或任意 Responses model 支持 audio input/output。
 
+标准 Chat citations 与生成音频的具体控制、值、流和引用边界归 [Chat media profile](../architecture-v2/chat-media-profile.md)，不由 Responses 的事件目录推导。
+
 ## 2. Resource value 需要表达什么
 
 资源身份、来源、格式和用途分别表达：

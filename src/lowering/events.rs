@@ -22,6 +22,15 @@ pub fn check_event(
     }
     match event {
         StreamEvent::PartStarted {
+            kind: PartKind::Audio,
+            ..
+        }
+        | StreamEvent::AudioDelta { .. }
+            if profile != Profile::Chat || !contract.semantics.audio_output =>
+        {
+            return Err(RepresentationError::UnmigratedSemantic);
+        }
+        StreamEvent::PartStarted {
             kind: PartKind::StructuredArguments,
             ..
         } if !client => return Err(RepresentationError::Tools),
@@ -188,10 +197,16 @@ pub fn check_event(
                 return Err(RepresentationError::TextMetadata);
             }
         }
-        StreamEvent::PartStarted { item, .. }
+        StreamEvent::PartStarted { item, kind, .. }
             if profile == Profile::Chat
                 && matches!(state.item(*item)?.kind, ItemKind::Message { .. })
-                && !state.item(*item)?.parts.is_empty() =>
+                && state.item(*item)?.parts.iter().any(|p| {
+                    p.kind == *kind
+                        || p.kind == PartKind::Audio
+                        || p.kind == PartKind::Refusal
+                        || *kind == PartKind::Refusal
+                        || (p.kind != PartKind::Audio && *kind != PartKind::Audio)
+                }) =>
         {
             return Err(RepresentationError::MessageGrouping);
         }

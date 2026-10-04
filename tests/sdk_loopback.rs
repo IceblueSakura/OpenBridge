@@ -1,5 +1,7 @@
 //! Explicit, ignored SDK gates: codec fixtures plus the actual gateway Router
 //! against a synthetic HTTP Provider. All listeners and credentials are test-owned.
+#[path = "sdk/chat_media.rs"]
+mod chat_media_sdk;
 #[path = "sdk/chat.rs"]
 mod chat_sdk;
 #[path = "../examples/support/child_process.rs"]

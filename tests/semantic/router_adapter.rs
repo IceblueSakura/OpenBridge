@@ -125,6 +125,8 @@ fn router_facts_are_scoped_and_reasoning_and_usage_are_typed() {
             reasoning_tokens: None,
             input_text_tokens: None,
             input_image_tokens: None,
+            input_audio_tokens: None,
+            output_audio_tokens: None,
             output_text_tokens: None,
             accepted_prediction_tokens: None,
             rejected_prediction_tokens: None,
@@ -214,7 +216,15 @@ fn router_live_shapes_map_typed_tier_zero_media_and_reasoning_replay() {
             .is_err()
     );
     body["usage"]["prompt_tokens_details"]["audio_tokens"] = json!(1);
-    assert!(source.decode_response(body.to_string().as_bytes()).is_err());
+    let reported = source.decode_response(body.to_string().as_bytes()).unwrap();
+    assert_eq!(
+        reported.semantic.usage().unwrap().input_audio_tokens,
+        Some(1)
+    );
+    assert_eq!(
+        source.encode_response(&reported, &contract).unwrap()["usage"]["prompt_tokens_details"]["audio_tokens"],
+        1
+    );
     let mut empty = chat();
     empty["choices"][0]["message"]["reasoning"] = json!("");
     empty["choices"][0]["message"]["reasoning_details"] =

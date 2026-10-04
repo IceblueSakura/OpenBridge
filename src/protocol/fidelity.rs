@@ -46,17 +46,78 @@ struct ReplayBinding {
     history: Option<RequestDependencyProof>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AudioBinding {
+    origin: Option<ReplayOrigin>,
+    reference: [u8; 32],
+    body: Option<[u8; 32]>,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FidelityRecords {
     response_item_ids: BTreeMap<ItemId, Text>,
     cache_breakpoints: std::collections::BTreeSet<PartId>,
     input_text_forms: std::collections::BTreeSet<PartId>,
     reasoning_replay: BTreeMap<ItemId, ReplayBinding>,
+    audio: BTreeMap<PartId, AudioBinding>,
     response_extras: Option<ResponseExtras>,
     routing_extras: Option<ResponseExtras>,
     normalizations: std::collections::BTreeSet<Normalization>,
 }
 impl FidelityRecords {
+    /// Trusted intake association, never issuer authentication or a client-supplied scope.
+    pub fn record_audio(
+        &mut self,
+        owner: PartId,
+        content: &ContentPart,
+        origin: Option<ReplayOrigin>,
+    ) -> Result<(), CodecError> {
+        let (reference, body) = match content {
+            ContentPart::Audio(v) => (v.reference(), Some(v.fingerprint())),
+            ContentPart::AudioReference(v) => (v, None),
+            _ => return Err(CodecError::Invalid("audio owner")),
+        };
+        if self.audio.len() >= MAX_ITEMS || self.audio.contains_key(&owner) {
+            return Err(CodecError::Invalid("audio binding"));
+        }
+        self.audio.insert(
+            owner,
+            AudioBinding {
+                origin,
+                reference: reference.fingerprint(),
+                body,
+            },
+        );
+        Ok(())
+    }
+    pub fn check_audio(
+        &self,
+        owner: PartId,
+        content: &ContentPart,
+        origin: Option<&ReplayOrigin>,
+        now: Option<u64>,
+    ) -> Result<(), CodecError> {
+        let (reference, body) = match content {
+            ContentPart::Audio(v) => (v.reference(), Some(v.fingerprint())),
+            ContentPart::AudioReference(v) => (v, None),
+            _ => return Err(CodecError::Invalid("audio owner")),
+        };
+        let binding = self
+            .audio
+            .get(&owner)
+            .ok_or(CodecError::Invalid("audio binding"))?;
+        if origin.is_none()
+            || binding.origin.as_ref() != origin
+            || binding.reference != reference.fingerprint()
+            || body.is_some() && body != binding.body
+        {
+            return Err(CodecError::Invalid("audio binding"));
+        }
+        if reference.expires_at().is_some() {
+            reference.check_at(now.ok_or(CodecError::Invalid("audio clock"))?)?;
+        }
+        Ok(())
+    }
     pub fn record_input_text(&mut self, owner: PartId) -> Result<(), CodecError> {
         if self.input_text_forms.len() >= MAX_ITEMS {
             return Err(CodecError::Limit);
@@ -381,6 +442,17 @@ fn response_dependency(response: &GenerationResponse) -> [u8; 32] {
         {
             hash.update(id.get().to_le_bytes());
             hash.update(value.fingerprint());
+        }
+    }
+    for (_, item) in response.items() {
+        if let Item::Message(m) = item {
+            for p in &m.parts {
+                match &p.content {
+                    ContentPart::Audio(a) => hash.update(a.fingerprint()),
+                    ContentPart::AudioReference(a) => hash.update(a.fingerprint()),
+                    _ => {}
+                }
+            }
         }
     }
     hash.finalize().into()

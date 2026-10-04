@@ -2,6 +2,8 @@
 mod accounting_shapes;
 pub(crate) mod adapter_shapes;
 pub mod chat;
+mod chat_annotations;
+mod chat_audio;
 pub mod chat_envelope;
 pub(crate) mod chat_logprobs;
 mod chat_reasoning;

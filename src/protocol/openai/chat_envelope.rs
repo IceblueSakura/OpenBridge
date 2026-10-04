@@ -154,6 +154,18 @@ pub fn encode_request(
     context: &RequestContext,
 ) -> Result<Value, CodecError> {
     context.validate()?;
+    if context.streaming()
+        && target
+            .semantic
+            .settings()
+            .audio
+            .value()
+            .is_some_and(|a| a.format != crate::semantic::task::generation::AudioFormat::Pcm16)
+    {
+        return Err(CodecError::Unsupported(
+            "streaming audio requires pcm16".into(),
+        ));
+    }
     let mut v = chat::encode_generation(target)?;
     let o = v.as_object_mut().expect("object");
     o.insert("model".into(), json!(context.model));

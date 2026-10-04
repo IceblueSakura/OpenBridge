@@ -603,7 +603,7 @@ pub(super) fn encode_items_with(
             // Empty owners still carry identity, phase and lifecycle. Omitting
             // one here would also contradict its already emitted SSE item.
             Item::Message(m) => {
-                let mut v = json!({"type":"message","role":if m.role==MessageRole::User{"user"}else{"assistant"},"content":m.parts.iter().map(|p|match &p.content{ContentPart::Text(t)=>if !response && (m.role==MessageRole::User || fidelity.input_text_form(p.id) && t.is_plain()){input_part(p.id,t.as_str(),fidelity)}else{super::text::write(t,"output_text")},ContentPart::Refusal(t)=>json!({"type":"refusal","refusal":t.as_str()}),ContentPart::Resource(resource)=>super::image::write(resource,Profile::Responses)}).collect::<Vec<_>>()});
+                let mut v = json!({"type":"message","role":if m.role==MessageRole::User{"user"}else{"assistant"},"content":m.parts.iter().map(|p|match &p.content{ContentPart::Text(t)=>if !response && (m.role==MessageRole::User || fidelity.input_text_form(p.id) && t.is_plain()){input_part(p.id,t.as_str(),fidelity)}else{super::text::write(t,"output_text")},ContentPart::Refusal(t)=>json!({"type":"refusal","refusal":t.as_str()}),ContentPart::Resource(resource)=>super::image::write(resource,Profile::Responses),ContentPart::Audio(_)|ContentPart::AudioReference(_)=>unreachable!("lowering rejects audio without a Responses carrier")}).collect::<Vec<_>>()});
                 if let Some(p) = m.phase {
                     v["phase"] = json!(p.label());
                 }

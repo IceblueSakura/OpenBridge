@@ -50,11 +50,6 @@ pub(super) fn decode(root: &mut Map<String, Value>) -> Result<(), CodecError> {
         for choice in choices {
             if let Some(choice) = choice.as_object_mut() {
                 inactive(choice, &["stop_reason", "token_ids", "routed_experts"])?;
-                for name in ["message", "delta"] {
-                    if let Some(message) = choice.get_mut(name).and_then(Value::as_object_mut) {
-                        inactive(message, &["annotations"])?;
-                    }
-                }
             }
         }
     }

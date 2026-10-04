@@ -10,6 +10,7 @@ pub struct EventEncoder {
     pub(super) contract: GenerationRepresentationContract,
     poisoned: bool,
     sequence: u64,
+    pub(super) chat_audio_pending: Vec<u8>,
 }
 impl EventEncoder {
     pub fn new(profile: Profile, metadata: ResponseMetadata) -> Result<Self, CodecError> {
@@ -31,6 +32,7 @@ impl EventEncoder {
             contract: GenerationRepresentationContract::full(),
             poisoned: false,
             sequence: 0,
+            chat_audio_pending: Vec::new(),
         })
     }
     /// Refresh reported settings/completion metadata without changing response identity.
@@ -208,6 +210,9 @@ impl EventEncoder {
     }
     fn responses(&self, event: &StreamEvent) -> Result<Vec<Value>, CodecError> {
         let result = match event {
+            StreamEvent::AudioDelta { .. } => {
+                return Err(CodecError::Unsupported("Responses audio carrier".into()));
+            }
             StreamEvent::Queued => {
                 vec![json!({"type":"response.queued","response":self.envelope("queued",vec![])?})]
             }
@@ -455,6 +460,7 @@ fn validate_metadata(profile: Profile, metadata: &ResponseMetadata) -> Result<()
 }
 fn event_stem(kind: PartKind) -> &'static str {
     match kind {
+        PartKind::Audio => unreachable!("Responses audio carrier rejected"),
         PartKind::Text => "output_text",
         PartKind::Refusal => "refusal",
         PartKind::Summary => "reasoning_summary_text",

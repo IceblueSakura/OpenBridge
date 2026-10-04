@@ -39,6 +39,8 @@ fn text_and_prediction_counts_are_preserved_and_not_summed_with_reasoning() {
         reasoning_tokens: Some(6),
         input_text_tokens: Some(9),
         input_image_tokens: None,
+        input_audio_tokens: None,
+        output_audio_tokens: None,
         output_text_tokens: Some(20),
         accepted_prediction_tokens: Some(7),
         rejected_prediction_tokens: Some(3),
@@ -233,7 +235,16 @@ fn detail_zero_is_reported_but_null_is_not_and_invalid_counters_fail_closed() {
     assert!(chat.decode_response(source.to_string().as_bytes()).is_err());
     let mut source = body();
     source["usage"]["prompt_tokens_details"]["audio_tokens"] = json!(0);
-    assert!(chat.decode_response(source.to_string().as_bytes()).is_err());
+    let decoded_audio = chat.decode_response(source.to_string().as_bytes()).unwrap();
+    assert_eq!(
+        decoded_audio.semantic.usage().unwrap().input_audio_tokens,
+        Some(0)
+    );
+    assert_eq!(
+        chat.encode_response(&decoded_audio, &Contract::full())
+            .unwrap()["usage"]["prompt_tokens_details"]["audio_tokens"],
+        0
+    );
     let mut large = body();
     let count = 9_007_199_254_740_993_u64;
     large["usage"] = json!({"prompt_tokens":1,"completion_tokens":count,"total_tokens":count+1,"prompt_tokens_details":{"text_tokens":1},"completion_tokens_details":{"text_tokens":count,"accepted_prediction_tokens":count-1,"rejected_prediction_tokens":1}});

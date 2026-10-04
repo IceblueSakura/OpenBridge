@@ -9,6 +9,8 @@ pub struct GenerationRequirements {
     pub resource_count: usize,
     pub image_inputs: usize,
     pub audio_inputs: usize,
+    pub audio_output: bool,
+    pub audio_history: bool,
     pub file_inputs: usize,
     pub tool_count: usize,
     pub custom_tools: bool,
@@ -33,6 +35,7 @@ pub struct GenerationRequirements {
 impl GenerationRequirements {
     pub fn derive(r: &GenerationRequest) -> Self {
         let mut x = Self {
+            audio_output: r.settings().audio.value().is_some(),
             tool_choice: r.tool_choice().cloned(),
             parallel_tool_calls: r.parallel_tool_calls(),
             instruction_count: usize::from(r.instructions().value().is_some()),
@@ -65,6 +68,9 @@ impl GenerationRequirements {
                             ContentPart::Refusal(t) => {
                                 x.text_metadata |= !t.logprobs().is_absent();
                                 x.logprobs |= !t.logprobs().is_absent();
+                            }
+                            ContentPart::Audio(_) | ContentPart::AudioReference(_) => {
+                                x.audio_history = true
                             }
                             ContentPart::Resource(resource) => {
                                 x.resource_count += 1;
@@ -119,6 +125,7 @@ impl GenerationRequirements {
 /// Actual output domains, independent of input controls or tool declarations.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct GenerationResponseRequirements {
+    pub audio_output: bool,
     pub instructions: bool,
     pub tools: bool,
     pub custom_tools: bool,
@@ -156,6 +163,9 @@ impl GenerationResponseRequirements {
                                 q.logprobs |= !text.logprobs().is_absent();
                             }
                             ContentPart::Resource(_) => {}
+                            ContentPart::Audio(_) | ContentPart::AudioReference(_) => {
+                                q.audio_output = true
+                            }
                         }
                     }
                 }

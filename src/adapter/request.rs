@@ -157,6 +157,23 @@ impl Adapter {
         if let Some(scope) = &self.adaptation.scope {
             request.task.fidelity.bind_replay_origin(scope)?;
         }
+        for (_, item) in request.task.semantic.items() {
+            if let crate::semantic::task::generation::Item::Message(m) = item {
+                for p in &m.parts {
+                    if matches!(
+                        p.content,
+                        crate::semantic::task::generation::ContentPart::Audio(_)
+                            | crate::semantic::task::generation::ContentPart::AudioReference(_)
+                    ) {
+                        request.task.fidelity.record_audio(
+                            p.id,
+                            &p.content,
+                            self.adaptation.scope.clone(),
+                        )?;
+                    }
+                }
+            }
+        }
         Ok(request)
     }
     /// Closed Provider header projection; no inbound header map or runtime target selection.
@@ -187,6 +204,17 @@ impl Adapter {
         contract: &GenerationRepresentationContract,
     ) -> Result<Value, AdapterError> {
         request.check_context(contract.standard_context)?;
+        if request.delivery.streaming()
+            && request
+                .task
+                .semantic
+                .settings()
+                .audio
+                .value()
+                .is_some_and(|a| a.format != crate::semantic::task::generation::AudioFormat::Pcm16)
+        {
+            return Err(CodecError::Unsupported("streaming audio requires pcm16".into()).into());
+        }
         let contract = self.contract(contract);
         let mut context = request.context.clone();
         contract.cache.project(&mut context)?;

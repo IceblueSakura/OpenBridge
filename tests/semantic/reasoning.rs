@@ -315,6 +315,8 @@ fn reasoning_and_parallel_call_results_preserve_continuation_history() {
         input_cache_write_tokens: None,
         input_text_tokens: None,
         input_image_tokens: None,
+        input_audio_tokens: None,
+        output_audio_tokens: None,
         output_text_tokens: None,
         accepted_prediction_tokens: None,
         rejected_prediction_tokens: None,
