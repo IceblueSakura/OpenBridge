@@ -4,6 +4,10 @@
 
 实际准入须分别核对 [adapters](../../src/adapter/mod.rs)、[codecs](../../src/protocol/openai/mod.rs)、[lowering](../../src/lowering/generation.rs)、[HTTP activation](../../src/gateway/config.rs)和独立预期；库类型、目标表示、实例启用和上游接受不是同一层。现有 Chat/Responses profiles 仍有约束力，新的协议中立设计不自动扩大准入。
 
+## 文件范围与延期边界
+
+文件仅维持既有 Responses user inline/URL 基础输入及必要正确性、安全维护。Issuer-bound 文件 ID、工具文件结果、生成文件产物、更多文件格式/目标、Chat 文件投影及文件管理 API 等扩展，待其他模态实现完成后再推进。下列缺口继续保留，不表示下一片实施优先级，也不作为其他模态的前置；延期不放宽现行拒绝或授权边界。
+
 ## 语义与表示缺口
 
 - **Text/Image/File 承载**：[Resource](../../src/semantic/task/generation/resource.rs) 的来源与类型化描述尚未闭合一般产物 identity、issuer-bound 引用及生命周期。标准 user inline 与 URL 文件分别以 [inline profile](../architecture-v2/responses-text-profile.md#user-inline-file-input)和 [URL profile](../architecture-v2/responses-text-profile.md#user-file-url-input)为界；issuer-bound 文件 ID、工具文件结果、资源操作及更多目标的文件载体仍缺主链。按[当前主线](../implementation-plans/next-goal.md)分别选片，不从共享 source 或文件输入推定所有用途已准入，不以 adapter 或私有字段补偿必要承载不足。
