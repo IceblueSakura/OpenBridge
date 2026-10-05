@@ -1,6 +1,6 @@
 # 最小模型交互 HTTP 网关
 
-`morphiecore` binary 与可嵌入的 `gateway::Gateway` 将共享 IR、双向 adapters、固定目标和实际 HTTP body 接通，不是完整标准实现或生产网关。本文描述当前接线：HTTP 客户端由配置层选择 MorphieCore profile，并非纯 Standard profile；同名路径不证明完全标准兼容。规范客户端目标与扩展政策归[语义设计](architecture-v2/semantic-ir.md#3-客户端-api-目标与扩展边界)，允许有损的 Chat 投影、独立 Embeddings 接口与标准路径收敛均属于设计/计划，方向调整不自动改变现行 wire。HTTP 决策归 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，公共接口摘要归 [OpenAPI](openapi.json)，模块接线归[架构](architecture.md)。
+`morphiecore` binary 与可嵌入的 `gateway::Gateway` 将共享 IR、双向 adapters、固定目标和实际 HTTP body 接通，不是完整标准实现或生产网关。配置层为 Responses 选择 Standard adapter，为 Chat 选择 MorphieCore 兼容 adapter；Provider 的具名规则不成为 Responses 下游扩展许可，选择 Standard 也不证明整个标准 union 已实现。规范客户端目标与扩展政策归[语义设计](architecture-v2/semantic-ir.md#3-客户端-api-目标与扩展边界)，Chat 损失规则仍逐片定稿，不因方向许可自动丢字段。HTTP 决策归 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，公共接口摘要归 [OpenAPI](openapi.json)，模块接线归[架构](architecture.md)。
 
 ## 启动
 
@@ -33,7 +33,8 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 - 文本数组、工具选择/结果、概率、Schema 与 reported context 的精确接受/拒绝由上述 profiles 和 owning code 维护，不因路由存在而扩大 Public Model/Endpoint 合同。当前跨协议不可表示时仍明确拒绝；设计允许的 Chat 有损规则尚需逐片实现，不能提前按该方向丢字段换取成功。
 - user 与 Responses 工具结果的 URL/inline 图片有独立准入，见[图片输入](architecture-v2/responses-text-profile.md#user-image-input)与[工具图片结果](architecture-v2/responses-text-profile.md#tool-image-results)。Responses 另有[标准 user inline 文件输入](architecture-v2/responses-text-profile.md#user-inline-file-input)及[URL 文件输入](architecture-v2/responses-text-profile.md#user-file-url-input)，仍需 public model 与 endpoint 显式文件准入；库 codec 不自动激活文件模型。不下载、解析文档、转码或放宽 body 预算；file ID、工具文件、Chat 工具图片、图片输出与资源服务不因此启用。
 - HTTP envelope/item 上的独立 `_openbridge` 字段不准入，包括 null、空对象及版本化 attachment，也不输出该字段。结构化值、执行报告、message membership、progress/scoped usage 和 replay 的 typed owner 不因此删除；无标准载体的 history/目标投影明确拒绝。请求拒绝发生在上游 I/O 前；不可交付的静态输出失败，已发布 SSE 只能中止，不伪造终态或前移。普通正文、raw arguments/output 与用户 metadata 中的同名业务数据不被当成协议字段。详见[客户端边界](architecture-v2/client-generation-profile.md)。
-- 标准 identity/cache hints 与客户端 `session_id` body 扩展使用各自声明的目标投影，不互相派生，不透传 session headers。`session_id` 不提供网关会话或粘性路由；精确 carrier 归 [adapter request](../src/adapter/request.rs)与[cache projection](../src/protocol/cache.rs)。未声明 carrier 的 advisory cache hint 可按合同省略，行为控制与 identity/session 要求不能随之静默丢弃。
+- Responses 拒绝非标准 `session_id`（包括 null），标准 identity/cache hints 保留各自 owner。Chat 兼容入口的 `session_id` body 扩展仍按声明的目标投影，不提供网关会话或粘性路由，不从 cache key 派生，也不透传 session headers；精确 carrier 归 [adapter request](../src/adapter/request.rs)与[cache projection](../src/protocol/cache.rs)。未声明 carrier 的 advisory cache hint 可按合同省略，行为控制与 identity/session 要求不能随之静默丢弃。
+- 标准 Responses 无位置的具名 image/text 计量明细不输出，也不静默删除后继续成功；静态投影失败，已发布 SSE 中止。IR 中的实际报告仍保留，不能继承独立 Images 的计量损失许可。
 - [Continuation](architecture-v2/responses-text-profile.md#response-outcome-and-continuation)库视图不增加 HTTP 字段、执行就绪证明或自动 Agent loop。低层 CustomSections/CodexHeaders 也不等于 HTTP 接线；仅开放表中路由，不提供 `/v1/models`；状态资源、WebSocket、hosted-tool/program 执行等[缺口](implementation-status/generation.md)仍独立。
 
 ### 最小请求示例

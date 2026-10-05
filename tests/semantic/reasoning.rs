@@ -41,20 +41,163 @@ fn wire_part(output: usize, id: &str, index: usize, summary: bool, s: &str) -> V
     values
 }
 #[test]
-fn controls_keep_absence_empty_none_disabled_and_encrypted_output_distinct() {
+fn standard_summary_rejects_nonstandard_values_on_requests_echoes_and_events() {
+    use morphiecore::adapter::{Adapter, Dialect};
+    for name in ["summary", "generate_summary"] {
+        for value in [
+            json!(false),
+            json!(true),
+            json!(0),
+            json!("none"),
+            json!({}),
+        ] {
+            let mut controls = json!({});
+            controls[name] = value;
+            let request = json!({"model":"fixture-model","input":"hello","reasoning":controls});
+            for dialect in [Dialect::Standard, Dialect::MorphieCore, Dialect::Nvidia] {
+                assert!(
+                    Adapter::new(Profile::Responses, dialect, None)
+                        .decode_request(request.to_string().as_bytes())
+                        .is_err(),
+                    "{name} on {dialect:?}"
+                );
+            }
+            let mut response = envelope("completed", json!([]));
+            response["reasoning"] = controls.clone();
+            assert!(
+                responses::decode_response(&response).is_err(),
+                "{name} echo"
+            );
+            let mut event = created();
+            event["response"]["reasoning"] = controls;
+            let mut decoder = EventDecoder::new(Profile::Responses);
+            assert!(decoder.push(&event).is_err(), "{name} event");
+            assert!(decoder.finish().is_err());
+        }
+    }
+}
+
+#[test]
+fn typed_disabled_summary_is_valid_semantics_without_a_responses_carrier() {
+    let settings = GenerationSettings {
+        instructions: morphiecore::semantic::value::Presence::Value(text("hello")),
+        reasoning: ReasoningRequest::present(
+            Some(ReasoningEffort::None),
+            Some(ReasoningSummary::Disabled),
+        ),
+        ..Default::default()
+    };
+    let request = GenerationRequest::from_settings(vec![], settings.clone()).unwrap();
+    assert_eq!(
+        request.reasoning().summary(),
+        Some(ReasoningSummary::Disabled)
+    );
+    let fidelity = FidelityRecords::default();
+    for profile in [Profile::Responses, Profile::Chat] {
+        assert!(matches!(
+            lower_request(&request, &fidelity, profile, Contract::full()),
+            Err(morphiecore::lowering::generation::RepresentationError::Reasoning)
+        ));
+    }
+    let mut reported = metadata();
+    reported.context.settings = Some(settings);
+    let response = GenerationResponse::new(vec![], Outcome::Completed).unwrap();
+    assert!(
+        lower_response(
+            &response,
+            &fidelity,
+            &reported,
+            Profile::Responses,
+            Contract::full()
+        )
+        .is_err()
+    );
+    let mut encoder = EventEncoder::new(Profile::Responses, reported).unwrap();
+    assert!(encoder.encode(&StreamEvent::Started, &fidelity).is_err());
+    assert!(encoder.encode(&StreamEvent::Started, &fidelity).is_err());
+}
+
+#[test]
+fn standard_summary_presence_and_deprecated_alias_have_independent_wire_expectations() {
+    use morphiecore::semantic::value::Presence;
+    for (summary, wire) in [
+        (Presence::Absent, json!({})),
+        (Presence::Null, json!({"summary":null})),
+        (
+            Presence::Value(ReasoningSummary::Auto),
+            json!({"summary":"auto"}),
+        ),
+        (
+            Presence::Value(ReasoningSummary::Concise),
+            json!({"summary":"concise"}),
+        ),
+        (
+            Presence::Value(ReasoningSummary::Detailed),
+            json!({"summary":"detailed"}),
+        ),
+    ] {
+        let decoded =
+            responses::decode_generation(&json!({"input":"hello","reasoning":wire})).unwrap();
+        assert_eq!(decoded.semantic.reasoning().summary, summary);
+        let mut reasoning = ReasoningRequest::present(None, None);
+        reasoning.summary = summary;
+        let request = GenerationRequest::from_settings(
+            vec![],
+            GenerationSettings {
+                instructions: Presence::Value(text("hello")),
+                reasoning,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let fidelity = FidelityRecords::default();
+        let target =
+            lower_request(&request, &fidelity, Profile::Responses, Contract::full()).unwrap();
+        assert_eq!(
+            responses::encode_generation(&target).unwrap()["reasoning"],
+            wire
+        );
+    }
+    for value in [
+        Value::Null,
+        json!("auto"),
+        json!("concise"),
+        json!("detailed"),
+    ] {
+        let decoded = responses::decode_generation(&json!({
+            "input":"hello","reasoning":{"generate_summary":value}
+        }))
+        .unwrap();
+        let target = lower_request(
+            &decoded.semantic,
+            &decoded.fidelity,
+            Profile::Responses,
+            Contract::full(),
+        )
+        .unwrap();
+        let wire = responses::encode_generation(&target).unwrap();
+        assert_eq!(wire["reasoning"], json!({"summary":value}));
+    }
+    assert!(
+        responses::decode_generation(&json!({
+            "input":"hello","reasoning":{"summary":"auto","generate_summary":"detailed"}
+        }))
+        .is_err()
+    );
+}
+
+#[test]
+fn controls_keep_absence_empty_none_and_encrypted_output_distinct() {
     let input = json!([{"role":"user","content":"hello"}]);
     let absent = responses::decode_generation(&json!({"input":input})).unwrap();
     let empty = responses::decode_generation(&json!({"input":input,"reasoning":{}})).unwrap();
-    let none=responses::decode_generation(&json!({"input":input,"reasoning":{"effort":"none","summary":false},"include":["reasoning.encrypted_content"]})).unwrap();
+    let none=responses::decode_generation(&json!({"input":input,"reasoning":{"effort":"none"},"include":["reasoning.encrypted_content"]})).unwrap();
     assert_ne!(absent.semantic.reasoning(), empty.semantic.reasoning());
     assert_eq!(
         none.semantic.reasoning().effort(),
         Some(ReasoningEffort::None)
     );
-    assert_eq!(
-        none.semantic.reasoning().summary(),
-        Some(ReasoningSummary::Disabled)
-    );
+    assert!(none.semantic.reasoning().summary.is_absent());
     let t = lower_request(
         &none.semantic,
         &none.fidelity,
@@ -63,7 +206,7 @@ fn controls_keep_absence_empty_none_disabled_and_encrypted_output_distinct() {
     )
     .unwrap();
     let v = responses::encode_generation(&t).unwrap();
-    assert_eq!(v["reasoning"], json!({"effort":"none","summary":false}));
+    assert_eq!(v["reasoning"], json!({"effort":"none"}));
     assert_eq!(v["include"], json!(["reasoning.encrypted_content"]));
     assert!(lower_request(&none.semantic, &none.fidelity, Profile::Chat, contract()).is_err());
     for bad in [

@@ -4,11 +4,11 @@
 
 ## 变更流程
 
-1. 检查分支、Git status 与目标 diff；保留未提交工作，不 stage/commit/push。
-2. 阅读 [v2 设计](architecture-v2/README.md)、受影响的源码/测试与固定协议资料。明确 owner、支持与拒绝边界；按 [IR 缺口规则](architecture-v2/semantic-ir.md#4-ir-不足与标准载体缺口)区分承载不足、标准载体缺失与未接线，必要结构选择先报告与定稿，不以 adapter/custom API 绕过。
-3. 行为变更在 [current-focus](implementation-plans/current-focus.md)维护获准范围、可观察结果、失败用例和验证门槛，随后按失败证据实现。文档维护不制造运行时切片。
-4. 测试在最低职责层保护独立语义；codec 的 decode 与 encode 分别使用独立预期，追加 IR 插入、替换、删除及对应失败边界。Chat 的[有损兼容规则](architecture-v2/protocol-and-lowering.md#semantic-loss)另行断言允许损失、保留的不变量和静态/事件一致性，不能把损失许可变成任意省略；round trip 不能自证或要求恢复已丢失信息。
-5. 检查最终 diff、文档与引用，报告实际检查和未验收范围。按当前合同验收，不以旧版功能对等为门槛；不得以主线定位、删除旧代码或测试通过宣称生产就绪。
+授权、Git 工作区保护、行为切片与 TDD 要求统一见 [AGENTS.md](../AGENTS.md)。按[文档导航](README.md#按任务阅读)定位当前合同、受影响源码/测试与固定协议资料；IR 结构选择按 [IR 缺口规则](architecture-v2/semantic-ir.md#4-ir-不足与标准载体缺口)先报告与定稿，不以 adapter/custom API 绕过。
+
+先运行最低职责层的受影响检查，再按变更类型执行下列基线。Codec 的 decode 与 encode 使用独立预期，覆盖 IR 插入、替换、删除及失败边界；[Chat 有损兼容](architecture-v2/protocol-and-lowering.md#semantic-loss)还须断言允许损失、受保护不变量和静态/事件一致性。Round trip 不能自证或要求恢复已丢失信息。
+
+完成时检查最终 diff 与引用，报告实际检查、失败与未验收范围；按当前合同验收，不以旧版功能对等为门槛。
 
 ## Rust 检查
 
@@ -88,8 +88,15 @@ SDK 场景使用不会被 Python 优化模式移除的显式检查；普通/优�
 
 ## 文档与边界
 
-Rust comments/docs 与 Python docstrings 使用简洁 English；将协议、安全、资源和失败不变量、非显然兼容理由及必要来源 URL 放在 owning code 旁，不抄测试结果或模型清单。Markdown 保留稳定决策、跨模块合同、设计缺口和操作方法，不保留历史分析、审计报告或任何测试结果（包括离线/SDK）；按 [AGENTS 查询流程](../AGENTS.md#current-provider-model-and-compatibility-information)获取动态信息。检查相对链接、锚点、占位符示例和规则一致性；结构性检查不证明行为改善。
+内容归属与写作规则见[文档索引](README.md#写作与维护)，注释语言与安全要求见 [AGENTS.md](../AGENTS.md)。仅修改 Markdown 时执行以下检查，不运行与改动无关的 runtime tests：
 
-默认检查不修改 `.env`、私人 `config/` 或 OAuth 文件，不读取外部应用认证缓存。保留仍使用来源的版本、许可与 attribution；历史查 Git。日志和诊断不能回显秘密或私有 payload。
+1. **结构与职责**：标题层级、入口导航与内容 owner 一致；没有丢失有效约束、未决问题或必要来源，也没有把设计写成已实现能力。
+2. **链接与锚点**：检查修改页面及其入链的相对路径、标题锚点和显式 anchor；移动或合并内容后同步更新引用。外部来源未重新核验时保留既有日期并说明边界。
+3. **示例与合同**：对照 owning CLI、配置或 Schema 检查命令和占位符；使用合成值，不为验证示例执行登录、服务启动、真实调用或读取私有配置。
+4. **最终差异**：检查完整 diff，确认只有授权范围内的修改，然后执行：
 
-完成时区分静态检查、Rust tests、固定 SDK/loopback、真实 Provider、负载和生产验证。当前正常基线没有任何真实 Provider、付费 API、部署或外部发布。
+   ```sh
+   git diff --check
+   ```
+
+结构性检查不证明运行时或 Agent 行为改善。完成时区分静态检查、Rust tests、固定 SDK/loopback、真实 Provider、负载和生产验证；默认基线不包含真实 Provider、付费 API、部署或外部发布。

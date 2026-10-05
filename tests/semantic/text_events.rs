@@ -11,6 +11,52 @@ use morphiecore::{
     semantic::task::generation::*,
 };
 use serde_json::{Value, json};
+
+#[test]
+fn cancelled_is_a_static_outcome_not_a_standard_stream_event() {
+    use morphiecore::{lowering::generation::lower_response, protocol::openai::responses};
+    let cancelled = envelope("cancelled", json!([]));
+    let decoded = responses::decode_response(&cancelled).unwrap();
+    assert_eq!(decoded.semantic.outcome(), Outcome::Cancelled);
+    let target = lower_response(
+        &decoded.semantic,
+        &decoded.fidelity,
+        &decoded.metadata,
+        Profile::Responses,
+        contract(),
+    )
+    .unwrap();
+    assert_eq!(
+        responses::encode_response(&target).unwrap()["status"],
+        "cancelled"
+    );
+
+    let mut decoder = EventDecoder::new(Profile::Responses);
+    decoder.push(&created()).unwrap();
+    assert!(
+        decoder
+            .push(&json!({"type":"response.cancelled","response":cancelled}))
+            .is_err()
+    );
+    assert!(decoder.finish().is_err());
+    assert!(decoder.materialize().is_err());
+
+    let mut encoder = EventEncoder::new(Profile::Responses, metadata()).unwrap();
+    let source = FidelityRecords::default();
+    encoder.encode(&StreamEvent::Started, &source).unwrap();
+    assert!(
+        encoder
+            .encode(&terminal(StreamTerminal::Cancelled), &source)
+            .is_err()
+    );
+    assert!(
+        encoder
+            .encode(&terminal(StreamTerminal::Completed), &source)
+            .is_err()
+    );
+    assert!(encoder.finish().is_err());
+}
+
 #[test]
 fn independent_text_wire_decodes_empty_and_multiple_parts() {
     let mut d = EventDecoder::new(Profile::Responses);
@@ -97,10 +143,9 @@ fn part_close_does_not_close_item_and_snapshot_grammar_is_checked() {
     assert!(d.push(&json!({"type":"response.completed","response":envelope("completed",json!([{"id":"m","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"","annotations":[]}]}]))})).is_err());
 }
 #[test]
-fn empty_failed_and_cancelled_static_event_closure_keeps_details() {
+fn empty_failed_and_incomplete_static_event_closure_keeps_details() {
     for (terminal, status) in [
         (StreamTerminal::Failed, "failed"),
-        (StreamTerminal::Cancelled, "cancelled"),
         (StreamTerminal::Incomplete, "incomplete"),
     ] {
         let details = match terminal {

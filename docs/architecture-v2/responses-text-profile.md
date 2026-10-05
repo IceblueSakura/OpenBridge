@@ -24,7 +24,9 @@
 
 ## Reasoning replay authority
 
-Reasoning 控制、可读内容与格式绑定的 opaque 值分别拥有权威。Opaque-only 内容合法性与回放条件分开；item-start 值为 partial，item-done 更新/移除最终值。Value 和 owner 必须满足该格式 finality，且 scope/依赖与目标兼容，才能作为 history 回放。
+Reasoning 控制、可读内容与格式绑定的 opaque 值分别拥有权威，基础语义归[交互合同](interaction-contract.md#typed-replay-与信任)。[标准流事件](https://developers.openai.com/api/reference/resources/responses/streaming-events)说明 reasoning 的 `output_item.added.encrypted_content` 可能尚不完整，续轮应使用对应 `output_item.done` 的 item。当前 profile 将 item-start 值视为 partial，item-done 确定最终值，可替换或移除此前 partial；这不是对已闭合 item 的更新许可。
+
+Value 和 owner 必须满足该格式 finality，且 scope/依赖与目标兼容，才能作为 history 回放。当前事件累积结果与非空终态 output snapshot 的 replay 新增、替换或删除不一致仍拒绝；具名空终态摘要规则不授权覆盖已有值。该行为是当前 profile 边界，不是所有 opaque 格式在所有阶段都必须不变的普遍规则。闭合后的变化暂缓调整，未决点与恢复条件归[待决状态](../implementation-status/open-questions.md#reasoning-opaque-的闭合后权威)。
 
 删除 typed 值不能从 fidelity 恢复，单删证明也不授权丢值继续。可读内容不是必要 signature 的替代品，某个 item 已完成不代表整个 response 成功。来源记录与编辑失效归 [source records](protocol-and-lowering.md#source-records)及 [ADR 0006](decisions/0006-reasoning-ownership.md)，不复制另一份 token。
 
@@ -96,8 +98,10 @@ Value 调用方负责入站前未丢顺序；普通 Value equality/round trip �
 
 当前有几个不能与标准目标混同的边界：
 
-- `reasoning.summary:false` 与 `response.cancelled` 是本地兼容形式，不是固定 SDK 的标准 summary 值或 SSE 事件名。
-- `session_id` 是 MorphieCore body 扩展；identity/cache hints 有各自 owner，不从 key/user/token 派生 session，不透传 session headers，也不提供服务端会话。
+- `reasoning.summary` 与 deprecated `generate_summary` 仅接受 `auto/concise/detailed` 或 null；缺省、空对象和 null 分别保留，冲突 alias 拒绝。布尔值（包括原本地 `false` 形式）在请求、响应回显与事件中均拒绝。Typed `ReasoningSummary::Disabled` 仍是合法语义，但当前 Responses 目标没有载体，投影/编码失败，不改写为缺省或 null。
+- `cancelled` 可以是静态 response 状态，但固定 SDK 没有 `response.cancelled` SSE 事件；事件接收与编码均拒绝，不改写为 failed/completed。取消的 typed 产物仍保留，transport 取消不会合成事件或成功终态。
+- HTTP Responses 不接受 `session_id`；该 carrier 仅在显式库级 MorphieCore/Provider profile 或 Chat 兼容入口适用。标准 identity/cache hints 有各自 owner，不从 key/user/token 派生 session，不透传 session headers，也不提供服务端会话。
+- Function/custom definition 的 `async` 与 `defer_loading` 是非 nullable 布尔字段；省略/false 均为 inactive，null 拒绝。Call item 的同名字段使用其独立 schema，不能用 definition 的缺省推断调用事实。
 - 仅 inactive state forms 准入，request `store` 投影为 false；活动 conversation、previous response、background、模板、moderation 和 compaction 尚未形成主链。
 - Configuration/program/custom 分支按 owning codecs 明确准入，只表示有限语义；不是任意设置 patch、工具执行或脚本授权。Program history 需要匹配的 reported output，Chat 不自动支持它。
 - `CustomSections`/`CodexHeaders` 是低层 carrier；非空 body sections 在 adapter 主链拒绝，headers 未因此接入 HTTP。未知字段不能通过它们旁路。

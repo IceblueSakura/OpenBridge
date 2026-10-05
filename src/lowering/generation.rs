@@ -305,6 +305,15 @@ pub fn lower_response<'a>(
         return Err(RepresentationError::UnmigratedSemantic);
     }
     require_reported_facts(r, metadata, &c)?;
+    if profile == Profile::Responses
+        && metadata
+            .context
+            .settings
+            .as_ref()
+            .is_some_and(|s| s.reasoning.summary() == Some(ReasoningSummary::Disabled))
+    {
+        return Err(RepresentationError::Reasoning);
+    }
     if let Some(usage) = r.usage() {
         check_usage(usage, profile, &c.adaptation.rules)?;
     }
@@ -434,6 +443,9 @@ fn represent_reasoning(
 ) -> Result<(), RepresentationError> {
     let structured_chat = adaptation.rules.structured_chat_reasoning;
     let request = history.is_some();
+    if profile == Profile::Responses && controls.summary() == Some(ReasoningSummary::Disabled) {
+        return Err(RepresentationError::Reasoning);
+    }
     for (id, item) in items {
         if matches!(item, Item::Reasoning(r) if r.replay.as_ref().is_some_and(|value| value.format() != ReplayFormat::ResponsesEncrypted))
         {

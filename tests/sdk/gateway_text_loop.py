@@ -6,6 +6,7 @@ from sdk_support import check
 from urllib.parse import urlsplit
 
 import openai
+import httpx2
 
 
 def run(base_url: str) -> None:
@@ -27,6 +28,28 @@ def run(base_url: str) -> None:
         _strict_response_validation=True,
         http_client=openai.DefaultHttpxClient(trust_env=False, follow_redirects=False),
     ) as client:
+        invalid = [
+            {"reasoning": {"summary": False}},
+            {"extra_body": {"session_id": "synthetic-session"}},
+            {"extra_body": {"session_id": None}},
+            {"tools": [{"type": "function", **function, "async": None}]},
+            {"tools": [{"type": "function", **function, "defer_loading": None}]},
+            {"tools": [{"type": "function", "name": "lookup", "strict": True,
+                        "parameters": {"type": "object", "properties": {"n": {"type": "integer"}}}}]},
+            {"tools": [{"type": "function", **function}],
+             "tool_choice": {"type": "function", "name": "undeclared"}},
+            {"input": [{"type": "function_call_output", "call_id": "missing", "output": "x"}]},
+        ]
+        for stream in (False, True):
+            for extra in invalid:
+                requests += 1
+                try:
+                    client.responses.create(**{
+                        "model": "public-model", "input": "lookup", "stream": stream, **extra})
+                except openai.APIStatusError as error:
+                    check(error.status_code == 400)
+                else:
+                    check(False, "invalid request must fail before upstream I/O")
         for stream in (False, True):
             history = [{"role": "user", "content": "lookup"}]
             for turn in (1, 2):
@@ -66,7 +89,8 @@ def run(base_url: str) -> None:
                          "type": "grammar", "syntax": "regex", "definition": "SELECT [0-9]+"}}]
             for turn in (1, 2):
                 params = dict(model="public-model", input=history, instructions="Answer precisely",
-                              store=False, tools=tools, tool_choice="auto" if turn == 1 else "none")
+                              store=False, tools=tools, tool_choice="auto" if turn == 1 else "none",
+                              reasoning={"summary": "auto" if turn == 1 else None})
                 if stream:
                     completed = 0
                     with client.responses.stream(**params) as events:
@@ -113,6 +137,31 @@ def run(base_url: str) -> None:
             check(owner.type == "message" and owner.status == "completed" and owner.content == [])
             check(call.type == "function_call" and call.call_id == "call-local")
             check(json.loads(call.arguments) == {"n": 1})
+        # Upstream-only accounting has no standard downstream carrier. Static
+        # delivery fails; a published stream must abort without a fake terminal.
+        for stream in (False, True):
+            requests += 1
+            completed = 0
+            received_events = 0
+            params = dict(model="public-model", input="lookup",
+                          metadata={"case": "nonstandard-usage"})
+            try:
+                if stream:
+                    with client.responses.stream(**params) as events:
+                        for event in events:
+                            received_events += 1
+                            completed += event.type == "response.completed"
+                        events.get_final_response()
+                else:
+                    client.responses.create(**params)
+            except (openai.APIError, httpx2.TransportError, RuntimeError) as error:
+                if not stream:
+                    check(isinstance(error, openai.APIStatusError) and error.status_code == 502)
+                else:
+                    check(received_events > 0)
+                check(completed == 0)
+            else:
+                check(False, "unrepresentable accounting must not be dropped for success")
         for index, count in enumerate((1, 2, 2)):
             params = dict(model="public-image", prompt="synthetic image", n=count,
                 stream=False, size="1536x1024", quality="high", background="transparent",

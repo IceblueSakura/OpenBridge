@@ -47,6 +47,15 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         upstream_model: "private-model".into(),
         canonical_model: ModelId::new("canonical-fixture").unwrap(),
         representation: Contract {
+            // A synthetic upstream-only carrier must not leak through the
+            // independently selected standard downstream adapter.
+            adaptation: morphiecore::protocol::adaptation::Adaptation {
+                rules: morphiecore::protocol::adaptation::WireRules {
+                    responses_image_usage: protocol == ProtocolProfile::OpenAiResponses,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             replay_origin: if protocol == ProtocolProfile::OpenAiResponses {
                 Some(ReplayOrigin::new("fixture").unwrap())
             } else {

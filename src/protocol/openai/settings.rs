@@ -165,7 +165,7 @@ pub(super) fn write_format(f: &OutputConstraint) -> Value {
         }
     }
 }
-pub(super) fn write(s: &GenerationSettings, o: &mut Map<String, Value>) {
+pub(super) fn write(s: &GenerationSettings, o: &mut Map<String, Value>) -> Result<(), CodecError> {
     put_presence(o, "instructions", &s.instructions, |t| json!(t.as_str()));
     write_control_values(&s.controls, o, "max_output_tokens");
     if let Some(v) = s.controls.top_p() {
@@ -184,7 +184,7 @@ pub(super) fn write(s: &GenerationSettings, o: &mut Map<String, Value>) {
         );
     }
     function_tools::write_settings(s, Profile::Responses, o);
-    reasoning::write_request(&s.reasoning, o, Profile::Responses);
+    reasoning::write_request(&s.reasoning, o, Profile::Responses)?;
     if s.controls.logprobs == crate::semantic::value::Presence::Value(true) {
         let a = o.entry("include").or_insert_with(|| json!([]));
         a.as_array_mut()
@@ -203,4 +203,5 @@ pub(super) fn write(s: &GenerationSettings, o: &mut Map<String, Value>) {
         });
         o.insert("text".into(), Value::Object(t));
     }
+    Ok(())
 }

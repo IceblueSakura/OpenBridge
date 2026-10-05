@@ -535,7 +535,7 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
     settings::write(
         target.semantic.settings(),
         v.as_object_mut().expect("object"),
-    );
+    )?;
     bounded(&v)?;
     Ok(v)
 }

@@ -3,8 +3,10 @@ use super::{CodecError, Profile, common::*};
 use crate::semantic::task::generation::*;
 use serde_json::{Map, Value, json};
 fn dispatch(o: &Map<String, Value>) -> Result<ToolDispatch, CodecError> {
+    // Definition flags are non-nullable; call-item `async` has its own schema.
+    // https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/function_tool_param.py
     let flag = |key| match o.get(key) {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => Ok(false),
+        None | Some(Value::Bool(false)) => Ok(false),
         Some(Value::Bool(true)) => Ok(true),
         _ => Err(CodecError::Invalid(key)),
     };

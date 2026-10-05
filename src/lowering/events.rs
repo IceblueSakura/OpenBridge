@@ -18,6 +18,15 @@ pub fn check_event(
         return Err(RepresentationError::ReplayPhase);
     }
     match event {
+        StreamEvent::Terminal {
+            terminal: StreamTerminal::Cancelled,
+            ..
+        } if profile == Profile::Responses => {
+            // The static status exists, but the pinned standard stream union
+            // has no cancellation event. Never invent one or report failure/success.
+            // https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_stream_event.py
+            return Err(RepresentationError::Terminal);
+        }
         StreamEvent::PartStarted {
             kind: PartKind::Audio,
             ..

@@ -45,6 +45,7 @@ struct Scenario {
     chat: bool,
     stream: bool,
     empty_owner: bool,
+    nonstandard_usage: bool,
 }
 #[derive(Clone, Default)]
 struct Observed(
@@ -64,6 +65,7 @@ async fn provider(
     let chat = request.get("messages").is_some();
     let stream = request["stream"] == true;
     let owner_case = request["metadata"]["case"] == "empty-owner";
+    let nonstandard_usage = request["metadata"]["case"] == "nonstandard-usage";
     if owner_case {
         assert!(
             !chat,
@@ -78,7 +80,7 @@ async fn provider(
         }],
         32
     );
-    if !chat && !owner_case {
+    if !chat && !owner_case && !nonstandard_usage {
         // The fixed SDK must keep file description and ordered source parts
         // in the initial request and the history it appends for tool replay.
         assert_eq!(
@@ -98,12 +100,25 @@ async fn provider(
                 chat,
                 stream,
                 empty_owner: owner_case,
+                nonstandard_usage,
             })
             .or_default();
         *count += 1;
         *count
     };
-    assert!(turn <= if owner_case { 1 } else { 2 });
+    assert!(
+        turn <= if owner_case || nonstandard_usage {
+            1
+        } else {
+            2
+        }
+    );
+    if !chat && !owner_case && !nonstandard_usage {
+        assert_eq!(
+            request["reasoning"],
+            json!({"summary": if turn == 1 { json!("auto") } else { Value::Null }})
+        );
+    }
     if turn == 2 {
         let history = request[if chat { "messages" } else { "input" }]
             .as_array()
@@ -136,6 +151,9 @@ async fn provider(
                 value["completed_at"] = json!(2);
             }
             value["max_output_tokens"] = json!(32);
+            if nonstandard_usage && value["usage"].is_object() {
+                value["usage"]["input_tokens_details"]["image_tokens"] = json!(1);
+            }
         }
         value
     };
@@ -146,7 +164,7 @@ async fn provider(
         } else if chat {
             chat_wire::events(turn)
         } else {
-            wire::events(turn)
+            wire::events(if nonstandard_usage { 2 } else { turn })
         };
         for (sequence, mut value) in frames.into_iter().enumerate() {
             if !chat {
@@ -175,7 +193,7 @@ async fn provider(
         } else if chat {
             chat_wire::response(turn)
         } else {
-            wire::response(turn)
+            wire::response(if nonstandard_usage { 2 } else { turn })
         }))
         .unwrap()
     };
@@ -272,16 +290,17 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["requests"], 13);
+    assert_eq!(report["requests"], 31);
     assert_eq!(observed.1.load(std::sync::atomic::Ordering::SeqCst), 3);
     {
         let observed = observed.0.lock().unwrap();
-        assert_eq!(observed.len(), 6);
-        assert!(
-            observed
-                .iter()
-                .all(|(scenario, count)| *count == if scenario.empty_owner { 1 } else { 2 })
-        );
+        assert_eq!(observed.len(), 8);
+        assert!(observed.iter().all(|(scenario, count)| *count
+            == if scenario.empty_owner || scenario.nonstandard_usage {
+                1
+            } else {
+                2
+            }));
     }
     stop.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(3), serving)

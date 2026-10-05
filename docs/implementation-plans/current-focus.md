@@ -2,18 +2,22 @@
 
 ## 当前范围
 
-当前没有待实施的已定稿行为切片。图片方向维持基础静态生成，数量、报告与严格交付边界归 [HTTP 指南](../http-gateway.md#独立图片生成)及其 owning code；SSE 与高级图片功能均按[计划](next-goal.md#推进顺序与退出条件)延期，不作为当前收口前置，也不自动追加模型验证。文件扩展仍延期，下一次选片时重评，不以所有图片能力完成为前置。
+**当前没有待实施的已定稿行为切片。** 下一候选按[标准模型发现计划](next-goal.md#下一片候选标准模型发现)定稿；标准文本/function 与类型化交互作为后续工作的回归边界，不扩大成整个 Responses union 或 Agent runtime。文件扩展继续延期，后续选片仍按计划重评。
 
-独立 Images 的具名计量损失只按[投影合同](../architecture-v2/protocol-and-lowering.md#独立-images-的计量投影)适用，不授权丢弃请求控制、篡改产物报告或隐藏预算失败。新付费测试需要明确场景，不复用旧矩阵授权扩大控制或模型范围。
+现有能力维护仍遵守以下合同：
 
-文件仅维持既有 Responses user inline/URL 基础输入及必要正确性、安全维护；其他文件功能暂停，恢复评估按[计划的有限首批范围与重评节点](next-goal.md#推进顺序与退出条件)执行，不等待所有模态完成，也不自动恢复实施。不新增 `/v1/files` 上传、存储、下载、删除或 file_id 服务。Inline 与 URL 文件合同分别归 [inline profile](../architecture-v2/responses-text-profile.md#user-inline-file-input)和 [URL profile](../architecture-v2/responses-text-profile.md#user-file-url-input)，其他模态的下一片按[计划](next-goal.md)单独定稿；文件扩展延期，不能从 PDF carrier 推定所有格式、来源或工具文件均准入。
+- **基础静态图片生成**：数量、报告与严格交付边界见 [HTTP 指南](../http-gateway.md#独立图片生成)；[具名计量损失](../architecture-v2/protocol-and-lowering.md#独立-images-的计量投影)不授权丢弃请求控制、篡改产物报告或隐藏预算失败。
+- **基础文件输入**：仅维持 Responses user [inline](../architecture-v2/responses-text-profile.md#user-inline-file-input) / [URL](../architecture-v2/responses-text-profile.md#user-file-url-input) 输入及必要正确性、安全维护；不从 PDF carrier 推定所有格式、来源或工具文件均准入，也不新增 `/v1/files` 或 file_id 服务。
+- **客户端与迁移**：遵守[客户端合同](../architecture-v2/client-generation-profile.md)，不恢复独立 `_openbridge` 或隐式兼容入口；允许破坏性重写不免除 IR 结构缺口报告，也不提前应用未定稿 Chat 损失规则。
 
-文件与必要 opaque 回传的验证应分别覆盖“实际报告且回传”和“未报告”；后者即便内容正确也不证明 opaque 路径。显式 reasoning 控制不充当已生成 reasoning 的事实，有限场景通过不等于一般可靠性。
+文件与必要 opaque 回传的验证分别覆盖“实际报告且回传”和“未报告”；后者即便内容正确也不证明 opaque 路径。显式 reasoning 控制不充当已生成 reasoning 的事实，有限场景通过不等于一般可靠性。新付费测试仍需明确场景，不复用旧矩阵授权扩大控制或模型范围。
 
-## 必要 replay 合同
+## 待决问题与实施边界
 
-已闭合 item 的完整 opaque 值若与终态不同，现行拒绝继续生效；不得按仅终态新增的方案处理已有值替换。该缺口保留但不作为下一片或其他模态的前置；重新选片时先按[实现缺口](../implementation-status/generation.md#语义与表示缺口)定清 replay 值/凭据身份、最终 authority 与更新的依赖影响，再决定最小事件和具名 wire 规则。未定稿前不增加 replay 事件、放宽 snapshot 或补建通用 attachment/framework。
+等待证据或语义决策的问题归[待决状态](../implementation-status/open-questions.md)。Reasoning opaque 的闭合后权威暂缓，不作为当前行为切片或其他模态的前置；本页不重复其问题清单，文档澄清不制造校验或实现任务。
 
-独立 `_openbridge` 不属于[当前客户端合同](../architecture-v2/client-generation-profile.md)，迁移不恢复隐式兼容入口。允许破坏性重写，但新的 IR 结构缺口仍应报告概念方案和迁移影响；Chat 有损规则逐条定稿，不以方向许可提前丢字段。
+## 新切片的定稿要求
 
-后续实施先在本页定稿可观察结果、需求、不变量、失败例、非目标与验证边界；出现未覆盖的结构或标准分歧时先更新/确认切片，不以计划代替操作授权。实现缺口归[状态文档](../implementation-status/generation.md)。
+后续选片复用已有标准边界、类型化消费与回传验证；发现新的标准或消费差异时，以独立反例定位最低 owner，不重复重建已满足的合同。
+
+后续行为实施先在本页定稿可观察结果、需求、不变量、失败例、非目标与验证边界；出现未覆盖的结构或标准分歧时先更新/确认切片，不以计划代替操作授权。文档整理不创建行为切片；实现缺口归[状态文档](../implementation-status/generation.md)。

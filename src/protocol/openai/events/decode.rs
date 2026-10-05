@@ -483,10 +483,9 @@ impl EventDecoder {
                 self.part_done(o, &mut out)?
             }
             "response.output_item.done" => self.item_done(o, &mut out)?,
-            "response.completed"
-            | "response.incomplete"
-            | "response.failed"
-            | "response.cancelled" => self.terminal(o, &mut out)?,
+            "response.completed" | "response.incomplete" | "response.failed" => {
+                self.terminal(o, &mut out)?
+            }
             _ => return Err(CodecError::Unsupported(typ.into())),
         }
         Ok(out)
@@ -1253,7 +1252,6 @@ impl EventDecoder {
             "completed" => StreamTerminal::Completed,
             "incomplete" => StreamTerminal::Incomplete,
             "failed" => StreamTerminal::Failed,
-            "cancelled" => StreamTerminal::Cancelled,
             _ => return Err(CodecError::Invalid("terminal")),
         };
         self.observe_metadata(p)?;

@@ -3,7 +3,7 @@
   "info": {
     "title": "MorphieCore minimal model interaction gateway",
     "version": "0.1.0",
-    "description": "Current envelope-level HTTP contract, not complete standard conformance. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Other named MorphieCore reasoning/usage/cache rules remain separately bounded. Current priority is Agent-first Text/Image/File through standard Responses; Chat is a compatibility path. A static ordered-image operation is available through explicit image bindings, with explicit model selection and single-source API-key activation; image operations are not activated by an existing conversation binding. Embeddings, other media operations and audio Realtime remain later work. No models discovery, stateful resources or implicit retry/fallback."
+    "description": "Current envelope-level HTTP contract, not complete standard conformance. Responses uses the Standard adapter; Chat retains the explicit MorphieCore compatibility profile. Provider-specific rules cannot authorize private Responses carriers or silent loss. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Current priority is Agent-first Text/Image/File through standard Responses; Chat is a compatibility path. A static ordered-image operation is available through explicit image bindings, with explicit model selection and single-source API-key activation; image operations are not activated by an existing conversation binding. Embeddings, other media operations and audio Realtime remain later work. No models discovery, stateful resources or implicit retry/fallback."
   },
   "servers": [{"url": "http://127.0.0.1:8080"}],
   "security": [{"bearerAuth": []}],
@@ -459,14 +459,41 @@
         "additionalProperties": true,
         "description": "Additional fields require admission by the Chat text profile and selected public contract; additionalProperties does not authorize arbitrary upstream parameters. Function-only tool_choice.allowed_tools uses the nested Chat shell. Explicit assistant-message/tool-call membership cannot be projected to a standard Responses target; incompatible history is rejected before upstream I/O, without dropping the owner or membership. MorphieCore's Chat extension admits scoped openai-responses-v1 reasoning_details on assistant history; preserve those actual output details for replay rather than treating them as ordinary assistant text."
       },
+      "ResponsesReasoningSummary": {
+        "type": ["string", "null"],
+        "enum": ["auto", "concise", "detailed", null],
+        "description": "Standard summary control. Boolean false is not a disabled carrier; typed Disabled remains unrepresentable, not omission or null."
+      },
       "ResponsesRequest": {
         "type": "object", "required": ["model"],
-        "not": {"anyOf": [{"required": ["provider"]}, {"required": ["_openbridge"]}]},
+        "not": {"anyOf": [{"required": ["provider"]}, {"required": ["_openbridge"]}, {"required": ["session_id"]}]},
         "properties": {
           "model": {"$ref": "#/components/schemas/PublicModelLabel"},
-          "session_id": {"$ref": "#/components/schemas/CacheSession"},
-          "prompt_cache_key": {"type": ["string", "null"], "maxLength": 256, "description": "Advisory Provider cache-affinity key, independent of session_id. Cache echoes/usage are only upstream-reported facts."},
+          "prompt_cache_key": {"type": ["string", "null"], "maxLength": 256, "description": "Advisory Provider cache-affinity key, not session identity. Cache echoes/usage are only upstream-reported facts."},
           "input": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "object", "not": {"required": ["_openbridge"]}}}]},
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object", "required": ["type", "name"],
+              "properties": {
+                "type": {"enum": ["function", "custom"]},
+                "name": {"type": "string", "minLength": 1, "maxLength": 128},
+                "async": {"type": "boolean"},
+                "defer_loading": {"type": "boolean"}
+              },
+              "additionalProperties": true
+            },
+            "description": "Envelope subset only. Parameters, strict defaults, dispatch combinations and tool choice require the owning codec/profile checks; additionalProperties does not permit arbitrary tools."
+          },
+          "reasoning": {
+            "type": ["object", "null"],
+            "properties": {
+              "summary": {"$ref": "#/components/schemas/ResponsesReasoningSummary"},
+              "generate_summary": {"$ref": "#/components/schemas/ResponsesReasoningSummary", "deprecated": true}
+            },
+            "additionalProperties": true,
+            "description": "Other reasoning controls and conflicting aliases are checked by the owning codec and selected target."
+          },
           "stream": {"type": ["boolean", "null"], "default": false},
           "max_output_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
         },

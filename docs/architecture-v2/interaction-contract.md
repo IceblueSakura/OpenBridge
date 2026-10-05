@@ -39,9 +39,24 @@ Continuation 是要求/依赖而不是动作命令。当前 [pending view](../..
 
 ## Typed replay 与信任
 
-Replay attachment 拥有明确格式、唯一值、owner、partial/final、可见性与预算；绑定记录拥有可信兼容 scope 和依赖证明，不复制正文。Responses encrypted content、Google thought signature 与其他 opaque 格式不能因为都是字符串而互换。
+Reasoning opaque 是由上游提供、绑定于特定交互项的协议专属回放值。客户端可以保存、搬运和按协议重新序列化，但不解释、不自行改写或根据可见 reasoning 重建它；回放保留原值及协议要求的所属关系。“不可自行改写”不等于“从首次出现起永不变化”，协议规定的片段组装与最终化也不属于客户端擅自改写。
 
-每种格式分别规定 value final、owner completed、response closed 与 history replay 就绪的条件。Responses 的 item-done 规则不外推给其他协议；opaque-only 内容与必要 replay 合法性也分开。无合同不造 token，有必要值不能静默丢掉后宣称可续轮。
+Replay attachment 拥有明确格式、唯一值、owner、partial/final、可见性与预算；绑定记录拥有可信兼容 scope 和依赖证明，不复制正文。其基础边界为：
+
+- 原样保留的是 opaque 值及必要关联，不要求外围 JSON 的空白、键顺序或等价转义写法逐字节相同。不截断、补造或拼接独立 opaque 值；不能从 summary 生成替代值。
+- 值不能移挂到另一 owner；删除 owner 或 typed 值不能从 fidelity 恢复。可见 summary 与 opaque 的依赖由具体格式规定，不预设整个 reasoning 对象的每个字段都被签名绑定；已声明的依赖约束仍须保留。
+- 上游未报告、客户端丢失和目标无载体是不同事实。缺失不补造，也不一律判作错误；必要 replay 缺失时不能宣称保持同等续轮语义。Opaque-only 内容合法不等于回放条件已经满足。
+- Responses encrypted content、Google thought signature 与其他 opaque 格式不能因为都是字符串而互换，也不是认证凭据、稳定内容 ID 或跨目标通行证。可见 reasoning 不能替代必要 opaque；跨协议可继续发送请求不证明原 reasoning 状态得到保持。
+
+完成与回放分三个维度判断，不要求据此新增字段或状态机：
+
+| 维度 | 需要区分的事实 |
+|---|---|
+| 值完整性 | 构造中的值与按所选格式完成的值；非空不等于 final |
+| 交互闭合 | owner completed、response closed 与严格 transport EOF 分别成立，不能互推 |
+| 回放条件 | 格式、目标准入、可信 scope 与必要历史依赖是否满足；满足本地条件仍不证明上游接受 |
+
+每种格式分别规定最终化和回放条件；Responses 的 item-done 规则不外推给其他协议。`Final` 不表示永不过期、不可重新签发或真实性已验证。此处澄清不放宽当前 profile，也不要求新增严格校验；已闭合 item 的迟到信息与权威问题集中在[待决状态](../implementation-status/open-questions.md#reasoning-opaque-的闭合后权威)。
 
 三层证明不可互推：
 
@@ -49,7 +64,7 @@ Replay attachment 拥有明确格式、唯一值、owner、partial/final、可�
 2. 客户端交付、保存、回传后的完整性；
 3. issuer 对值与用途的真实性验证。
 
-普通 hash、client label、wire ID 或内部 scope 只够其声明的用途。对已修改 history 重新 hash 不证明原始签发内容；跨请求证明须另定 authenticated carrier 或受信状态，不能借现有 sidecar 声称完成。Scope 不选择上游、账号或 credential。
+普通 hash、client label、wire ID 或内部 scope 只够其声明的用途。原样保存不证明上游仍接受；对已修改 history 重新 hash 不证明原始签发内容。若需要跨请求证明，须另定 authenticated carrier 或受信状态，不能借现有 sidecar 声称完成，也不因此预建防篡改系统。Scope 不选择上游、账号或 credential。
 
 ## 报告、控制与引用
 

@@ -194,6 +194,25 @@ fn non_success_terminals_keep_partial_output_and_error_is_not_materializable() {
             },
             terminal(t),
         ];
+        if t == StreamTerminal::Cancelled {
+            // Cancellation still materializes partial typed output, but cannot
+            // invent a standard wire event to deliver that snapshot.
+            let response = materialize(&apply(&events).unwrap()).unwrap();
+            assert_eq!(response.outcome(), Outcome::Cancelled);
+            let Item::ToolCall(call) = &response.items()[0].1 else {
+                panic!("partial call")
+            };
+            assert_eq!(call.arguments.as_raw(), Some("{"));
+            assert_eq!(response.continuation(), Continuation::Unreported);
+            let mut encoder = EventEncoder::new(Profile::Responses, metadata()).unwrap();
+            let source = FidelityRecords::default();
+            for event in &events[..events.len() - 1] {
+                encoder.encode(event, &source).unwrap();
+            }
+            assert!(encoder.encode(events.last().unwrap(), &source).is_err());
+            assert!(encoder.finish().is_err());
+            continue;
+        }
         let wire = encode(&events, Profile::Responses, &FidelityRecords::default());
         assert_eq!(
             wire.last().unwrap()["response"]["output"][0]["arguments"],

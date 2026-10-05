@@ -215,7 +215,7 @@ impl ResponseContext {
     ) -> Result<(), CodecError> {
         self.validate()?;
         if let Some(s) = &self.settings {
-            settings::write(s, o);
+            settings::write(s, o)?;
         }
         self.execution.write(o)?;
         if let Some(messages) = &self.instruction_messages {

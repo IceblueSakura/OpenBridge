@@ -392,3 +392,98 @@ fn native_history_replay_keeps_wire_authority_and_never_emits_a_continuation_fie
         );
     }
 }
+
+#[test]
+fn typed_function_history_keeps_raw_arguments_while_summary_and_results_are_edited() {
+    use morphiecore::semantic::value::Presence;
+    let raw = " {\"n\":9007199254740993, \"label\":\"synthetic\"} ";
+    let mut pending = call(10, "call-a");
+    let Item::ToolCall(value) = &mut pending.1 else {
+        panic!("call")
+    };
+    value.arguments = raw.into();
+    let settings = GenerationSettings {
+        instructions: Presence::Value(text("lookup")),
+        reasoning: ReasoningRequest::present(None, Some(ReasoningSummary::Auto)),
+        tools: Some(vec![ToolDefinition::Function(FunctionTool {
+            name: text("lookup"),
+            description: None,
+            parameters: Some(json!({"type":"object"})),
+            strict: FunctionStrictness::Explicit(false),
+            output_schema: None,
+            dispatch: ToolDispatch::default(),
+        })]),
+        ..Default::default()
+    };
+    let request = GenerationRequest::from_settings(vec![pending], settings).unwrap();
+    let fidelity = FidelityRecords::default();
+    let wire = responses::encode_generation(
+        &lower_request(&request, &fidelity, Profile::Responses, Contract::full()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        wire,
+        json!({
+            "instructions":"lookup",
+            "input":[{"type":"function_call","call_id":"call-a","name":"lookup","arguments":raw}],
+            "reasoning":{"summary":"auto"},
+            "tools":[{"type":"function","name":"lookup","parameters":{"type":"object"},"strict":false}]
+        })
+    );
+
+    // Saving and reloading standard history is not a second semantic authority.
+    let adapter = Adapter::new(Profile::Responses, Dialect::Standard, None);
+    let mut saved = wire;
+    saved["model"] = json!("synthetic");
+    let mut replay = adapter
+        .decode_request(&serde_json::to_vec(&saved).unwrap())
+        .unwrap();
+    assert_eq!(
+        references(replay.task.semantic.continuation()),
+        [(ItemId::new(1), "call-a")]
+    );
+    let mut items = replay.task.semantic.items().to_vec();
+    items.push(result(900, "call-a"));
+    let answered = replay.task.semantic.clone().with_items(items).unwrap();
+    assert_eq!(answered.continuation(), Continuation::Unreported);
+    for summary in [
+        Presence::Null,
+        Presence::Value(ReasoningSummary::Detailed),
+        Presence::Absent,
+    ] {
+        let mut settings = answered.settings().clone();
+        settings.reasoning.summary = summary.clone();
+        replay.task.semantic = answered.clone().with_settings(settings).unwrap();
+        let projected = adapter
+            .encode_request(&replay, "synthetic", &Contract::full())
+            .unwrap();
+        assert_eq!(
+            projected["input"],
+            json!([
+                {"type":"function_call","call_id":"call-a","name":"lookup","arguments":raw},
+                {"type":"function_call_output","call_id":"call-a","output":""}
+            ])
+        );
+        let expected = match summary {
+            Presence::Null => json!({"summary":null}),
+            Presence::Value(_) => json!({"summary":"detailed"}),
+            Presence::Absent => json!({}),
+        };
+        assert_eq!(projected["reasoning"], expected);
+        assert!(projected.get("continuation").is_none());
+    }
+    let removed = answered
+        .clone()
+        .retain_items(|id, _| id != ItemId::new(900))
+        .unwrap();
+    assert_eq!(
+        references(removed.continuation()),
+        [(ItemId::new(1), "call-a")]
+    );
+    assert!(answered.retain_items(|id, _| id != ItemId::new(1)).is_err());
+    assert_eq!(request.reasoning().summary(), Some(ReasoningSummary::Auto));
+    assert_eq!(
+        references(request.continuation()),
+        [(ItemId::new(10), "call-a")]
+    );
+}

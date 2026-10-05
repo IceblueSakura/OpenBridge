@@ -11,6 +11,47 @@ use morphiecore::{
 use serde_json::{Value, json};
 
 #[test]
+fn function_dispatch_nonnullable_flags_do_not_accept_null_as_an_inactive_default() {
+    let adapter = Adapter::new(Profile::Responses, Dialect::Standard, None);
+    for name in ["async", "defer_loading"] {
+        for value in [Value::Null, json!(0), json!("false"), json!({})] {
+            let mut tool =
+                json!({"type":"function","name":"lookup","parameters":{},"strict":false});
+            tool[name] = value;
+            let request = json!({"model":"m","input":"lookup","tools":[tool]});
+            assert!(
+                adapter
+                    .decode_request(request.to_string().as_bytes())
+                    .is_err(),
+                "{name}"
+            );
+        }
+        for value in [None, Some(json!(false)), Some(json!(true))] {
+            let mut tool =
+                json!({"type":"function","name":"lookup","parameters":{},"strict":false});
+            if let Some(value) = &value {
+                tool[name] = value.clone();
+            }
+            let request = json!({"model":"m","input":"lookup","tools":[tool]});
+            let decoded = adapter
+                .decode_request(request.to_string().as_bytes())
+                .unwrap();
+            let encoded = adapter
+                .encode_request(
+                    &decoded,
+                    "m",
+                    &morphiecore::lowering::generation::GenerationRepresentationContract::full(),
+                )
+                .unwrap();
+            assert_eq!(
+                encoded["tools"][0].get(name),
+                value.filter(|v| v == true).as_ref()
+            );
+        }
+    }
+}
+
+#[test]
 fn text_delta_and_done_require_probability_arrays_at_both_event_boundaries() {
     for kind in ["response.output_text.delta", "response.output_text.done"] {
         for invalid in [None, Some(Value::Null), Some(json!({}))] {

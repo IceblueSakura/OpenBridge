@@ -1,6 +1,7 @@
 # 实施方向与当前范围
 
-- [后续计划](next-goal.md)：统一语义、标准接口与兼容投影的推进顺序，不是当前能力声明。
+- [后续计划](next-goal.md)：目标优先级、依赖、退出条件与延期恢复节点，不是当前能力声明；直接查看[推荐顺序](next-goal.md#推进顺序与退出条件)和[下一片候选](next-goal.md#下一片候选标准模型发现)。
 - [当前焦点](current-focus.md)：当前切片、明确缺口与验收边界，不自动授予新权限。
+- [当前待决问题](../implementation-status/open-questions.md)：因证据或语义决策不足而暂缓的问题与恢复条件，不是已定稿实施切片。
 
 旧运行时与旧执行计划在 [Git 归档](../archive.md)中。当前设计以 [v2 架构](../architecture-v2/README.md)为准，实施与验证遵循[开发指南](../development.md)。

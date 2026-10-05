@@ -48,11 +48,9 @@ pub(super) fn request(
     }
     let mut r = ReasoningRequest::present(None, None).with_encrypted_output(encrypted);
     r.effort = optional_label(reasoning, "effort", effort)?;
-    r.summary = if reasoning.get("summary") == Some(&Value::Bool(false)) {
-        crate::semantic::value::Presence::Value(ReasoningSummary::Disabled)
-    } else {
-        optional_label(reasoning, "summary", summary)?
-    };
+    // The standard nullable enum has no boolean disabled carrier.
+    // https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/shared_params/reasoning.py
+    r.summary = optional_label(reasoning, "summary", summary)?;
     if reasoning.contains_key("generate_summary") {
         let old = optional_label(reasoning, "generate_summary", summary)?;
         if !r.summary.is_absent() && r.summary != old {
@@ -91,33 +89,34 @@ pub(super) fn write_request(
     value: &ReasoningRequest,
     o: &mut Map<String, Value>,
     profile: Profile,
-) {
+) -> Result<(), CodecError> {
+    if profile == Profile::Responses && value.summary() == Some(ReasoningSummary::Disabled) {
+        // Typed control intent cannot be replaced by absence or null. This also
+        // protects reported settings on events, before a final response exists.
+        return Err(CodecError::Unsupported("reasoning summary".into()));
+    }
     if value.encrypted_output() {
         o.insert("include".into(), json!(["reasoning.encrypted_content"]));
     }
     if value.presence() == ReasoningPresence::Absent {
-        return;
+        return Ok(());
     }
     if profile == Profile::Chat {
         put_presence(o, "reasoning_effort", &value.effort, |v| {
             json!(effort_label(*v))
         });
-        return;
+        return Ok(());
     }
     if value.presence() == ReasoningPresence::Null {
         o.insert("reasoning".into(), Value::Null);
-        return;
+        return Ok(());
     }
     let mut reasoning = Map::new();
     put_presence(&mut reasoning, "effort", &value.effort, |v| {
         json!(effort_label(*v))
     });
     put_presence(&mut reasoning, "summary", &value.summary, |v| {
-        if *v == ReasoningSummary::Disabled {
-            json!(false)
-        } else {
-            json!(summary_label(*v))
-        }
+        json!(summary_label(*v))
     });
     put_presence(&mut reasoning, "context", &value.context, |v| {
         let label: &'static str = (*v).into();
@@ -128,6 +127,7 @@ pub(super) fn write_request(
         json!(label)
     });
     o.insert("reasoning".into(), Value::Object(reasoning));
+    Ok(())
 }
 pub(super) fn decode_item(
     o: &Map<String, Value>,
@@ -289,7 +289,7 @@ pub(super) fn effort_label(value: ReasoningEffort) -> &'static str {
 }
 fn summary_label(value: ReasoningSummary) -> &'static str {
     match value {
-        ReasoningSummary::Disabled => unreachable!("disabled is a boolean"),
+        ReasoningSummary::Disabled => unreachable!("disabled has no Responses carrier"),
         ReasoningSummary::Auto => "auto",
         ReasoningSummary::Concise => "concise",
         ReasoningSummary::Detailed => "detailed",

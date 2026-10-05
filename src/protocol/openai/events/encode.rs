@@ -430,7 +430,9 @@ impl EventEncoder {
                     StreamTerminal::Completed => "response.completed",
                     StreamTerminal::Incomplete => "response.incomplete",
                     StreamTerminal::Failed => "response.failed",
-                    StreamTerminal::Cancelled => "response.cancelled",
+                    StreamTerminal::Cancelled => {
+                        return Err(CodecError::Unsupported("cancelled event".into()));
+                    }
                     StreamTerminal::Error => unreachable!(),
                 };
                 vec![json!({"type":kind,"response":v})]

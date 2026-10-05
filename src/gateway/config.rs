@@ -229,8 +229,13 @@ impl Gateway {
                 if endpoint.representation.replay_origin.is_some() {
                     endpoint.representation.replay_origin = Some(scope.clone());
                 }
-                let client =
-                    Adapter::new(entry.protocol, Dialect::MorphieCore, Some(scope.clone()));
+                // Provider compatibility does not authorize private downstream
+                // Responses carriers. Chat retains its explicit compatibility profile.
+                let dialect = match entry.protocol {
+                    Profile::Responses => Dialect::Standard,
+                    Profile::Chat => Dialect::MorphieCore,
+                };
+                let client = Adapter::new(entry.protocol, dialect, Some(scope.clone()));
                 // Model input admission must not filter facts reported on the client wire
                 // (e.g. empty logprobs or defaults a model cannot accept as controls).
                 let downstream = GenerationRepresentationContract {
