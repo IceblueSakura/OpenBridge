@@ -2,7 +2,7 @@
 name = "morphiecore"
 version = "0.1.0"
 edition = "2024"
-description = "Semantic IR and a minimal OpenAI-compatible text gateway for MorphieCore v2."
+description = "分布式Agent Runtime的测试性路由网关"
 license = "MIT"
 
 [dependencies]

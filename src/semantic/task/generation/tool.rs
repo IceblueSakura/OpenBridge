@@ -74,27 +74,45 @@ pub struct CustomTool {
     pub dispatch: ToolDispatch,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolNamespace {
+    pub name: Text,
+    pub description: String,
+    /// Ordered leaf definitions. Nested namespaces are invalid.
+    pub tools: Vec<ToolDefinition>,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolDefinition {
     Function(FunctionTool),
     Custom(CustomTool),
+    Namespace(ToolNamespace),
 }
 impl ToolDefinition {
     pub fn name(&self) -> &Text {
         match self {
             Self::Function(t) => &t.name,
             Self::Custom(t) => &t.name,
+            Self::Namespace(t) => &t.name,
         }
     }
     pub fn dispatch_inactive(&self) -> bool {
         match self {
             Self::Function(t) => t.dispatch.is_inactive(),
             Self::Custom(t) => t.dispatch.is_inactive(),
+            Self::Namespace(t) => t.tools.iter().all(Self::dispatch_inactive),
         }
     }
-    pub fn kind(&self) -> ToolKind {
+    pub fn kind(&self) -> Option<ToolKind> {
         match self {
-            Self::Function(_) => ToolKind::Function,
-            Self::Custom(_) => ToolKind::Custom,
+            Self::Function(_) => Some(ToolKind::Function),
+            Self::Custom(_) => Some(ToolKind::Custom),
+            Self::Namespace(_) => None,
+        }
+    }
+    /// A validated namespace contains only leaves; this view does not flatten identity.
+    pub fn leaves(&self) -> &[Self] {
+        match self {
+            Self::Namespace(group) => &group.tools,
+            _ => std::slice::from_ref(self),
         }
     }
 }
@@ -107,6 +125,7 @@ pub enum ToolKind {
 pub struct ToolReference {
     pub kind: ToolKind,
     pub name: Text,
+    pub namespace: Option<Text>,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub enum ToolChoice {
@@ -116,6 +135,7 @@ pub enum ToolChoice {
     Required,
     Specific(Text),
     Custom(Text),
+    Qualified(ToolReference),
     Allowed {
         required: bool,
         tools: Vec<ToolReference>,

@@ -2,7 +2,7 @@
 
 `CredentialManager` 管理 API key 的本地生命周期、OAuth 授权生命周期，以及供推理使用的有序凭据池。凭据只来自显式自有文件目录；CLI、Gateway 和 probe 不从环境变量读取上游 key 或账户 alias，不搜索第三方 auth cache。API key 不伪装成 OAuth grant，登录成功也不证明模型、订阅或额度资格。
 
-合同归 [ADR 0012](architecture-v2/decisions/0012-grok-personal-credential-pool.md)，执行前移归 [ADR 0010](architecture-v2/decisions/0010-canonical-model-fixed-fallback.md)。当前 OAuth 固定来源见 [Grok](references/grok-login.md)、[待弃用的 Codex 产品路径](references/chatgpt-login.md)；Codex 产品授权不是公开 SIWC，也不是 Platform API key。公开 SIWC 的独立迁移来源与名称/ID 参数规划见 [SIWC 参考](references/siwc-login.md)，不改变本文当前 CLI、存储、绑定或恢复合同。
+合同归 [ADR 0012](architecture-v2/decisions/0012-grok-personal-credential-pool.md)，执行前移归 [ADR 0010](architecture-v2/decisions/0010-canonical-model-fixed-fallback.md)。OAuth 来源见 [Grok](references/grok-login.md)和 [SIWC](references/siwc-login.md)。ChatGPT plan usage 只提供独立 SIWC browser flow，不提供 Codex 产品登录、client override 或 token 转换；SIWC 也不是 Platform API key。
 
 ## Gateway access 绑定
 
@@ -35,6 +35,8 @@ Provider 文件中的 `pools` 使用已编译的 credential binding ID 为键。
 - API key 的 `enabled` 只是本地状态；未知 expiry、模型/额度和上游可用性不能补成有效事实。
 
 ### 同 Provider fallback
+
+SIWC 是例外：单一显式 registration、单成员、`fallback:false`、`max_attempts:1`，不做账户轮换或同请求重试。下列可选 fallback 机制不能扩大 SIWC 的授权边界。
 
 `fallback` 缺省为 false，必须在池配置显式开启。有效尝试数不超过池上限、入口配置上限和 Route 总上限；本地不可用检查也占候选位置。所有尝试共用总 deadline 和并发 permit，没有同候选重试、并行竞速、自动刷新或跨请求健康调度。
 
@@ -123,28 +125,33 @@ target/debug/morphiecore-auth pool list --store "$STORE"
 ```sh
 target/debug/morphiecore-auth grok login --store "$STORE" --account personal
 target/debug/morphiecore-auth grok login --store "$STORE" --account personal --method browser
-target/debug/morphiecore-auth codex login --store "$STORE" --account personal
-target/debug/morphiecore-auth codex login --store "$STORE" --account personal --method browser
+target/debug/morphiecore-auth siwc login --store "$STORE" --account personal
+# 身份已登录但未开启套餐权限时，由用户明确重新 consent。
+target/debug/morphiecore-auth siwc login --store "$STORE" --account personal --consent
 target/debug/morphiecore-auth list --store "$STORE"
-target/debug/morphiecore-auth codex refresh --store "$STORE" --account personal
-target/debug/morphiecore-auth codex logout --store "$STORE" --account personal
+target/debug/morphiecore-auth siwc refresh --store "$STORE" --account personal
+target/debug/morphiecore-auth siwc logout --store "$STORE" --account personal
 # 显式远端撤销需独立授权；本地清理先于该请求。
-target/debug/morphiecore-auth codex logout --store "$STORE" --account personal --revoke
+target/debug/morphiecore-auth siwc logout --store "$STORE" --account personal --revoke
 ```
 
-- device 是缺省方法，browser 显式选择；失败不自动换 client/方法。Grok 可指定已获准 `--client-id`，Codex 不接受 override。代理只通过显式 `--proxy` 指定，不继承环境代理。
+- SIWC 缺省且仅支持 browser；Grok 缺省 device，browser 显式选择。失败不自动换 client/方法。Grok 可指定已获准 `--client-id`，SIWC 使用 callback issued client，不接受 override。代理只通过显式 `--proxy` 指定，不继承环境代理。
 - alias 不是已验证身份。登录结果必须通过 driver 的 issuer/client/subject/workspace 验证；不同 profile 的 token 不互换，不从 JWT header 选择可信 issuer/key URL。
 - 同账户竞争返回 busy。失败/取消的 login 保留已有可用 session；ticket 防止过期登录覆盖退出或后续登录。
-- refresh 发出前先持久化移除可复用 secrets；拒绝、取消或不确定结果需要重新登录，不能盲目重发 refresh token。
+- refresh 发出前先持久化移除可复用 secrets；拒绝、取消或不确定消费结果需要重新登录，不能盲目重发 refresh token。SIWC 已收到的 replacement 在验证前持久化为 `renewal_pending`，禁止借用；再次 `refresh` 只验证这份材料，不再次发 token grant。身份不匹配不能发布，需显式 logout 后重新登录；不手动恢复旧备份。
 - logout 先清理本地，再可选远端 revoke；远端不确定不恢复本地 tokens。Ctrl-C 取消本次操作，不声称上游终止。
 
 ## 交互与身份
 
 设备入口只展示第一方验证 URL 与 user code，不展示 device secret；浏览器入口只展示第一方授权 URL 和准确 callback，不自动打开浏览器。
 
-Callback 仅监听 literal `127.0.0.1`。Grok `/callback` 缺省或端口 0 由 OS 分配；Codex `/auth/callback` 缺省 1455，可显式使用 1457，不接受随机端口。占用即失败，不停止其他进程。严格校验 method/path/Host、state、唯一参数与预算；接收 callback 不等于身份验证或持久化成功。
+Callback 仅监听 literal `127.0.0.1`。Grok 使用 `/callback`，SIWC 使用 `/auth/callback`；缺省或 `--callback-port 0` 由 OS 分配。显式端口占用即失败，不停止其他进程。严格校验 method/path/Host、state、唯一参数与预算；接收 callback 不等于身份验证或持久化成功。
 
-Grok browser 使用 ES256/OIDC nonce 与 UserInfo subject 对齐；device 验证固定 UserInfo。Codex 使用 RS256 与 subject/workspace，browser 另绑定 nonce；device/refresh 不套用 browser nonce。scope、UA 与固定客户端 metadata 的精确合同留在对应 driver 和来源文档，不因 SDK/官方源码存在推定部署资格。
+Grok browser 使用 ES256/OIDC nonce 与 UserInfo subject 对齐；device 验证固定 UserInfo。SIWC 使用 RS256、受信 issuer、issued-client audience、subject、expiry 和本次 nonce；不解释 opaque account metadata 或继承产品账户 header。稳定 host ID 属于所选本地 store，同 host 重登/切换账户复用；不同远程 host 的配置与 token 转移不在该 CLI 的自动职责内。
+
+SIWC 的注册参数与应用名称归 [driver](../src/credential/siwc.rs)，description 取 package metadata。公开授权参数没有 description 字段，不发送猜测字段。CLI 在登录前告知本地数据存储与单用户应用用途，使用 `Continue with ChatGPT`；状态报告 `plan_usage_enabled`，没有实际套餐权限时不可借用推理。权限不证明所选模型可调用；usage 管理入口为 <https://chatgpt.com/settings/usage>。
+
+新 SIWC 登录不会转换、撤销或删除旧 Codex 文件。为新路径选择显式 store，并按当前 catalog 配置新的单成员 Provider pool；旧 pool 不自动重命名或启用。私有文件清理与远端撤销须分别授权。
 
 ## 状态与验收
 

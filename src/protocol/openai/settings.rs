@@ -183,7 +183,7 @@ pub(super) fn write(s: &GenerationSettings, o: &mut Map<String, Value>) -> Resul
             }),
         );
     }
-    function_tools::write_settings(s, Profile::Responses, o);
+    function_tools::write_settings(s, Profile::Responses, o)?;
     reasoning::write_request(&s.reasoning, o, Profile::Responses)?;
     if s.controls.logprobs == crate::semantic::value::Presence::Value(true) {
         let a = o.entry("include").or_insert_with(|| json!([]));

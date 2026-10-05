@@ -62,6 +62,9 @@ impl Credentials {
         if pool.members.is_empty()
             || pool.members.len() > crate::credential::MAX_POOL_MEMBERS
             || !(1..=64).contains(&pool.max_attempts)
+            || (pool.members.iter().any(
+                |m| matches!(m, crate::credential::PoolMember::OAuth(a) if a.profile() == "siwc"),
+            ) && (pool.members.len() != 1 || pool.fallback || pool.max_attempts != 1))
         {
             return Err(StartupError::Credentials);
         }

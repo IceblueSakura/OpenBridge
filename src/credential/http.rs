@@ -20,7 +20,8 @@ impl AuthHttp {
     ) -> Result<Self, Error> {
         Self::build(origin.into(), proxy, Some(agent))
     }
-    /// Raw product auth clients have no application User-Agent or default metadata.
+    #[cfg(test)]
+    /// Test-only client without default metadata.
     pub fn raw(origin: &'static str, proxy: Option<&str>) -> Result<Self, Error> {
         Self::build(origin.into(), proxy, None)
     }
@@ -54,10 +55,6 @@ impl AuthHttp {
     #[cfg(test)]
     pub fn synthetic(origin: &str, agent: &str) -> Result<Self, Error> {
         Self::synthetic_with_agent(origin, Some(agent))
-    }
-    #[cfg(test)]
-    pub fn synthetic_raw(origin: &str) -> Result<Self, Error> {
-        Self::synthetic_with_agent(origin, None)
     }
     #[cfg(test)]
     fn synthetic_with_agent(origin: &str, agent: Option<&str>) -> Result<Self, Error> {
@@ -103,23 +100,6 @@ impl AuthHttp {
         self.send(
             path,
             Some(("application/x-www-form-urlencoded", body)),
-            None,
-            metadata,
-            deadline,
-        )
-        .await
-    }
-    pub async fn json(
-        &self,
-        path: &str,
-        value: &serde_json::Value,
-        metadata: &[(&str, &str)],
-        deadline: Instant,
-    ) -> Result<(u16, SecretBytes), Error> {
-        let body = serde_json::to_string(value).map_err(|_| Error::Protocol)?;
-        self.send(
-            path,
-            Some(("application/json", body)),
             None,
             metadata,
             deadline,

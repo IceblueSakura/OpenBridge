@@ -33,6 +33,49 @@ pub(super) struct BrowserResponse {
     pub client: String,
 }
 impl BrowserGrant {
+    pub async fn exchange_registered(
+        mut self,
+        http: &AuthHttp,
+        token_path: &str,
+        resource: &str,
+        bootstrap_client: &str,
+        registration: super::RegistrationContext<'_>,
+    ) -> Result<BrowserResponse, Error> {
+        let callback = self
+            .callback
+            .wait_registration(self.state.expose(), self.deadline)
+            .await?;
+        drop(self.callback);
+        let client = match callback.client_id {
+            Some(client) if client == bootstrap_client => return Err(Error::Protocol),
+            Some(client) if self.client == bootstrap_client || client == self.client => client,
+            None if self.client != bootstrap_client => self.client,
+            _ => return Err(Error::IdentityMismatch),
+        };
+        // Retain the issued registration before code consumption, including invalid_grant.
+        (registration.retain_client)(&client)?;
+        let (status, body) = http
+            .request(
+                token_path,
+                &[
+                    ("grant_type", "authorization_code"),
+                    ("client_id", &client),
+                    ("code", callback.code.expose()),
+                    ("redirect_uri", &self.prompt.redirect_uri),
+                    ("code_verifier", self.verifier.expose()),
+                    ("resource", resource),
+                ],
+                None,
+                self.deadline,
+            )
+            .await?;
+        Ok(BrowserResponse {
+            status,
+            body,
+            nonce: self.nonce,
+            client,
+        })
+    }
     pub async fn begin(profile: BrowserProfile<'_>, port: u16) -> Result<Self, Error> {
         let started = Instant::now();
         let url = url::Url::parse(profile.authorize).map_err(|_| Error::Protocol)?;

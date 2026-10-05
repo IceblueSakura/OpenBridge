@@ -21,7 +21,7 @@ impl CredentialManager {
             root,
             vec![
                 Arc::new(grok::GrokAuthority::synthetic(origin)?),
-                Arc::new(codex::CodexAuthority::synthetic(origin)?),
+                Arc::new(siwc::SiwcAuthority::synthetic(origin)?),
             ],
         )
     }
@@ -63,6 +63,7 @@ impl CredentialManager {
                 client_id: Some(client.into()),
                 method: LoginMethod::Browser,
                 callback_port: Some(port),
+                consent: false,
             },
             |prompt| {
                 let LoginPrompt::Browser(prompt) = prompt else {
@@ -71,20 +72,6 @@ impl CredentialManager {
                 notify.lock().unwrap().take().unwrap()(prompt);
             },
         )
-        .await
-    }
-    pub(super) async fn login_codex(
-        &self,
-        alias: &str,
-        notify: impl FnOnce(&DevicePrompt) + Send,
-    ) -> Result<AccountStatus, CredentialError> {
-        let notify = Mutex::new(Some(notify));
-        self.login("codex", alias, LoginOptions::default(), |prompt| {
-            let LoginPrompt::Device(prompt) = prompt else {
-                panic!("wrong method");
-            };
-            notify.lock().unwrap().take().unwrap()(prompt);
-        })
         .await
     }
 }
@@ -190,39 +177,28 @@ impl Authority {
                     } else if path == "/.well-known/jwks.json" {
                         assert!(!headers.contains_key("authorization"));
                         assert!(!headers.contains_key("originator"));
-                        // The shared JWKS path serves independent RSA (Codex) and EC (Grok) fixtures.
-                        if next.body["keys"][0]["kty"] == "RSA" {
-                            assert!(!headers.contains_key("user-agent"));
+                        // The shared JWKS path serves independent RSA (SIWC) and EC (Grok) fixtures.
+                        if next.body["keys"][0]["kty"] == "RSA"
+                            || (next.status != StatusCode::OK
+                                && headers
+                                    .get("user-agent")
+                                    .is_some_and(|v| v == siwc::USER_AGENT))
+                        {
+                            assert_eq!(headers["user-agent"], siwc::USER_AGENT);
                         } else {
                             assert_grok_headers(&headers, Some("plain"));
                         }
                         assert!(body.is_empty());
-                    } else if path.starts_with("/api/accounts/deviceauth")
-                        || path == "/oauth/revoke"
-                        || (path == "/oauth/token" && headers["content-type"] == "application/json")
-                    {
-                        assert_eq!(headers["content-type"], "application/json");
-                        let actual: Value = serde_json::from_slice(&body).unwrap();
-                        for (key, expected) in next.expected {
-                            assert_eq!(actual[key].as_str(), Some(expected));
-                        }
-                        if path.starts_with("/oauth/") {
-                            assert_eq!(headers["originator"], "codex_cli_rs");
-                            let agent = headers["user-agent"].to_str().unwrap();
-                            assert!(agent.starts_with("codex_cli_rs/0.160.0 ("));
-                            assert!(agent.contains("; ") && agent.contains(") "));
-                            assert!(
-                                !agent.contains("MorphieCore") && !agent.contains("morphiecore")
-                            );
-                        } else {
-                            assert!(!headers.contains_key("originator"));
-                            assert!(!headers.contains_key("user-agent"));
-                        }
+                    } else if path == "/.well-known/openid-configuration" {
+                        assert!(body.is_empty());
+                        assert!(!headers.contains_key("authorization"));
+                        assert_eq!(headers["user-agent"], siwc::USER_AGENT);
                     } else {
                         assert_eq!(headers["content-type"], "application/x-www-form-urlencoded");
                         assert!(!headers.contains_key("originator"));
-                        if path == "/oauth/token" {
-                            assert!(!headers.contains_key("user-agent"));
+                        if path.starts_with("/api/accounts/oauth/") {
+                            assert_eq!(headers["user-agent"], siwc::USER_AGENT);
+                            assert!(!headers.contains_key("chatgpt-account-id"));
                         }
                         let actual: std::collections::BTreeMap<_, _> =
                             url::form_urlencoded::parse(&body).into_owned().collect();
@@ -260,10 +236,9 @@ impl Authority {
             .route("/oauth2/token", post(handler.clone()))
             .route("/oauth2/userinfo", get(handler.clone()))
             .route("/oauth2/revoke", post(handler.clone()))
-            .route("/api/accounts/deviceauth/usercode", post(handler.clone()))
-            .route("/api/accounts/deviceauth/token", post(handler.clone()))
-            .route("/oauth/token", post(handler.clone()))
-            .route("/oauth/revoke", post(handler.clone()))
+            .route("/.well-known/openid-configuration", get(handler.clone()))
+            .route("/api/accounts/oauth/token", post(handler.clone()))
+            .route("/api/accounts/oauth/revoke", post(handler.clone()))
             .route("/.well-known/jwks.json", get(handler));
         let task = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();

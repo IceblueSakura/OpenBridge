@@ -88,13 +88,6 @@ pub(super) async fn login_deadline<T>(
     }
     result
 }
-pub(super) fn validate_pkce(verifier: &str, expected: &str) -> Result<(), Error> {
-    if challenge(verifier)?.as_str() != expected {
-        return Err(Error::Protocol);
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

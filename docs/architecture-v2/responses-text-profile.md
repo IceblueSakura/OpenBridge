@@ -30,6 +30,14 @@ Value 和 owner 必须满足该格式 finality，且 scope/依赖与目标兼容
 
 删除 typed 值不能从 fidelity 恢复，单删证明也不授权丢值继续。可读内容不是必要 signature 的替代品，某个 item 已完成不代表整个 response 成功。来源记录与编辑失效归 [source records](protocol-and-lowering.md#source-records)及 [ADR 0006](decisions/0006-reasoning-ownership.md)，不复制另一份 token。
 
+## Tool namespaces
+
+标准 `namespace` 分组拥有有序 function/custom definitions、名称与描述，不嵌套。限定工具 identity 由 namespace、kind、name 共同组成；组内同 kind/name 唯一，跨组同名不合并。调用保留 namespace 与原 name，结果仍通过 call ID 关联，不增加另一份 namespace 权威；历史工具不必仍存在于当前可选定义中。
+
+纯库可构造、检查和编辑分组及限定引用，选择引用在删除/更名后必须重新验证。固定标准的具名 `tool_choice` 没有 namespace 字段，因此限定选择没有已定稿 wire carrier，当前投影拒绝，不创造字段或点号拼接规则；分组请求可以使用 `auto/required/none`。Chat 无分组/限定调用载体，明确拒绝，不静默扁平化。
+
+Owners：[tool IR](../../src/semantic/task/generation/tool.rs)、[tool codec](../../src/protocol/openai/function_tools.rs)、[independent oracles](../../tests/semantic/tool_namespaces.rs)。固定来源：[namespace definition](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/namespace_tool_param.py)、[named function choice](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/tool_choice_function_param.py)。SIWC 的额外限制由独立 [adapter admission](../../src/adapter/siwc.rs)拥有，不改变共享语义。
+
 ## Tool image results
 
 Responses function/custom result history 的标准 carrier 接受有序 `input_text` 与 URL/inline `input_image` parts。Text string、parts、空数组及单 part 不隐式互换。Call identity、kind、结果状态独立校验；structured result authority 与 execution report 仍无公开 carrier，目标投影拒绝，不能 stringify 后声称保留。

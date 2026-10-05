@@ -198,6 +198,13 @@ pub fn compile(
             let endpoint = endpoint_map
                 .get(candidate.as_str())
                 .ok_or(TopologyError::UnknownEndpoint)?;
+            if endpoint.execution.credential_kind == crate::provider::CredentialKind::OAuth("siwc")
+                && (route.endpoints.len() != 1
+                    || route.policy.max_attempts != 1
+                    || route.policy.fallback != super::FallbackPolicy::Disabled)
+            {
+                return Err(TopologyError::InvalidRoutePolicy);
+            }
             if endpoint.task != route.task {
                 return Err(TopologyError::TaskMismatch);
             }
@@ -365,6 +372,44 @@ mod tests {
             build(ProtocolProfile::OpenAiChat),
             Err(TopologyError::TargetMismatch)
         );
+    }
+
+    #[test]
+    fn siwc_cannot_enter_a_fallback_route_even_through_embedded_configuration() {
+        for (attempts, fallback, count, accepted) in [
+            (1, false, 1, true),
+            (2, false, 1, false),
+            (1, true, 1, false),
+            (1, false, 2, false),
+        ] {
+            let mut provider = provider();
+            provider.auth = AuthScheme::OAuthBearer("siwc");
+            let mut endpoint = endpoint(ProtocolProfile::OpenAiResponses);
+            endpoint.execution.credential_kind = CredentialKind::OAuth("siwc");
+            let mut endpoints = vec![endpoint.clone()];
+            let mut route = route();
+            route.policy.max_attempts = attempts;
+            if fallback {
+                route.policy.fallback = crate::topology::FallbackPolicy::BeforeCommit;
+            }
+            if count == 2 {
+                endpoint.id = EndpointId::new("second").unwrap();
+                route.endpoints.push(endpoint.id.clone());
+                endpoints.push(endpoint);
+            }
+            assert_eq!(
+                compile(
+                    vec![provider],
+                    endpoints,
+                    vec![route],
+                    vec![model(GenerationRepresentationContract::full())],
+                    vec![canonical()]
+                )
+                .is_ok(),
+                accepted,
+                "attempts={attempts} fallback={fallback} count={count}"
+            );
+        }
     }
 
     #[test]

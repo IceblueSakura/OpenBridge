@@ -13,9 +13,12 @@ from probe_support.runtime import gateway
 
 class SubscriptionProbeTests(unittest.TestCase):
     def test_probe_passes_only_explicit_directory_and_caps_upstream_attempts(self):
-        self.assertFalse({"codex", "grok"} & {row[0] for row in select_bindings()})
+        self.assertFalse({"openai-siwc", "grok"} & {row[0] for row in select_bindings()})
+        for unsupported in ("codex", "openai-siwc"):
+            with self.assertRaises(RuntimeError):
+                select_bindings(unsupported)
         with tempfile.TemporaryDirectory() as directory:
-            run = Run.create(Path(directory) / "run", providers="codex", limit=1)
+            run = Run.create(Path(directory) / "run", providers="grok", limit=1)
             class Stop(Exception):
                 pass
             def spawn(command, **kwargs):

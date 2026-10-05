@@ -96,7 +96,9 @@ pub(super) fn prepare(
                 "output_limit_exceeded",
             ));
         }
-        None => settings.controls.max_output_tokens = Some(state.limits.default_output_tokens),
+        None if entry.public.contract.max_output_tokens => {
+            settings.controls.max_output_tokens = Some(state.limits.default_output_tokens);
+        }
         _ => {}
     }
     request.task.semantic = request

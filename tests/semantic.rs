@@ -100,6 +100,8 @@ mod text_admission;
 mod text_events;
 #[path = "semantic/text_profile.rs"]
 mod text_profile;
+#[path = "semantic/tool_namespaces.rs"]
+mod tool_namespaces;
 #[path = "semantic/tool_results.rs"]
 mod tool_results;
 #[path = "semantic/tool_values.rs"]

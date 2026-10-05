@@ -244,7 +244,7 @@ async fn callback_timeout_releases_literal_loopback_listener() {
 }
 
 #[test]
-fn es256_nonce_issuer_audience_and_key_policy_are_independent_of_codex() {
+fn es256_nonce_issuer_audience_and_key_policy_are_independent_of_siwc() {
     let good = sign(
         json!({"alg":"ES256","kid":"synthetic-grok-key"}),
         claims("expected"),
@@ -252,7 +252,7 @@ fn es256_nonce_issuer_audience_and_key_policy_are_independent_of_codex() {
     let identity = grok::verify_identity(&good, &keys(), CLIENT, "expected").unwrap();
     assert_eq!(identity.subject, "person-a");
     assert_eq!(identity.scope, None);
-    assert!(codex::verify_identity(&good, &keys(), CLIENT, None).is_err());
+    assert!(siwc::verify_identity(&good, &keys(), CLIENT, None).is_err());
     assert!(grok::verify_identity(&good, &keys(), CLIENT, "wrong").is_err());
     for field in ["nonce", "iss", "aud", "exp"] {
         let mut bad = claims("expected");

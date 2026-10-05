@@ -15,12 +15,14 @@ use crate::{
 use serde_json::Value;
 pub mod images;
 mod request;
+mod siwc;
 pub use request::Request;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Dialect {
     #[default]
     Standard,
+    Siwc,
     Codex,
     Grok,
     MorphieCore,
@@ -39,6 +41,14 @@ impl Dialect {
     fn adaptation(self, scope: Option<ReplayOrigin>) -> Adaptation {
         let (profile_id, rules) = match self {
             Self::Standard => ("standard-v1", WireRules::default()),
+            Self::Siwc => (
+                "openai-siwc-responses",
+                WireRules {
+                    responses_forced_stream: true,
+                    responses_siwc: true,
+                    ..Default::default()
+                },
+            ),
             Self::Codex => (
                 "codex-v1",
                 WireRules {
@@ -216,6 +226,10 @@ impl Dialect {
             images.details.clear();
         }
         let cache = match self {
+            Self::Siwc => crate::protocol::cache::CacheProjection {
+                key: true,
+                ..Default::default()
+            },
             Self::Standard => crate::protocol::cache::CacheProjection {
                 session_id: false,
                 ..crate::protocol::cache::CacheProjection::all()
@@ -242,7 +256,7 @@ impl Dialect {
             rules,
             images,
             files: match self {
-                Self::Standard | Self::MorphieCore => {
+                Self::Standard | Self::MorphieCore | Self::Siwc => {
                     crate::protocol::file_constraints::FileConstraints::all()
                 }
                 Self::OpenRouter => crate::protocol::file_constraints::FileConstraints {

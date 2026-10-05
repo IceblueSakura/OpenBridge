@@ -27,6 +27,8 @@ impl StoredDocument for Account {
 #[serde(deny_unknown_fields)]
 pub(super) struct ProviderDocument {
     pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_id: Option<String>,
     #[serde(default)]
     pub revision: u64,
     #[serde(default, deserialize_with = "oauth_records")]
@@ -69,6 +71,7 @@ impl ProviderDocument {
     fn empty(provider: &str) -> Self {
         Self {
             provider: provider.into(),
+            host_id: None,
             revision: 0,
             oauth: BTreeMap::new(),
             api_keys: BTreeMap::new(),
@@ -78,6 +81,7 @@ impl ProviderDocument {
     fn validate(&self, provider: &str) -> Result<(), Error> {
         valid_profile(provider)?;
         if self.provider != provider
+            || self.host_id.as_ref().is_some_and(|id| !valid_host_id(id))
             || self.oauth.len() > RECORDS
             || self.api_keys.len() > RECORDS
             || self.pools.len() > RECORDS
@@ -212,6 +216,28 @@ impl Store {
     }
 }
 impl Transaction<'_> {
+    pub fn host_id(&self, profile: &str) -> Result<String, Error> {
+        let mut document = self.provider(profile)?;
+        if let Some(id) = document.host_id {
+            return Ok(id);
+        }
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes).map_err(|_| Error::Storage)?;
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let id = format!(
+            "urn:uuid:{}-{}-{}-{}-{}",
+            &hex[..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..]
+        );
+        document.host_id = Some(id.clone());
+        self.publish_provider(&mut document)?;
+        Ok(id)
+    }
     pub fn provider(&self, provider: &str) -> Result<ProviderDocument, Error> {
         valid_profile(provider)?;
         if matches!(provider, "accounts" | "gateway") {
@@ -430,4 +456,19 @@ impl Transaction<'_> {
             before_commit,
         )
     }
+}
+pub(super) fn valid_host_id(id: &str) -> bool {
+    let Some(uuid) = id.strip_prefix("urn:uuid:") else {
+        return false;
+    };
+    uuid.len() == 36
+        && uuid.bytes().enumerate().all(|(i, c)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                c == b'-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        })
+        && uuid.as_bytes()[14] == b'4'
+        && b"89ab".contains(&uuid.as_bytes()[19])
 }

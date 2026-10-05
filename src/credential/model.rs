@@ -81,6 +81,17 @@ pub struct Grant {
     pub identity: VerifiedIdentity,
     pub credential: Credential,
 }
+/// Replacement material is quarantined until the driver's identity check succeeds.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PendingRenewal {
+    pub credential: Credential,
+    pub verify_id_token: bool,
+}
+pub enum Renewal {
+    Verified(Grant),
+    Pending(PendingRenewal),
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoginMethod {
     Device,
@@ -90,6 +101,8 @@ pub enum LoginMethod {
 pub struct LoginOptions {
     pub method: LoginMethod,
     pub client_id: Option<String>,
+    /// Explicit SIWC plan-permission consent, never enabled by routine reauthorization.
+    pub consent: bool,
     /// None uses the driver's registered default; explicit zero is not absence.
     pub callback_port: Option<u16>,
 }
@@ -98,6 +111,7 @@ impl Default for LoginOptions {
         Self {
             method: LoginMethod::Device,
             client_id: None,
+            consent: false,
             callback_port: None,
         }
     }
@@ -135,6 +149,10 @@ pub enum AccessState {
 /// Deliberately excludes tokens, client registration and verified principal.
 #[derive(Debug, Serialize)]
 pub struct AccountStatus {
+    pub renewal_pending: bool,
+    /// Only profiles with separate identity and plan permission report this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_usage_enabled: Option<bool>,
     pub profile: String,
     pub account: String,
     pub state: AccountState,
@@ -156,6 +174,8 @@ pub enum LogoutOutcome {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Account {
+    #[serde(default)]
+    pub pending_renewal: Option<PendingRenewal>,
     pub profile: String,
     pub alias: String,
     pub client_id: String,
@@ -169,6 +189,7 @@ pub(super) struct Account {
 impl Account {
     pub fn new(profile: &str, alias: &str, client: &str) -> Self {
         Self {
+            pending_renewal: None,
             profile: profile.into(),
             alias: alias.into(),
             client_id: client.into(),
@@ -196,6 +217,13 @@ impl Account {
             || valid_alias(alias).is_err()
             || valid_client(&self.client_id).is_err()
             || self.identity.as_ref().is_some_and(|v| !v.valid())
+            || self.pending_renewal.as_ref().is_some_and(|pending| {
+                !pending.credential.valid()
+                    || self.identity.is_none()
+                    || self.state != AccountState::NeedsReauthorization
+                    || self.credential.is_some()
+                    || self.login_attempt.is_some()
+            })
             || self
                 .login_attempt
                 .as_ref()
@@ -226,6 +254,8 @@ impl Account {
             }
         };
         Ok(AccountStatus {
+            renewal_pending: !recovery_required && self.pending_renewal.is_some(),
+            plan_usage_enabled: None,
             profile: self.profile.clone(),
             account: self.alias.clone(),
             state: if recovery_required {

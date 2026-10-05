@@ -103,6 +103,29 @@ pub(super) fn read_tool(
     o: &Map<String, Value>,
     profile: Profile,
 ) -> Result<ToolDefinition, CodecError> {
+    if string(o, "type")? == "namespace" && profile == Profile::Responses {
+        fields(o, &["type", "name", "description", "tools"])?;
+        let tools = o
+            .get("tools")
+            .and_then(Value::as_array)
+            .ok_or(CodecError::Invalid("namespace tools"))?;
+        if tools.is_empty() || tools.len() > MAX_TOOLS {
+            return Err(CodecError::Limit);
+        }
+        let mut leaves = Vec::with_capacity(tools.len());
+        for tool in tools {
+            let tool = object(tool)?;
+            if !matches!(string(tool, "type")?, "function" | "custom") {
+                return Err(CodecError::Unsupported("namespace leaf".into()));
+            }
+            leaves.push(read_tool(tool, profile)?);
+        }
+        return Ok(ToolDefinition::Namespace(ToolNamespace {
+            name: text(string(o, "name")?, "namespace", 128)?,
+            description: raw_string(o, "description")?,
+            tools: leaves,
+        }));
+    }
     if string(o, "type")? == "custom" && profile == Profile::Responses {
         fields(
             o,
@@ -211,6 +234,7 @@ fn reference(v: &Value, profile: Profile) -> Result<ToolReference, CodecError> {
         return Ok(ToolReference {
             kind: ToolKind::Function,
             name: text(string(f, "name")?, "tool reference", 128)?,
+            namespace: None,
         });
     }
     fields(o, &["type", "name"])?;
@@ -221,6 +245,7 @@ fn reference(v: &Value, profile: Profile) -> Result<ToolReference, CodecError> {
             _ => return Err(CodecError::Unsupported("tool reference".into())),
         },
         name: text(string(o, "name")?, "tool reference", 128)?,
+        namespace: None,
     })
 }
 fn read_choice(v: &Value, profile: Profile) -> Result<ToolChoice, CodecError> {
@@ -282,10 +307,18 @@ pub(super) fn decode(
     read_settings(o, profile, &mut s)?;
     Ok(r.with_settings(s)?)
 }
-pub(super) fn encode(r: &GenerationRequest, profile: Profile, o: &mut Map<String, Value>) {
+pub(super) fn encode(
+    r: &GenerationRequest,
+    profile: Profile,
+    o: &mut Map<String, Value>,
+) -> Result<(), CodecError> {
     write_settings(r.settings(), profile, o)
 }
-pub(super) fn write_settings(s: &GenerationSettings, profile: Profile, o: &mut Map<String, Value>) {
+pub(super) fn write_settings(
+    s: &GenerationSettings,
+    profile: Profile,
+    o: &mut Map<String, Value>,
+) -> Result<(), CodecError> {
     if let Some(tools) = &s.tools {
         o.insert(
             "tools".into(),
@@ -293,19 +326,27 @@ pub(super) fn write_settings(s: &GenerationSettings, profile: Profile, o: &mut M
                 tools
                     .iter()
                     .map(|t| write_tool(t, profile))
-                    .collect::<Vec<_>>()
+                    .collect::<Result<Vec<_>, _>>()?
             ),
         );
     }
     if let Some(c) = &s.tool_choice {
-        o.insert("tool_choice".into(), write_choice(c, profile));
+        o.insert("tool_choice".into(), write_choice(c, profile)?);
     }
     if let Some(v) = s.parallel_tool_calls {
         o.insert("parallel_tool_calls".into(), json!(v));
     }
+    Ok(())
 }
-pub(super) fn write_tool(t: &ToolDefinition, profile: Profile) -> Value {
-    match t {
+pub(super) fn write_tool(t: &ToolDefinition, profile: Profile) -> Result<Value, CodecError> {
+    Ok(match t {
+        ToolDefinition::Namespace(_) if profile == Profile::Chat => {
+            return Err(CodecError::Unsupported("tool namespace".into()));
+        }
+        ToolDefinition::Namespace(group) => json!({
+            "type":"namespace","name":group.name.as_str(),"description":group.description,
+            "tools":group.tools.iter().map(|t| write_tool(t, profile)).collect::<Result<Vec<_>, _>>()?
+        }),
         ToolDefinition::Function(t) => {
             let mut f = json!({"name":t.name.as_str()});
             if let Some(d) = &t.description {
@@ -346,10 +387,10 @@ pub(super) fn write_tool(t: &ToolDefinition, profile: Profile) -> Value {
             write_dispatch(&t.dispatch, v.as_object_mut().expect("object"));
             v
         }
-    }
+    })
 }
-pub(super) fn write_choice(c: &ToolChoice, profile: Profile) -> Value {
-    match c {
+pub(super) fn write_choice(c: &ToolChoice, profile: Profile) -> Result<Value, CodecError> {
+    Ok(match c {
         ToolChoice::Auto => json!("auto"),
         ToolChoice::None => json!("none"),
         ToolChoice::Required => json!("required"),
@@ -358,14 +399,23 @@ pub(super) fn write_choice(c: &ToolChoice, profile: Profile) -> Value {
         }
         ToolChoice::Specific(n) => json!({"type":"function","name":n.as_str()}),
         ToolChoice::Custom(n) => json!({"type":"custom","name":n.as_str()}),
+        ToolChoice::Qualified(_) => {
+            return Err(CodecError::Unsupported("qualified tool choice".into()));
+        }
         ToolChoice::Allowed { required, tools } => {
-            let refs: Vec<_> = tools.iter().map(|r| {
-                if profile == Profile::Chat {
-                    json!({"type":"function","function":{"name":r.name.as_str()}})
-                } else {
-                    json!({"type":match r.kind{ToolKind::Function=>"function",ToolKind::Custom=>"custom"},"name":r.name.as_str()})
-                }
-            }).collect();
+            if tools.iter().any(|r| r.namespace.is_some()) {
+                return Err(CodecError::Unsupported("qualified tool choice".into()));
+            }
+            let refs: Vec<_> = tools
+                .iter()
+                .map(|r| {
+                    if profile == Profile::Chat {
+                        json!({"type":"function","function":{"name":r.name.as_str()}})
+                    } else {
+                        write_reference(r)
+                    }
+                })
+                .collect();
             let mut allowed = json!({"mode":if *required{"required"}else{"auto"},"tools":refs});
             if profile == Profile::Chat {
                 json!({"type":"allowed_tools","allowed_tools":allowed})
@@ -374,5 +424,8 @@ pub(super) fn write_choice(c: &ToolChoice, profile: Profile) -> Value {
                 allowed
             }
         }
-    }
+    })
+}
+fn write_reference(r: &ToolReference) -> Value {
+    json!({"type":match r.kind{ToolKind::Function=>"function",ToolKind::Custom=>"custom"},"name":r.name.as_str()})
 }

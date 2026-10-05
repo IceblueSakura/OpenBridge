@@ -45,11 +45,25 @@ impl CredentialManager {
             drivers: registry,
         })
     }
-    fn driver(&self, profile: &str) -> Result<&dyn AuthDriver, Error> {
+    pub(super) fn driver(&self, profile: &str) -> Result<&dyn AuthDriver, Error> {
         self.drivers
             .get(profile)
             .map(AsRef::as_ref)
             .ok_or(Error::UnknownProfile)
+    }
+    fn status(&self, account: &Account, recovery: bool) -> Result<AccountStatus, Error> {
+        let mut status = account.status(recovery)?;
+        let driver = self.driver(&account.profile)?;
+        if driver.dynamic_registration() {
+            status.plan_usage_enabled = Some(
+                !recovery
+                    && account
+                        .credential
+                        .as_ref()
+                        .is_some_and(|c| driver.check_access(c).is_ok()),
+            );
+        }
+        Ok(status)
     }
     pub(super) fn load(
         &self,
@@ -61,6 +75,7 @@ impl CredentialManager {
         if let Some(account) = &mut loaded.account {
             if loaded.recovery {
                 account.credential = None;
+                account.pending_renewal = None;
                 account.state = AccountState::NeedsReauthorization;
                 account.login_attempt = None;
             }
@@ -100,9 +115,11 @@ impl CredentialManager {
             for alias in tx.aliases(profile)? {
                 let loaded = self.load(&tx, profile, &alias)?;
                 if let Some(account) = loaded.account {
-                    statuses.push(account.status(loaded.recovery)?);
+                    statuses.push(self.status(&account, loaded.recovery)?);
                 } else if loaded.recovery {
                     statuses.push(AccountStatus {
+                        renewal_pending: false,
+                        plan_usage_enabled: None,
                         profile: profile.clone(),
                         account: alias,
                         state: AccountState::NeedsReauthorization,
@@ -127,8 +144,14 @@ impl CredentialManager {
     ) -> Result<AccountStatus, Error> {
         valid_alias(alias)?;
         let driver = self.driver(profile)?;
-        let client = driver.login_client(&options)?;
+        let initial_client = driver.login_client(&options)?;
+        let client = initial_client.clone();
         valid_client(&client)?;
+        let host_id = if driver.dynamic_registration() {
+            self.store.transaction()?.host_id(profile)?
+        } else {
+            String::new()
+        };
         let mut ticket = {
             let _account_lock = self.store.account_lock(profile, alias)?;
             let tx = self.store.transaction()?;
@@ -136,9 +159,13 @@ impl CredentialManager {
                 .load(&tx, profile, alias)?
                 .account
                 .unwrap_or_else(|| Account::new(profile, alias, &client));
-            if account.client_id != client {
+            if account.client_id != client && !driver.dynamic_registration() {
                 return Err(Error::IdentityMismatch);
             }
+            if account.pending_renewal.is_some() {
+                return Err(Error::Busy);
+            }
+            let client = account.client_id.clone();
             let id = random_id()?;
             account.login_attempt = Some(id.clone());
             account.advance()?;
@@ -152,7 +179,42 @@ impl CredentialManager {
                 complete: false,
             }
         };
-        let grant = driver.login(&ticket.client, &options, &notify).await?;
+        let retain_client = |issued: &str| -> Result<(), Error> {
+            valid_client(issued)?;
+            let _lock = self.store.account_lock(profile, alias)?;
+            let tx = self.store.transaction()?;
+            let loaded = self.load(&tx, profile, alias)?;
+            let mut account = loaded.account.ok_or(Error::Superseded)?;
+            if loaded.recovery || account.login_attempt.as_deref() != Some(&ticket.id) {
+                return Err(Error::Superseded);
+            }
+            if account.client_id == issued {
+                return Ok(());
+            }
+            if !driver.dynamic_registration()
+                || ticket.client != initial_client
+                || account.client_id != initial_client
+                || account.identity.is_some()
+                || issued == initial_client
+            {
+                return Err(Error::IdentityMismatch);
+            }
+            driver.validate(issued, None, None)?;
+            account.client_id = issued.into();
+            account.advance()?;
+            tx.publish(&account)
+        };
+        let grant = driver
+            .login_registered(
+                &ticket.client,
+                &options,
+                &notify,
+                super::RegistrationContext {
+                    host_id: &host_id,
+                    retain_client: &retain_client,
+                },
+            )
+            .await?;
         let _account_lock = self.store.account_lock(profile, alias)?;
         let tx = self.store.transaction()?;
         let loaded = self.load(&tx, profile, alias)?;
@@ -160,7 +222,7 @@ impl CredentialManager {
         if loaded.recovery || account.login_attempt.as_deref() != Some(&ticket.id) {
             return Err(Error::Superseded);
         }
-        if account.client_id != ticket.client
+        if (!driver.dynamic_registration() && account.client_id != ticket.client)
             || account
                 .identity
                 .as_ref()
@@ -185,7 +247,7 @@ impl CredentialManager {
         account.advance()?;
         tx.publish(&account)?;
         ticket.complete = true;
-        account.status(false)
+        self.status(&account, false)
     }
     fn validate_grant(
         &self,
@@ -204,6 +266,16 @@ impl CredentialManager {
             return Err(Error::Unsupported);
         }
         let _account_lock = self.store.account_lock(profile, alias)?;
+        {
+            let tx = self.store.transaction()?;
+            let loaded = self.load(&tx, profile, alias)?;
+            if let Some(account) = loaded.account
+                && account.pending_renewal.is_some()
+            {
+                drop(tx);
+                return self.complete_renewal(driver, account).await;
+            }
+        }
         let (mut account, previous) = {
             let tx = self.store.transaction()?;
             let mut account = self
@@ -222,9 +294,20 @@ impl CredentialManager {
             (account, previous)
         };
         let expected = account.identity.as_ref().ok_or(Error::Storage)?;
-        let grant = driver
-            .refresh(&account.client_id, expected, &previous)
+        let renewed = driver
+            .renew(&account.client_id, expected, &previous)
             .await?;
+        let grant = match renewed {
+            super::Renewal::Verified(grant) => grant,
+            super::Renewal::Pending(pending) => {
+                let tx = self.store.transaction()?;
+                account.pending_renewal = Some(pending);
+                account.advance()?;
+                tx.publish(&account)?;
+                drop(tx);
+                return self.complete_renewal(driver, account).await;
+            }
+        };
         self.validate_grant(driver, &account.client_id, &grant)?;
         if &grant.identity != expected {
             return Err(Error::IdentityMismatch);
@@ -244,7 +327,42 @@ impl CredentialManager {
         account.state = AccountState::Active;
         account.advance()?;
         tx.publish(&account)?;
-        account.status(false)
+        self.status(&account, false)
+    }
+    async fn complete_renewal(
+        &self,
+        driver: &dyn AuthDriver,
+        mut account: Account,
+    ) -> Result<AccountStatus, Error> {
+        let expected = account.identity.as_ref().ok_or(Error::Storage)?;
+        let pending = account.pending_renewal.as_ref().ok_or(Error::Storage)?;
+        let identity = driver
+            .verify_renewal(&account.client_id, expected, pending)
+            .await?;
+        if &identity != expected {
+            return Err(Error::IdentityMismatch);
+        }
+        driver.validate(
+            &account.client_id,
+            Some(expected),
+            Some(&pending.credential),
+        )?;
+        let tx = self.store.transaction()?;
+        let loaded = self.load(&tx, &account.profile, &account.alias)?;
+        if loaded.recovery
+            || loaded
+                .account
+                .as_ref()
+                .is_none_or(|current| current.revision != account.revision)
+        {
+            return Err(Error::Superseded);
+        }
+        let pending = account.pending_renewal.take().ok_or(Error::Storage)?;
+        account.replace_credential(Some(pending.credential))?;
+        account.state = AccountState::Active;
+        account.advance()?;
+        tx.publish(&account)?;
+        self.status(&account, false)
     }
     pub async fn logout(
         &self,
@@ -268,7 +386,10 @@ impl CredentialManager {
                 }
                 return Ok(LogoutOutcome::AlreadySignedOut);
             };
-            let previous = account.credential.take();
+            let previous = account
+                .credential
+                .take()
+                .or_else(|| account.pending_renewal.take().map(|p| p.credential));
             account.replace_credential(None)?;
             account.state = AccountState::SignedOut;
             account.login_attempt = None;

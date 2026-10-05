@@ -29,7 +29,7 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 - 唯一的 `Authorization: Bearer …` 在应用层 body 收集前校验；重复或错误认证拒绝，其他 header 不替代它。请求使用 UTF-8 JSON Content-Type，不接受 Content-Encoding；严格 JSON 拒绝重复 key，先绑定 public model/task 再 decode 语义。
 - `model` 仅接受已激活的 public label，不带 `provider/` 前缀。顶层 `provider` 字段即使为 null 也拒绝。目标 URL/path、上游 model、auth、adapter 与 scope 都来自受信绑定；入站 headers 不透传。
 - 每个 `(public model, client protocol)` 显式激活编译 Route 成员。保持 Route 和 pool 顺序，从同一最终 IR 独立预检每个固定 `(endpoint, credential)`；无兼容成员在 I/O 前失败。注册、Chat 激活与 Responses 激活不互相推定，查询方法见 [AGENTS](../AGENTS.md#current-provider-model-and-compatibility-information)。
-- operator 缺省输出上限先写入最终 IR，再派生 requirements/admission/lowering；显式超限拒绝，不静默裁剪。响应 reported facts 不从请求补齐。
+- 仅在 Public Model 准入输出 token 控制时，将 operator 缺省上限写入最终 IR，再派生 requirements/admission/lowering；显式超限拒绝，不静默裁剪。SIWC 不支持该上游参数：省略时不补值，显式请求拒绝。本地 bytes/events/deadline 预算不证明上游停算或费用上限。响应 reported facts 不从请求补齐。
 - 文本数组、工具选择/结果、概率、Schema 与 reported context 的精确接受/拒绝由上述 profiles 和 owning code 维护，不因路由存在而扩大 Public Model/Endpoint 合同。当前跨协议不可表示时仍明确拒绝；设计允许的 Chat 有损规则尚需逐片实现，不能提前按该方向丢字段换取成功。
 - user 与 Responses 工具结果的 URL/inline 图片有独立准入，见[图片输入](architecture-v2/responses-text-profile.md#user-image-input)与[工具图片结果](architecture-v2/responses-text-profile.md#tool-image-results)。Responses 另有[标准 user inline 文件输入](architecture-v2/responses-text-profile.md#user-inline-file-input)及[URL 文件输入](architecture-v2/responses-text-profile.md#user-file-url-input)，仍需 public model 与 endpoint 显式文件准入；库 codec 不自动激活文件模型。不下载、解析文档、转码或放宽 body 预算；file ID、工具文件、Chat 工具图片、图片输出与资源服务不因此启用。
 - HTTP envelope/item 上的独立 `_openbridge` 字段不准入，包括 null、空对象及版本化 attachment，也不输出该字段。结构化值、执行报告、message membership、progress/scoped usage 和 replay 的 typed owner 不因此删除；无标准载体的 history/目标投影明确拒绝。请求拒绝发生在上游 I/O 前；不可交付的静态输出失败，已发布 SSE 只能中止，不伪造终态或前移。普通正文、raw arguments/output 与用户 metadata 中的同名业务数据不被当成协议字段。详见[客户端边界](architecture-v2/client-generation-profile.md)。
@@ -40,6 +40,8 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 ### 最小请求示例
 
 `configured-public-model` 是占位符，不是已注册模型。先按查询指南替换为目标实例已激活、准入相应协议的 public label；示例不授予真实调用权限。
+
+SIWC 的独立目标限制归 [adapter](../src/adapter/siwc.rs)：请求省略不支持的输出 token/sampling 控制，使用标准 [namespace 工具分组](architecture-v2/responses-text-profile.md#tool-namespaces)，不能发送 flat tools 或 system message item。上游强制 SSE，静态下游仍通过有界终态聚合交付；单一 registration，不重试或 fallback。以下带输出 token 控制的示例仅适用于准入该控制的目标，不用于 SIWC。
 
 Responses 请求发送到 `/v1/responses`，增加 `"stream":true` 请求 SSE：
 

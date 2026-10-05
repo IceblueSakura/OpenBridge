@@ -15,7 +15,7 @@
 | **1. Responses 标准客户端边界** | 从文本与单 function 工具交互开始，逐项分离标准请求/响应/事件与本地兼容形式；Provider 差异留在受信 adapter/profile | 所选分支具备独立 wire→IR、IR→wire、presence/拒绝和适用事件预期；标准下游不依赖私有字段或 SDK 宽松解析。每片只收敛一个有证据的边界，不同时修改全部控制、计量与事件 |
 | **2. Agent 交互与类型化消费** | 在同一场景验证交付→保存→追加工具结果→回传，以及纯库构造、检查、编辑；先文本结果，再按消费需求覆盖已准入图片与基础文件输入 | call identity、原始参数、结果关联、实际报告的 replay 及编辑失效得到保护；区分 response 闭合、turn 进度与续轮要求。不重建已有 pending view，不实现 Agent loop、工具执行器或持久化服务 |
 | **3. 标准模型发现** | 先定稿标准 `/v1/models` 的 public-label 视图，使消费者可识别本实例显式启用的入口 | 认证、显式激活过滤、去重与标准响应有独立预期；不泄露 credential、upstream origin、账户 metadata 或价格。具体字段来源与缺省先核对标准，不伪造事实；目录不承诺每个协议/控制都可调用 |
-| **4. SIWC 独立迁移** | 按下节拆分公开 SIWC 的资格/合同、credential 生命周期、受限 Responses 接线与迁移切换 | 新 profile、身份、权限和目标独立验证，不转换 Codex token 或复用产品 client。外部资格或授权阻塞只暂停此方向，不阻塞标准语义工作；不是一次登录成功即完成迁移 |
+| **4. SIWC 实例准入与受控使用** | 按下节明确应用/账户资格、实际授权、模型准入与本地实例切换 | credential、权限与目标分别验证，不转换 Codex token 或复用产品 client。外部资格或授权阻塞只暂停此方向，不阻塞标准语义工作；源码、synthetic 检查或一次登录均不证明真实 Agent 闭环 |
 | **5. 后续资源与媒体场景** | 依据实际消费者需求重新选择文件扩展、图片高级功能、Embedding 或请求型音频的最小标准 operation | 每次只固定一个 task/operation 的输入、产物、适用事件与资源边界；不一次铺开所有模态。Realtime 保留为明确后续目标，其详细设计不成为近期任务前置 |
 
 **依赖关系：**第 1、2 项按场景交错推进，类型化消费与必要续轮验收从首片开始，不延到“标准全部完成”之后。第 3 项只依赖可信注册、实例激活与 HTTP 安全边界，不依赖 SIWC 上游发现；第 4 项只依赖它实际使用的标准交互，不等待全部文件或媒体能力。纯库、codec 与 synthetic 检查不等待真实账户或付费验证。
@@ -33,14 +33,16 @@
 
 丰富 `/models` 的路径/schema、价格目录、自动模型选择与路由调度不属于此片。若标准必填值来源或公开信息范围仍有实质选择，先报告方案，再定稿；不以 placeholder 或私有扩展掩盖缺口。
 
-## SIWC 迁移的内部顺序
+<a id="siwc-迁移的内部顺序"></a>
 
-[SIWC 参考](../references/siwc-login.md#本项目采用与实施边界)拥有来源与采用边界；本节只安排实施依赖，不复制协议值或注册参数：
+## SIWC 采用与实例切换
+
+[SIWC 参考](../references/siwc-login.md#本项目采用与实施边界)拥有来源与采用边界；credential 生命周期与操作归 [凭据指南](../credentials.md)，独立请求准入归 [adapter](../../src/adapter/siwc.rs)，工具分组与限定选择边界归 [Responses profile](../architecture-v2/responses-text-profile.md#tool-namespaces)。后续实例采用分别处理：
 
 1. **资格与合同确认**：限定本人单用户、同一应用、本地 credential owner 与本地执行；核对适用条款、所选 flow、权限与预算控制。远程持久化/复制的条款疑问未解决前，不安排分布式 token 部署。
-2. **独立 credential 生命周期**：复用现有 store/JWT/事务 owner，分片实现 registration、已验证 identity/consent、access snapshot、rotation/pending 恢复和退出边界；先用合成 authority 与文件验证，不读取旧真实凭据。
-3. **受限推理接线**：显式绑定新 profile 与目标，区分身份登录和 plan usage 权限；覆盖所选 Responses 请求准入、工具关系、额度/错误与 JSON/SSE 严格终态。账户模型发现属于另行授权的请求，不直接变成公共目录。
-4. **受控切换与退出旧路径**：仅在新路径满足选定验收且取得具体授权后切换。代码移除、私有格式迁移、旧材料清理、远端 revoke 分别处理；不把迁移规划视作删除或凭据操作授权。
+2. **实际 registration 与权限**：真实登录、refresh/revoke 分别取得相符授权，使用显式自有本地 store；identity-only 不发推理，不从产品 token 或第三方 auth cache 导入权限。合成验证不能代替 authority 接受或原生持久化验收。
+3. **模型与消费闭环**：显式核对所选 registration 的模型/operation，分别检查标准输入、实际工具调用/结果回传、额度错误与 JSON/SSE 严格终态。账户模型发现属于另行授权的请求，不直接变成公共目录。真实 gate 需适合 SIWC 的独立预算合同，不能套用要求上游 output-token cap 的通用 probe。
+4. **受控实例切换**：仅在取得具体授权后更新私有 activation。旧材料清理、远端 revoke 和私有格式迁移分别处理；不把代码迁移视作删除文件、操作凭据或部署授权。
 
 ## 延期目标与恢复条件
 

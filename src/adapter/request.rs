@@ -201,6 +201,12 @@ impl Adapter {
         contract: &GenerationRepresentationContract,
     ) -> Result<Value, AdapterError> {
         request.check_context(contract.standard_context)?;
+        if self.adaptation.rules.responses_siwc {
+            if self.protocol != Profile::Responses {
+                return Err(CodecError::ProfileMismatch.into());
+            }
+            super::siwc::check(request)?;
+        }
         if request.delivery.streaming()
             && request
                 .task
@@ -298,7 +304,7 @@ impl Adapter {
             }
             value["stream"] = Value::Bool(true);
             // Empty instructions carry no new task instruction; never substitute a prompt.
-            if value.get("instructions").is_none() {
+            if !self.adaptation.rules.responses_siwc && value.get("instructions").is_none() {
                 value["instructions"] = Value::String(String::new());
             }
         }
@@ -332,6 +338,68 @@ impl Adapter {
 mod tests {
     use super::*;
     use crate::adapter::Dialect;
+
+    #[test]
+    fn siwc_rejects_final_controls_and_ungrouped_tools_instead_of_dropping_them() {
+        let client = Adapter::new(Profile::Responses, Dialect::Standard, None);
+        let target = Adapter::new(Profile::Responses, Dialect::Siwc, None);
+        let contract = GenerationRepresentationContract::full();
+        let body = serde_json::json!({"model":"synthetic","input":"hello",
+            "tools":[{"type":"namespace","name":"ops","description":"operations",
+                "tools":[{"type":"function","name":"status","strict":false}]}]});
+        let request = client.decode_request(body.to_string().as_bytes()).unwrap();
+        let wire = target
+            .encode_request(&request, "selected-slug", &contract)
+            .unwrap();
+        assert_eq!(wire["stream"], true);
+        assert_eq!(wire["store"], false);
+        assert!(wire["input"].is_array());
+        assert_eq!(wire["tools"], body["tools"]);
+        for (field, value) in [
+            ("max_output_tokens", serde_json::json!(32)),
+            ("temperature", serde_json::json!(0.5)),
+            ("top_p", serde_json::json!(0.8)),
+            ("max_tool_calls", serde_json::json!(1)),
+            ("metadata", serde_json::json!({})),
+            ("background", serde_json::json!(false)),
+            ("conversation", Value::Null),
+            ("previous_response_id", Value::Null),
+            ("prompt", Value::Null),
+            ("moderation", Value::Null),
+            ("safety_identifier", serde_json::json!("identity")),
+            ("user", Value::Null),
+            ("prompt_cache_retention", serde_json::json!("24h")),
+        ] {
+            let mut edited = body.clone();
+            edited[field] = value;
+            let request = client
+                .decode_request(edited.to_string().as_bytes())
+                .unwrap();
+            assert!(
+                target
+                    .encode_request(&request, "selected-slug", &contract)
+                    .is_err(),
+                "{field}"
+            );
+        }
+        let mut edited = request.clone();
+        let mut settings = edited.task.semantic.settings().clone();
+        settings.controls.max_output_tokens = Some(8);
+        edited.task.semantic = edited.task.semantic.with_settings(settings).unwrap();
+        assert!(
+            target
+                .encode_request(&edited, "selected-slug", &contract)
+                .is_err()
+        );
+        let mut flat = body;
+        flat["tools"] = serde_json::json!([{"type":"function","name":"status","strict":false}]);
+        let flat = client.decode_request(flat.to_string().as_bytes()).unwrap();
+        assert!(
+            target
+                .encode_request(&flat, "selected-slug", &contract)
+                .is_err()
+        );
+    }
 
     #[test]
     fn project_profile_and_owned_user_agent_use_current_names() {

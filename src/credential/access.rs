@@ -73,6 +73,9 @@ impl AccessBinding {
             return Err(Error::IdentityMismatch);
         }
         let credential = account.credential.ok_or(Error::LoginRequired)?;
+        self.manager
+            .driver(&self.profile)?
+            .check_access(&credential)?;
         let now = model::now()?;
         if credential.expires_at.is_some_and(|expiry| expiry <= now) {
             return Err(Error::Expired);

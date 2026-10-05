@@ -164,7 +164,8 @@ fn chat_allowed_functions_use_their_own_shell_and_keep_selection_authoritative()
                 required: mode == "required",
                 tools: vec![ToolReference {
                     kind: ToolKind::Function,
-                    name: text("weather")
+                    name: text("weather"),
+                    namespace: None,
                 }]
             })
         );

@@ -31,6 +31,11 @@ impl CredentialPool {
         if self.members.is_empty()
             || self.members.len() > MAX_POOL_MEMBERS
             || !(1..=MAX_POOL_MEMBERS).contains(&self.max_attempts)
+            || (self
+                .members
+                .iter()
+                .any(|m| matches!(m, CredentialRef::OAuth { profile, .. } if profile == "siwc"))
+                && (self.members.len() != 1 || self.fallback || self.max_attempts != 1))
         {
             return Err(Error::InvalidInput);
         }

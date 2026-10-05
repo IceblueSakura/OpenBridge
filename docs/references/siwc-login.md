@@ -1,6 +1,6 @@
 # SIWC 登录与 ChatGPT plan usage 参考
 
-本页集中维护公开 Sign in with ChatGPT（SIWC）的官方来源、授权与推理边界，以及 MorphieCore 迁移所需的非秘密参数规划。它不是完整上游 schema 的副本，不维护模型库存、账号资格、实例启用或测试结果，也不声明本项目已经实现 SIWC 或已获 OpenAI 用途批准。
+本页集中维护公开 Sign in with ChatGPT（SIWC）的官方来源、授权与推理边界，以及 MorphieCore 的采用依据。它不是完整上游 schema 的副本，不维护模型库存、账号资格、实例启用或测试结果，也不声明项目已获 OpenAI 用途批准。实现事实归 [credential driver](../../src/credential/siwc.rs)、[目标准入](../../src/adapter/siwc.rs)与 [凭据指南](../credentials.md)。
 
 共用 OAuth/OIDC 标准与安全边界归 [OAuth 来源入口](oauth-login.md)，当前 credential 实现与操作归 [凭据指南](../credentials.md)，共享语义和标准下游 API 归 [Semantic Model](../architecture-v2/semantic-ir.md)。本页独立描述公开 SIWC，不以前置阅读旧产品登录参考为条件；SIWC 与 Codex 产品的 token、client 和 backend 不能互换。
 
@@ -23,7 +23,7 @@
 
 官方 DevKit 的参考固定为 `openai/sign-in-with-chatgpt-devkit@f723814abdccec135b519c451fb6e1992ee5e933`，定位 [README][devkit-readme]、[credential security][devkit-security] 与 [LICENSE][devkit-license]。OpenAI-authored code/documentation 采用 **Sign-in with ChatGPT DevKit Noncommercial License v1.0**，不是 MIT/Apache；为雇主、客户或商业优势开展开发/测试，即使没有收费，也不自动满足其 Noncommercial Purpose。独立编写的软件不会仅因通过接口通信变成 Modified Work，但该例外不授予额外服务访问权。采用/分发 DevKit 代码、修改、品牌资产分别核对许可，不将本项目 MIT 扩张为第三方材料的许可。
 
-MorphieCore 规划独立使用公开 OAuth/OIDC 与 Responses 合同，不直接引入 DevKit 或 Node sidecar。其受保护 pending-rotation、账户与主进程隔离设计可作为来源，不等于可以复制源码或已完成原生安全验收。
+MorphieCore 独立使用公开 OAuth/OIDC 与 Responses 合同，不直接引入 DevKit 或 Node sidecar。其受保护 pending-rotation、账户与主进程隔离设计可作为来源，不等于可以复制源码或已完成原生安全验收。
 
 ## 应用用途与资格
 
@@ -45,30 +45,19 @@ OSS/local plan-usage flow 不需要 client secret 或 partner API key。商业�
 
 MorphieCore 的用途限定为本人单用户、同一自研分布式 Agent 应用的内部测试与模型执行组件，worker 只完成本人授权的集群运维/部署任务，项目保持开源。标准 OpenAI HTTP API 的形式不改变这一用途边界，也不能单凭内部网络、入口 key 或客户端自报名称证明请求属于该应用。复用 Pi 类 Runtime 不自动允许向任意独立应用提供套餐出口；身份与任务归属由可信应用边界约束，不把这一设计描述当作 OpenAI 批准。
 
-## MorphieCore 非秘密参数规划
+## MorphieCore 非秘密参数与依据
 
-下表是迁移的规划值，**不是已注册 client、已存在 CLI/profile、运行配置或可执行操作命令**。实现后，精确常量和验证移至对应 owner；本页保留选择依据与上游来源，不维护第二份配置 schema。
+名称、协议常量、callback 与验证归 [driver](../../src/credential/siwc.rs)与 [browser](../../src/credential/browser.rs)；provider/binding 的精确 ID 归 [provider catalog](../../src/provider/catalog.rs)与 [subscription bindings](../../src/topology/catalog/subscriptions.rs)。这些声明不是已注册 client、已启用实例或实际账户准入证明。
 
 ### 项目固定名称
 
-| 用途 | 规划值 | 约束 |
-|---|---|---|
-| 应用展示名称 | `MorphieCore` | 登录和授权呈现真实应用，不冒用 Pi、Codex CLI 或 OpenAI |
-| 内部 application ID | `morphiecore` | 本地应用识别，不作为 OAuth client ID 或身份验证材料 |
-| 首次 `agent_name_hint` | `MorphieCore` | 所有安装一致；只用于首次动态注册，用户可修改展示名称 |
-| OAuth profile ID | `siwc` | 与产品 `codex`、其他 authority 和 Platform API key 分离 |
-| 推理 Provider ID | `openai-siwc` | 明确公共 Responses + SIWC binding，不依 Bearer 拼写或 token 前缀选 profile |
-| Credential binding ID | `openai-siwc-oauth` | 指向操作者显式选择的 registration，不做账户自动轮换 |
-| Endpoint / Route 命名前缀 | `openai-siwc` | 每个显式模型 binding 再分配唯一 Endpoint/Route；不写死动态上游模型库存 |
-| Adapter profile ID | `openai-siwc-responses` | 独立准入，不冒用 Codex 产品 dialect 或全量 Standard 能力 |
-| 自有请求 UA | `MorphieCore/<package-version>` | 版本取实际构建，不固定旧版本或冒充 `codex_cli_rs`；具体发送阶段归 driver/transport |
-| Sign-in 标签 | `Continue with ChatGPT` | 按 [UI/UX][ux] 使用获准品牌格式，不复制未经许可资产 |
+应用展示名称与首次 `agent_name_hint` 如实采用同一自有名称，不冒用 Pi、Codex CLI 或 OpenAI；返回登录省略 hint。自有 UA 使用实际 package version，名称不是 OAuth client ID 或身份认证材料。description 取 [package metadata](../../Cargo.toml)，官方公开授权参数没有 description 字段，不凭推测发送额外参数。Sign-in 标签按 [UI/UX][ux] 使用 `Continue with ChatGPT`，不复制未经许可资产。
 
 公共 model label 与 canonical model、upstream slug 分别绑定，不把 Provider/profile 塞进语义 identity。多个 binding 的后缀语法、私有文件布局和未来 `/models` 扩展 schema 在相应切片定稿；本页不提前声明可用模型或 legacy alias。
 
 ### 固定协议值与 callback 策略
 
-| 用途 | 值 / 规划 |
+| 用途 | 协议值 / 采用 |
 |---|---|
 | Trusted issuer / authority | `https://auth.openai.com` |
 | Discovery | `https://auth.openai.com/.well-known/openid-configuration` |
@@ -95,7 +84,7 @@ MorphieCore 的用途限定为本人单用户、同一自研分布式 Agent 应�
 - **Issued `client_id`**：OpenAI 在首次 callback 返回，通常为 `oaiapp_...`；每个 registration 保存它，重登/refresh/revoke 复用。不能生成假值、使用 `dynamic_agent_client` 交换 code，或复制产品 client。
 - **`ext_agent_host_id`**：首片每个明确 host 生命周期生成一次 UUIDv4，保存 `urn:uuid:<UUID>`；重启和切换账户复用，不按请求或每个临时 worker 随机生成。其他 host 有独立 ID；不写入用户、邮箱、IP 或账户信息。
 - 官方还接受 `urn:ietf:params:oauth:jwk-thumbprint:…`（推荐的公钥派生格式，见 [RFC 9278](https://www.rfc-editor.org/rfc/rfc9278.html)）和 `did:key:`。当前它们仅作标识，不构成私钥持有证明；首片 UUID 选择不预建密钥管理系统。
-- **`state`、nonce、PKCE verifier/challenge**：规划每次 attempt 分别生成 32 bytes 安全随机材料；state/nonce 使用无 padding base64url，verifier 符合 RFC 7636，challenge 为 `base64url(SHA256(verifier))` 且无 padding。绑定原始 callback 与单次事务，不能跨登录复用。
+- **`state`、nonce、PKCE verifier/challenge**：每次 attempt 分别生成 32 bytes 安全随机材料；state/nonce 使用无 padding base64url，verifier 符合 RFC 7636，challenge 为 `base64url(SHA256(verifier))` 且无 padding。绑定原始 callback 与单次事务，不能跨登录复用。
 - **Code、tokens、granted scopes、expiry、verified subject**：来自本次被验证的 callback/authority 响应，不从本页示例、邮箱、alias 或 access-token payload 补造。
 - **Task/thread/turn/request/cache identity**：由各自真实 owner 管理，不能由 OAuth client、host ID、token 或账户标签派生。
 
@@ -132,7 +121,7 @@ Token 响应包含 access、refresh、ID token、token type、expiry、scope，�
 
 Refresh 用 form encoding，发送 `grant_type=refresh_token`、issued client、当前 refresh token 和相同 resource，省略 scope。同 session 的 refresh 串行化，锁内重读 generation，避免多进程消费旧 token；文件事务不跨网络。Replacement tokens、expiry 和 scopes 同 generation 原子发布，不向数据面暴露 refresh/ID token。
 
-MorphieCore 迁移规划采用以下安全与恢复边界，不照搬“任何失败都重试”：
+MorphieCore 采用以下安全与恢复边界，不照搬“任何失败都重试”：
 
 - 发出前的本地错误与已可能消费 token 的错误分别处理。
 - 已收到 replacement、但新 ID-token 验证暂时受阻时，将新材料保存为受保护的 pending-verification 状态；禁止借用，允许后续恢复验证，不再次消费旧 refresh token。
@@ -140,7 +129,7 @@ MorphieCore 迁移规划采用以下安全与恢复边界，不照搬“任何�
 - Terminal refresh 错误需要重授权；确定未消费的错误是否允许重试必须有明确合同，不能把任意 timeout/5xx 当作证明。
 - 数据面只借用 principal 固定的短期 access snapshot，普通请求不登录/refresh；后续续期调度由显式应用 auth owner 选片，不预建 daemon。
 
-路径/权限、single writer、原子发布与不确定结果隔离复用 [credential store 合同](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)，但动态 registration、identity-only 状态和 pending renewal 在实施 slice 更新其 owning types/ADR，不把本页当作已经改变当前状态机。
+路径/权限、single writer、原子发布与不确定结果隔离归 [credential store 合同](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)；动态 registration、identity-only 状态和 pending renewal 的实际状态机归 [manager](../../src/credential/manager.rs)，操作与恢复归 [凭据指南](../credentials.md)。
 
 Unix 文件/目录 owner-only 权限与原子写入是官方要求的一部分；`0600` 不等于加密。DevKit 的 OS-backed encryption、无 plaintext fallback 是它的 [SDK 存储合同][devkit-security]，独立 Rust store 需按自身威胁模型单独选定，不能声称已满足原生 keyring/ACL/断电验收。
 
@@ -185,7 +174,7 @@ Unix 文件/目录 owner-only 权限与原子写入是官方要求的一部分�
 
 上游不支持的**显式行为控制**在最终 typed 值上拒绝，不先删除再让 sampling/header/body override 加回，也不缩减共享 IR。Operator 默认输出控制、真实上游 max-token 限制与本地 bytes/events/deadline 预算分开；本地取消不证明 Provider 停算或停费。
 
-工具 namespace 的定义、qualified reference、call/result 与 history 必须共享 typed owner；仅有 call-context namespace 不够。结构缺口按 [IR 规则](../architecture-v2/semantic-ir.md#4-ir-不足与标准载体缺口)另选 slice，不在 encoder 外硬包 namespace、合并同名工具或新增私有 attachment 来掩盖。
+工具 namespace 的定义、qualified reference、call/result 与 history 共享 [typed owner](../../src/semantic/task/generation/tool.rs)；固定标准具名选择的载体缺口按 [Responses profile](../architecture-v2/responses-text-profile.md#tool-namespaces)拒绝，不在 encoder 外硬包 namespace、合并同名工具或新增私有 attachment 来掩盖。
 
 ## Headers、cache 与应用内 app-server
 
@@ -193,7 +182,7 @@ SIWC 不继承 Codex 产品 account locator、CLI 身份或 private turn-state�
 
 公共 [API request-ID 合同][api-overview] 将 `X-Client-Request-Id` 定位为每请求唯一的追踪 ID（ASCII、至多 512 字符）；它不是通用 thread identity。`session-id` 与 `session_id` 是不同名字，不能因某客户端重复使用 session 值就推定 SIWC cache/turn sticky 语义。Host、OAuth session、logical session、thread、turn、request、prompt cache key 分别有 owner，具体 cache/连接状态归 [扩展与上下文](extensions-and-context.md)。`store:false` 不等于关闭 prompt cache。
 
-MorphieCore 直接 HTTP 首片不自动发送自定义 session/turn/originator header；未定稿的 carrier 不透传。自有 UA 采用本页规划，但 UA 本身不验证应用归属。Pi `1.0.2`（固定 `earendil-works/pi@cd32f7725fdbddbaecdff5b1e68491563394e0ca`，[MIT][pi-license]）的 [SIWC module][pi-siwc]、[Responses adapter][pi-responses] 和 [resolver][pi-resolver] 只作实现来源导航，不替代官方验证、registration 和最终准入要求，也不升级其他固定基线。
+MorphieCore 直接 HTTP 首片不自动发送自定义 session/turn/originator header；未定稿的 carrier 不透传。自有 UA 归 driver，但 UA 本身不验证应用归属。Pi `1.0.2`（固定 `earendil-works/pi@cd32f7725fdbddbaecdff5b1e68491563394e0ca`，[MIT][pi-license]）的 [SIWC module][pi-siwc]、[Responses adapter][pi-responses] 和 [resolver][pi-resolver] 只作实现来源导航，不替代官方验证、registration 和最终准入要求，也不升级其他固定基线。
 
 若以后使用官方 [Codex app-server][app-server] 作为同一应用的子组件：
 
@@ -239,15 +228,15 @@ MorphieCore 直接 HTTP 首片不自动发送自定义 session/turn/originator h
 
 但 [SIWC Terms][terms] 对持久化写明 local/user-controlled、not in a remote or managed environment，而 sessions/VM 指南包含 self-hosted 存储与转移。**不能自行采用宽松解释消除这项边界；远程持久化/复制前确认适用部署合同。** 通用托管、多用户服务和 token 共享没有由 VM 指南获得默认许可。
 
-MorphieCore 首片规划为本地 credential owner + 本地模型执行；未来自研 worker 只通过同一应用内部的受信通道提交本人任务，不取得 refresh/ID token，也不对任意第三方工具开放套餐出口。该结构降低 token 复制和 rotation 风险，不构成用途合规或网络部署批准。后台巡检/部署推理需明确授权范围、期限、预算和停止控制；模型请求权限不授予集群变更权限。不因 worker 扩容注册更多 client 或轮换账户绕过限制。
+MorphieCore 的采用边界为本地 credential owner + 本地模型执行；未来自研 worker 只通过同一应用内部的受信通道提交本人任务，不取得 refresh/ID token，也不对任意第三方工具开放套餐出口。该结构降低 token 复制和 rotation 风险，不构成用途合规或网络部署批准。后台巡检/部署推理需明确授权范围、期限、预算和停止控制；模型请求权限不授予集群变更权限。不因 worker 扩容注册更多 client 或轮换账户绕过限制。
 
 ## 本项目采用与实施边界
 
-- 迁移方向是独立 SIWC profile，不是转换 Codex token、重命名既有 backend 或搜索第三方 auth cache。新 registration 经过验证后显式切换绑定；旧材料清理、远端 revoke 和私有格式迁移需另外授权，不自动执行。
+- 登录采用独立 SIWC profile，不是转换 Codex token、重命名既有 backend 或搜索第三方 auth cache。新 registration 经过验证后显式切换绑定；旧材料清理、远端 revoke 和私有格式迁移需另外授权，不自动执行。
 - 保持标准 OpenAI 下游 API 与共享语义，不把内部用途改成必须专用 RPC；SIWC 限制归独立目标合同。Chat 损失仍归 [投影合同](../architecture-v2/protocol-and-lowering.md#semantic-loss)，新扩展不因迁移自动获准。
 - 不保留计价、价格目录、金额估算或成本路由；真实 token usage、resource budgets 与额度错误不是计价。不能因为 native view 名含 billing 就丢 token facts，也不为客户端费用 UI 伪造零价格。
 - 后续模型发现先维护标准 `/v1/models` 的 public-label 视图；更丰富 `/models` 的路径/schema 另定，不直接透传 SIWC 上游目录或账户 metadata，不提供价格字段。目录、准入、实例激活和实际完成分别验收；不能假定 Pi 自动发现该端点。
-- 已有文件安全、JWT、access snapshot、增量 SSE 和有界 JSON 交付复用现有 owner。Dynamic registration/identity-only/pending renewal、独立请求准入、工具分组和 error mapping 分片定稿；不为登录预建 Agent/k8s/WS runtime。
+- 已有文件安全、JWT、access snapshot、增量 SSE 和有界 JSON 交付复用现有 owner。Dynamic registration/identity-only/pending renewal、独立请求准入、工具分组与错误分类分别归对应 owner；不为登录预建 Agent/k8s/WS runtime。
 - 方向与实施顺序归 [next-goal](../implementation-plans/next-goal.md)，新行为只有获准后才记入 [current-focus](../implementation-plans/current-focus.md)。本页不覆盖当前未完成切片，不修改运行配置，也不授予登录、refresh/revoke、模型发现、推理、部署或提交权限。
 
 实施验收遵循 [development](../development.md)：独立 callback/JWT/registration oracle，编辑与拒绝，rotation/取消/崩溃/pending 恢复，跨 principal/profile 隔离，最终参数不回流，namespace 的定义/调用/结果一致，以及 JSON/SSE 的真实终态、预算和 post-commit 边界。文档检查不证明行为；真实 gate 需明确应用、账户/workspace、模型、矩阵、请求/资源预算与脱敏输出。SIWC 不支持 max-output 参数，不能以发送该参数声称有硬上游 token cap；本地截止与取消也不是实际费用/停算保证。

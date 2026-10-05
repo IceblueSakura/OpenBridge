@@ -46,16 +46,16 @@ mod unix {
             .unwrap();
     }
     fn account(profile: &str, alias: &str, subject: &str) -> Value {
-        let codex = profile == "codex";
+        let siwc = profile == "siwc";
         json!({
             "profile":profile,"alias":alias,
-            "client_id":if codex { "app_EMoamEEZ73f0CkXaXp7hrann" } else { "synthetic-client" },
-            "identity":{"subject":subject,"scope":if codex {Some("synthetic-workspace")} else {None}},
+            "client_id":if siwc { "oaiapp_synthetic" } else { "synthetic-client" },
+            "identity":{"subject":subject,"scope":null},
             "revision":2,"generation":1,"login_attempt":null,"state":"active",
             "credential":{"access":"synthetic-access","refresh":"synthetic-refresh",
-                "id_token":if codex {Some("synthetic-id-token")} else {None},
+                "id_token":if siwc {Some("synthetic-id-token")} else {None},
                 "expires_at":4000000000u64,
-                "scopes":if codex {None} else {Some("openid profile email offline_access grok-cli:access api:access")}}
+                "scopes":if siwc {"openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"} else {"openid profile email offline_access grok-cli:access api:access"}}
         })
     }
     fn read(root: &Path, profile: &str, alias: &str) -> Value {
@@ -82,9 +82,9 @@ mod unix {
         );
         save(
             &dir.path,
-            "codex",
+            "siwc",
             "one",
-            &account("codex", "one", "synthetic-person-one"),
+            &account("siwc", "one", "synthetic-person-one"),
         );
         let path = dir.path.as_os_str();
         let all = command(&["list".as_ref(), "--store".as_ref(), path]).await;
@@ -139,7 +139,7 @@ mod unix {
             "synthetic-refresh"
         );
         assert_eq!(
-            read(&dir.path, "codex", "one")["credential"]["refresh"],
+            read(&dir.path, "siwc", "one")["credential"]["refresh"],
             "synthetic-refresh"
         );
         drop(lock);
@@ -192,15 +192,15 @@ mod unix {
         let dir = Directory::existing();
         save(
             &dir.path,
-            "codex",
+            "siwc",
             "one",
-            &account("codex", "one", "synthetic-person"),
+            &account("siwc", "one", "synthetic-person"),
         );
         OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(dir.path.join("codex.oauth.one.pending"))
+            .open(dir.path.join("siwc.oauth.one.pending"))
             .unwrap()
             .write_all(b"true")
             .unwrap();
@@ -211,7 +211,7 @@ mod unix {
         assert_eq!(statuses[0]["access"], "unavailable");
         assert_eq!(statuses[0]["recovery_required"], true);
         let logout = command(&[
-            "codex".as_ref(),
+            "siwc".as_ref(),
             "logout".as_ref(),
             "--store".as_ref(),
             dir.path.as_os_str(),
@@ -222,9 +222,9 @@ mod unix {
         .await;
         assert!(!logout.status.success());
         assert!(String::from_utf8_lossy(&logout.stdout).contains("NOT confirmed"));
-        assert!(read(&dir.path, "codex", "one")["credential"].is_null());
+        assert!(read(&dir.path, "siwc", "one")["credential"].is_null());
         assert_eq!(
-            std::fs::read(dir.path.join("codex.oauth.one.pending")).unwrap(),
+            std::fs::read(dir.path.join("siwc.oauth.one.pending")).unwrap(),
             b"false"
         );
     }
@@ -242,16 +242,9 @@ mod unix {
                 "--callback-port",
                 "0",
             ],
+            vec!["siwc", "login", "--method", "device"],
             vec![
-                "codex",
-                "login",
-                "--method",
-                "browser",
-                "--callback-port",
-                "1456",
-            ],
-            vec![
-                "codex",
+                "siwc",
                 "login",
                 "--method",
                 "browser",
@@ -279,6 +272,102 @@ mod unix {
             assert!(result.stdout.is_empty());
             assert!(!store.exists());
         }
+    }
+
+    #[tokio::test]
+    async fn siwc_cli_defaults_to_browser_and_reuses_host_without_authority_traffic() {
+        use std::process::Stdio;
+        use tokio::{
+            io::{AsyncBufReadExt, AsyncReadExt, BufReader},
+            net::TcpListener,
+        };
+        let dir = Directory::existing();
+        let store = dir.path.join("sessions");
+        let egress = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy = format!("http://{}", egress.local_addr().unwrap());
+        let mut original_host = None;
+        for consent in [false, true] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_morphiecore-auth"));
+            command
+                .args(["siwc", "login", "--account", "personal", "--store"])
+                .arg(&store)
+                .args(["--proxy", &proxy]);
+            if consent {
+                command.arg("--consent");
+            }
+            let mut child = command
+                .env_clear()
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+                .unwrap();
+            let mut stderr = BufReader::new(child.stderr.take().unwrap().take(8192));
+            let authorization = timeout(Duration::from_secs(5), async {
+                for _ in 0..10 {
+                    let mut line = String::new();
+                    assert!(stderr.read_line(&mut line).await.unwrap() > 0);
+                    if line.starts_with("https://auth.openai.com/") {
+                        return url::Url::parse(line.trim()).unwrap();
+                    }
+                }
+                panic!("missing SIWC authorization prompt");
+            })
+            .await
+            .unwrap();
+            assert_eq!(authorization.path(), "/api/accounts/authorize");
+            let fields: std::collections::BTreeMap<_, _> =
+                authorization.query_pairs().into_owned().collect();
+            assert_eq!(fields["client_id"], "dynamic_agent_client");
+            assert_eq!(fields["agent_name_hint"], "MorphieCore");
+            assert_eq!(
+                fields.get("prompt").map(String::as_str),
+                consent.then_some("consent")
+            );
+            let host = fields["ext_agent_host_id"].clone();
+            if let Some(previous) = &original_host {
+                assert_eq!(previous, &host);
+            }
+            original_host = Some(host);
+            let uri = url::Url::parse(&fields["redirect_uri"]).unwrap();
+            assert_eq!(uri.host_str(), Some("127.0.0.1"));
+            assert_eq!(uri.path(), "/auth/callback");
+            let address = std::net::SocketAddr::from(([127, 0, 0, 1], uri.port().unwrap()));
+            let response = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(2))
+                .build()
+                .unwrap()
+                .get(format!(
+                    "{}?state=unrelated&error=access_denied",
+                    fields["redirect_uri"]
+                ))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 400);
+            assert_eq!(
+                unsafe { libc::kill(child.id().unwrap() as libc::pid_t, libc::SIGINT) },
+                0
+            );
+            assert!(
+                !timeout(Duration::from_secs(5), child.wait())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .success()
+            );
+            let account = read(&store, "siwc", "personal");
+            assert!(account["login_attempt"].is_null());
+            assert!(account["credential"].is_null());
+            drop(TcpListener::bind(address).await.unwrap());
+        }
+        assert!(
+            timeout(Duration::from_millis(20), egress.accept())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

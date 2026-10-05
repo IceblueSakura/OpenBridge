@@ -72,7 +72,7 @@ pub use tool::{
     ArgumentFormat, CallContext, CallOrigin, CallerMode, CustomCall, CustomFormat, CustomTool,
     FunctionStrictness, FunctionTool, GrammarSyntax, ItemLifecycle, Program, ProgramOutput,
     StrictDefault, ToolArguments, ToolCall, ToolChoice, ToolDefinition, ToolDispatch, ToolKind,
-    ToolReference,
+    ToolNamespace, ToolReference,
 };
 
 pub use event::{

@@ -396,7 +396,9 @@ impl super::AuthDriver for GrokAuthority {
         "grok"
     }
     fn login_client(&self, options: &super::LoginOptions) -> Result<String, Error> {
-        if options.method != super::LoginMethod::Browser && options.callback_port.is_some() {
+        if options.consent
+            || (options.method != super::LoginMethod::Browser && options.callback_port.is_some())
+        {
             return Err(Error::InvalidInput);
         }
         let client = options.client_id.as_deref().unwrap_or(CLIENT_ID);

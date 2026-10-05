@@ -144,14 +144,14 @@ pub fn zhipu() -> ProviderDefinition {
     }
 }
 
-/// Product Responses backend, not the public SIWC or Platform API.
-/// Source: https://github.com/openai/codex/tree/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs
-pub fn codex() -> ProviderDefinition {
+/// Public SIWC Responses; permission is checked on each access snapshot.
+/// Source: https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
+pub fn siwc() -> ProviderDefinition {
     ProviderDefinition {
-        auth: AuthScheme::OAuthBearer("codex"),
-        responses: Some(EndpointPath::new("/backend-api/codex/responses").expect("static path")),
-        id: ProviderId::new("codex").expect("static identity"),
-        origin: TrustedOrigin::parse("https://chatgpt.com").expect("static origin"),
+        auth: AuthScheme::OAuthBearer("siwc"),
+        responses: Some(EndpointPath::new("/v1/responses").expect("static path")),
+        id: ProviderId::new("openai-siwc").expect("static identity"),
+        origin: TrustedOrigin::parse("https://api.openai.com").expect("static origin"),
         chat_completions: None,
     }
 }
@@ -168,7 +168,7 @@ pub fn grok() -> ProviderDefinition {
 }
 pub fn all() -> Vec<ProviderDefinition> {
     vec![
-        codex(),
+        siwc(),
         grok(),
         deepseek(),
         xiaomi(),

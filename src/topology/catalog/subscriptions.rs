@@ -10,11 +10,11 @@ pub struct SubscriptionBinding {
 }
 pub const SUBSCRIPTION_BINDINGS: &[SubscriptionBinding] = &[
     SubscriptionBinding {
-        profile: "codex",
+        profile: "siwc",
         model: "gpt-6.1-sol",
         upstream: "gpt-6.1-sol",
-        dialect: Dialect::Codex,
-        provider: catalog::codex,
+        dialect: Dialect::Siwc,
+        provider: catalog::siwc,
     },
     SubscriptionBinding {
         profile: "grok",
@@ -25,19 +25,31 @@ pub const SUBSCRIPTION_BINDINGS: &[SubscriptionBinding] = &[
     },
 ];
 impl SubscriptionBinding {
+    fn contract(&self) -> GenerationSemanticContract {
+        let mut contract = models::contract(self.model);
+        if self.profile == "siwc" {
+            contract.max_output_tokens = false;
+            contract.temperature = false;
+            contract.top_p = false;
+            contract.logprobs = false;
+            contract.truncation = false;
+        }
+        contract
+    }
     pub fn credential(&self) -> CredentialBindingId {
-        CredentialBindingId::new(&format!("{}-oauth", self.profile)).expect("static binding")
+        CredentialBindingId::new(&format!("{}-oauth", (self.provider)().id.as_str()))
+            .expect("static binding")
     }
     pub fn endpoint_id(&self) -> EndpointId {
-        EndpointId::new(&format!("{}-responses", self.profile)).expect("static id")
+        EndpointId::new(&format!("{}-responses", (self.provider)().id.as_str())).expect("static id")
     }
     pub fn public_model(&self) -> PublicModel {
         PublicModel {
             id: ModelId::new(self.model).unwrap(),
             canonical_model: ModelId::new(self.model).unwrap(),
             task: TaskKind::Generation,
-            route: RouteId::new(&format!("{}-generation", self.profile)).unwrap(),
-            contract: models::contract(self.model),
+            route: RouteId::new(&format!("{}-generation", (self.provider)().id.as_str())).unwrap(),
+            contract: self.contract(),
             standard_context: false,
             reported_facts: ReportedFactPolicy::Faithful,
         }
@@ -51,7 +63,7 @@ impl SubscriptionBinding {
             Some(scope.clone()),
         );
         let contract = GenerationRepresentationContract {
-            semantics: models::contract(self.model),
+            semantics: self.contract(),
             replay_origin: Some(scope),
             cache: adapter.adaptation.cache,
             identity_hints: false,

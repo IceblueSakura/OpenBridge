@@ -68,6 +68,7 @@ pub fn lower_request<'a>(
     c: GenerationRepresentationContract,
 ) -> Result<RequestRepresentation<'a>, RepresentationError> {
     let q = check(r, c.clone())?;
+    check_tool_selection(r.tool_choice())?;
     if profile != Profile::Chat
         && (!r.settings().audio.is_absent() || !r.settings().output_modalities.is_absent())
     {
@@ -158,7 +159,14 @@ pub fn lower_request<'a>(
     } else {
         StrictDefault::NormalizeSchema
     };
-    for tool in r.tools() {
+    if profile == Profile::Chat
+        && r.tools()
+            .iter()
+            .any(|t| matches!(t, ToolDefinition::Namespace(_)))
+    {
+        return Err(RepresentationError::Tools);
+    }
+    for tool in r.tools().iter().flat_map(ToolDefinition::leaves) {
         if !tool.dispatch_inactive() && profile == Profile::Chat {
             return Err(RepresentationError::Tools);
         }
@@ -174,8 +182,10 @@ pub fn lower_request<'a>(
         }
     }
     if profile == Profile::Chat
-        && (matches!(r.tool_choice(), Some(ToolChoice::Custom(_)))
-            || matches!(r.tool_choice(), Some(ToolChoice::Allowed { tools, .. }) if tools.iter().any(|r| r.kind != ToolKind::Function)))
+        && (matches!(
+            r.tool_choice(),
+            Some(ToolChoice::Custom(_) | ToolChoice::Qualified(_))
+        ) || matches!(r.tool_choice(), Some(ToolChoice::Allowed { tools, .. }) if tools.iter().any(|r| r.kind != ToolKind::Function || r.namespace.is_some())))
     {
         return Err(RepresentationError::Tools);
     }
@@ -286,6 +296,9 @@ pub fn lower_response<'a>(
     profile: Profile,
     c: GenerationRepresentationContract,
 ) -> Result<ResponseRepresentation<'a>, RepresentationError> {
+    if let Some(settings) = &metadata.context.settings {
+        check_tool_selection(settings.tool_choice.as_ref())?;
+    }
     if r.progress() != InteractionProgress::Unreported {
         return Err(RepresentationError::InteractionProgress);
     }
@@ -707,6 +720,16 @@ fn validate_wire_ids(
         if value.is_some_and(|value| !ids.insert(value)) {
             return Err(RepresentationError::Metadata);
         }
+    }
+    Ok(())
+}
+fn check_tool_selection(choice: Option<&ToolChoice>) -> Result<(), RepresentationError> {
+    // The pinned standard named-tool types have no qualified-reference carrier.
+    // https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/tool_choice_function_param.py
+    if matches!(choice, Some(ToolChoice::Qualified(_)))
+        || matches!(choice, Some(ToolChoice::Allowed { tools, .. }) if tools.iter().any(|r| r.namespace.is_some()))
+    {
+        return Err(RepresentationError::Tools);
     }
     Ok(())
 }

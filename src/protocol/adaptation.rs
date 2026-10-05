@@ -7,6 +7,9 @@ use serde_json::{Map, Value};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WireRules {
+    /// Public SIWC is a restricted Responses operation, not a product-backend alias.
+    /// https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations
+    pub responses_siwc: bool,
     /// Product backend requires SSE regardless of downstream delivery.
     /// Source: https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/codex-api/src/common.rs
     pub responses_forced_stream: bool,

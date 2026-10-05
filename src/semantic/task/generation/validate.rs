@@ -44,6 +44,7 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
     let mut ids = BTreeSet::new();
     let mut parts = BTreeSet::new();
     let mut calls = BTreeMap::new();
+    let mut namespaces = BTreeMap::new();
     let mut results = BTreeSet::new();
     let mut active_owner = None;
     let mut bytes = 0;
@@ -122,6 +123,8 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                 }
             }
             Item::ToolCall(c) => {
+                call_context(&c.context, &mut bytes)?;
+                namespaces.insert(c.call_id.as_str(), c.context.namespace.as_ref());
                 validate_call(
                     &mut calls,
                     &mut bytes,
@@ -146,6 +149,8 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                 }
             }
             Item::CustomCall(c) => {
+                call_context(&c.context, &mut bytes)?;
+                namespaces.insert(c.call_id.as_str(), c.context.namespace.as_ref());
                 active_owner = None;
                 validate_call(
                     &mut calls,
@@ -200,6 +205,12 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                 }
             }
             Item::ToolResult(r) | Item::CustomResult(r) => {
+                call_context(&r.context, &mut bytes)?;
+                if r.context.namespace.as_ref().is_some_and(|namespace| {
+                    namespaces.get(r.call_id.as_str()).copied().flatten() != Some(namespace)
+                }) {
+                    return Err(GenerationError::InvalidToolResult);
+                }
                 if response {
                     return Err(GenerationError::InvalidResponse);
                 }
@@ -255,6 +266,21 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
         }
     }
     Ok(bytes)
+}
+fn call_context(context: &CallContext, bytes: &mut usize) -> Result<(), GenerationError> {
+    if let Some(namespace) = &context.namespace {
+        if namespace.as_str().is_empty() || namespace.as_str().len() > 128 {
+            return Err(GenerationError::InvalidToolDefinition);
+        }
+        add(bytes, namespace.as_str())?;
+    }
+    if let Some(CallOrigin::Program { caller_id }) = &context.caller {
+        if caller_id.as_str().is_empty() || caller_id.as_str().len() > 256 {
+            return Err(GenerationError::InvalidToolDefinition);
+        }
+        add(bytes, caller_id.as_str())?;
+    }
+    Ok(())
 }
 fn validate_call<'a>(
     calls: &mut BTreeMap<&'a str, CallKind>,
@@ -318,13 +344,38 @@ pub fn tools(
         return Err(GenerationError::Limit);
     }
     let mut available = BTreeSet::new();
+    let mut groups = BTreeSet::new();
+    let mut count = tools.len();
     let mut bytes = 0;
     for t in tools {
         let n = t.name().as_str();
-        if n.is_empty() || n.len() > 128 || !available.insert((t.kind(), n)) {
+        if n.is_empty() || n.len() > 128 {
             return Err(GenerationError::InvalidToolDefinition);
         }
         add(&mut bytes, n)?;
+        if let ToolDefinition::Namespace(group) = t {
+            if !groups.insert(n)
+                || group.tools.is_empty()
+                || group.tools.iter().any(|t| t.kind().is_none())
+            {
+                return Err(GenerationError::InvalidToolDefinition);
+            }
+            count = count
+                .checked_add(group.tools.len())
+                .ok_or(GenerationError::Limit)?;
+            if count > MAX_TOOLS {
+                return Err(GenerationError::Limit);
+            }
+            charge(&mut bytes, self::tools(&group.tools, None)?)?;
+            add(&mut bytes, &group.description)?;
+            for leaf in &group.tools {
+                available.insert((Some(n), leaf.kind().expect("leaf"), leaf.name().as_str()));
+            }
+            continue;
+        }
+        if !available.insert((None, t.kind().expect("leaf"), n)) {
+            return Err(GenerationError::InvalidToolDefinition);
+        }
         match t {
             ToolDefinition::Function(t) => {
                 if let Some(d) = &t.description {
@@ -355,13 +406,28 @@ pub fn tools(
                     add(&mut bytes, definition.as_str())?;
                 }
             }
+            ToolDefinition::Namespace(_) => unreachable!("handled above"),
         }
     }
     match choice {
-        Some(ToolChoice::Specific(n)) if !available.contains(&(ToolKind::Function, n.as_str())) => {
+        Some(ToolChoice::Specific(n))
+            if !available.contains(&(None, ToolKind::Function, n.as_str())) =>
+        {
             return Err(GenerationError::InvalidToolChoice);
         }
-        Some(ToolChoice::Custom(n)) if !available.contains(&(ToolKind::Custom, n.as_str())) => {
+        Some(ToolChoice::Custom(n))
+            if !available.contains(&(None, ToolKind::Custom, n.as_str())) =>
+        {
+            return Err(GenerationError::InvalidToolChoice);
+        }
+        Some(ToolChoice::Qualified(r))
+            if r.namespace.is_none()
+                || !available.contains(&(
+                    r.namespace.as_ref().map(|n| n.as_str()),
+                    r.kind,
+                    r.name.as_str(),
+                )) =>
+        {
             return Err(GenerationError::InvalidToolChoice);
         }
         Some(ToolChoice::Required) if tools.is_empty() => {
@@ -373,9 +439,12 @@ pub fn tools(
             }
             let mut seen = BTreeSet::new();
             for r in tools {
-                if !available.contains(&(r.kind, r.name.as_str()))
-                    || !seen.insert((r.kind, r.name.as_str()))
-                {
+                let reference = (
+                    r.namespace.as_ref().map(|n| n.as_str()),
+                    r.kind,
+                    r.name.as_str(),
+                );
+                if !available.contains(&reference) || !seen.insert(reference) {
                     return Err(GenerationError::InvalidToolChoice);
                 }
             }

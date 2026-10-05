@@ -6,17 +6,19 @@ fn oauth_pool_borrows_distinct_principals_without_refresh_or_cross_profile_subst
     let dir = test_support::Directory::new();
     let manager = CredentialManager::new(&dir.path, builtin_drivers(None).unwrap()).unwrap();
     for alias in ["first", "second"] {
-        let mut account = Account::new("codex", alias, "app_EMoamEEZ73f0CkXaXp7hrann");
+        let mut account = Account::new("grok", alias, "synthetic-client");
         account.identity = Some(VerifiedIdentity {
             subject: format!("subject-{alias}"),
-            scope: Some(format!("workspace-{alias}")),
+            scope: None,
         });
         account
             .replace_credential(Some(Credential {
                 access: Secret::new(format!("synthetic-{alias}")).unwrap(),
                 refresh: Some(Secret::new("synthetic-refresh".into()).unwrap()),
-                id_token: Some(Secret::new("synthetic-id-token".into()).unwrap()),
-                scopes: None,
+                id_token: None,
+                scopes: Some(
+                    "openid profile email offline_access grok-cli:access api:access".into(),
+                ),
                 expires_at: if alias == "first" {
                     Some(1)
                 } else {
@@ -34,13 +36,13 @@ fn oauth_pool_borrows_distinct_principals_without_refresh_or_cross_profile_subst
             .unwrap();
     }
     let from_wire: CredentialRef =
-        serde_json::from_str(r#"{"kind":"oauth","profile":"codex","alias":"first"}"#).unwrap();
+        serde_json::from_str(r#"{"kind":"oauth","profile":"grok","alias":"first"}"#).unwrap();
     assert!(matches!(from_wire, CredentialRef::OAuth { .. }));
     let config = CredentialPool {
         members: ["first", "second"]
             .into_iter()
             .map(|alias| CredentialRef::OAuth {
-                profile: "codex".into(),
+                profile: "grok".into(),
                 alias: alias.into(),
             })
             .collect(),
@@ -48,9 +50,9 @@ fn oauth_pool_borrows_distinct_principals_without_refresh_or_cross_profile_subst
         max_attempts: 2,
     };
     manager
-        .set_pool("codex", "codex-oauth", 0, config.clone())
+        .set_pool("grok", "grok-oauth", 0, config.clone())
         .unwrap();
-    let access = manager.bind_pool("codex", &config).unwrap();
+    let access = manager.bind_pool("grok", &config).unwrap();
     let PoolMember::OAuth(first) = &access.members[0] else {
         panic!("OAuth")
     };
@@ -61,14 +63,14 @@ fn oauth_pool_borrows_distinct_principals_without_refresh_or_cross_profile_subst
     let grant = second.borrow().unwrap();
     assert_eq!(grant.access.expose(), "synthetic-second");
     let headers = crate::provider::subscription::headers(
-        crate::provider::AuthScheme::OAuthBearer("codex"),
+        crate::provider::AuthScheme::OAuthBearer("grok"),
         &grant,
     )
     .unwrap();
-    assert!(headers.contains(&("chatgpt-account-id".into(), "workspace-second".into())));
+    assert!(headers.is_empty());
     assert!(
         crate::provider::subscription::headers(
-            crate::provider::AuthScheme::OAuthBearer("grok"),
+            crate::provider::AuthScheme::OAuthBearer("codex"),
             &grant
         )
         .is_err()

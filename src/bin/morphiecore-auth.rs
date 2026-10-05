@@ -54,10 +54,13 @@ struct Login {
     account: Account,
     #[arg(long)]
     client_id: Option<String>,
-    #[arg(long, value_enum, default_value = "device")]
-    method: Method,
+    #[arg(long, value_enum)]
+    method: Option<Method>,
     #[arg(long)]
     callback_port: Option<u16>,
+    /// Explicitly request ChatGPT plan consent; ordinary SIWC re-login does not.
+    #[arg(long)]
+    consent: bool,
 }
 #[derive(Args)]
 struct Key {
@@ -226,16 +229,22 @@ async fn execute(options: Options) -> Result<(), Error> {
         }
         Command::Login(login) => {
             let profile = profile.ok_or(Error::InvalidInput)?;
-            if login.callback_port.is_some() && matches!(login.method, Method::Device) {
+            let method = login.method.unwrap_or(if profile == "siwc" {
+                Method::Browser
+            } else {
+                Method::Device
+            });
+            if login.callback_port.is_some() && matches!(method, Method::Device) {
                 return Err(Error::InvalidInput);
             }
             let settings = LoginOptions {
-                method: match login.method {
+                method: match method {
                     Method::Device => LoginMethod::Device,
                     Method::Browser => LoginMethod::Browser,
                 },
                 client_id: login.client_id,
                 callback_port: login.callback_port,
+                consent: login.consent,
             };
             let drivers = builtin_drivers(login.account.proxy.as_deref())?;
             drivers
@@ -243,12 +252,28 @@ async fn execute(options: Options) -> Result<(), Error> {
                 .find(|driver| driver.profile() == profile)
                 .ok_or(Error::UnknownProfile)?
                 .login_client(&settings)?;
+            if profile == "siwc" {
+                eprintln!("Continue with ChatGPT — MorphieCore");
+                eprintln!(
+                    "Identity, granted permissions and tokens are stored only in the selected owner-only local store. No ChatGPT history is imported. Plan usage is only for your own authorized tasks in this application."
+                );
+                eprintln!("Manage usage: https://chatgpt.com/settings/usage");
+            }
             let manager = CredentialManager::new(root, drivers)?;
-            print(
-                &manager
-                    .login(profile, &login.account.account, settings, prompt)
-                    .await?,
-            )
+            let status = manager
+                .login(profile, &login.account.account, settings, prompt)
+                .await?;
+            if let Some(enabled) = status.plan_usage_enabled {
+                eprintln!(
+                    "{}",
+                    if enabled {
+                        "Using ChatGPT plan."
+                    } else {
+                        "Identity signed in; ChatGPT plan usage disabled. Use login --consent only when you choose to enable it."
+                    }
+                );
+            }
+            print(&status)
         }
         Command::Refresh(account) => {
             let manager = CredentialManager::new(root, builtin_drivers(account.proxy.as_deref())?)?;
@@ -304,7 +329,7 @@ async fn main() -> ExitCode {
     };
     tokio::select! {
         result=execute(options) => match result { Ok(())=>ExitCode::SUCCESS, Err(error)=>{eprintln!("Credential operation failed: {error}");ExitCode::FAILURE} },
-        _=tokio::signal::ctrl_c()=>{eprintln!("Credential operation cancelled; interrupted refresh requires login.");ExitCode::FAILURE}
+        _=tokio::signal::ctrl_c()=>{eprintln!("Credential operation cancelled. Check local status: pending renewal can be verified with refresh; uncertain consumption requires login.");ExitCode::FAILURE}
     }
 }
 #[cfg(test)]

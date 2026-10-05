@@ -5,8 +5,6 @@ mod access;
 pub use access::{AccessBinding, AccessGrant};
 mod browser;
 mod callback;
-mod codex;
-pub(crate) mod codex_metadata;
 mod driver;
 mod grok;
 mod grok_metadata;
@@ -17,6 +15,9 @@ mod model;
 mod oauth;
 mod pool;
 mod profiles;
+pub mod siwc;
+#[cfg(test)]
+mod siwc_tests;
 mod storage_fs;
 #[cfg(windows)]
 mod storage_windows;
@@ -25,11 +26,14 @@ pub use pool::{
     CredentialPool, CredentialRef, MAX_POOL_MEMBERS, PoolAccess, PoolMember, PoolStatus,
 };
 
-pub use driver::{AuthDriver, DriverFuture, LoginObserver};
+pub use driver::{
+    AuthDriver, DriverFuture, LoginObserver, RegistrationContext, RegistrationObserver,
+};
 pub use manager::CredentialManager;
 pub use model::{
     AccessState, AccountState, AccountStatus, BrowserPrompt, Credential, DevicePrompt, Grant,
-    LoginMethod, LoginOptions, LoginPrompt, LogoutOutcome, Secret, SecretBytes, VerifiedIdentity,
+    LoginMethod, LoginOptions, LoginPrompt, LogoutOutcome, PendingRenewal, Renewal, Secret,
+    SecretBytes, VerifiedIdentity,
 };
 pub use profiles::builtin_drivers;
 
@@ -125,10 +129,6 @@ pub enum CredentialError {
 mod api_key_tests;
 #[cfg(test)]
 mod browser_tests;
-#[cfg(test)]
-mod codex_browser_tests;
-#[cfg(test)]
-mod codex_tests;
 #[cfg(test)]
 mod manager_tests;
 #[cfg(test)]

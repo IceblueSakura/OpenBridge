@@ -17,9 +17,19 @@ pub(super) struct Callback {
     path: &'static str,
 }
 pub(super) enum CallbackDecision {
-    Code(Secret),
+    Code(CallbackCode),
     Error(Error),
     Reject(u16),
+}
+pub(super) struct CallbackCode {
+    pub code: Secret,
+    pub client_id: Option<String>,
+}
+impl CallbackCode {
+    #[cfg(test)]
+    pub fn expose(&self) -> &str {
+        self.code.expose()
+    }
 }
 impl Callback {
     pub async fn bind(port: u16, path: &'static str) -> Result<Self, Error> {
@@ -48,6 +58,17 @@ impl Callback {
         format!("http://{}{}", self.address(), self.path)
     }
     pub async fn wait(&mut self, state: &str, deadline: Instant) -> Result<Secret, Error> {
+        let callback = self.wait_registration(state, deadline).await?;
+        if callback.client_id.is_some() {
+            return Err(Error::Protocol);
+        }
+        Ok(callback.code)
+    }
+    pub async fn wait_registration(
+        &mut self,
+        state: &str,
+        deadline: Instant,
+    ) -> Result<CallbackCode, Error> {
         for _ in 0..ATTEMPT_LIMIT {
             let (mut stream, _) = timeout_at(deadline, self.listener.accept())
                 .await
@@ -192,8 +213,15 @@ pub(super) fn classify(
     let Some(code) = fields.get("code") else {
         return reject(400);
     };
+    let client_id = fields.get("client_id").map(|v| v.to_string());
+    if client_id
+        .as_deref()
+        .is_some_and(|v| super::model::valid_client(v).is_err())
+    {
+        return reject(400);
+    }
     match Secret::new(code.to_string()) {
-        Ok(code) => CallbackDecision::Code(code),
+        Ok(code) => CallbackDecision::Code(CallbackCode { code, client_id }),
         Err(_) => reject(400),
     }
 }

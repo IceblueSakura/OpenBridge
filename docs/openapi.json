@@ -449,7 +449,7 @@
           "modalities": {"type": ["array", "null"], "items": {"enum": ["text", "audio"]}, "minItems": 1, "maxItems": 2, "uniqueItems": true, "description": "Library output intent; audio requires matching audio options and explicit public/endpoint audio_output admission. Existing text/image bindings do not gain audio admission."},
           "audio": {"type": ["object", "null"], "required": ["format", "voice"], "additionalProperties": false, "properties": {"format": {"enum": ["wav", "aac", "mp3", "flac", "opus", "pcm16"]}, "voice": {"type": "string", "minLength": 1, "maxLength": 128}}, "description": "Named-voice output options, not voice/account management. Requires audio modality; streaming requires pcm16. No audio model is activated by this schema."},
           "stream": {"type": ["boolean", "null"], "default": false},
-          "max_completion_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."},
+          "max_completion_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 only when the public contract admits this control, and rejects values above 16384 after semantic decode. Targets without output-token control do not receive a fabricated cap."},
           "metadata": {"type": ["object", "null"], "maxProperties": 16, "propertyNames": {"maxLength": 64}, "additionalProperties": {"type": "string", "maxLength": 512}, "description": "Typed request hint, never copied into reported response metadata."},
           "service_tier": {"type": ["string", "null"], "enum": ["auto", "default", "flex", "scale", "priority", "fast", null], "description": "Request hint; the reported effective tier may differ. Endpoint context admission remains independent."},
           "logprobs": {"type": ["boolean", "null"], "description": "Return token probabilities when true; null/false are inactive controls."},
@@ -464,6 +464,28 @@
         "enum": ["auto", "concise", "detailed", null],
         "description": "Standard summary control. Boolean false is not a disabled carrier; typed Disabled remains unrepresentable, not omission or null."
       },
+      "ResponsesLeafTool": {
+        "type": "object", "required": ["type", "name"],
+        "properties": {
+          "type": {"enum": ["function", "custom"]},
+          "name": {"type": "string", "minLength": 1, "maxLength": 128},
+          "async": {"type": "boolean"},
+          "defer_loading": {"type": "boolean"}
+        },
+        "additionalProperties": true,
+        "description": "Envelope subset. Parameters, format, strict defaults and dispatch combinations require owning codec/profile checks."
+      },
+      "ResponsesToolNamespace": {
+        "type": "object", "required": ["type", "name", "description", "tools"],
+        "properties": {
+          "type": {"const": "namespace"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 128},
+          "description": {"type": "string"},
+          "tools": {"type": "array", "minItems": 1, "maxItems": 127, "items": {"$ref": "#/components/schemas/ResponsesLeafTool"}}
+        },
+        "additionalProperties": false,
+        "description": "Ordered non-nested group. Same-kind names are unique within a group; different groups may reuse names. Total definitions plus groups share the tool budget. Calls carry namespace; results refer to call_id."
+      },
       "ResponsesRequest": {
         "type": "object", "required": ["model"],
         "not": {"anyOf": [{"required": ["provider"]}, {"required": ["_openbridge"]}, {"required": ["session_id"]}]},
@@ -473,17 +495,9 @@
           "input": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "object", "not": {"required": ["_openbridge"]}}}]},
           "tools": {
             "type": "array",
-            "items": {
-              "type": "object", "required": ["type", "name"],
-              "properties": {
-                "type": {"enum": ["function", "custom"]},
-                "name": {"type": "string", "minLength": 1, "maxLength": 128},
-                "async": {"type": "boolean"},
-                "defer_loading": {"type": "boolean"}
-              },
-              "additionalProperties": true
-            },
-            "description": "Envelope subset only. Parameters, strict defaults, dispatch combinations and tool choice require the owning codec/profile checks; additionalProperties does not permit arbitrary tools."
+            "maxItems": 128,
+            "items": {"oneOf": [{"$ref": "#/components/schemas/ResponsesLeafTool"}, {"$ref": "#/components/schemas/ResponsesToolNamespace"}]},
+            "description": "Envelope subset only. Namespace tool choice uses auto/required/none; no private qualified-name syntax is admitted. Parameters, strict defaults, dispatch combinations and tool choice require owning codec/profile checks."
           },
           "reasoning": {
             "type": ["object", "null"],
@@ -495,7 +509,7 @@
             "description": "Other reasoning controls and conflicting aliases are checked by the owning codec and selected target."
           },
           "stream": {"type": ["boolean", "null"], "default": false},
-          "max_output_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 and rejects values above 16384 after semantic decode."}
+          "max_output_tokens": {"type": ["integer", "null"], "minimum": 1, "description": "Bootstrap defaults absent/null to 1024 only when the public contract admits this control, and rejects values above 16384 after semantic decode. SIWC rejects explicit values and has no upstream token cap; local bytes/events/deadline limits do not prove upstream termination or bounded charges."}
         },
         "additionalProperties": true,
         "description": "Detailed input, settings and inactive-state admission follow the Responses profile, including its user input_image URL/inline slice and target-specific optional detail restrictions. User input_file admits exactly one of bounded Base64 data URLs in file_data or HTTP(S) file_url, optional filename (including an explicit empty string) and auto/low/high detail only when public and endpoint contracts explicitly admit file_input. file_url additionally requires the target URL flag, is preserved exactly, forbids userinfo/control/whitespace/backslash characters and never selects Gateway origin/auth. Remote MIME, size, redirects and content stability are unknown to the Gateway. File IDs, raw Base64 without a data URL, file cache breakpoints, tool files and Chat file projection are rejected; no file is opened, fetched, uploaded or parsed. File budgets and target restrictions are independent of images, and this schema does not activate a file model. Function/custom tool-result arrays additionally admit ordered text and URL/inline image parts only when the public/endpoint contracts explicitly admit tool_result_images; user image admission alone is insufficient. User and tool images share target image limits. File IDs, image cache breakpoints, instruction/assistant images and generated media remain rejected; Chat targets reject tool images before I/O. Models with only a Chat startup entry return model_not_found here; no implicit protocol fallback. Each program in replay history requires a matching program_output; missing outputs are rejected before upstream I/O. Library continuation views do not add request fields, infer turn completion or authorize automatic execution. No arbitrary endpoint, credential or header selection. The independent _openbridge attachment is rejected, not ignored. Typed structured arguments/results, execution reports, message-call membership and nonstandard replay remain unrepresentable by the public wire. Ordinary business keys inside permitted metadata or raw arguments/output are not protocol attachments. Precise admission belongs to the client-generation profile."

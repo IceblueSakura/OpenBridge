@@ -35,7 +35,6 @@ pub(super) struct Policy<'a> {
 }
 pub(super) struct VerifiedClaims {
     pub subject: String,
-    pub payload: super::SecretBytes,
 }
 #[derive(Deserialize)]
 struct PayloadEncoding {
@@ -78,7 +77,7 @@ pub(super) fn verify(
     keys: &serde_json::Value,
     policy: Policy<'_>,
 ) -> Result<VerifiedClaims, Error> {
-    let (raw_header, payload, signature) = parts(jwt)?;
+    let (raw_header, _, signature) = parts(jwt)?;
     // Keep b64 typed (including duplicate rejection); it is an untyped extra in
     // the library Header. Neither inline JWK nor header URLs select authority.
     let encoding: PayloadEncoding =
@@ -162,7 +161,6 @@ pub(super) fn verify(
     validate_claims(&claims, &policy, now()?)?;
     Ok(VerifiedClaims {
         subject: claims.sub,
-        payload: decode(payload)?,
     })
 }
 fn validate_claims(claims: &Claims, policy: &Policy<'_>, timestamp: u64) -> Result<(), Error> {
@@ -198,28 +196,6 @@ fn decode(value: &str) -> Result<super::SecretBytes, Error> {
     B64.decode(value)
         .map(super::SecretBytes::new)
         .map_err(|_| Error::Protocol)
-}
-/// Access expiry is metadata from an authenticated token response, not identity
-/// proof. An opaque access token is never run through the ID-token verifier.
-pub(super) fn access_expiry(access: &str) -> Result<Option<u64>, Error> {
-    if !access.contains('.') {
-        return Ok(None);
-    }
-    let Ok((_, payload, _)) = parts(access) else {
-        return Ok(None);
-    };
-    let Ok(bytes) = decode(payload) else {
-        return Ok(None);
-    };
-    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| Error::Protocol)?;
-    match value.get("exp") {
-        None => Ok(None),
-        Some(value) => value
-            .as_u64()
-            .filter(|value| *value > 0)
-            .map(Some)
-            .ok_or(Error::Protocol),
-    }
 }
 #[cfg(test)]
 mod tests {

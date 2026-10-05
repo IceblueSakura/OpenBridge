@@ -442,7 +442,7 @@ pub fn encode_generation(target: &RequestRepresentation<'_>) -> Result<Value, Co
         write_response_format,
     );
     super::chat_audio::write_settings(target.semantic.settings(), o);
-    function_tools::encode(target.semantic, Profile::Chat, o);
+    function_tools::encode(target.semantic, Profile::Chat, o)?;
     super::reasoning::write_request(target.semantic.reasoning(), o, Profile::Chat)?;
     bounded(&v)?;
     Ok(v)
