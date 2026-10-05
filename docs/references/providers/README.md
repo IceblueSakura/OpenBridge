@@ -39,6 +39,7 @@ Messages 基础合同、beta 能力及各云平台的 wrapper/资源合同分别
 - [OpenAI-compatible Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)
 - [Structured output](https://help.aliyun.com/zh/model-studio/qwen-structured-output)
 - [DashScope API](https://help.aliyun.com/zh/model-studio/developer-reference/use-qwen-by-calling-api)
+- [Token Plan 个人版](https://help.aliyun.com/en/model-studio/token-plan-personal-overview)、[多模态生成接入](https://help.aliyun.com/en/model-studio/token-plan-multimodal-gen)：套餐资格与各 operation 的 wire 分开确认，不由对话 OpenAI 兼容入口推定 Speech 兼容。
 
 ## DeepSeek
 
@@ -71,6 +72,7 @@ Messages 基础合同、beta 能力及各云平台的 wrapper/资源合同分别
 
 ## OpenRouter
 
+- 独立 [TTS guide](https://openrouter.ai/docs/guides/overview/multimodal/tts)、[Create speech](https://openrouter.ai/docs/api/api-reference/tts/create-speech.md)与[公开 Speech 模型导航](https://openrouter.ai/api/v1/models?output_modalities=speech)：按模型详情链接核对 endpoint，不能把文档示例当作当前产品注册；与标准 Speech 的默认值、控制位置及格式差异须由所选 profile 明确处理。
 - 独立 [Images guide](https://openrouter.ai/docs/guides/overview/multimodal/image-generation.md)、[Generate an image](https://openrouter.ai/docs/api/api-reference/images/generate-an-image.md)：采用其中 OpenAPI 3.1.0 / API `1.0.0` 的 `POST /images` 静态合同；该 schema 声明 MIT 许可。它与 Chat image carrier、OpenAI `/images/generations` 的路径、请求 null 载体和计量结构不同；具体具名映射归 [Images codec](../../../src/protocol/openrouter_images.rs)，不复制动态能力或定价。
 - [Image models](https://openrouter.ai/api/v1/images/models) 提供专用 per-endpoint 导航；采用参数按具体 endpoint 核对，不把模型层 union 或通用 Models 参数当作 Images 准入。
 

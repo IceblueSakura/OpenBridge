@@ -12,6 +12,7 @@ pub mod images;
 pub mod model;
 mod model_metadata;
 pub mod route;
+pub mod speech;
 
 pub use compile::{CompiledTopology, TopologyError, compile};
 pub use endpoint::{Endpoint, EndpointTarget, ExecutionContract};

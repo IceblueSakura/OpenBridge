@@ -1,11 +1,13 @@
-//! Explicit single-candidate image routes, compiled alongside conversation routes.
-//! A task-specific binding avoids meaningless Generation contracts on image tasks.
+//! Explicit Speech routes, without Generation placeholders or inferred activation.
 use super::{
     CompiledTopology, EndpointId, EndpointTarget, ExecutionContract, ModelId, RouteId,
     TopologyError,
 };
-use crate::provider::{CredentialBindingId, CredentialKind, EndpointPath, ProviderId};
-use std::collections::BTreeMap;
+use crate::{
+    lowering::speech::SpeechCapabilities,
+    provider::{CredentialBindingId, CredentialKind, EndpointPath, ProviderId},
+};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderEntry {
@@ -13,37 +15,34 @@ pub struct ProviderEntry {
     pub path: EndpointPath,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ImageEndpoint {
+pub struct SpeechEndpoint {
     pub id: EndpointId,
     pub provider: ProviderId,
     pub target: EndpointTarget,
     pub upstream_model: String,
     pub canonical_model: ModelId,
-    pub profile: crate::adapter::images::Profile,
+    pub profile: crate::adapter::speech::Profile,
+    pub capabilities: SpeechCapabilities,
     pub credential: CredentialBindingId,
     pub execution: ExecutionContract,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ImageRoute {
+pub struct SpeechRoute {
     pub id: RouteId,
     pub model: ModelId,
     pub canonical_model: ModelId,
-    pub accounting: crate::lowering::images::AccountingPolicy,
-    /// Exactly one target; no implicit retry, fallback or capability union.
-    pub endpoint: ImageEndpoint,
+    pub endpoint: SpeechEndpoint,
 }
 impl CompiledTopology {
-    pub fn image_route(&self, model: &str) -> Option<&ImageRoute> {
-        self.image_routes.get(model)
+    pub fn speech_route(&self, model: &str) -> Option<&SpeechRoute> {
+        self.speech_routes.get(model)
     }
-    /// Trusted startup input explicitly selects a static image wire profile.
-    /// No existing Chat/Responses registration implies an Images operation.
-    pub fn with_images(
+    pub fn with_speech(
         mut self,
         entries: Vec<ProviderEntry>,
-        routes: Vec<ImageRoute>,
+        routes: Vec<SpeechRoute>,
     ) -> Result<Self, TopologyError> {
-        if !self.image_routes.is_empty() || routes.len() > 64 || entries.len() > 64 {
+        if !self.speech_routes.is_empty() || entries.len() > 64 || routes.len() > 64 {
             return Err(TopologyError::InvalidRoutePolicy);
         }
         let mut paths = BTreeMap::new();
@@ -55,8 +54,8 @@ impl CompiledTopology {
                 return Err(TopologyError::DuplicateProvider);
             }
         }
-        let mut ids = std::collections::BTreeSet::new();
-        let mut endpoints = std::collections::BTreeSet::new();
+        let mut ids = BTreeSet::new();
+        let mut endpoints = BTreeSet::new();
         for route in routes {
             let endpoint = &route.endpoint;
             let provider = self
@@ -71,7 +70,7 @@ impl CompiledTopology {
             }
             if self.canonical_model(&route.canonical_model).is_some()
                 || self
-                    .speech_routes
+                    .image_routes
                     .values()
                     .any(|r| r.canonical_model == route.canonical_model)
             {
@@ -80,14 +79,15 @@ impl CompiledTopology {
             if endpoint.canonical_model != route.canonical_model {
                 return Err(TopologyError::CanonicalModelMismatch);
             }
-            if endpoint.upstream_model.is_empty()
-                || endpoint.upstream_model.len() > 256
-                || endpoint
-                    .upstream_model
-                    .chars()
-                    .any(|c| c.is_control() || c.is_whitespace())
-            {
+            if !crate::protocol::openai::speech::valid_model(&endpoint.upstream_model) {
                 return Err(TopologyError::InvalidModelBinding);
+            }
+            endpoint
+                .capabilities
+                .validate()
+                .map_err(|_| TopologyError::ContractUnsatisfiable)?;
+            if !endpoint.profile.supports(&endpoint.capabilities) {
+                return Err(TopologyError::ContractUnsatisfiable);
             }
             if endpoint.execution.streaming
                 || endpoint.execution.retry_before_commit
@@ -98,14 +98,14 @@ impl CompiledTopology {
                 return Err(TopologyError::InvalidExecutionLimits);
             }
             if self.route(&route.id).is_some()
-                || self.speech_routes.values().any(|r| r.id == route.id)
+                || self.image_routes.values().any(|r| r.id == route.id)
                 || !ids.insert(route.id.clone())
             {
                 return Err(TopologyError::DuplicateRoute);
             }
             if self.endpoint(&endpoint.id).is_some()
                 || self
-                    .speech_routes
+                    .image_routes
                     .values()
                     .any(|r| r.endpoint.id == endpoint.id)
                 || !endpoints.insert(endpoint.id.clone())
@@ -113,9 +113,9 @@ impl CompiledTopology {
                 return Err(TopologyError::DuplicateEndpoint);
             }
             if self.model(route.model.as_str()).is_some()
-                || self.speech_route(route.model.as_str()).is_some()
+                || self.image_route(route.model.as_str()).is_some()
                 || self
-                    .image_routes
+                    .speech_routes
                     .insert(route.model.as_str().into(), route)
                     .is_some()
             {

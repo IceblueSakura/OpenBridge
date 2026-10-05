@@ -3,7 +3,7 @@
   "info": {
     "title": "MorphieCore minimal model interaction gateway",
     "version": "0.1.0",
-    "description": "Current envelope-level HTTP contract, not complete standard conformance. Responses uses the Standard adapter; Chat retains the explicit MorphieCore compatibility profile. Provider-specific rules cannot authorize private Responses carriers or silent loss. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Current priority is Agent-first Text/Image/File through standard Responses; Chat is a compatibility path. A static ordered-image operation is available through explicit image bindings, with explicit model selection and single-source API-key activation; image operations are not activated by an existing conversation binding. Models exposes only activated public labels; fine-tuned model deletion is not authorized. Embeddings, other media operations and audio Realtime remain later work. No stateful resources or implicit retry/fallback."
+    "description": "Current envelope-level HTTP contract, not complete standard conformance. Responses uses the Standard adapter; Chat retains the explicit MorphieCore compatibility profile. Provider-specific rules cannot authorize private Responses carriers or silent loss. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Static Images and binary Speech are independent tasks with explicit single-source API-key activation, never inferred from conversation bindings. Binary media entries require explicit model selection and the matching single-source, non-fallback credential pool; embedded callers also activate entries explicitly. Models exposes only activated public labels; fine-tuned model deletion is not authorized. No stateful resources or implicit local retry/fallback. Realtime, transcription and Speech SSE are not admitted."
   },
   "servers": [{"url": "http://127.0.0.1:8080"}],
   "security": [{"bearerAuth": []}],
@@ -11,7 +11,7 @@
     "/v1/models": {
       "get": {
         "operationId": "listModels",
-        "summary": "List activated conversation and image public labels",
+        "summary": "List activated conversation, image and speech public labels",
         "description": "Immutable local view, deduplicated across client protocols and candidates and sorted by label. No pagination, upstream discovery, capability/price extensions or request body. HEAD shares this route without a response body.",
         "responses": {
           "200": {
@@ -154,6 +154,47 @@
         }
       }
     },
+    "/v1/audio/speech": {
+      "post": {
+        "operationId": "createSpeech",
+        "summary": "Generate bounded binary audio through an explicitly activated Speech binding",
+        "parameters": [{"$ref": "#/components/parameters/ProbeId"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SpeechRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Nonempty audio bytes after strict upstream EOF and bounded collection, not low-latency audio streaming. Format-specific Content-Type reflects an admitted upstream report; application/octet-stream remains generic, never inferred from request format. Transport closure and MIME do not attest decodability or speech quality. No fabricated transcript, ID, expiry or usage.",
+            "headers": {
+              "Cache-Control": {"schema": {"type": "string", "const": "no-store"}},
+              "X-Content-Type-Options": {"schema": {"type": "string", "const": "nosniff"}}
+            },
+            "content": {
+              "application/octet-stream": {"schema": {"type": "string", "format": "binary"}},
+              "audio/mpeg": {"schema": {"type": "string", "format": "binary"}},
+              "audio/opus": {"schema": {"type": "string", "format": "binary"}},
+              "audio/aac": {"schema": {"type": "string", "format": "binary"}},
+              "audio/flac": {"schema": {"type": "string", "format": "binary"}},
+              "audio/wav": {"schema": {"type": "string", "format": "binary"}},
+              "audio/pcm": {"schema": {"type": "string", "format": "binary"}}
+            }
+          },
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "405": {"$ref": "#/components/responses/Error"},
+          "408": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "415": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"},
+          "500": {"$ref": "#/components/responses/Error"},
+          "502": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"},
+          "504": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
     "/v1/responses": {
       "post": {
         "operationId": "response",
@@ -211,6 +252,25 @@
           "object": {"const": "list"},
           "data": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Model"}}
         }
+      },
+      "SpeechRequest": {
+        "type": "object",
+        "required": ["model", "input", "voice"],
+        "additionalProperties": false,
+        "properties": {
+          "model": {"$ref": "#/components/schemas/PublicModelLabel"},
+          "input": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "voice": {
+            "type": "string", "minLength": 1, "maxLength": 128,
+            "pattern": "^[^\\s\\u0000-\\u001f\\u007f-\\u009f]+(?![\\s\\S])",
+            "description": "Named voice, additionally limited to 128 UTF-8 bytes and the target's explicit allowlist. Custom voice ID objects are not admitted."
+          },
+          "instructions": {"type": "string", "maxLength": 4096},
+          "speed": {"type": "number", "minimum": 0.25, "maximum": 4, "default": 1},
+          "response_format": {"enum": ["mp3", "opus", "aac", "flac", "wav", "pcm"], "default": "mp3"},
+          "stream_format": {"const": "audio", "default": "audio"}
+        },
+        "description": "Standard bounded Speech audio branch; every field is non-nullable. Empty instructions and explicit defaults remain distinct from absence. Speed retains exact numeric value with bounded numeric spelling; target voice, format and control admission is independent. PCM means headerless signed 16-bit little-endian, 24 kHz mono under this profile. Input/instructions each also have a 16384-byte bound. Explicit audio delivery does not promise low latency; SSE, custom voice references, generic stream, private extensions and unknown fields fail closed. No token cap is injected; local byte/time limits do not bound upstream fees."
       },
       "ImageGenerationRequest": {
         "type": "object",

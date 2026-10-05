@@ -9,7 +9,7 @@ Authenticated bounded HTTP input
  → task semantics + context/delivery + scoped carriers/fidelity
  → trusted transform / public admission / requirements
  → fixed candidate projection → prepared request/auth → HTTP transport
- → Provider Adapter JSON/SSE decode → Response/Event IR
+ → Provider Adapter JSON/SSE/binary decode → task result/Event IR
  → Client Adapter projection → downstream body handoff / commit / complete
 ```
 
@@ -31,7 +31,9 @@ Authenticated bounded HTTP input
 
 独立静态图片生成采用 [ImageGeneration task](../src/semantic/task/image_generation.rs)、[类型化请求入口](../src/adapter/images.rs) 与 [Images codec](../src/protocol/openai/images.rs)。[图片 binding](../src/topology/images.rs)在同一 CompiledTopology 中显式声明 public label、canonical identity、单 endpoint 与 Provider operation 路径，不给 Generation 合同填占位字段；有序产物集合共享一次执行和响应级计量，目标 profile 与计量投影策略分别显式选择。Gateway 的 [Images intake](../src/gateway/images.rs)共享认证、受信 transport 和上述 body publication/handoff 生命周期，不增加重试或资源服务。产品绑定归[图片 catalog](../src/topology/catalog/images.rs)，binary 仅激活明确选定的图片标签，不从已有凭据池推定媒体授权。
 
-[Models 目录](../src/gateway/models.rs)从启动激活的对话/图片标签构建有界只读视图；[publication metadata](../src/topology/model_metadata.rs)归 topology canonical identity，不进入 task IR 或依赖具体推理 Provider。它复用认证但不经过生成执行链，也不访问上游目录或操作凭据；公开合同归[模型发现](http-gateway.md#标准模型发现)。
+[Models 目录](../src/gateway/models.rs)从启动激活的对话/图片/Speech 标签构建有界只读视图；[publication metadata](../src/topology/model_metadata.rs)归 topology canonical identity，不进入 task IR 或依赖具体推理 Provider。它复用认证但不经过生成执行链，也不访问上游目录或操作凭据；公开合同归[模型发现](http-gateway.md#标准模型发现)。
+
+独立 Speech 使用 [SpeechSynthesis task](../src/semantic/task/speech_synthesis.rs)、[标准 codec](../src/protocol/openai/speech.rs)、[目标准入](../src/lowering/speech.rs)与[显式绑定](../src/topology/speech.rs)。[Speech adapter](../src/adapter/speech.rs)选择标准或[OpenRouter MP3](../src/protocol/openrouter_speech.rs)目标映射；产品 ID、voice 与 metadata 归 [Speech catalog](../src/topology/catalog/speech.rs)。[Speech intake](../src/gateway/speech.rs)有界收集二进制 body，沿用 transport、publication/handoff 和取消 owner，不增加通用媒体执行器；binary 显式激活边界归 [HTTP 指南](http-gateway.md#独立语音生成)。
 
 ## 容易混淆的边界
 

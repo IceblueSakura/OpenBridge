@@ -23,6 +23,7 @@ impl Gateway {
             .route("/v1/chat/completions", post(chat))
             .route("/v1/responses", post(responses))
             .route("/v1/images/generations", post(super::images::handle))
+            .route("/v1/audio/speech", post(super::speech::handle))
             .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "not_found") })
             .method_not_allowed_fallback(|| async {
                 ApiError::new(StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed")

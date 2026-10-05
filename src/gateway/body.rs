@@ -32,6 +32,12 @@ use tokio::{
 pub(super) struct Chunk {
     bytes: Bytes,
     ack: oneshot::Sender<()>,
+    audio_content_type: Option<&'static str>,
+}
+pub(super) enum ResponseType {
+    Json,
+    EventStream,
+    Audio,
 }
 pub(super) enum Message {
     Chunk(Chunk),
@@ -117,13 +123,33 @@ pub(super) async fn send_frame(
     bytes: Bytes,
     trace: &mut Trace,
 ) -> Result<(), ApiError> {
+    send_chunk(lane, bytes, None, trace).await
+}
+pub(super) async fn send_audio(
+    lane: &Lane<'_>,
+    audio: crate::semantic::value::AudioArtifact,
+    trace: &mut Trace,
+) -> Result<(), ApiError> {
+    let content_type = crate::protocol::openai::speech::response_content_type(&audio);
+    send_chunk(lane, audio.into_data(), Some(content_type), trace).await
+}
+async fn send_chunk(
+    lane: &Lane<'_>,
+    bytes: Bytes,
+    audio_content_type: Option<&'static str>,
+    trace: &mut Trace,
+) -> Result<(), ApiError> {
     trace.stage(Stage::Delivery);
     let size = bytes.len();
     let (ack, seen) = oneshot::channel();
     // Publication freezes advancement; acknowledgement alone proves body handoff.
     lane.state.published.store(true, Ordering::Release);
     lane.tx
-        .send(Message::Chunk(Chunk { bytes, ack }))
+        .send(Message::Chunk(Chunk {
+            bytes,
+            ack,
+            audio_content_type,
+        }))
         .await
         .map_err(|_| ApiError::upstream())?;
     seen.await.map_err(|_| ApiError::upstream())?;
@@ -140,6 +166,11 @@ pub(super) enum Producer {
         runtime: Arc<super::Runtime>,
         entry: Arc<super::images::BoundImage>,
         request: crate::adapter::images::Request,
+    },
+    Speech {
+        runtime: Arc<super::Runtime>,
+        entry: Arc<super::speech::BoundSpeech>,
+        request: crate::adapter::speech::Request,
     },
 }
 impl Producer {
@@ -163,6 +194,21 @@ impl Producer {
                 request,
             } => {
                 super::images::produce(
+                    runtime,
+                    entry,
+                    request,
+                    deadline,
+                    &Lane { tx, state },
+                    trace,
+                )
+                .await
+            }
+            Self::Speech {
+                runtime,
+                entry,
+                request,
+            } => {
+                super::speech::produce(
                     runtime,
                     entry,
                     request,
@@ -221,7 +267,11 @@ pub(super) async fn respond_source(
             request: Box::new(request),
             source,
         },
-        stream,
+        if stream {
+            ResponseType::EventStream
+        } else {
+            ResponseType::Json
+        },
         limits,
         deadline,
         shutdown,
@@ -233,7 +283,7 @@ pub(super) async fn respond_source(
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn respond_producer(
     producer: Producer,
-    stream: bool,
+    response_type: ResponseType,
     limits: Limits,
     deadline: Instant,
     shutdown: tokio_util::sync::CancellationToken,
@@ -278,6 +328,14 @@ pub(super) async fn respond_producer(
         Some(Message::Error(error)) => return Err(error),
         _ => return Err(ApiError::upstream()),
     };
+    let content_type = match (&response_type, &first) {
+        (ResponseType::Audio, Message::Chunk(chunk)) => {
+            chunk.audio_content_type.ok_or_else(ApiError::upstream)?
+        }
+        (ResponseType::Json, _) => "application/json",
+        (ResponseType::EventStream, _) => "text/event-stream",
+        _ => return Err(ApiError::upstream()),
+    };
     // Conservatively freeze the candidate when HTTP response ownership leaves
     // this layer; encoding/queueing alone still never calls delivery.commit().
     state.published.store(true, Ordering::Release);
@@ -289,14 +347,7 @@ pub(super) async fn respond_producer(
         ended: false,
     });
     Response::builder()
-        .header(
-            "content-type",
-            if stream {
-                "text/event-stream"
-            } else {
-                "application/json"
-            },
-        )
+        .header("content-type", content_type)
         .header("cache-control", "no-store")
         .header("x-content-type-options", "nosniff")
         .body(body)

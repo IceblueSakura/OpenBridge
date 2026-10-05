@@ -28,6 +28,7 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 | `POST /v1/chat/completions` | [单候选 Chat profile](architecture-v2/chat-text-profile.md)；JSON 或 SSE |
 | `POST /v1/responses` | [无状态 Responses profile](architecture-v2/responses-text-profile.md)；JSON 或 SSE |
 | `POST /v1/images/generations` | 显式激活的静态有序图片集合；JSON，inline 产物，图片模型须明确选择 |
+| `POST /v1/audio/speech` | 显式激活的独立 TTS；严格 EOF 后交付有界二进制音频，binary 模型须明确选择 |
 
 - 唯一的 `Authorization: Bearer …` 在应用层 body 收集或目录查询前校验；重复或错误认证拒绝，其他 header 不替代它。生成请求使用 UTF-8 JSON Content-Type，不接受 Content-Encoding；严格 JSON 拒绝重复 key，先绑定 public model/task 再 decode 语义。Models 无请求 body 或必需查询参数。
 - `model` 仅接受已激活的 public label，不带 `provider/` 前缀。顶层 `provider` 字段即使为 null 也拒绝。目标 URL/path、上游 model、auth、adapter 与 scope 都来自受信绑定；入站 headers 不透传。
@@ -42,11 +43,11 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 
 ### 标准模型发现
 
-Models 列表采用 OpenAI 的 `{"object":"list","data":[…]}`，不分页；单模型查询返回同一标准对象。目录包含实际启动激活的对话和独立图片 public labels，跨协议和候选同名去重，按标签排序，不暴露未激活注册项。出现于目录仅说明有本地入口，不证明每个协议/控制、真实账户或上游推理可用。
+Models 列表采用 OpenAI 的 `{"object":"list","data":[…]}`，不分页；单模型查询返回同一标准对象。目录包含实际启动激活的对话、独立图片与 Speech public labels，跨协议和候选同名去重，按标签排序，不暴露未激活注册项。出现于目录仅说明有本地入口，不证明每个协议/控制、真实账户或上游推理可用。
 
 `id` 是 public label，`object` 为 `"model"`；`created` 统一使用研发者模型发布时间，只有发布日期时按该日期 UTC 00:00 转换成 Unix 秒，不宣称精确发布时刻；`owned_by` 是模型研发者名称，不是推理服务商。未报告的可选 `shutdown_date` 省略。具体事实及来源归 [catalog](../src/topology/catalog/models.rs) 和[图片 catalog](../src/topology/catalog/images.rs)，不使用 OpenRouter 收录时间、Gateway 启动时间或账户 metadata 补值。
 
-可嵌入调用方在编译对话/图片 identity 后，通过 `CompiledTopology::with_model_metadata` 为 canonical identity 提供经过验证的 [ModelMetadata](../src/topology/model_metadata.rs)，别名共用同一来源。纯 topology/语义消费者可不提供；Gateway 要求每个已激活 identity 都有元数据，缺失时拒绝启动，不隐藏该模型。启动时有界构建完整只读视图，不读取上游目录、凭据文件或请求内刷新；数量/字节硬边界归 [Models owner](../src/gateway/models.rs)，同时受 `Limits.response_bytes` 限制。空列表编码不解除 Gateway 至少有一个业务入口的要求。
+可嵌入调用方在编译各 task identity 后，通过 `CompiledTopology::with_model_metadata` 为 canonical identity 提供经过验证的 [ModelMetadata](../src/topology/model_metadata.rs)，别名共用同一来源。纯 topology/语义消费者可不提供；Gateway 要求每个已激活 identity 都有元数据，缺失时拒绝启动，不隐藏该模型。启动时有界构建完整只读视图，不读取上游目录、凭据文件或请求内刷新；数量/字节硬边界归 [Models owner](../src/gateway/models.rs)，同时受 `Limits.response_bytes` 限制。空列表编码不解除 Gateway 至少有一个业务入口的要求。
 
 查询共享认证、sanitized errors、shutdown 与 `Cache-Control: no-store`，不采集请求 body，也不占用上游生成 permit。OpenAI 的 DELETE operation 只删除有权限的 fine-tuned 模型；本实例没有这类所有权或管理能力，因此对已激活标签返回 `403 / model_deletion_forbidden`，对未知或未激活标签返回 `404 / model_not_found`。不转发删除、改动 registry/activation 或伪造 `deleted:true`。
 
@@ -96,9 +97,29 @@ OpenRouter 的独立 Images profile 使用受信固定路径和 Provider 限制�
 
 不支持图片编辑、URL 产物、文件服务或流式图片。图片请求不注入对话输出 token 上限；仍共享认证、并发、取消、严格 EOF、实际 body handoff 与绝对 deadline 约束。请求/响应分别受 operator、endpoint 和 codec 的硬预算限制。Images 响应有独立的 JSON 硬上限，不改变普通对话解析；`Limits.image_bytes` 对解码后的单图字节另设上限，`Limits.images_bytes` 独立限制集合累计字节，均不随数量放大，也不替代 response_bytes 或 endpoint 的整包限制。嵌入方须同时满足各层预算，不能通过调大其中一个绕过其他限制。Binary 使用默认 Limits，本片不增加私有配置格式。
 
+### 独立语音生成
+
+Speech 使用独立 [SpeechSynthesis task](../src/semantic/task/speech_synthesis.rs) 和[标准 Speech profile](architecture-v2/speech-profile.md)，不复用 Chat `GeneratedAudio` 的引用/transcript/expiry 必填组合。精确字段准入、presence 和格式由 [codec](../src/protocol/openai/speech.rs) 与 [OpenAPI](openapi.json)维护。请求控制不成为输出报告，未声明格式的二进制响应保持 `application/octet-stream`。
+
+嵌入方通过 `CompiledTopology::with_speech` 编译明确的 Provider operation、受信目标及单 endpoint `SpeechRoute`，通过 `Gateway::new_with_media` 的 `SpeechEntry` 显式激活。目标声明 voice、格式与控制准入；要求单 API key 来源、无本地 retry/fallback，以及 canonical publication metadata。`Gateway::new` / `new_with_images` 不自动启用 Speech。
+
+Binary 从 [Speech catalog](../src/topology/catalog/speech.rs)解析绑定；只有 `models` 显式选定 Speech public label，且存在匹配的单来源、禁 fallback API key pool 才激活。省略 `models` 不自动增加 Speech，即使已有同 Provider 的对话或图片凭据。共享 pool 若为多来源或启用 fallback，不能同时拿来激活该 Speech 入口；不读取或猜测其他账户。精确模型、upstream ID、voice 与发布时间归源码，不能把任意产品名加进 `models` 就视为可用。
+
+OpenRouter 的具名 MP3 映射与控制拒绝归 [Speech profile](architecture-v2/speech-profile.md#openrouter-mp3-target-mapping)。标准缺省格式在上游显式编码，避免 PCM 默认值改变请求；显式 `speed: 1` 或空 instructions 也不绕过目标拒绝。标准 codec 的格式 vocabulary 不意味着这个目标全部支持。
+
+以下请求发往 `/v1/audio/speech`，模型与 voice 都是占位符，须按所选 binding 替换；不授予真实调用权限：
+
+```json
+{"model":"configured-speech-model","input":"Hello.","voice":"configured-voice","response_format":"mp3","stream_format":"audio"}
+```
+
+成功返回原始音频 bytes，而非 JSON/Base64。上游可以分块，但本入口有界收集至严格 EOF 后才发布，不承诺首字节低延迟；SDK streaming-response 只是消费方式，不证明边生成边播放。Content-Type、长度及 transport 失败检查不证明音频可解码或内容正确。
+
+`Limits.speech_bytes`、`Limits.response_bytes`、Endpoint 和音频值硬预算共同限制完整产物；取消、绝对 deadline 和实际 handoff 复用共享交付层。不注入文本 output-token cap，不把本地 bytes/time 上限称为费用上限。SSE、自定义声音 ID、转录、Realtime、播放器、转码、文件保留和引用回放不在此入口范围。
+
 ### 默认资源边界
 
-默认值与可嵌入调整范围只由 [`Limits`](../src/gateway/config.rs)维护：应用层并发、请求收集、上游/下游 bytes、解码后图片 bytes、单 SSE frame/事件数、输出 tokens 与绝对 exchange deadline 分别有界，且仍受 Endpoint/codec 预算约束。满载拒绝，不排无限队列；更紧的 Endpoint timeout 优先。媒体输入不自动放宽限制，背压不暂停 deadline。
+默认值与可嵌入调整范围只由 [`Limits`](../src/gateway/config.rs)维护：应用层并发、请求收集、上游/下游 bytes、图片与音频 bytes、单 SSE frame/事件数、输出 tokens 与绝对 exchange deadline 分别有界，且仍受 Endpoint/codec 预算约束。满载拒绝，不排无限队列；更紧的 Endpoint timeout 优先。媒体输入不自动放宽限制，背压不暂停 deadline。
 
 这些是应用层边界，不是全部 HTTP 连接、实际计费或生产抗负载保证。
 

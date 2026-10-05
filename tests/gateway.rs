@@ -386,6 +386,54 @@ async fn image_answer(
 
 #[tokio::test]
 async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
+    async fn speech_answer(
+        State(state): State<Upstream>,
+        headers: HeaderMap,
+        axum::Json(request): axum::Json<Value>,
+    ) -> Response {
+        if request["model"] == "qwen/qwen-audio-3.0-tts-flash" {
+            assert_eq!(
+                headers["authorization"],
+                "Bearer synthetic-router-credential-0001"
+            );
+            assert_eq!(
+                request,
+                json!({"model":"qwen/qwen-audio-3.0-tts-flash","input":"router speech","voice":"loongjohn","response_format":"mp3"})
+            );
+            assert!(!headers.contains_key("x-never-forward"));
+            state.0.lock().unwrap().push(request);
+            // Opaque fixture tests transport, not MP3 decoding or generated quality.
+            return Response::builder()
+                .header("content-type", "audio/mpeg")
+                .body(Body::from("synthetic-router-audio"))
+                .unwrap();
+        }
+        assert_eq!(
+            headers["authorization"],
+            "Bearer synthetic-speech-credential-0001"
+        );
+        assert_eq!(headers["accept"], "application/octet-stream");
+        assert!(!headers.contains_key("x-never-forward"));
+        assert_eq!(request["model"], "private-speech");
+        assert_eq!(request["voice"], "alloy");
+        assert_eq!(request["instructions"], "");
+        assert_eq!(request["speed"], 1.25);
+        assert_eq!(request["stream_format"], "audio");
+        assert!(request.get("max_output_tokens").is_none());
+        state.0.lock().unwrap().push(request.clone());
+        let media = if request["response_format"] == "wav" {
+            "audio/wav"
+        } else {
+            "application/octet-stream"
+        };
+        Response::builder()
+            .header("content-type", media)
+            .body(Body::from_stream(futures_util::stream::iter([
+                Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"synthetic-")),
+                Ok(axum::body::Bytes::from_static(b"audio")),
+            ])))
+            .unwrap()
+    }
     let upstream = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", upstream.local_addr().unwrap());
     let observed = Upstream::default();
@@ -394,6 +442,8 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         .route("/responses", post(answer))
         .route("/images/generations", post(image_answer))
         .route("/api/v1/images", post(openrouter_image_answer))
+        .route("/audio/speech", post(speech_answer))
+        .route("/api/v1/audio/speech", post(speech_answer))
         .with_state(observed.clone());
     let upstream_guard = Guard(tokio::spawn(async move {
         axum::serve(upstream, app).await.unwrap();
@@ -1066,6 +1116,114 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         observed.2.notify_waiters();
         assert_eq!(observed.0.lock().unwrap().len(), before + 1);
     }
+    for format in ["mp3", "wav"] {
+        let response = client.post(format!("{url}/v1/audio/speech"))
+            .bearer_auth(support::CLIENT_KEY).header("x-never-forward", "private-input")
+            .json(&json!({"model":"public-speech","input":"hello","voice":"alloy","instructions":"","speed":1.25,"response_format":format,"stream_format":"audio"}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            response.headers()["content-type"],
+            if format == "wav" {
+                "audio/wav"
+            } else {
+                "application/octet-stream"
+            }
+        );
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"synthetic-audio");
+    }
+    let before = observed.0.lock().unwrap().len();
+    for (payload, status) in [
+        (
+            json!({"model":"public-speech","input":"hello","voice":"alloy","stream_format":"sse"}),
+            400,
+        ),
+        (
+            json!({"model":"qwen-audio-3.0-tts-flash","input":"hello","voice":"loongjohn","speed":1}),
+            400,
+        ),
+        (
+            json!({"model":"qwen-audio-3.0-tts-flash","input":"hello","voice":"loongjohn","instructions":""}),
+            400,
+        ),
+        (
+            json!({"model":"qwen-audio-3.0-tts-flash","input":"hello","voice":"loongjohn","response_format":"wav"}),
+            400,
+        ),
+        (
+            json!({"model":"public-speech","input":"hello","voice":"unbound"}),
+            400,
+        ),
+        (
+            json!({"model":"public-speech","input":"hello","voice":"alloy","response_format":"flac"}),
+            400,
+        ),
+        (
+            json!({"model":"public-model","input":"hello","voice":"alloy"}),
+            404,
+        ),
+    ] {
+        assert_eq!(
+            client
+                .post(format!("{url}/v1/audio/speech"))
+                .bearer_auth(support::CLIENT_KEY)
+                .json(&payload)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16(),
+            status
+        );
+    }
+    assert_eq!(
+        client
+            .post(format!("{url}/v1/audio/speech"))
+            .body("not-json")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    assert_eq!(
+        observed.0.lock().unwrap().len(),
+        before,
+        "rejected requests never dispatch"
+    );
+    for explicit in [false, true] {
+        let mut payload =
+            json!({"model":"qwen-audio-3.0-tts-flash","input":"router speech","voice":"loongjohn"});
+        if explicit {
+            payload["response_format"] = json!("mp3");
+            payload["stream_format"] = json!("audio");
+        }
+        let response = client
+            .post(format!("{url}/v1/audio/speech"))
+            .bearer_auth(support::CLIENT_KEY)
+            .header("x-never-forward", "private-input")
+            .json(&payload)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["content-type"], "audio/mpeg");
+        assert_eq!(
+            response.bytes().await.unwrap().as_ref(),
+            b"synthetic-router-audio"
+        );
+    }
+    let models: Value = client
+        .get(format!("{url}/v1/models"))
+        .bearer_auth(support::CLIENT_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(models["data"].as_array().unwrap().contains(&json!({"id":"public-speech","object":"model","created":9,"owned_by":"Synthetic Speech Developer"})));
     shutdown.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(3), serving)
         .await
@@ -1077,6 +1235,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
 
 #[tokio::test]
 async fn binary_bootstraps_only_explicit_files_and_ignores_environment_keys() {
+    use morphiecore::credential::{CredentialPool, CredentialRef, Secret};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::AsyncBufReadExt;
     // A rejecting loopback proxy makes even an accidental upstream dispatch offline.
@@ -1123,6 +1282,27 @@ async fn binary_bootstraps_only_explicit_files_and_ignores_environment_keys() {
         )
         .unwrap();
     let path = root.join("gateway.json");
+    manager
+        .add_api_key(
+            "openrouter",
+            "speech",
+            Secret::new("synthetic-speech-file-key".into()).unwrap(),
+        )
+        .unwrap();
+    manager
+        .set_pool(
+            "openrouter",
+            "openrouter-api-key",
+            0,
+            CredentialPool {
+                members: vec![CredentialRef::ApiKey {
+                    alias: "speech".into(),
+                }],
+                fallback: false,
+                max_attempts: 1,
+            },
+        )
+        .unwrap();
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -1136,7 +1316,7 @@ async fn binary_bootstraps_only_explicit_files_and_ignores_environment_keys() {
         .unwrap()
         .write_all(
             &serde_json::to_vec(
-                &json!({"client_key":support::CLIENT_KEY,"bind":"127.0.0.1:0","proxy":proxy}),
+                &json!({"client_key":support::CLIENT_KEY,"bind":"127.0.0.1:0","proxy":proxy,"models":["deepseek-flash","qwen-audio-3.0-tts-flash"]}),
             )
             .unwrap(),
         )
@@ -1197,6 +1377,42 @@ async fn binary_bootstraps_only_explicit_files_and_ignores_environment_keys() {
             .status(),
         404
     );
+    let models: Value = client
+        .get(format!("{origin}/v1/models"))
+        .bearer_auth(support::CLIENT_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(models["data"].as_array().unwrap().len(), 2);
+    assert!(models["data"].as_array().unwrap().contains(&json!({
+        "id":"qwen-audio-3.0-tts-flash","object":"model","created":1784592000,"owned_by":"Alibaba"
+    })));
+    for controls in [
+        json!({"speed":1}),
+        json!({"instructions":""}),
+        json!({"response_format":"pcm"}),
+    ] {
+        let mut request =
+            json!({"model":"qwen-audio-3.0-tts-flash","input":"fixture","voice":"loongjohn"});
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(controls.as_object().unwrap().clone());
+        assert_eq!(
+            client
+                .post(format!("{origin}/v1/audio/speech"))
+                .bearer_auth(support::CLIENT_KEY)
+                .json(&request)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            400
+        );
+    }
     // No admitted request is issued: the synthetic key must never reach a Provider.
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     process.kill().await.unwrap();

@@ -16,6 +16,7 @@ use serde_json::Value;
 pub mod images;
 mod request;
 mod siwc;
+pub mod speech;
 pub use request::Request;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

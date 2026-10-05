@@ -17,6 +17,9 @@ use morphiecore::{
 use std::{collections::BTreeMap, sync::Arc};
 #[path = "image_generation.rs"]
 mod image_support;
+#[allow(dead_code)]
+#[path = "speech.rs"]
+mod speech_support;
 pub const CLIENT_KEY: &str = "synthetic-gateway-client-token-0001";
 pub fn gateway(origin: &str, limits: Limits) -> Gateway {
     let provider = ProviderDefinition {
@@ -109,8 +112,11 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
     router_provider.origin = TrustedOrigin::parse(origin).unwrap();
     let mut router_route = router_binding.route();
     router_route.endpoint.target.origin = router_provider.origin.clone();
+    let speech_binding = &morphiecore::topology::catalog::SPEECH_BINDINGS[0];
+    let mut router_speech = speech_binding.route();
+    router_speech.endpoint.target.origin = router_provider.origin.clone();
     let topology = compile(
-        vec![provider, router_provider],
+        vec![provider, router_provider, speech_support::provider(origin)],
         endpoints,
         vec![route],
         models,
@@ -120,6 +126,14 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
     .with_images(
         vec![image_provider, router_binding.operation()],
         vec![image_route, router_route],
+    )
+    .unwrap()
+    .with_speech(
+        vec![
+            speech_support::binding(origin).0,
+            speech_binding.operation(),
+        ],
+        vec![speech_support::binding(origin).1, router_speech],
     )
     .unwrap()
     .with_model_metadata([
@@ -134,6 +148,14 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         (
             ModelId::new(router_binding.model).unwrap(),
             router_binding.metadata(),
+        ),
+        (
+            ModelId::new("canonical-speech").unwrap(),
+            morphiecore::topology::ModelMetadata::new(9, "Synthetic Speech Developer").unwrap(),
+        ),
+        (
+            ModelId::new(speech_binding.model).unwrap(),
+            speech_binding.metadata(),
         ),
     ])
     .unwrap();
@@ -174,8 +196,12 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
             CredentialBindingId::new("openrouter-api-key").unwrap(),
             Arc::new(SecretMaterial::new("synthetic-router-credential-0001").unwrap()),
         ),
+        (
+            CredentialBindingId::new("speech-key").unwrap(),
+            Arc::new(SecretMaterial::new("synthetic-speech-credential-0001").unwrap()),
+        ),
     ]);
-    Gateway::new_with_images(
+    Gateway::new_with_media(
         topology,
         entries,
         vec![
@@ -184,6 +210,14 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
             },
             morphiecore::gateway::ImageEntry {
                 model: router_binding.model.into(),
+            },
+        ],
+        vec![
+            morphiecore::gateway::SpeechEntry {
+                model: "public-speech".into(),
+            },
+            morphiecore::gateway::SpeechEntry {
+                model: speech_binding.model.into(),
             },
         ],
         credentials,

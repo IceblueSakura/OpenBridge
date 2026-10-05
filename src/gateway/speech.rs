@@ -1,15 +1,16 @@
-//! Authenticated image admission and a single bounded static exchange.
-#[cfg(test)]
-#[path = "image_tests.rs"]
-mod tests;
+//! Authenticated Speech admission and bounded static binary delivery.
 use super::{
-    ApiError, Credentials, ImageEntry, Runtime, StartupError, admission, body, credentials,
+    ApiError, Credentials, Runtime, SpeechEntry, StartupError, admission, body, credentials,
     diagnostics::{Stage, Trace},
 };
 use crate::{
-    protocol::openai::images,
+    protocol::openai::speech as codec,
     provider::{CredentialKind, ProviderDefinition},
-    topology::{CompiledTopology, images::ImageRoute},
+    semantic::{
+        task::speech_synthesis::SpeechRequest,
+        value::{AudioArtifact, MAX_AUDIO_BYTES},
+    },
+    topology::{CompiledTopology, speech::SpeechRoute},
 };
 use axum::{
     extract::{Request, State},
@@ -19,23 +20,23 @@ use axum::{
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tokio::time::Instant;
 
-pub(super) struct BoundImage {
-    route: ImageRoute,
+pub(super) struct BoundSpeech {
+    route: SpeechRoute,
     provider: ProviderDefinition,
     secret: credentials::Source,
 }
 pub(super) fn bind(
     topology: &CompiledTopology,
-    entries: Vec<ImageEntry>,
+    entries: Vec<SpeechEntry>,
     credentials: &Credentials,
-) -> Result<BTreeMap<String, Arc<BoundImage>>, StartupError> {
+) -> Result<BTreeMap<String, Arc<BoundSpeech>>, StartupError> {
     if entries.len() > 64 {
         return Err(StartupError::Binding);
     }
     let mut result = BTreeMap::new();
     for entry in entries {
         let route = topology
-            .image_route(&entry.model)
+            .speech_route(&entry.model)
             .ok_or(StartupError::Binding)?
             .clone();
         let provider = topology
@@ -53,7 +54,7 @@ pub(super) fn bind(
         if result
             .insert(
                 entry.model,
-                Arc::new(BoundImage {
+                Arc::new(BoundSpeech {
                     route,
                     provider,
                     secret,
@@ -84,21 +85,24 @@ async fn ingress(runtime: Arc<Runtime>, request: Request) -> Result<Response, Ap
     admission::headers(request.headers(), runtime.limits.request_bytes)?;
     let bytes = tokio::select! {
         biased;
-        _=runtime.shutdown.cancelled()=>return Err(ApiError::shutdown()),
-        result=tokio::time::timeout(runtime.limits.body_timeout,admission::collect(request.into_body(),runtime.limits.request_bytes))=>result.map_err(|_|ApiError::new(StatusCode::REQUEST_TIMEOUT,"request_timeout"))??,
+        _ = runtime.shutdown.cancelled() => return Err(ApiError::shutdown()),
+        result = tokio::time::timeout(runtime.limits.body_timeout, admission::collect(request.into_body(), runtime.limits.request_bytes)) =>
+            result.map_err(|_| ApiError::new(StatusCode::REQUEST_TIMEOUT, "request_timeout"))??,
     };
     let envelope =
         crate::protocol::openai::json::decode(&bytes).map_err(|_| ApiError::invalid())?;
     let model = envelope
         .get("model")
         .and_then(serde_json::Value::as_str)
-        .ok_or(ApiError::invalid())?;
+        .ok_or_else(ApiError::invalid)?;
     let entry = runtime
-        .images
+        .speech
         .get(model)
         .ok_or(ApiError::new(StatusCode::NOT_FOUND, "model_not_found"))?
         .clone();
-    let request = images::decode_request(&bytes).map_err(|_| ApiError::invalid())?;
+    let request = codec::decode_request(&bytes).map_err(|_| ApiError::invalid())?;
+    crate::lowering::speech::check_request(&request.task, &entry.route.endpoint.capabilities)
+        .map_err(|_| ApiError::invalid())?;
     let projected = entry
         .route
         .endpoint
@@ -115,12 +119,12 @@ async fn ingress(runtime: Arc<Runtime>, request: Request) -> Result<Response, Ap
             entry.route.endpoint.execution.timeout_ms,
         ));
     body::respond_producer(
-        body::Producer::Image {
+        body::Producer::Speech {
             runtime: runtime.clone(),
             entry,
             request,
         },
-        body::ResponseType::Json,
+        body::ResponseType::Audio,
         runtime.limits.clone(),
         deadline,
         runtime.shutdown.clone(),
@@ -131,8 +135,8 @@ async fn ingress(runtime: Arc<Runtime>, request: Request) -> Result<Response, Ap
 }
 pub(super) async fn produce(
     runtime: Arc<Runtime>,
-    entry: Arc<BoundImage>,
-    request: crate::adapter::images::Request,
+    entry: Arc<BoundSpeech>,
+    request: crate::adapter::speech::Request,
     deadline: Instant,
     lane: &body::Lane<'_>,
     trace: &mut Trace,
@@ -142,29 +146,10 @@ pub(super) async fn produce(
     trace.end_candidate(result.as_ref().err().map(|e| e.code), false);
     result
 }
-fn check_response(
-    response: &crate::semantic::task::image_generation::ImageGenerationResponse,
-    request: &crate::semantic::task::image_generation::ImageGenerationRequest,
-    image_bytes: usize,
-    images_bytes: usize,
-) -> Result<(), ApiError> {
-    response
-        .validate_for(request)
-        .map_err(|_| ApiError::upstream())?;
-    if response
-        .images
-        .iter()
-        .any(|image| image.data.decoded_bytes() > image_bytes)
-        || response.decoded_bytes().map_err(|_| ApiError::upstream())? > images_bytes
-    {
-        return Err(ApiError::upstream());
-    }
-    Ok(())
-}
 async fn produce_one(
     runtime: &Runtime,
-    entry: &BoundImage,
-    request: &crate::adapter::images::Request,
+    entry: &BoundSpeech,
+    request: &crate::adapter::speech::Request,
     deadline: Instant,
     lane: &body::Lane<'_>,
     trace: &mut Trace,
@@ -175,77 +160,92 @@ async fn produce_one(
         return Err(ApiError::upstream());
     }
     let prepared =
-        crate::execution::images::prepare(&entry.route, &entry.provider, &secret, request)
+        crate::execution::speech::prepare(&entry.route, &entry.provider, &secret, request)
             .map_err(|_| ApiError::invalid())?;
     trace.stage(Stage::Connect);
-    let mut upstream = runtime
+    let upstream = runtime
         .transport
         .send(prepared, deadline.saturating_duration_since(Instant::now()))
         .await
         .map_err(ApiError::transport)?;
+    let limit = runtime
+        .limits
+        .speech_bytes
+        .min(runtime.limits.response_bytes)
+        .min(entry.route.endpoint.execution.response_body_limit)
+        .min(MAX_AUDIO_BYTES);
+    let audio = receive(
+        upstream,
+        &request.task,
+        entry.route.endpoint.profile,
+        limit,
+        trace,
+    )
+    .await?;
+    trace.stage(Stage::Projection);
+    let mut lifecycle = crate::execution::Lifecycle::new();
+    body::send_audio(lane, audio, trace).await?;
+    lifecycle.commit().map_err(|_| ApiError::upstream())?;
+    lifecycle.terminal().map_err(|_| ApiError::upstream())?;
+    Ok(())
+}
+pub(super) async fn receive(
+    mut upstream: reqwest::Response,
+    task: &SpeechRequest,
+    profile: crate::adapter::speech::Profile,
+    limit: usize,
+    trace: &mut Trace,
+) -> Result<AudioArtifact, ApiError> {
     trace.stage(Stage::ResponseHead);
     trace.head(upstream.status().as_u16(), upstream.headers());
     if upstream.status().as_u16() != 200 {
         return Err(ApiError::status(upstream.status().as_u16()));
     }
-    let mut types = upstream.headers().get_all("content-type").iter();
+    let headers = upstream.headers();
+    let mut types = headers.get_all("content-type").iter();
     let media = types
         .next()
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<mime::Mime>().ok())
-        .ok_or(ApiError::upstream())?;
-    if types.next().is_some()
-        || media.type_() != mime::APPLICATION
-        || media.subtype() != mime::JSON
-        || media
-            .params()
-            .any(|(k, v)| k == mime::CHARSET && v != mime::UTF_8)
-        || upstream.headers().contains_key("content-encoding")
-    {
+        .ok_or_else(ApiError::upstream)?;
+    let encoding = profile
+        .reported_encoding(media, task)
+        .map_err(|_| ApiError::upstream())?;
+    if types.next().is_some() || headers.contains_key("content-encoding") {
         return Err(ApiError::upstream());
     }
-    let limit = runtime
-        .limits
-        .response_bytes
-        .min(entry.route.endpoint.execution.response_body_limit)
-        .min(crate::semantic::value::JsonLimits::IMAGE_RESPONSE.bytes);
-    if upstream.content_length().is_some_and(|n| n > limit as u64) {
+    let limit = limit.min(MAX_AUDIO_BYTES);
+    let mut lengths = headers.get_all("content-length").iter();
+    let length = lengths
+        .next()
+        .map(|v| {
+            let raw = v.to_str().map_err(|_| ApiError::upstream())?;
+            if raw.is_empty() || !raw.bytes().all(|c| c.is_ascii_digit()) {
+                return Err(ApiError::upstream());
+            }
+            raw.parse::<u64>().map_err(|_| ApiError::upstream())
+        })
+        .transpose()?;
+    if lengths.next().is_some() || length.is_some_and(|n| n == 0 || n > limit as u64) {
         return Err(ApiError::upstream());
     }
     trace.stage(Stage::Intake);
     let mut bytes = Vec::new();
-    while let Some(chunk) = upstream.chunk().await.map_err(|_| ApiError::upstream())? {
+    while let Some(chunk) = upstream.chunk().await.map_err(|e| {
+        if e.is_timeout() {
+            ApiError::timeout()
+        } else {
+            ApiError::upstream()
+        }
+    })? {
         if bytes.len().saturating_add(chunk.len()) > limit {
             return Err(ApiError::upstream());
         }
         trace.received(chunk.len());
         bytes.extend_from_slice(&chunk);
     }
-    // Only strict transport EOF plus every complete artifact can be published.
     trace.stage(Stage::Terminal);
-    let response = entry
-        .route
-        .endpoint
-        .profile
-        .decode_response(&bytes)
-        .map_err(|_| ApiError::upstream())?;
-    check_response(
-        &response,
-        &request.task,
-        runtime.limits.image_bytes,
-        runtime.limits.images_bytes,
-    )?;
-    trace.stage(Stage::Projection);
-    let projected = crate::lowering::images::project_response(&response, entry.route.accounting)
-        .map_err(|_| ApiError::upstream())?;
-    trace.image_accounting(response.usage.value(), projected.loss);
-    let value = images::encode_response(&projected.response).map_err(|_| ApiError::upstream())?;
-    crate::semantic::value::json_size(&value, runtime.limits.response_bytes)
-        .map_err(|_| ApiError::upstream())?;
-    let output = serde_json::to_vec(&value).map_err(|_| ApiError::upstream())?;
-    let mut lifecycle = crate::execution::Lifecycle::new();
-    body::send_frame(lane, output.into(), trace).await?;
-    lifecycle.commit().map_err(|_| ApiError::upstream())?;
-    lifecycle.terminal().map_err(|_| ApiError::upstream())?;
-    Ok(())
+    if length.is_some_and(|n| n != bytes.len() as u64) {
+        return Err(ApiError::upstream());
+    }
+    AudioArtifact::new(bytes.into(), encoding).map_err(|_| ApiError::upstream())
 }

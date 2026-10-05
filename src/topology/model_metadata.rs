@@ -34,7 +34,7 @@ impl CompiledTopology {
     pub fn model_metadata(&self, canonical: &ModelId) -> Option<&ModelMetadata> {
         self.model_metadata.get(canonical.as_str())
     }
-    /// Attach explicit trusted facts once, after compiling conversation and image identities.
+    /// Attach explicit trusted facts once, after compiling task identities.
     /// Pure topology consumers may omit them; HTTP activation requires every selected identity.
     pub fn with_model_metadata(
         mut self,
@@ -46,6 +46,7 @@ impl CompiledTopology {
         for (id, metadata) in facts {
             if self.canonical_model(&id).is_none()
                 && !self.image_routes.values().any(|r| r.canonical_model == id)
+                && !self.speech_routes.values().any(|r| r.canonical_model == id)
             {
                 return Err(TopologyError::UnknownCanonicalModel);
             }

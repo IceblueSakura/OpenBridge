@@ -1,4 +1,6 @@
 //! Shared semantic leaf values.
+mod audio;
+pub use audio::{AudioArtifact, AudioEncoding, MAX_AUDIO_BYTES};
 /// Measure JSON without allocating an unbounded serialized copy.
 pub fn json_size(value: &impl serde::Serialize, max: usize) -> Result<usize, ValueError> {
     struct Counter {

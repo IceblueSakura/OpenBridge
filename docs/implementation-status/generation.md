@@ -11,7 +11,7 @@
 ## 语义与表示缺口
 
 - **Text/Image/File 承载**：[Resource](../../src/semantic/task/generation/resource.rs) 的来源与类型化描述尚未闭合一般产物 identity、issuer-bound 引用及生命周期。标准 user inline 与 URL 文件分别以 [inline profile](../architecture-v2/responses-text-profile.md#user-inline-file-input)和 [URL profile](../architecture-v2/responses-text-profile.md#user-file-url-input)为界；issuer-bound 文件 ID、工具文件结果、资源操作及更多目标的文件载体仍缺主链。按[当前主线](../implementation-plans/next-goal.md)分别选片，不从共享 source 或文件输入推定所有用途已准入，不以 adapter 或私有字段补偿必要承载不足。
-- **后续媒体与 Embedding**：[生成音频](../../src/semantic/task/generation/audio.rs)仍采用要求 reference/expiry/transcript 的固定 Chat 值组合；生成图片的流式产物与事件、vector 所需独立请求/结果合同尚未闭合；静态有序产物的独立 ImageGeneration task 不补足这些分支。[TaskKind](../../src/semantic/task/mod.rs)枚举不证明实现。这些缺口保留，但不作为本阶段 Text/Image/File 的前置。
+- **后续媒体与 Embedding**：Chat [生成音频](../../src/semantic/task/generation/audio.rs)仍采用其固定 reference/expiry/transcript 组合，独立 [Speech](../architecture-v2/speech-profile.md)不补足一般音频 history/资源主链；生成图片的流式产物与事件、vector 所需独立请求/结果合同尚未闭合；静态有序产物的独立 ImageGeneration task 不补足这些分支。[TaskKind](../../src/semantic/task/mod.rs)枚举不证明实现。这些缺口保留，但不作为 Text/Image/File 或基础 TTS 的前置。
 - **标准客户端目标**：尚未完成整个标准 union 的逐分支准入与消费者验收；[HTTP 配置](../../src/gateway/config.rs)选择 Standard Responses 不消除这些缺口，也不为无标准载体的报告添加位置。[Chat 有损投影](../architecture-v2/protocol-and-lowering.md#semantic-loss)的具体白名单、观察和静态/事件实现尚需选片；标准缺少载体时不伪造字段。现行边界归 [Responses profile](../architecture-v2/responses-text-profile.md#control-message-and-annotation-admission-details)。
 
 - **交互与依赖主链**：跨 response 的逻辑 turn/continuation、跨协议 typed group 与非 reasoning attachment 的 replay 尚无完整主链。[消息组视图](../../src/semantic/task/generation/group.rs)、[pending-call 视图](../../src/semantic/task/generation/continuation.rs)、[本地 response 关联](../../src/semantic/task/generation/turn.rs)和[进程内依赖证明](../../src/semantic/task/generation/dependency.rs)以及[reported progress](../../src/semantic/task/generation/progress.rs)/[格式绑定值](../../src/semantic/task/generation/replay.rs)只是有界库级能力，不补足真实上游 turn 映射、全链身份、opaque/目标/执行权限的整体判据，或部分结果 history 的执行准入。结果关联齐备与 `Unreported` 都不能证明 turn 已结束或下一请求已就绪；具体边界见[continuation profile](../architecture-v2/responses-text-profile.md#response-outcome-and-continuation)。
@@ -24,6 +24,7 @@
 - **状态 API 与更广执行域**：活动 continuation/conversation、store/background、资源操作、compaction、WebSocket、其他独立媒体 operation、hosted/dynamic tools 与其他 task family 尚无完整主链。inactive 形式、queued 事件、TaskKind 名称和选定图片输入均不能代表这些能力已实现；未知分支不能塞进 generic extension。Realtime 等详细设计按计划后置，不是当前主线退出条件。
 
 - **独立图片生成产品接线**：独立静态图片生成的当前注册与显式激活需查[图片 catalog](../../src/topology/catalog/images.rs)及 bootstrap；真实账户准入与外部执行仍需独立验证。标准静态控制的表示不证明每个目标都接受，真实控制效果、大图片与跨目标预算仍需独立验证；图片编辑、URL 产物、流式图片与文件服务不由该切片推定。当前接口与资源边界归 [HTTP 指南](../http-gateway.md#独立图片生成)和 [Images codec](../../src/protocol/openai/images.rs)。
+- **Speech 产品与交付扩展**：具体注册和控制准入归 [Speech catalog](../../src/topology/catalog/speech.rs) 与 [profile](../architecture-v2/speech-profile.md)，账户与真实执行仍须独立验证。OpenRouter MP3 切片不补足其他格式、PCM 布局、instructions/speed 的目标载体或 Token Plan 原生适配；低延迟二进制交付、SSE、转录、自定义声音及资源服务仍缺各自合同。Synthetic 音频与 EOF 不证明真实音质或远端费用上限。
 
 ## 扩展与执行缺口
 

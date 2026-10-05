@@ -64,6 +64,8 @@ Python 版本由 `tests/sdk/.python-version` 固定；OpenAI SDK 与测试环境
 
 Images 的公开 Schema 用同一锁定环境中的 `jsonschema` 执行 Draft 2020-12 检查：`uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_image_schema.py`。它验证 Schema、内部引用及独立合法/非法实例；Base64 内容、集合累计预算、请求/响应数量关系与 EOF 仍由 Rust 和交付测试验证，不由 `contentEncoding` 注解证明。
 
+Speech 的请求与二进制响应 Schema 使用 `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_speech_schema.py`；字节完整性、精确数值边界、目标控制准入和取消归 Rust。固定 SDK 的 Gateway gate 同时检查 Speech eager/streaming-response 消费与 synthetic WAV 解码；不证明低延迟交付或真实语音质量。
+
 首次准备需要依赖下载；已有缓存可为 sync 加 `--offline`：
 
 ```sh

@@ -2,7 +2,7 @@
 
 MorphieCore 建立**可由 Gateway 与未来自研 Agent 复用的模型交互 Semantic Model / IR**，以尽量低的语义损失连接不同 Provider，并向下游提供稳定的标准 API。项目尚未上线；优先稳定概念、所有权与不变量，不冻结当前 Rust 类型或照搬协议 DTO。
 
-当前主线是 Agent-first 的 Text/Image/File 交互，优先完善规范 Responses；Chat Completions 仅作允许声明损失的兼容路径。有效合同归[语义架构](docs/architecture-v2/README.md)，推进顺序、文件扩展延期及后续媒体范围统一归[后续计划](docs/implementation-plans/next-goal.md)，不代表当前能力已经扩大。
+Generation 主线是 Agent-first 的 Text/Image/File 交互，以规范 Responses 为主要接口；Chat Completions 仅作允许声明损失的兼容路径。独立多模态 task 不强塞 Responses。有效合同归[语义架构](docs/architecture-v2/README.md)，推进顺序、文件扩展延期及后续媒体范围统一归[后续计划](docs/implementation-plans/next-goal.md)，不代表当前能力已经扩大。
 
 项目展示名为 **MorphieCore**；Rust crate 与主程序为 `morphiecore`，凭据 CLI 为 `morphiecore-auth`。开发工具环境变量统一使用 `MORPHIECORE_` 前缀。
 
@@ -13,7 +13,8 @@ MorphieCore 建立**可由 Gateway 与未来自研 Agent 复用的模型交互 S
 - HTTP 入口为 Chat Completions / Responses，提供受限的无状态文本输出与选定 URL/inline 图片输入。库与可嵌入 Gateway 另有标准 Responses inline/URL 文件承载，但仍需模型/目标显式准入，不由 codec 推定启用。工具图片结果有独立准入，不能由 user 图片支持推定；协议、模型与实例启用分别核查。
 - 标准 Models 列表/查询仅公开本实例已激活 public labels；字段来源、嵌入准入与无微调模型删除权限的边界见[模型发现](docs/http-gateway.md#标准模型发现)，不请求上游目录或承诺实际推理可用。
 - Gateway 另有显式绑定的标准 `/v1/images/generations` 静态图片生成切片，使用独立 ImageGeneration task 和有序 inline 产物集合；图片绑定须显式选择并配置凭据池，不随已有 Chat/Responses 默认启用，入口与边界见 [HTTP 指南](docs/http-gateway.md#独立图片生成)。
-- 同协议与跨协议都走 adapter → IR → validation/transform → requirements/lowering → adapter → JSON/SSE；不可表示的语义明确拒绝，不承诺任意无损转换。
+- 库与 Gateway 支持独立 `/v1/audio/speech` 的有界二进制 TTS 分支，binary 仅激活显式选定且配置匹配凭据池的 Speech 绑定，不因已有 OpenRouter 凭据自动启用；不含 SSE、Realtime 或声音资源服务，入口与边界见 [Speech HTTP 指南](docs/http-gateway.md#独立语音生成)。
+- 同协议与跨协议都经过共享 IR、验证和目标可表示性检查，再按 operation 交付 JSON、SSE 或二进制；不可表示的语义明确拒绝，不承诺任意无损转换。
 - 凭据只从操作者指定的自有文件加载；显式池策略允许受预算约束的提交前 fallback，不提供普通请求内登录、自动 refresh、负载均衡或会话管理。
 - 缓存亲和利用 Provider 原生功能和声明的 carrier，不实现网关回答缓存；前缀稳定不证明命中或收益。
 

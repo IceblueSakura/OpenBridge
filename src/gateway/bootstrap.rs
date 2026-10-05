@@ -6,9 +6,12 @@ mod image_tests;
 #[path = "managed_key_bootstrap_tests.rs"]
 mod managed_key_tests;
 #[cfg(test)]
+#[path = "openrouter_speech_bootstrap_tests.rs"]
+mod speech_tests;
+#[cfg(test)]
 #[path = "bootstrap_tests.rs"]
 mod tests;
-use super::{Credentials, Entry, Gateway, ImageEntry, Limits, StartupError};
+use super::{Credentials, Entry, Gateway, ImageEntry, Limits, SpeechEntry, StartupError};
 use crate::{
     credential::{CredentialManager, Secret},
     protocol::openai::Profile,
@@ -75,6 +78,7 @@ impl Bootstrap {
         .map_err(|_| StartupError::Credentials)?;
         let mut entries = Vec::new();
         let mut image_entries = Vec::new();
+        let mut speech_entries = Vec::new();
         let mut credentials = Credentials::new();
         let mut activated = BTreeSet::new();
         for (provider, id, status) in manager.pools().map_err(|_| StartupError::Credentials)? {
@@ -123,6 +127,24 @@ impl Bootstrap {
                     model: binding.model.into(),
                 });
             }
+            for binding in catalog::SPEECH_BINDINGS {
+                if binding.credential != id || binding.provider().id.as_str() != provider {
+                    continue;
+                }
+                known = true;
+                // A shared pool never implicitly enables a new media operation.
+                if !selected
+                    .as_ref()
+                    .is_some_and(|set| set.contains(binding.model))
+                {
+                    continue;
+                }
+                used = true;
+                activated.insert(binding.model.to_owned());
+                speech_entries.push(SpeechEntry {
+                    model: binding.model.into(),
+                });
+            }
             for binding in catalog::SUBSCRIPTION_BINDINGS {
                 if binding.credential().as_str() != id
                     || (binding.provider)().id.as_str() != provider
@@ -163,10 +185,11 @@ impl Bootstrap {
         if selected.as_ref().is_some_and(|set| *set != activated) {
             return Err(StartupError::Binding);
         }
-        let mut gateway = Gateway::new_with_images(
+        let mut gateway = Gateway::new_with_media(
             catalog::default_topology().map_err(|_| StartupError::Binding)?,
             entries,
             image_entries,
+            speech_entries,
             credentials,
             SecretMaterial::new(configuration.client_key.expose())
                 .map_err(|_| StartupError::Credentials)?,

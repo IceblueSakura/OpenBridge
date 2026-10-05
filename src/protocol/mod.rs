@@ -9,3 +9,4 @@ pub mod file_constraints;
 pub mod image_constraints;
 pub mod openai;
 pub mod openrouter_images;
+pub mod openrouter_speech;

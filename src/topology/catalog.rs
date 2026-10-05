@@ -3,6 +3,8 @@ mod bindings;
 mod images;
 mod models;
 pub use images::{IMAGE_BINDINGS, ImageBinding};
+mod speech;
+pub use speech::{SPEECH_BINDINGS, SpeechBinding};
 mod subscriptions;
 use crate::{
     adapter::Adapter,
@@ -132,6 +134,10 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
         IMAGE_BINDINGS.iter().map(|b| b.operation()).collect(),
         IMAGE_BINDINGS.iter().map(|b| b.route()).collect(),
     )?
+    .with_speech(
+        SPEECH_BINDINGS.iter().map(|b| b.operation()).collect(),
+        SPEECH_BINDINGS.iter().map(|b| b.route()).collect(),
+    )?
     .with_model_metadata(
         models::MODELS
             .iter()
@@ -146,6 +152,12 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
                     ModelId::new(b.model).expect("static image id"),
                     b.metadata(),
                 )
+            }))
+            .chain(SPEECH_BINDINGS.iter().map(|b| {
+                (
+                    ModelId::new(b.model).expect("static speech id"),
+                    b.metadata(),
+                )
             })),
     )
 }
@@ -158,6 +170,10 @@ fn declared_topology_compiles() {
     }
     for binding in IMAGE_BINDINGS {
         let route = topology.image_route(binding.model).unwrap();
+        assert!(topology.model_metadata(&route.canonical_model).is_some());
+    }
+    for binding in SPEECH_BINDINGS {
+        let route = topology.speech_route(binding.model).unwrap();
         assert!(topology.model_metadata(&route.canonical_model).is_some());
     }
 }

@@ -31,7 +31,7 @@ MorphieCore 的核心是**独立、可复用的模型交互语义体系**：承�
 | Protocol / operation | 请求编码、响应 envelope、事件语法及 profile 必填性；不决定共享语义所有权 |
 | Delivery / execution | 交付意图与运行时实现分开；socket、已选目标、credential、attempt、retry/commit 不进入 task 数据 |
 
-当前阶段聚焦 Agent-first Text/Image/File 与 Responses 完善，Embedding 和其他独立媒体 operation 不作本阶段前置。音频 Realtime 明确要实现，但为降低每阶段关注度推迟其设计与实施，不预建类型/状态机，也不保证现有单 response reducer 可直接复用。具体顺序只归后续计划。
+Generation 的 Agent-first Text/Image/File 与 Responses 合同不作为独立媒体 operation 的容器。请求型音频按独立 task 定稿，Embedding 也不作其前置。音频 Realtime 明确要实现，但其设计与实施后置，不预建类型/状态机，也不保证现有单 response reducer 可直接复用。具体顺序只归后续计划。
 
 Generation 保留有序异构 items 与必要 typed 关系，Message 只是其中一种 owner。Embedding 的输入关联、向量数值、维度与结果属于独立 task，不使用 assistant role、tool loop 或虚构 SSE 终态。其他任务只在实际标准 operation 需要时定稿，不由 TaskKind 名称推定实现。
 
@@ -43,7 +43,7 @@ Generation 保留有序异构 items 与必要 typed 关系，Message 只是其�
 - 标准规范性、能力覆盖度和映射保真度分别判断。规范 wire 可以是有损投影；未实现分支、未批准的损失或缺失必要依赖仍须明确拒绝。
 - 公开边界[不提供独立 `_openbridge` carrier](client-generation-profile.md)，不保留隐式兼容或替代字段。共享 typed 语义不因此删除；无标准载体且不属于已定稿 Chat 损失时仍拒绝。是否重建扩展在迁移完成后决定，新方案须说明标准缺口、IR owner 和消费者/回传后果。
 
-允许后续为独立 TTS、转录、图片生成等增加符合 OpenAI 标准的 operation，但具体端点与资源服务范围仍需深入讨论。Responses 是主接口，不意味着任意模态或独立任务都有 Responses carrier；没有标准载体时报告选择，不伪造字段或隐式新增端点。
+独立 TTS 采用标准 `/v1/audio/speech` 的[有界音频分支](speech-profile.md)，独立图片生成采用标准 Images operation；转录等其他端点与资源服务范围仍需另定。Responses 是 Generation 主接口，不意味着任意模态或独立任务都有 Responses carrier；没有标准载体时报告选择，不伪造字段或隐式新增端点。
 
 ## 4. IR 不足与标准载体缺口
 

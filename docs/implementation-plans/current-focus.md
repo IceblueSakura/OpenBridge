@@ -2,10 +2,13 @@
 
 ## 当前范围
 
-**当前没有待实施的已定稿行为切片。** 下一切片按[后续选片条件](next-goal.md#后续选片条件)结合具体标准/消费反例定稿。标准文本/function、类型化交互与[标准模型发现](../http-gateway.md#标准模型发现)作为后续工作的维护和回归边界，不扩大成整个 Responses union 或 Agent runtime。文件扩展重评后继续延期，SIWC 实例准入暂缓；后续选片仍按计划重评。
+**当前没有待实施的已定稿行为切片。** Speech 后续按[产品选型顺序](next-goal.md#推进顺序与退出条件)与具体消费需求选片；受控真实验收须先定目标、请求矩阵、预算与脱敏范围，不能沿用离线验证或提交授权。Token Plan 原生适配、更多目标控制与低延迟交付均不自动恢复，不重复建设基础 task/codec/交付或已有 binary 接线。
+
+多模态继续优先推进请求型音频；标准文本/function、类型化交互与模型发现保留为回归边界。文件扩展重评后继续延期，SIWC 实例准入暂缓。低延迟二进制交付、SSE 或转录按[后续计划](next-goal.md)独立选片，不自动恢复 Realtime、声音资源服务或通用媒体框架。
 
 现有能力维护仍遵守以下合同：
 
+- **基础 TTS**：[Speech profile](../architecture-v2/speech-profile.md)拥有独立 task、控制、报告与 OpenRouter MP3 映射；[HTTP 指南](../http-gateway.md#独立语音生成)拥有嵌入/binary 显式激活与有界交付。EOF、SDK 消费或合成音频不能证明真实音质、低延迟或上游费用上限，不扩大 Chat 音频与 replay 准入。
 - **基础静态图片生成**：数量、报告与严格交付边界见 [HTTP 指南](../http-gateway.md#独立图片生成)；[具名计量损失](../architecture-v2/protocol-and-lowering.md#独立-images-的计量投影)不授权丢弃请求控制、篡改产物报告或隐藏预算失败。
 - **基础文件输入**：仅维持 Responses user [inline](../architecture-v2/responses-text-profile.md#user-inline-file-input) / [URL](../architecture-v2/responses-text-profile.md#user-file-url-input) 输入及必要正确性、安全维护；不从 PDF carrier 推定所有格式、来源或工具文件均准入，也不新增 `/v1/files` 或 file_id 服务。
 - **客户端与迁移**：遵守[客户端合同](../architecture-v2/client-generation-profile.md)，不恢复独立 `_openbridge` 或隐式兼容入口；允许破坏性重写不免除 IR 结构缺口报告，也不提前应用未定稿 Chat 损失规则。

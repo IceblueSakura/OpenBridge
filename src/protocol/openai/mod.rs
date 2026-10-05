@@ -20,6 +20,7 @@ pub(crate) mod json;
 mod reasoning;
 pub mod responses;
 mod settings;
+pub mod speech;
 pub mod sse;
 pub(crate) mod static_response;
 mod terminal;

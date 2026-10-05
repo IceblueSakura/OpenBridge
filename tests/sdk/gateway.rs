@@ -51,6 +51,8 @@ struct Scenario {
 struct Observed(
     Arc<Mutex<BTreeMap<Scenario, u8>>>,
     Arc<std::sync::atomic::AtomicUsize>,
+    Arc<std::sync::atomic::AtomicUsize>,
+    Arc<std::sync::atomic::AtomicUsize>,
 );
 async fn provider(
     State(state): State<Observed>,
@@ -235,6 +237,69 @@ async fn image_provider(
 #[tokio::test]
 #[ignore = "requires the pinned SDK; real gateway Router and synthetic HTTP Provider only"]
 async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
+    async fn speech_provider(
+        State(state): State<Observed>,
+        headers: HeaderMap,
+        axum::Json(request): axum::Json<Value>,
+    ) -> Response {
+        if request["model"] == "qwen/qwen-audio-3.0-tts-flash" {
+            assert_eq!(
+                headers["authorization"],
+                "Bearer synthetic-router-credential-0001"
+            );
+            assert_eq!(
+                request,
+                json!({"model":"qwen/qwen-audio-3.0-tts-flash","input":"synthetic router speech","voice":"loongjohn","response_format":"mp3"})
+            );
+            let index = state.3.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert!(index < 3);
+            return Response::builder()
+                .header(
+                    "content-type",
+                    if index == 2 {
+                        "audio/pcm"
+                    } else {
+                        "audio/mpeg"
+                    },
+                )
+                .body(Body::from("synthetic-router-audio"))
+                .unwrap();
+        }
+        assert_eq!(
+            headers["authorization"],
+            "Bearer synthetic-speech-credential-0001"
+        );
+        assert_eq!(headers["accept"], "application/octet-stream");
+        assert_eq!(
+            request,
+            json!({"model":"private-speech","input":"synthetic speech","voice":"alloy","instructions":"","speed":1.25,"response_format":"wav","stream_format":"audio"})
+        );
+        let index = state.2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert!(index < 3);
+        if index == 2 {
+            return Response::builder()
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"error":"synthetic-private"}"#))
+                .unwrap();
+        }
+        // Independent PCM WAV: 24 kHz mono, two signed 16-bit samples.
+        let wav = b"RIFF\x28\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\xc0\x5d\0\0\x80\xbb\0\0\x02\0\x10\0data\x04\0\0\0\0\0\x01\0";
+        Response::builder()
+            .header(
+                "content-type",
+                if index == 0 {
+                    "application/octet-stream"
+                } else {
+                    "audio/wav"
+                },
+            )
+            .body(Body::from_stream(futures_util::stream::iter(
+                wav.chunks(7)
+                    .map(|chunk| Ok::<_, std::io::Error>(axum::body::Bytes::copy_from_slice(chunk)))
+                    .collect::<Vec<_>>(),
+            )))
+            .unwrap()
+    }
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let observed = Observed::default();
@@ -246,6 +311,8 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
                 .route("/chat/completions", post(provider))
                 .route("/responses", post(provider))
                 .route("/images/generations", post(image_provider))
+                .route("/audio/speech", post(speech_provider))
+                .route("/api/v1/audio/speech", post(speech_provider))
                 .with_state(state),
         )
         .await
@@ -290,9 +357,12 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["requests"], 42);
-    assert_eq!(report["model_requests"], 11);
+    assert_eq!(report["requests"], 57);
+    assert_eq!(report["model_requests"], 13);
+    assert_eq!(report["speech_requests"], 13);
     assert_eq!(observed.1.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(observed.2.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(observed.3.load(std::sync::atomic::Ordering::SeqCst), 3);
     {
         let observed = observed.0.lock().unwrap();
         assert_eq!(observed.len(), 8);

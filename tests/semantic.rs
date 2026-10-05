@@ -64,6 +64,10 @@ mod model_constraints;
 mod modelbest;
 #[path = "semantic/openrouter_images.rs"]
 mod openrouter_images;
+#[path = "semantic/openrouter_speech.rs"]
+mod openrouter_speech;
+#[path = "semantic/openrouter_speech_binding.rs"]
+mod openrouter_speech_binding;
 #[path = "semantic/parsed_replay.rs"]
 mod parsed_replay;
 #[path = "semantic/phase.rs"]
@@ -88,6 +92,12 @@ mod router_adapter;
 mod schema;
 #[path = "semantic/scoped_usage.rs"]
 mod scoped_usage;
+#[path = "semantic/speech.rs"]
+mod speech;
+#[path = "semantic/speech_binding.rs"]
+mod speech_binding;
+#[path = "support/speech.rs"]
+mod speech_support;
 #[path = "semantic/string_enums.rs"]
 mod string_enums;
 #[path = "semantic/structured_events.rs"]
