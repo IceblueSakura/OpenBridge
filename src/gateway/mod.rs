@@ -14,6 +14,9 @@ mod http;
 mod images;
 mod intake;
 #[cfg(test)]
+mod model_tests;
+mod models;
+#[cfg(test)]
 mod route_fallback_tests;
 #[cfg(test)]
 mod shutdown_tests;
@@ -85,6 +88,7 @@ struct Runtime {
     auth: auth::Auth,
     entries: BTreeMap<(u8, String), Arc<BoundEntry>>,
     images: BTreeMap<String, Arc<images::BoundImage>>,
+    models: models::ModelView,
     limits: Limits,
     permits: Arc<Semaphore>,
     transport: HttpTransport,

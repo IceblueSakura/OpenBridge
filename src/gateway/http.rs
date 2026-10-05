@@ -7,7 +7,7 @@ use axum::{
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use std::{future::Future, sync::Arc};
 use tokio::net::TcpListener;
@@ -15,6 +15,11 @@ impl Gateway {
     /// Embedding callers own listener security; `serve` enforces loopback itself.
     pub fn router(&self) -> Router {
         Router::new()
+            .route("/v1/models", get(super::models::list))
+            .route(
+                "/v1/models/{model}",
+                get(super::models::retrieve).delete(super::models::delete),
+            )
             .route("/v1/chat/completions", post(chat))
             .route("/v1/responses", post(responses))
             .route("/v1/images/generations", post(super::images::handle))

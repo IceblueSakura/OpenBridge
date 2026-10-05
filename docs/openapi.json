@@ -3,11 +3,62 @@
   "info": {
     "title": "MorphieCore minimal model interaction gateway",
     "version": "0.1.0",
-    "description": "Current envelope-level HTTP contract, not complete standard conformance. Responses uses the Standard adapter; Chat retains the explicit MorphieCore compatibility profile. Provider-specific rules cannot authorize private Responses carriers or silent loss. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Current priority is Agent-first Text/Image/File through standard Responses; Chat is a compatibility path. A static ordered-image operation is available through explicit image bindings, with explicit model selection and single-source API-key activation; image operations are not activated by an existing conversation binding. Embeddings, other media operations and audio Realtime remain later work. No models discovery, stateful resources or implicit retry/fallback."
+    "description": "Current envelope-level HTTP contract, not complete standard conformance. Responses uses the Standard adapter; Chat retains the explicit MorphieCore compatibility profile. Provider-specific rules cannot authorize private Responses carriers or silent loss. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Current priority is Agent-first Text/Image/File through standard Responses; Chat is a compatibility path. A static ordered-image operation is available through explicit image bindings, with explicit model selection and single-source API-key activation; image operations are not activated by an existing conversation binding. Models exposes only activated public labels; fine-tuned model deletion is not authorized. Embeddings, other media operations and audio Realtime remain later work. No stateful resources or implicit retry/fallback."
   },
   "servers": [{"url": "http://127.0.0.1:8080"}],
   "security": [{"bearerAuth": []}],
   "paths": {
+    "/v1/models": {
+      "get": {
+        "operationId": "listModels",
+        "summary": "List activated conversation and image public labels",
+        "description": "Immutable local view, deduplicated across client protocols and candidates and sorted by label. No pagination, upstream discovery, capability/price extensions or request body. HEAD shares this route without a response body.",
+        "responses": {
+          "200": {
+            "description": "Complete standard model list, bounded at startup; never a truncated successful prefix.",
+            "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelList"}}}
+          },
+          "401": {"$ref": "#/components/responses/Error"},
+          "405": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/v1/models/{model}": {
+      "parameters": [{
+        "in": "path", "name": "model", "required": true,
+        "schema": {"$ref": "#/components/schemas/PublicModelLabel"}
+      }],
+      "get": {
+        "operationId": "retrieveModel",
+        "summary": "Retrieve an activated public model",
+        "responses": {
+          "200": {
+            "description": "The same model object as in the list; no Provider or account information.",
+            "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Model"}}}
+          },
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "405": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      },
+      "delete": {
+        "operationId": "deleteModel",
+        "summary": "Reject deletion without fine-tuned model ownership",
+        "description": "This instance has no owned fine-tuned models or deletion capability. Activated labels return model_deletion_forbidden (403); unknown or inactive labels return model_not_found (404). No registry/activation mutation, upstream request or fabricated deleted:true response.",
+        "responses": {
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
     "/v1/chat/completions": {
       "post": {
         "operationId": "chatCompletion",
@@ -140,6 +191,27 @@
     },
     "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "description": "Exactly one Authorization header. Configured startup secret, not an upstream API key."}},
     "schemas": {
+      "Model": {
+        "type": "object", "required": ["id", "object", "created", "owned_by"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"$ref": "#/components/schemas/PublicModelLabel"},
+          "object": {"const": "model"},
+          "created": {
+            "type": "integer", "format": "unixtime", "minimum": 1, "maximum": 9223372036854775807,
+            "description": "Developer publication time in Unix seconds. Date-only sources use UTC midnight; not a router listing or Gateway startup timestamp."
+          },
+          "owned_by": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Model developer name, not inference Provider or account owner."},
+          "shutdown_date": {"type": ["string", "null"], "format": "date", "description": "Optional standard report; omitted when unreported, not fabricated."}
+        }
+      },
+      "ModelList": {
+        "type": "object", "required": ["object", "data"], "additionalProperties": false,
+        "properties": {
+          "object": {"const": "list"},
+          "data": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Model"}}
+        }
+      },
       "ImageGenerationRequest": {
         "type": "object",
         "required": [

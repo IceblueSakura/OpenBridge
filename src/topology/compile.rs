@@ -50,6 +50,10 @@ pub enum TopologyError {
     InvalidRoutePolicy,
     #[error("duplicate route candidate")]
     DuplicateCandidate,
+    #[error("invalid model publication metadata")]
+    InvalidModelMetadata,
+    #[error("duplicate model publication metadata")]
+    DuplicateModelMetadata,
 }
 
 /// `promise` must be pointwise implied by `endpoint`. Whether a narrower promise
@@ -69,6 +73,7 @@ pub struct CompiledTopology {
     models: BTreeMap<String, PublicModel>,
     canonical_models: BTreeMap<String, CanonicalModel>,
     pub(super) image_routes: BTreeMap<String, super::images::ImageRoute>,
+    pub(super) model_metadata: BTreeMap<String, super::ModelMetadata>,
 }
 
 impl CompiledTopology {
@@ -259,6 +264,7 @@ pub fn compile(
         models: model_map,
         canonical_models: canonical_map,
         image_routes: BTreeMap::new(),
+        model_metadata: BTreeMap::new(),
     })
 }
 

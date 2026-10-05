@@ -131,6 +131,11 @@ async fn same_provider_fallback_is_ordered_bounded_and_never_crosses_publication
                 contract: GenerationSemanticContract::full(),
             }],
         )
+        .unwrap()
+        .with_model_metadata([(
+            ModelId::new("canonical").unwrap(),
+            crate::topology::ModelMetadata::new(1, "Synthetic Developer").unwrap(),
+        )])
         .unwrap();
         let gateway = Gateway::new(
             topology,

@@ -10,11 +10,13 @@ pub mod compile;
 pub mod endpoint;
 pub mod images;
 pub mod model;
+mod model_metadata;
 pub mod route;
 
 pub use compile::{CompiledTopology, TopologyError, compile};
 pub use endpoint::{Endpoint, EndpointTarget, ExecutionContract};
 pub use model::{CanonicalModel, GenerationSemanticContract};
+pub use model_metadata::ModelMetadata;
 pub use route::{CandidatePolicy, FallbackPolicy, PublicModel, Route, RoutePolicy};
 
 use crate::provider::{ProviderError, ident_ok};

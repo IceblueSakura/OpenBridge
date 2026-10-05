@@ -3,6 +3,7 @@ import ipaddress
 import json
 import sys
 from sdk_support import check
+from models_checks import check_models
 from urllib.parse import urlsplit
 
 import openai
@@ -28,6 +29,7 @@ def run(base_url: str) -> None:
         _strict_response_validation=True,
         http_client=openai.DefaultHttpxClient(trust_env=False, follow_redirects=False),
     ) as client:
+        model_requests = check_models(client)
         invalid = [
             {"reasoning": {"summary": False}},
             {"extra_body": {"session_id": "synthetic-session"}},
@@ -182,7 +184,8 @@ def run(base_url: str) -> None:
             check(image.size == "1536x1024" and image.quality == "high"
                   and image.background == "transparent" and image.output_format == "webp")
             check(image.usage is None)
-    print(json.dumps({"requests": requests, "protocols": 2, "deliveries": 2, "image_requests": 3}))
+    print(json.dumps({"requests": requests + model_requests, "model_requests": model_requests,
+                     "protocols": 2, "deliveries": 2, "image_requests": 3}))
 
 
 if __name__ == "__main__":

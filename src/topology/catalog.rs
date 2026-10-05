@@ -131,12 +131,35 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
     .with_images(
         IMAGE_BINDINGS.iter().map(|b| b.operation()).collect(),
         IMAGE_BINDINGS.iter().map(|b| b.route()).collect(),
+    )?
+    .with_model_metadata(
+        models::MODELS
+            .iter()
+            .map(|m| {
+                (
+                    ModelId::new(m.id).expect("static id"),
+                    ModelMetadata::new(m.released_at, m.developer).expect("static publication"),
+                )
+            })
+            .chain(IMAGE_BINDINGS.iter().map(|b| {
+                (
+                    ModelId::new(b.model).expect("static image id"),
+                    b.metadata(),
+                )
+            })),
     )
 }
 #[cfg(test)]
 #[test]
 fn declared_topology_compiles() {
-    default_topology().unwrap();
+    let topology = default_topology().unwrap();
+    for public in topology.models() {
+        assert!(topology.model_metadata(&public.canonical_model).is_some());
+    }
+    for binding in IMAGE_BINDINGS {
+        let route = topology.image_route(binding.model).unwrap();
+        assert!(topology.model_metadata(&route.canonical_model).is_some());
+    }
 }
 #[cfg(test)]
 #[test]

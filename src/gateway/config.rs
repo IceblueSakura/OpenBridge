@@ -286,12 +286,21 @@ impl Gateway {
         }
         let shutdown = CancellationToken::new();
         let permits = Arc::new(Semaphore::new(limits.concurrency));
+        let models = super::models::ModelView::bind(
+            &topology,
+            activated
+                .keys()
+                .map(|(_, label)| label.as_str())
+                .chain(images.keys().map(String::as_str)),
+            limits.response_bytes,
+        )?;
         Ok(Self {
             state: Arc::new(Runtime {
                 diagnostics: None,
                 auth,
                 entries: activated,
                 images,
+                models,
                 limits,
                 permits,
                 transport,

@@ -295,13 +295,16 @@ async fn invalid_heads_and_static_overflow_fail_without_exposing_provider_data()
         assert_eq!(reads.load(Ordering::SeqCst), 0);
     }
     let gate = gateway(Limits {
-        response_bytes: 16,
+        // Allow the startup discovery view while keeping the upstream body over budget.
+        response_bytes: 128,
         ..Limits::default()
     });
     let (tx, upstream, _, _) = upstream(200, "application/json");
-    tx.send(Ok(Bytes::from_static(b"synthetic-private-upstream-detail")))
-        .await
-        .unwrap();
+    tx.send(Ok(Bytes::from(
+        "synthetic-private-upstream-detail".repeat(5),
+    )))
+    .await
+    .unwrap();
     drop(tx);
     assert_eq!(
         bounded(response(

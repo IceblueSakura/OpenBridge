@@ -290,7 +290,8 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["requests"], 31);
+    assert_eq!(report["requests"], 42);
+    assert_eq!(report["model_requests"], 11);
     assert_eq!(observed.1.load(std::sync::atomic::Ordering::SeqCst), 3);
     {
         let observed = observed.0.lock().unwrap();

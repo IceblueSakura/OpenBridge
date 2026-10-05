@@ -4,7 +4,7 @@ use crate::{
     lowering::images::AccountingPolicy,
     provider::{CredentialBindingId, CredentialKind, EndpointPath, catalog},
     topology::{
-        EndpointId, EndpointTarget, ExecutionContract, ModelId, RouteId,
+        EndpointId, EndpointTarget, ExecutionContract, ModelId, ModelMetadata, RouteId,
         images::{ImageEndpoint, ImageRoute, ProviderEntry},
     },
 };
@@ -12,14 +12,22 @@ pub struct ImageBinding {
     pub model: &'static str,
     pub upstream: &'static str,
     pub credential: &'static str,
+    pub released_at: u64,
+    pub developer: &'static str,
 }
 /// Source: https://openrouter.ai/api/v1/images/models/openai/gpt-image-2.5-flare/endpoints
 pub const IMAGE_BINDINGS: &[ImageBinding] = &[ImageBinding {
     model: "gpt-image-2.5-flare",
     upstream: "openai/gpt-image-2.5-flare",
     credential: "openrouter-api-key",
+    // Source: https://openai.com/index/introducing-chatgpt-images-2-5/ (2026-09-08).
+    released_at: 1_788_825_600,
+    developer: "OpenAI",
 }];
 impl ImageBinding {
+    pub fn metadata(&self) -> ModelMetadata {
+        ModelMetadata::new(self.released_at, self.developer).expect("static publication")
+    }
     pub fn provider(&self) -> crate::provider::ProviderDefinition {
         catalog::openrouter()
     }

@@ -113,6 +113,11 @@ fn image_activation_is_explicit_and_requires_its_own_credential_binding() {
     let (operation, route) = super::image_support::binding(ORIGIN);
     let compiled = topology()
         .with_images(vec![operation], vec![route])
+        .unwrap()
+        .with_model_metadata([(
+            ModelId::new("canonical-image").unwrap(),
+            topology::ModelMetadata::new(1, "Synthetic Image Developer").unwrap(),
+        )])
         .unwrap();
     let build = |model: &str, credentials| {
         Gateway::new_with_images(

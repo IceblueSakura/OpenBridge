@@ -145,6 +145,11 @@ async fn ordered_route_only_falls_back_before_visible_delivery() {
                 contract: GenerationSemanticContract::full(),
             }],
         )
+        .unwrap()
+        .with_model_metadata([(
+            ModelId::new("canonical").unwrap(),
+            crate::topology::ModelMetadata::new(1, "Synthetic Developer").unwrap(),
+        )])
         .unwrap();
         let gateway = Gateway::new(
             topology,

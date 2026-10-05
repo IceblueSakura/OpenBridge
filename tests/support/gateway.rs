@@ -121,6 +121,21 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         vec![image_provider, router_binding.operation()],
         vec![image_route, router_route],
     )
+    .unwrap()
+    .with_model_metadata([
+        (
+            ModelId::new("canonical-fixture").unwrap(),
+            morphiecore::topology::ModelMetadata::new(7, "Synthetic Developer").unwrap(),
+        ),
+        (
+            ModelId::new("canonical-image").unwrap(),
+            morphiecore::topology::ModelMetadata::new(8, "Synthetic Image Developer").unwrap(),
+        ),
+        (
+            ModelId::new(router_binding.model).unwrap(),
+            router_binding.metadata(),
+        ),
+    ])
     .unwrap();
     let entries = vec![
         Entry {
