@@ -7,7 +7,7 @@
 
 ## 1. “标准”的具体含义
 
-此处指 OpenAI 官方 Responses API 的固定公开快照，不是 OpenBridge 共享 IR 的上限或跨厂商通用标准。Open Responses 是独立开放规范；Codex backend 行为是产品 profile；二者不能覆盖或默默补写 OpenAI 标准。其他协议参照与本地语义决策由[设计基线](../architecture-v2/semantic-ir.md)分别处理，不能为迁就 Chat 而削减已表达语义。
+此处指 OpenAI 官方 Responses API 的固定公开快照，不是 MorphieCore 共享 IR 的上限或跨厂商通用标准。Open Responses 是独立开放规范；Codex backend 行为是产品 profile；二者不能覆盖或默默补写 OpenAI 标准。其他协议参照与本地语义决策由[设计基线](../architecture-v2/semantic-ir.md)分别处理，不能为迁就 Chat 而削减已表达语义。
 
 协议目标允许分阶段实现，但未实现字段必须标成实现缺口或 profile 拒绝，不能因 codec 缺失而抹掉相应语义。Responses 已公开的 `phase`、`configuration_update`、hosted tools 不是 Codex 私有字段；它们在共享 IR 中保持唯一 typed owner，而非形成第二套 OpenAI 语义。
 

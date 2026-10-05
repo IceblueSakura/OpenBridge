@@ -5,7 +5,7 @@ use super::{ServerGuard, chat_sdk::wire as chat_wire, wire};
 use axum::{
     Router, body::Body, extract::State, http::HeaderMap, response::Response, routing::post,
 };
-use openbridge::gateway::Limits;
+use morphiecore::gateway::Limits;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -161,7 +161,7 @@ async fn provider(
                 output.extend_from_slice(format!("data: {value}\n\n").as_bytes());
             } else {
                 output.extend_from_slice(
-                    &openbridge::protocol::openai::sse::encode_frame(&value, 1 << 20).unwrap(),
+                    &morphiecore::protocol::openai::sse::encode_frame(&value, 1 << 20).unwrap(),
                 );
             }
         }
@@ -241,8 +241,9 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
         let _ = stopped.await;
     }));
     let _server = ServerGuard(serving.abort_handle());
-    let mut command =
-        Command::new(std::env::var_os("OPENBRIDGE_SDK_PYTHON").unwrap_or_else(|| "python3".into()));
+    let mut command = Command::new(
+        std::env::var_os("MORPHIECORE_SDK_PYTHON").unwrap_or_else(|| "python3".into()),
+    );
     command
         .args(["tests/sdk/gateway_text_loop.py", &base])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -251,7 +252,7 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
         .stderr(Stdio::piped());
     for (name, _) in std::env::vars_os() {
         let text = name.to_string_lossy();
-        if text.starts_with("OPENAI_") || text.starts_with("OPENBRIDGE_") {
+        if text.starts_with("OPENAI_") || text.starts_with("MORPHIECORE_") {
             command.env_remove(name);
         }
     }

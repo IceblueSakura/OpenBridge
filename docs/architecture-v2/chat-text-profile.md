@@ -8,7 +8,7 @@ Chat 与 Responses 使用同一 Generation IR、reducer 和严格 JSON 边界，
 
 [Chat envelope](../../src/protocol/openai/chat_envelope.rs)负责完整 bytes/JSON 边界，[Chat codec](../../src/protocol/openai/chat.rs)负责 task 映射，[Chat SSE](../../src/protocol/openai/chat_sse.rs)负责 framing/事件连接。它们不查 topology、credential 或网络。Context/delivery 拥有 model label、n、stream/options，不属于 message history。
 
-Dialect/rules 从受信 [Adapter](../../src/adapter/mod.rs)选择，不是统一厂商字段超集。低层 standard profile 不因 OpenBridge/Provider profile 存在而接受其 reasoning、cache 或 usage carrier。所有默认和 alias 的条件归 named rules/owning codec，而非维护动态 Provider 表。
+Dialect/rules 从受信 [Adapter](../../src/adapter/mod.rs)选择，不是统一厂商字段超集。低层 standard profile 不因 MorphieCore/Provider profile 存在而接受其 reasoning、cache 或 usage carrier。所有默认和 alias 的条件归 named rules/owning codec，而非维护动态 Provider 表。
 
 ## Current admission
 
@@ -37,7 +37,7 @@ Request `logprobs` 与 `top_logprobs` 有组合约束；响应概率是独立报
 
 Usage 的缺失/null 保持 unknown，显式零仍是报告。输入/输出细分以各自 total 为边界；prediction 的互斥与加法条件按 typed owner 校验，重叠的 text/reasoning/cache counts 不用于盲目求和。累计事件不是增量 token 相加。
 
-Standard Chat、Responses 及 OpenBridge modality carriers 的位置不相同。现行 profile 对不可投影 facts 拒绝，不悄悄丢弃或把缺失补零；Chat 降级未来若省略部分报告，须按[损失合同](protocol-and-lowering.md#semantic-loss)区分省略与未报告。Audio details 归 [media usage](chat-media-profile.md#usage-and-unsupported-targets)，其他独立证据归 [usage](../../tests/semantic/usage.rs)与[image usage](../../tests/semantic/image_usage.rs)。
+Standard Chat、Responses 及 MorphieCore modality carriers 的位置不相同。现行 profile 对不可投影 facts 拒绝，不悄悄丢弃或把缺失补零；Chat 降级未来若省略部分报告，须按[损失合同](protocol-and-lowering.md#semantic-loss)区分省略与未报告。Audio details 归 [media usage](chat-media-profile.md#usage-and-unsupported-targets)，其他独立证据归 [usage](../../tests/semantic/usage.rs)与[image usage](../../tests/semantic/image_usage.rs)。
 
 ## Function selection and tool results
 

@@ -1,5 +1,5 @@
 //! Prefix stability is an explicit dependency check, not a cache hit or route choice.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     protocol::openai::Profile,
     semantic::{
@@ -9,7 +9,7 @@ use openbridge::{
     },
 };
 use serde_json::{Value, json};
-fn request() -> openbridge::adapter::Request {
+fn request() -> morphiecore::adapter::Request {
     Adapter::new(Profile::Responses, Dialect::Standard, None)
         .decode_request(
             &serde_json::to_vec(
@@ -56,7 +56,7 @@ fn adapter_prefix_check_allows_append_and_rejects_prefix_context_and_scope_edits
     };
     message.parts[0].content = ContentPart::Text(
         TextContent::new(
-            openbridge::semantic::value::Text::new("changed", "fixture", 32).unwrap(),
+            morphiecore::semantic::value::Text::new("changed", "fixture", 32).unwrap(),
             vec![],
             Presence::Absent,
         )
@@ -72,7 +72,7 @@ fn adapter_prefix_check_allows_append_and_rejects_prefix_context_and_scope_edits
     assert!(changed.check_cache_prefix(&proof, &scope()).is_err());
     let mut changed = request();
     changed.context.service_tier =
-        Presence::Value(openbridge::semantic::context::ServiceTier::Priority);
+        Presence::Value(morphiecore::semantic::context::ServiceTier::Priority);
     assert!(changed.check_cache_prefix(&proof, &scope()).is_err());
     assert!(
         source
@@ -87,7 +87,7 @@ fn adapter_prefix_check_allows_append_and_rejects_prefix_context_and_scope_edits
     assert!(changed.check_cache_prefix(&proof, &scope()).is_err());
     let mut changed = request();
     changed.cache_session =
-        Some(openbridge::protocol::cache::CacheSession::new("new-group").unwrap());
+        Some(morphiecore::protocol::cache::CacheSession::new("new-group").unwrap());
     assert!(changed.check_cache_prefix(&proof, &scope()).is_err());
 }
 #[test]
@@ -97,7 +97,7 @@ fn prefix_settings_bind_schema_and_tool_order_without_a_second_value_authority()
         .into_iter()
         .map(|name| {
             ToolDefinition::Function(FunctionTool {
-                name: openbridge::semantic::value::Text::new(name, "fixture", 32).unwrap(),
+                name: morphiecore::semantic::value::Text::new(name, "fixture", 32).unwrap(),
                 description: None,
                 parameters: None,
                 output_schema: None,
@@ -129,7 +129,7 @@ fn prefix_settings_bind_schema_and_tool_order_without_a_second_value_authority()
     let mut settings = source.task.semantic.settings().clone();
     settings.text.presence = true;
     settings.text.format = Presence::Value(OutputConstraint::JsonSchema {
-        name: openbridge::semantic::value::Text::new("answer", "fixture", 32).unwrap(),
+        name: morphiecore::semantic::value::Text::new("answer", "fixture", 32).unwrap(),
         description: None,
         strict: Some(false),
         schema: serde_json::from_str(
@@ -172,7 +172,7 @@ fn cache_boundary_cannot_split_a_declared_message_group() {
     let Item::ToolCall(value) = &mut call.1 else {
         panic!("call")
     };
-    value.call_id = openbridge::semantic::value::Text::new("new", "fixture", 32).unwrap();
+    value.call_id = morphiecore::semantic::value::Text::new("new", "fixture", 32).unwrap();
     items.push(call);
     extended.task.semantic = extended.task.semantic.with_items(items).unwrap();
     assert!(extended.check_cache_prefix(&proof, &scope()).is_err());

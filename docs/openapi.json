@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "OpenBridge minimal model interaction gateway",
+    "title": "MorphieCore minimal model interaction gateway",
     "version": "0.1.0",
-    "description": "Current envelope-level HTTP contract, not complete standard conformance. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Other named OpenBridge reasoning/usage/cache rules remain separately bounded. Current priority is Agent-first Text/Image/File through standard Responses; Chat is a compatibility path. A static single-image GPT Image operation is available through explicit image bindings, with explicit model selection and single-source API-key activation; image operations are not activated by an existing conversation binding. Embeddings, other media operations and audio Realtime remain later work. No models discovery, stateful resources or implicit retry/fallback."
+    "description": "Current envelope-level HTTP contract, not complete standard conformance. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Other named MorphieCore reasoning/usage/cache rules remain separately bounded. Current priority is Agent-first Text/Image/File through standard Responses; Chat is a compatibility path. A static single-image GPT Image operation is available through explicit image bindings, with explicit model selection and single-source API-key activation; image operations are not activated by an existing conversation binding. Embeddings, other media operations and audio Realtime remain later work. No models discovery, stateful resources or implicit retry/fallback."
   },
   "servers": [{"url": "http://127.0.0.1:8080"}],
   "security": [{"bearerAuth": []}],
@@ -133,7 +133,7 @@
   "components": {
     "parameters": {
       "ProbeId": {
-        "in": "header", "name": "x-openbridge-probe-id", "required": false,
+        "in": "header", "name": "x-morphiecore-probe-id", "required": false,
         "schema": {"type": "string"},
         "description": "Operator correlation only when private probe diagnostics are enabled and authentication succeeds. Valid form: 32 lowercase hex run ID, colon, then decimal 1..999999. Invalid/duplicate values disable observation only, not business admission. Never forwarded upstream or echoed downstream. Not semantic request data."
       }
@@ -435,7 +435,7 @@
       },
       "CacheSession": {
         "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
-        "description": "OpenBridge scoped extension: caller-supplied Provider cache/observability grouping, not a gateway-managed session. Only explicitly supporting targets may receive it. No derivation from prompt_cache_key, user, safety_identifier or opaque replay; unsupported targets reject it. OpenCode Go maps an explicit ASCII session_id to x-opencode-session instead of the upstream body; absent values do not create an identity. Incoming session headers are not forwarded."
+        "description": "MorphieCore scoped extension: caller-supplied Provider cache/observability grouping, not a gateway-managed session. Only explicitly supporting targets may receive it. No derivation from prompt_cache_key, user, safety_identifier or opaque replay; unsupported targets reject it. OpenCode Go maps an explicit ASCII session_id to x-opencode-session instead of the upstream body; absent values do not create an identity. Incoming session headers are not forwarded."
       },
       "ChatRequest": {
         "type": "object", "required": ["model", "messages"],
@@ -443,7 +443,7 @@
         "properties": {
           "model": {"$ref": "#/components/schemas/PublicModelLabel"},
           "session_id": {"$ref": "#/components/schemas/CacheSession"},
-          "prompt_cache_key": {"type": ["string", "null"], "maxLength": 256, "description": "Advisory Provider cache-affinity key. Targets without a declared key carrier omit it; automatic caching is independent. Does not select or reorder OpenBridge candidates."},
+          "prompt_cache_key": {"type": ["string", "null"], "maxLength": 256, "description": "Advisory Provider cache-affinity key. Targets without a declared key carrier omit it; automatic caching is independent. Does not select or reorder MorphieCore candidates."},
           "messages": {"type": "array", "items": {"type": "object", "not": {"required": ["_openbridge"]}}, "description": "User/assistant and system/developer content accepts a string or nonempty ordered plain-text part array. Tool result content accepts a string or ordered plain-text part array, including an empty array; single tool-result parts remain arrays. User content additionally admits ordered text/image_url parts when public and endpoint contracts permit image input; one image remains an array. HTTP(S) URL and Base64 image data URL only; file IDs, other roles' images, tool-result media remains rejected. Assistant audio history has separate library admission and trusted source/expiry requirements in the Chat media profile; unbound audio IDs and existing text/image-only product bindings reject it."},
           "modalities": {"type": ["array", "null"], "items": {"enum": ["text", "audio"]}, "minItems": 1, "maxItems": 2, "uniqueItems": true, "description": "Library output intent; audio requires matching audio options and explicit public/endpoint audio_output admission. Existing text/image bindings do not gain audio admission."},
           "audio": {"type": ["object", "null"], "required": ["format", "voice"], "additionalProperties": false, "properties": {"format": {"enum": ["wav", "aac", "mp3", "flac", "opus", "pcm16"]}, "voice": {"type": "string", "minLength": 1, "maxLength": 128}}, "description": "Named-voice output options, not voice/account management. Requires audio modality; streaming requires pcm16. No audio model is activated by this schema."},
@@ -456,7 +456,7 @@
         },
         "allOf": [{"if": {"required": ["top_logprobs"], "properties": {"top_logprobs": {"type": "integer"}}}, "then": {"required": ["logprobs"], "properties": {"logprobs": {"const": true}}}}],
         "additionalProperties": true,
-        "description": "Additional fields require admission by the Chat text profile and selected public contract; additionalProperties does not authorize arbitrary upstream parameters. Function-only tool_choice.allowed_tools uses the nested Chat shell. Explicit assistant-message/tool-call membership cannot be projected to a standard Responses target; incompatible history is rejected before upstream I/O, without dropping the owner or membership. OpenBridge's Chat extension admits scoped openai-responses-v1 reasoning_details on assistant history; preserve those actual output details for replay rather than treating them as ordinary assistant text."
+        "description": "Additional fields require admission by the Chat text profile and selected public contract; additionalProperties does not authorize arbitrary upstream parameters. Function-only tool_choice.allowed_tools uses the nested Chat shell. Explicit assistant-message/tool-call membership cannot be projected to a standard Responses target; incompatible history is rejected before upstream I/O, without dropping the owner or membership. MorphieCore's Chat extension admits scoped openai-responses-v1 reasoning_details on assistant history; preserve those actual output details for replay rather than treating them as ordinary assistant text."
       },
       "ResponsesRequest": {
         "type": "object", "required": ["model"],

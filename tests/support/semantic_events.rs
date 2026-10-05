@@ -1,5 +1,5 @@
 //! Synthetic offline event builders, not wire or semantic oracles.
-use openbridge::{
+use morphiecore::{
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::{
         fidelity::FidelityRecords,

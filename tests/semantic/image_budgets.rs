@@ -1,6 +1,6 @@
 //! Image-response byte ceilings do not enlarge conversation JSON budgets.
 use base64::Engine;
-use openbridge::{
+use morphiecore::{
     protocol::{CodecError, openai::images, openrouter_images},
     semantic::{
         task::image_generation::*,

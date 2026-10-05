@@ -1,5 +1,5 @@
 //! Canonical wire spelling is independent of Rust names and stays fail-closed.
-use openbridge::semantic::task::generation::{
+use morphiecore::semantic::task::generation::{
     ImageDetail, Phase, ReasoningContext, ReasoningEffort, ReasoningMode,
 };
 #[test]

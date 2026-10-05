@@ -1,6 +1,6 @@
 # Semantic Model 与 IR
 
-OpenBridge 的核心是**独立、可复用的模型交互语义体系**：承载模型 API 交互，尽量降低跨 Provider 映射的语义损失，并通过标准接口服务下游。Gateway 是其运行边界；未来自研 Agent 复用同一语义体系，而非另建 Agent/Provider IR。项目未发布，稳定目标是概念、所有权与不变量，不是当前 Rust 类型；允许在明确迁移范围内大规模破坏性重写，不维持无必要的旧结构兼容。
+MorphieCore 的核心是**独立、可复用的模型交互语义体系**：承载模型 API 交互，尽量降低跨 Provider 映射的语义损失，并通过标准接口服务下游。Gateway 是其运行边界；未来自研 Agent 复用同一语义体系，而非另建 Agent/Provider IR。项目未发布，稳定目标是概念、所有权与不变量，不是当前 Rust 类型；允许在明确迁移范围内大规模破坏性重写，不维持无必要的旧结构兼容。
 
 本页拥有总体合同；Generation 专项归[交互合同](interaction-contract.md)，映射与损失归[protocol/lowering](protocol-and-lowering.md)，当前接线归[架构](../architecture.md)。[计划](../implementation-plans/next-goal.md)决定实施顺序，[缺口](../implementation-status/generation.md)区分设计与当前实现。
 

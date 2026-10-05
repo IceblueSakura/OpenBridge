@@ -216,7 +216,8 @@ impl Gateway {
                 if endpoint.representation.replay_origin.is_some() {
                     endpoint.representation.replay_origin = Some(scope.clone());
                 }
-                let client = Adapter::new(entry.protocol, Dialect::OpenBridge, Some(scope.clone()));
+                let client =
+                    Adapter::new(entry.protocol, Dialect::MorphieCore, Some(scope.clone()));
                 // Model input admission must not filter facts reported on the client wire
                 // (e.g. empty logprobs or defaults a model cannot accept as controls).
                 let downstream = GenerationRepresentationContract {

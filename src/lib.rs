@@ -1,4 +1,4 @@
-//! OpenBridge v2 semantic core, protocol codecs, target lowering, trusted
+//! MorphieCore v2 semantic core, protocol codecs, target lowering, trusted
 //! provider/topology bindings and a minimal execution chain.
 //!
 //! The gateway module connects these pure layers to bounded HTTP I/O. The

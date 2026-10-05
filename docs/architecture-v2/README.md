@@ -1,6 +1,6 @@
 # 语义架构与有效决策
 
-OpenBridge 以一套独立 Semantic Model / IR 支撑低损 Provider 映射、标准 Gateway 和未来 Agent 复用。**目的与概念只由 [Semantic Model](semantic-ir.md)维护，推进顺序只由[后续计划](../implementation-plans/next-goal.md)维护。** 本目录描述有效合同，不证明当前实现或生产就绪。
+MorphieCore 以一套独立 Semantic Model / IR 支撑低损 Provider 映射、标准 Gateway 和未来 Agent 复用。**目的与概念只由 [Semantic Model](semantic-ir.md)维护，推进顺序只由[后续计划](../implementation-plans/next-goal.md)维护。** 本目录描述有效合同，不证明当前实现或生产就绪。
 
 ## 阅读入口
 

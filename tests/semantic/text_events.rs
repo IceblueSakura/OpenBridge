@@ -1,6 +1,6 @@
 //! Text/refusal parts preserve boundaries, empty values and independent item lifecycle.
 use crate::events_support::*;
-use openbridge::{
+use morphiecore::{
     protocol::{
         fidelity::FidelityRecords,
         openai::{
@@ -40,7 +40,7 @@ fn independent_text_wire_decodes_empty_and_multiple_parts() {
     assert_eq!(
         m.parts[0].content,
         ContentPart::Text(
-            openbridge::semantic::value::Text::allowing_empty("", "test", 1)
+            morphiecore::semantic::value::Text::allowing_empty("", "test", 1)
                 .unwrap()
                 .into()
         )

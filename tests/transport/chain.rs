@@ -1,6 +1,6 @@
 //! Adapter/execution acceptance with independent wire and explicit I/O commit.
 use crate::{chat_wire, wire};
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     execution::{Attempt, AttemptError, ResponseDelivery, admit, prepare},
     lowering::generation::{GenerationRepresentationContract as Contract, ReportedFactPolicy},
@@ -51,7 +51,7 @@ fn bytes(profile: Profile) -> Vec<u8> {
         Profile::Responses => wire::events(2)
             .iter()
             .flat_map(|v| {
-                openbridge::protocol::openai::sse::encode_frame(
+                morphiecore::protocol::openai::sse::encode_frame(
                     v,
                     SseLimits::default().max_event_bytes,
                 )
@@ -238,8 +238,11 @@ fn strict_completeness_can_fail_late_without_fabricating_a_terminal() {
     let body: Vec<u8> = frames
         .iter()
         .flat_map(|v| {
-            openbridge::protocol::openai::sse::encode_frame(v, SseLimits::default().max_event_bytes)
-                .unwrap()
+            morphiecore::protocol::openai::sse::encode_frame(
+                v,
+                SseLimits::default().max_event_bytes,
+            )
+            .unwrap()
         })
         .collect();
     let encoded = consume(&mut intake, &mut output, &body).unwrap();
@@ -321,7 +324,7 @@ fn unified_request_projection_keeps_targets_trusted_and_debug_redacted() {
     let endpoint = topology
         .endpoint(&EndpointId::new("deepseek-chat").unwrap())
         .unwrap();
-    let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);
+    let client = Adapter::new(Profile::Responses, Dialect::MorphieCore, None);
     let request = client.decode_request(json!({"model":"deepseek-flash","input":"hello","stream":true,"prompt_cache_key":"session"}).to_string().as_bytes()).unwrap();
     admit(
         catalog::default_topology()
@@ -391,7 +394,7 @@ fn opencode_go_projects_only_fixed_identity_and_explicit_session_headers() {
         .endpoint(&EndpointId::new("opencode-go-chat").unwrap())
         .unwrap();
     let provider = providers::opencode_go();
-    let client = Adapter::new(Profile::Chat, Dialect::OpenBridge, None);
+    let client = Adapter::new(Profile::Chat, Dialect::MorphieCore, None);
     let secret = SecretMaterial::new("synthetic-go-key").unwrap();
     for session in [None, Some("synthetic-conversation")] {
         let mut body = json!({"model":"hy4-preview","messages":[{"role":"user","content":"keep"}],"max_completion_tokens":37});
@@ -409,7 +412,7 @@ fn opencode_go_projects_only_fixed_identity_and_explicit_session_headers() {
         assert!(wire.get("provider").is_none());
         assert!(prepared.safe_headers.contains(&(
             "user-agent".into(),
-            format!("OpenBridge/{}", env!("CARGO_PKG_VERSION"))
+            format!("MorphieCore/{}", env!("CARGO_PKG_VERSION"))
         )));
         let projected = prepared
             .safe_headers
@@ -422,7 +425,7 @@ fn opencode_go_projects_only_fixed_identity_and_explicit_session_headers() {
     }
     let unsupported = client.decode_request(br#"{"model":"hy4-preview","session_id":"conversation-\u2603","messages":[{"role":"user","content":"keep"}]}"#).unwrap();
     assert!(prepare(endpoint, &provider, &secret, &unsupported).is_err());
-    assert!(openbridge::execution::ExecutionPlan::for_request(&topology, &unsupported).is_err());
+    assert!(morphiecore::execution::ExecutionPlan::for_request(&topology, &unsupported).is_err());
     assert!(
         client
             .decode_request(
@@ -443,7 +446,7 @@ fn openrouter_luna_pdf_is_bounded_responses_with_strict_replay() {
         .unwrap();
     let client = Adapter::new(
         Profile::Responses,
-        Dialect::OpenBridge,
+        Dialect::MorphieCore,
         endpoint.representation.adaptation.scope.clone(),
     );
     let body = json!({"model":"gpt-6-luna","input":[{"role":"user","content":[
@@ -514,7 +517,7 @@ fn router_pdf_budgets_and_history_do_not_expand_other_models() {
     let endpoint = topology
         .endpoint(&EndpointId::new("openrouter-responses").unwrap())
         .unwrap();
-    let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);
+    let client = Adapter::new(Profile::Responses, Dialect::MorphieCore, None);
     let body = json!({"model":"gpt-6-luna","max_output_tokens":512,"input":[{
         "role":"user","content":[{"type":"input_text","text":"Read the build marker."},
         {"type":"input_file","file_data":"data:application/pdf;base64,AQID","filename":"synthetic.pdf"}]
@@ -630,7 +633,7 @@ fn router_request_policy_is_fixed_and_luna_controls_are_not_silently_ignored() {
             "max_output_tokens":64,"reasoning":{"effort":"low"},"stream":true}),
         ),
     ] {
-        let client = Adapter::new(profile, Dialect::OpenBridge, None);
+        let client = Adapter::new(profile, Dialect::MorphieCore, None);
         let request = client.decode_request(body.to_string().as_bytes()).unwrap();
         admit(
             catalog::default_topology()
@@ -713,7 +716,7 @@ fn opaque_replay_reaches_prepared_body_only_for_its_bound_origin() {
             .unwrap();
         let client = Adapter::new(
             profile,
-            Dialect::OpenBridge,
+            Dialect::MorphieCore,
             endpoint.representation.adaptation.scope.clone(),
         );
         let request = client.decode_request(body.to_string().as_bytes()).unwrap();
@@ -721,8 +724,9 @@ fn opaque_replay_reaches_prepared_body_only_for_its_bound_origin() {
         let wire: Value = serde_json::from_slice(&prepared.body).unwrap();
         assert_eq!(wire.pointer(pointer), Some(&json!("synthetic-cipher")));
         let mut wrong = endpoint.clone();
-        wrong.representation.replay_origin =
-            Some(openbridge::semantic::value::ReplayOrigin::new("other-credential-owner").unwrap());
+        wrong.representation.replay_origin = Some(
+            morphiecore::semantic::value::ReplayOrigin::new("other-credential-owner").unwrap(),
+        );
         assert!(prepare(&wrong, &providers::openrouter(), &secret, &request).is_err());
     }
 }
@@ -759,14 +763,14 @@ async fn synthetic_http_chain_uses_prepared_request_and_adapter_response() {
     }
     let _guard = Guard(server);
     let mut provider = providers::deepseek();
-    provider.origin = openbridge::provider::TrustedOrigin::parse(&origin).unwrap();
+    provider.origin = morphiecore::provider::TrustedOrigin::parse(&origin).unwrap();
     let topology = catalog::default_topology().unwrap();
     let mut endpoint = topology
         .endpoint(&EndpointId::new("deepseek-chat").unwrap())
         .unwrap()
         .clone();
     endpoint.target.origin = provider.origin.clone();
-    let client = Adapter::new(Profile::Chat, Dialect::OpenBridge, None);
+    let client = Adapter::new(Profile::Chat, Dialect::MorphieCore, None);
     let request = client
         .decode_request(
             json!({"model":"deepseek-flash","messages":[{"role":"user","content":"hello"}]})

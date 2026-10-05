@@ -36,7 +36,7 @@ HTTP session-id            = K
 client_metadata.session_id = S
 ```
 
-这是固定 Codex 产品 profile 的投影，不是公共 Responses、公开 SIWC 或 OpenBridge body `session_id` 的默认别名规则。OpenBridge 公开 cache grouping 的准入与投影归 [HTTP 合同](../http-gateway.md)和 [cache carrier](../../src/protocol/cache.rs)，不因这里的外部映射自动改变。
+这是固定 Codex 产品 profile 的投影，不是公共 Responses、公开 SIWC 或 MorphieCore body `session_id` 的默认别名规则。MorphieCore 公开 cache grouping 的准入与投影归 [HTTP 合同](../http-gateway.md)和 [cache carrier](../../src/protocol/cache.rs)，不因这里的外部映射自动改变。
 
 HTTP header 与 WebSocket handshake/message 的位置不同；turn-state 还可能进入 WS message client metadata。扩展 schema 应描述事实与生命周期，再由 profile encoder 投影，不能同时保留多个可矛盾的 canonical 值。`protocol::extensions` 有低层 carrier 不代表 Gateway 已拥有 turn、接线私有 headers 或管理上游连接。
 
@@ -55,7 +55,7 @@ HTTP header 与 WebSocket handshake/message 的位置不同；turn-state 还可�
 
 - [Codex API adapter][pi-codex-api]从显式 `sessionId` 选择 cache key；SSE 把所选值投影到 `session-id` / `x-client-request-id`，与官方 Codex 的 thread identity 规则分别核对。WebSocket 连接缓存按 session/account 分组，增量请求只有在设置及已消费历史前缀匹配时使用 `previous_response_id`；失败会清除 continuation，不能由 key 相同推定可重放。
 - [公共 Responses adapter][pi-responses-api]保留所选 cache key，但公开 SIWC 分支省略 retention/options 等不接受的控制。它与 Codex backend 的 headers、连接状态和字段准入分别定稿；客户端省略 key 不等于对所有 Provider 显式禁用缓存。
-- [Cache-key helper][pi-cache-key]将 key 限制并截到 64 字符。这是固定客户端的本地选择，不替代 OpenBridge 的公开接入预算或目标限制。直接移植截断可能合并不同 key；目标的长度、编码与拒绝/映射合同需明确，不能默默截断来宣称无损。
+- [Cache-key helper][pi-cache-key]将 key 限制并截到 64 字符。这是固定客户端的本地选择，不替代 MorphieCore 的公开接入预算或目标限制。直接移植截断可能合并不同 key；目标的长度、编码与拒绝/映射合同需明确，不能默默截断来宣称无损。
 
 这些投影不授予登录、账户发现、连接复用或业务请求 retry 权限；不采用参考客户端的自动 fallback 作为 Gateway 默认策略。
 

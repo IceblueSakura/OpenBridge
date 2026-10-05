@@ -1,5 +1,5 @@
 //! Reported token details are typed facts, never inferred disjoint partitions.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::{

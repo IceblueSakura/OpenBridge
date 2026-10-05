@@ -1,6 +1,6 @@
 //! Schema order is asserted independently of Value equality, which ignores object order.
 use crate::wire;
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, lower_request, lower_response,
     },
@@ -68,7 +68,7 @@ fn request() -> envelope::DecodedResponsesRequest {
 fn admit(
     schema: Value,
     strict: bool,
-) -> Result<openbridge::protocol::openai::DecodedRequest, openbridge::protocol::openai::CodecError>
+) -> Result<morphiecore::protocol::openai::DecodedRequest, morphiecore::protocol::openai::CodecError>
 {
     responses::decode_generation(
         &json!({"input":"hello","text":{"format":{"type":"json_schema","name":"answer","schema":schema,"strict":strict}}}),
@@ -708,7 +708,7 @@ fn regex_work_is_bounded_before_recursive_syntax_parsing() {
             .unwrap_err();
             assert!(matches!(
                 error,
-                openbridge::protocol::openai::CodecError::Semantic(GenerationError::Limit)
+                morphiecore::protocol::openai::CodecError::Semantic(GenerationError::Limit)
             ));
         }
         let error = admit(
@@ -718,7 +718,7 @@ fn regex_work_is_bounded_before_recursive_syntax_parsing() {
         .unwrap_err();
         assert!(matches!(
             error,
-            openbridge::protocol::openai::CodecError::Semantic(GenerationError::Limit)
+            morphiecore::protocol::openai::CodecError::Semantic(GenerationError::Limit)
         ));
     }
 }

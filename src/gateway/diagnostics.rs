@@ -191,7 +191,7 @@ pub(super) struct Trace {
 }
 impl Trace {
     pub(super) fn new(sink: Option<&Sink>, headers: &HeaderMap) -> Self {
-        let mut ids = headers.get_all("x-openbridge-probe-id").iter();
+        let mut ids = headers.get_all("x-morphiecore-probe-id").iter();
         let id = ids
             .next()
             .and_then(|v| v.to_str().ok())
@@ -395,7 +395,7 @@ mod tests {
         let sink = Sink(tx);
         let mut headers = HeaderMap::new();
         headers.insert(
-            "x-openbridge-probe-id",
+            "x-morphiecore-probe-id",
             "00000000000000000000000000000001:1".parse().unwrap(),
         );
         for enabled in [false, true] {
@@ -418,7 +418,7 @@ mod tests {
         let sink = Sink(tx);
         let mut headers = HeaderMap::new();
         headers.insert(
-            "x-openbridge-probe-id",
+            "x-morphiecore-probe-id",
             "00000000000000000000000000000001:1".parse().unwrap(),
         );
         let mut trace = Trace::new(Some(&sink), &headers);
@@ -455,7 +455,7 @@ mod tests {
         let sink = Sink(tx);
         let mut headers = HeaderMap::new();
         headers.insert(
-            "x-openbridge-probe-id",
+            "x-morphiecore-probe-id",
             "00000000000000000000000000000001:1".parse().unwrap(),
         );
         let mut trace = Trace::new(Some(&sink), &headers);
@@ -500,7 +500,7 @@ mod tests {
         let sink = Sink(tx);
         let mut headers = HeaderMap::new();
         headers.insert(
-            "x-openbridge-probe-id",
+            "x-morphiecore-probe-id",
             "00000000000000000000000000000001:1".parse().unwrap(),
         );
         drop(Trace::new(Some(&sink), &headers));
@@ -526,7 +526,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer synthetic-secret".parse().unwrap());
         headers.insert(
-            "x-openbridge-probe-id",
+            "x-morphiecore-probe-id",
             "00000000000000000000000000000001:1".parse().unwrap(),
         );
         let mut trace = Trace::new(Some(&sink), &headers);
@@ -536,7 +536,10 @@ mod tests {
         trace.stage(Stage::ResponseHead);
         trace.head(429, &upstream);
         drop(trace);
-        headers.insert("x-openbridge-probe-id", "synthetic-secret".parse().unwrap());
+        headers.insert(
+            "x-morphiecore-probe-id",
+            "synthetic-secret".parse().unwrap(),
+        );
         drop(Trace::new(Some(&sink), &headers));
         sink.flush().await;
         let text = std::fs::read_to_string(&path).unwrap();

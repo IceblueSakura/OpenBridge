@@ -1,5 +1,5 @@
 //! Trusted synthetic topology shared by Router and explicit SDK gates.
-use openbridge::{
+use morphiecore::{
     gateway::{Entry, Gateway, Limits},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::Profile,
@@ -66,7 +66,7 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
     })
     .collect();
     let route = Route {
-        policy: openbridge::topology::RoutePolicy::default(),
+        policy: morphiecore::topology::RoutePolicy::default(),
         id: RouteId::new("fixture-route").unwrap(),
         task: TaskKind::Generation,
         endpoints: vec![
@@ -86,7 +86,7 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
                 ..GenerationSemanticContract::full()
             },
             standard_context: true,
-            reported_facts: openbridge::lowering::generation::ReportedFactPolicy::Faithful,
+            reported_facts: morphiecore::lowering::generation::ReportedFactPolicy::Faithful,
         })
         .collect();
     let canonical = CanonicalModel {
@@ -95,7 +95,7 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         contract: GenerationSemanticContract::full(),
     };
     let (image_provider, image_route) = image_support::binding(origin);
-    let router_binding = &openbridge::topology::catalog::IMAGE_BINDINGS[0];
+    let router_binding = &morphiecore::topology::catalog::IMAGE_BINDINGS[0];
     let mut router_provider = router_binding.provider();
     router_provider.origin = TrustedOrigin::parse(origin).unwrap();
     let mut router_route = router_binding.route();
@@ -155,10 +155,10 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         topology,
         entries,
         vec![
-            openbridge::gateway::ImageEntry {
+            morphiecore::gateway::ImageEntry {
                 model: "public-image".into(),
             },
-            openbridge::gateway::ImageEntry {
+            morphiecore::gateway::ImageEntry {
                 model: router_binding.model.into(),
             },
         ],

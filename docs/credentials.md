@@ -7,9 +7,9 @@
 ## Gateway access 绑定
 
 ```sh
-cargo run --locked --offline --bin openbridge -- --credentials-dir /path/to/private-store
+cargo run --locked --offline --bin morphiecore -- --credentials-dir /path/to/private-store
 # 入口配置可独立放置；不需要复制上游凭据。
-cargo run --locked --offline --bin openbridge -- \
+cargo run --locked --offline --bin morphiecore -- \
   --credentials-dir /path/to/private-store --config /path/to/private/gateway.json
 ```
 
@@ -67,7 +67,7 @@ Provider 文件中的 `pools` 使用已编译的 credential binding ID 为键。
 CLI 由 `clap` 解析，错误不回显输入值。每个命令必须显式提供 `--store`；父目录须由操作者准备，不读取默认账户或环境 key。
 
 ```sh
-cargo build --locked --offline --bin openbridge-auth
+cargo build --locked --offline --bin morphiecore-auth
 ```
 
 下列 `STORE`、`PROVIDER_ID`、`KEY_ALIAS`、`BINDING_ID`、`REVISION` 是非秘密操作者变量；真实 key 只放在已授权的私有输入文件中。不要把 secret 放入 argv 或 shell history。
@@ -75,19 +75,19 @@ cargo build --locked --offline --bin openbridge-auth
 ### API key
 
 ```sh
-target/debug/openbridge-auth api-key add --store "$STORE" \
+target/debug/morphiecore-auth api-key add --store "$STORE" \
   --domain "$PROVIDER_ID" --alias "$KEY_ALIAS" --secret-file /path/to/private/key-input
 
-target/debug/openbridge-auth api-key list --store "$STORE" --domain "$PROVIDER_ID"
-target/debug/openbridge-auth api-key replace --store "$STORE" \
+target/debug/morphiecore-auth api-key list --store "$STORE" --domain "$PROVIDER_ID"
+target/debug/morphiecore-auth api-key replace --store "$STORE" \
   --domain "$PROVIDER_ID" --alias "$KEY_ALIAS" --revision "$REVISION" \
   --secret-file /path/to/private/replacement-input
 
-target/debug/openbridge-auth api-key disable --store "$STORE" \
+target/debug/morphiecore-auth api-key disable --store "$STORE" \
   --domain "$PROVIDER_ID" --alias "$KEY_ALIAS" --revision "$REVISION"
-target/debug/openbridge-auth api-key enable --store "$STORE" \
+target/debug/morphiecore-auth api-key enable --store "$STORE" \
   --domain "$PROVIDER_ID" --alias "$KEY_ALIAS" --revision "$REVISION"
-target/debug/openbridge-auth api-key remove --store "$STORE" \
+target/debug/morphiecore-auth api-key remove --store "$STORE" \
   --domain "$PROVIDER_ID" --alias "$KEY_ALIAS" --revision "$REVISION"
 ```
 
@@ -111,9 +111,9 @@ target/debug/openbridge-auth api-key remove --store "$STORE" \
 OAuth 成员形状为 `{"kind":"oauth","profile":"configured-profile","alias":"chosen-account"}`，须符合具体 Endpoint 合同。不能因放在同一数组便使不兼容认证可互换。
 
 ```sh
-target/debug/openbridge-auth pool set --store "$STORE" --provider "$PROVIDER_ID" \
+target/debug/morphiecore-auth pool set --store "$STORE" --provider "$PROVIDER_ID" \
   --binding "$BINDING_ID" --revision 0 --file /path/to/private/pool.json
-target/debug/openbridge-auth pool list --store "$STORE"
+target/debug/morphiecore-auth pool list --store "$STORE"
 ```
 
 创建新 pool 时传 revision 0，成功后返回 revision 1；更新已有 pool 使用当前 pool revision，而非文档或凭据 revision。没有 pool 的凭据只受管理，不启用推理。库入口是 `set_pool`、`bind_pool` 和 `Credentials::insert_pool`；静态内存注入仅供显式嵌入及 synthetic checks，不是 binary 的环境回退入口。
@@ -121,15 +121,15 @@ target/debug/openbridge-auth pool list --store "$STORE"
 ### OAuth
 
 ```sh
-target/debug/openbridge-auth grok login --store "$STORE" --account personal
-target/debug/openbridge-auth grok login --store "$STORE" --account personal --method browser
-target/debug/openbridge-auth codex login --store "$STORE" --account personal
-target/debug/openbridge-auth codex login --store "$STORE" --account personal --method browser
-target/debug/openbridge-auth list --store "$STORE"
-target/debug/openbridge-auth codex refresh --store "$STORE" --account personal
-target/debug/openbridge-auth codex logout --store "$STORE" --account personal
+target/debug/morphiecore-auth grok login --store "$STORE" --account personal
+target/debug/morphiecore-auth grok login --store "$STORE" --account personal --method browser
+target/debug/morphiecore-auth codex login --store "$STORE" --account personal
+target/debug/morphiecore-auth codex login --store "$STORE" --account personal --method browser
+target/debug/morphiecore-auth list --store "$STORE"
+target/debug/morphiecore-auth codex refresh --store "$STORE" --account personal
+target/debug/morphiecore-auth codex logout --store "$STORE" --account personal
 # 显式远端撤销需独立授权；本地清理先于该请求。
-target/debug/openbridge-auth codex logout --store "$STORE" --account personal --revoke
+target/debug/morphiecore-auth codex logout --store "$STORE" --account personal --revoke
 ```
 
 - device 是缺省方法，browser 显式选择；失败不自动换 client/方法。Grok 可指定已获准 `--client-id`，Codex 不接受 override。代理只通过显式 `--proxy` 指定，不继承环境代理。

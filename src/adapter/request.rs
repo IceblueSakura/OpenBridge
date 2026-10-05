@@ -183,7 +183,7 @@ impl Adapter {
         }
         let mut headers = vec![(
             "user-agent".into(),
-            concat!("OpenBridge/", env!("CARGO_PKG_VERSION")).into(),
+            concat!("MorphieCore/", env!("CARGO_PKG_VERSION")).into(),
         )];
         if let Some(session) = &request.cache_session {
             // Body sessions can be Unicode; this HTTP carrier must be representable before I/O.
@@ -325,5 +325,31 @@ impl Adapter {
         )
         .map_err(|_| CodecError::Limit)?;
         Ok(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapter::Dialect;
+
+    #[test]
+    fn project_profile_and_owned_user_agent_use_current_names() {
+        let client = Adapter::new(Profile::Chat, Dialect::MorphieCore, None);
+        assert_eq!(client.adaptation.profile_id, "morphiecore-v1");
+        let request = client
+            .decode_request(
+                br#"{"model":"synthetic","messages":[{"role":"user","content":"hello"}]}"#,
+            )
+            .unwrap();
+        let provider = Adapter::new(Profile::Chat, Dialect::OpenCodeGo, None);
+        assert_eq!(
+            provider.request_headers(&request).unwrap(),
+            vec![(
+                "user-agent".into(),
+                concat!("MorphieCore/", env!("CARGO_PKG_VERSION")).into(),
+            )]
+        );
+        assert!(client.request_headers(&request).unwrap().is_empty());
     }
 }

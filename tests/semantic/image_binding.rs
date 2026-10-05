@@ -1,4 +1,4 @@
-use openbridge::{
+use morphiecore::{
     execution::images::prepare,
     gateway::{Credentials, Gateway, ImageEntry, Limits},
     provider::{
@@ -39,7 +39,7 @@ fn image_routes_require_explicit_operation_identity_and_bounded_execution() {
             5 => route.endpoint.upstream_model = "".into(),
             _ => {
                 route.endpoint.target.path =
-                    openbridge::provider::EndpointPath::new("/other").unwrap()
+                    morphiecore::provider::EndpointPath::new("/other").unwrap()
             }
         }
         assert!(
@@ -77,9 +77,9 @@ fn image_routes_require_explicit_operation_identity_and_bounded_execution() {
         .unwrap();
     assert!(compiled.model("public-image").is_none());
     let route = compiled.image_route("public-image").unwrap();
-    let request = openbridge::adapter::images::Request::new(
+    let request = morphiecore::adapter::images::Request::new(
         "public-image",
-        openbridge::semantic::task::image_generation::ImageGenerationRequest::new("square")
+        morphiecore::semantic::task::image_generation::ImageGenerationRequest::new("square")
             .unwrap(),
     );
     let prepared = prepare(

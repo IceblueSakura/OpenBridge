@@ -1,6 +1,6 @@
 //! Typed CLI presentation over CredentialManager; no credential values in arguments.
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use openbridge::credential::{
+use morphiecore::credential::{
     CredentialError as Error, CredentialManager, CredentialPool, CredentialStatus, LoginMethod,
     LoginOptions, LoginPrompt, LogoutOutcome, Secret, builtin_drivers, read_private_file,
 };

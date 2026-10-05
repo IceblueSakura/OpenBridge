@@ -1,5 +1,5 @@
 //! Independent standard Chat media/citation oracles; never use a live credential or catalog.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::Profile,
@@ -82,7 +82,7 @@ fn reported_audio_usage_is_typed_and_never_erased_for_another_profile() {
 }
 #[test]
 fn audio_history_requires_source_clock_and_final_owner_not_just_an_id() {
-    use openbridge::semantic::value::ReplayOrigin;
+    use morphiecore::semantic::value::ReplayOrigin;
     let origin = ReplayOrigin::new("synthetic-audio-source").unwrap();
     let source = Adapter::new(Profile::Chat, Dialect::Standard, Some(origin.clone()));
     let wire = json!({"model":"synthetic-model","messages":[{"role":"assistant","audio":{"id":"synthetic-audio","data":"AQID","transcript":"hello","expires_at":2000}},{"role":"user","content":"Repeat it."}]});
@@ -135,7 +135,7 @@ fn audio_history_requires_source_clock_and_final_owner_not_just_an_id() {
     let ContentPart::Audio(audio) = &m.parts[0].content else {
         panic!()
     };
-    let text = |s: &str| openbridge::semantic::value::Text::new(s, "synthetic", 1024).unwrap();
+    let text = |s: &str| morphiecore::semantic::value::Text::new(s, "synthetic", 1024).unwrap();
     m.parts[0].content = ContentPart::Audio(
         GeneratedAudio::new(audio.reference().clone(), text("BAUG"), text("different")).unwrap(),
     );
@@ -168,7 +168,7 @@ fn audio_history_requires_source_clock_and_final_owner_not_just_an_id() {
 }
 #[test]
 fn annotations_edits_and_unsupported_streams_do_not_lose_citations() {
-    use openbridge::{protocol::openai::events::EventEncoder, semantic::value::Text};
+    use morphiecore::{protocol::openai::events::EventEncoder, semantic::value::Text};
     let wire = completion(
         json!({"role":"assistant","content":"a😀b","annotations":[{"type":"url_citation","url_citation":{"start_index":1,"end_index":2,"title":"Example","url":"https://example.invalid/"}}]}),
     );
@@ -392,9 +392,9 @@ fn audio_empty_text_refusal_padding_and_identity_boundaries() {
 // The low-level typed events need an independent encoder oracle, not only decode round trips.
 #[test]
 fn byte_fragments_encode_as_one_base64_value() {
-    use openbridge::{protocol::openai::events::EventEncoder, semantic::value::Text};
+    use morphiecore::{protocol::openai::events::EventEncoder, semantic::value::Text};
     let t = |s: &str| Text::new(s, "synthetic", 1024).unwrap();
-    let meta = openbridge::protocol::ResponseMetadata {
+    let meta = morphiecore::protocol::ResponseMetadata {
         id: "r".into(),
         model: "synthetic".into(),
         created: 1.into(),

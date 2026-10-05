@@ -1,5 +1,5 @@
 //! Synthetic router wire shapes; no account, network or model-quality oracle.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::{
@@ -55,7 +55,7 @@ fn router_facts_are_scoped_and_reasoning_and_usage_are_typed() {
     );
     for target in [
         adapter(Profile::Chat, Dialect::OpenRouter, "other"),
-        adapter(Profile::Chat, Dialect::OpenBridge, "source"),
+        adapter(Profile::Chat, Dialect::MorphieCore, "source"),
     ] {
         let out = target.encode_response(&decoded, &Contract::full()).unwrap();
         assert!(out.get("provider").is_none());
@@ -91,7 +91,7 @@ fn router_facts_are_scoped_and_reasoning_and_usage_are_typed() {
                         parts: vec![(
                             PartId::new(99),
                             ReasoningContent::Text(
-                                openbridge::semantic::value::Text::new(text, "fixture", 128)
+                                morphiecore::semantic::value::Text::new(text, "fixture", 128)
                                     .unwrap(),
                             ),
                         )],
@@ -194,7 +194,7 @@ fn router_live_shapes_map_typed_tier_zero_media_and_reasoning_replay() {
         replay_origin: Some(ReplayOrigin::new("source").unwrap()),
         ..Contract::full()
     };
-    let client = adapter(Profile::Chat, Dialect::OpenBridge, "source");
+    let client = adapter(Profile::Chat, Dialect::MorphieCore, "source");
     let output = client.encode_response(&decoded, &contract).unwrap();
     assert_eq!(output["service_tier"], "default");
     assert_eq!(
@@ -245,7 +245,7 @@ fn chunk(delta: Value, reason: Value) -> Value {
 #[test]
 fn structured_reasoning_stream_binds_late_identity_and_rejects_duplicate_replay() {
     let source = adapter(Profile::Chat, Dialect::OpenRouter, "source");
-    let client = adapter(Profile::Chat, Dialect::OpenBridge, "source");
+    let client = adapter(Profile::Chat, Dialect::MorphieCore, "source");
     let contract = Contract {
         replay_origin: Some(ReplayOrigin::new("source").unwrap()),
         ..Contract::full()
@@ -315,7 +315,7 @@ fn structured_reasoning_stream_binds_late_identity_and_rejects_duplicate_replay(
 
 #[test]
 fn responses_done_trailer_requires_a_real_terminal_and_cannot_repeat() {
-    use openbridge::protocol::openai::sse::ResponsesSseDecoder;
+    use morphiecore::protocol::openai::sse::ResponsesSseDecoder;
     let frames = crate::wire::events(2);
     let body = frames
         .iter()

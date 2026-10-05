@@ -1,6 +1,6 @@
 //! Independent value/proof, mutation and finality oracles for Responses encrypted reasoning.
 use crate::events_support::{contract, envelope, metadata, origin, text};
-use openbridge::{
+use morphiecore::{
     lowering::generation::{lower_request, lower_response},
     protocol::{
         fidelity::FidelityRecords,
@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 fn wire(id: &str, token: &str, status: &str) -> Value {
     json!({"type":"reasoning","id":id,"status":status,"summary":[],"encrypted_content":token})
 }
-fn request(values: Value) -> openbridge::protocol::openai::DecodedRequest {
+fn request(values: Value) -> morphiecore::protocol::openai::DecodedRequest {
     let mut decoded = responses::decode_generation(&json!({"input":values})).unwrap();
     decoded.fidelity.bind_replay_origin(&origin()).unwrap();
     decoded
@@ -172,7 +172,7 @@ fn independently_authored_ir_encodes_only_its_typed_value() {
 
 #[test]
 fn token_only_edits_invalidate_extras_even_when_debug_is_identical() {
-    use openbridge::adapter::{Adapter, Dialect};
+    use morphiecore::adapter::{Adapter, Dialect};
     let adapter = Adapter::new(Profile::Responses, Dialect::DeepSeek, Some(origin()));
     let mut input = envelope(
         "completed",
@@ -206,7 +206,7 @@ fn token_only_edits_invalidate_extras_even_when_debug_is_identical() {
 #[test]
 fn stream_snapshots_and_materialization_own_partial_final_and_removed_values() {
     use crate::events_support::{created, token};
-    use openbridge::protocol::openai::events::EventDecoder;
+    use morphiecore::protocol::openai::events::EventDecoder;
     for final_token in [Some("synthetic-final"), None] {
         let mut decoder = EventDecoder::new(Profile::Responses).with_replay_origin(origin());
         let mut state = StreamState::new();
@@ -347,7 +347,7 @@ fn stream_replacement_releases_budget_and_materialization_does_not_double_charge
 #[test]
 fn opaque_and_readable_values_share_the_semantic_budget() {
     for len in [0, MAX_TEXT_BYTES + 1] {
-        let invalid = openbridge::semantic::value::Text::allowing_empty(
+        let invalid = morphiecore::semantic::value::Text::allowing_empty(
             "x".repeat(len),
             "synthetic",
             MAX_TEXT_BYTES + 1,

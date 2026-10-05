@@ -1,6 +1,6 @@
 # SIWC 登录与 ChatGPT plan usage 参考
 
-本页集中维护公开 Sign in with ChatGPT（SIWC）的官方来源、授权与推理边界，以及 OpenBridge 迁移所需的非秘密参数规划。它不是完整上游 schema 的副本，不维护模型库存、账号资格、实例启用或测试结果，也不声明本项目已经实现 SIWC 或已获 OpenAI 用途批准。
+本页集中维护公开 Sign in with ChatGPT（SIWC）的官方来源、授权与推理边界，以及 MorphieCore 迁移所需的非秘密参数规划。它不是完整上游 schema 的副本，不维护模型库存、账号资格、实例启用或测试结果，也不声明本项目已经实现 SIWC 或已获 OpenAI 用途批准。
 
 共用 OAuth/OIDC 标准与安全边界归 [OAuth 来源入口](oauth-login.md)，当前 credential 实现与操作归 [凭据指南](../credentials.md)，共享语义和标准下游 API 归 [Semantic Model](../architecture-v2/semantic-ir.md)。本页独立描述公开 SIWC，不以前置阅读旧产品登录参考为条件；SIWC 与 Codex 产品的 token、client 和 backend 不能互换。
 
@@ -23,7 +23,7 @@
 
 官方 DevKit 的参考固定为 `openai/sign-in-with-chatgpt-devkit@f723814abdccec135b519c451fb6e1992ee5e933`，定位 [README][devkit-readme]、[credential security][devkit-security] 与 [LICENSE][devkit-license]。OpenAI-authored code/documentation 采用 **Sign-in with ChatGPT DevKit Noncommercial License v1.0**，不是 MIT/Apache；为雇主、客户或商业优势开展开发/测试，即使没有收费，也不自动满足其 Noncommercial Purpose。独立编写的软件不会仅因通过接口通信变成 Modified Work，但该例外不授予额外服务访问权。采用/分发 DevKit 代码、修改、品牌资产分别核对许可，不将本项目 MIT 扩张为第三方材料的许可。
 
-OpenBridge 规划独立使用公开 OAuth/OIDC 与 Responses 合同，不直接引入 DevKit 或 Node sidecar。其受保护 pending-rotation、账户与主进程隔离设计可作为来源，不等于可以复制源码或已完成原生安全验收。
+MorphieCore 规划独立使用公开 OAuth/OIDC 与 Responses 合同，不直接引入 DevKit 或 Node sidecar。其受保护 pending-rotation、账户与主进程隔离设计可作为来源，不等于可以复制源码或已完成原生安全验收。
 
 ## 应用用途与资格
 
@@ -43,9 +43,9 @@ OSS/local plan-usage flow 不需要 client secret 或 partner API key。商业�
 5. 不汇集、转售、赠送或共享套餐/token，不通过多账户、拆分或轮换绕过额度；不为另一用户消费同一人的订阅。
 6. 不以接口接入规避条款中的安全、欺诈、滥用、SIWC 软件修改/逆向或转许可限制；DevKit 许可与服务条款的适用范围分别确认。
 
-OpenBridge 的用途限定为本人单用户、同一自研分布式 Agent 应用的内部测试与模型执行组件，worker 只完成本人授权的集群运维/部署任务，项目保持开源。标准 OpenAI HTTP API 的形式不改变这一用途边界，也不能单凭内部网络、入口 key 或客户端自报名称证明请求属于该应用。复用 Pi 类 Runtime 不自动允许向任意独立应用提供套餐出口；身份与任务归属由可信应用边界约束，不把这一设计描述当作 OpenAI 批准。
+MorphieCore 的用途限定为本人单用户、同一自研分布式 Agent 应用的内部测试与模型执行组件，worker 只完成本人授权的集群运维/部署任务，项目保持开源。标准 OpenAI HTTP API 的形式不改变这一用途边界，也不能单凭内部网络、入口 key 或客户端自报名称证明请求属于该应用。复用 Pi 类 Runtime 不自动允许向任意独立应用提供套餐出口；身份与任务归属由可信应用边界约束，不把这一设计描述当作 OpenAI 批准。
 
-## OpenBridge 非秘密参数规划
+## MorphieCore 非秘密参数规划
 
 下表是迁移的规划值，**不是已注册 client、已存在 CLI/profile、运行配置或可执行操作命令**。实现后，精确常量和验证移至对应 owner；本页保留选择依据与上游来源，不维护第二份配置 schema。
 
@@ -53,15 +53,15 @@ OpenBridge 的用途限定为本人单用户、同一自研分布式 Agent 应�
 
 | 用途 | 规划值 | 约束 |
 |---|---|---|
-| 应用展示名称 | `OpenBridge` | 登录和授权呈现真实应用，不冒用 Pi、Codex CLI 或 OpenAI |
-| 内部 application ID | `openbridge` | 本地应用识别，不作为 OAuth client ID 或身份验证材料 |
-| 首次 `agent_name_hint` | `OpenBridge` | 所有安装一致；只用于首次动态注册，用户可修改展示名称 |
+| 应用展示名称 | `MorphieCore` | 登录和授权呈现真实应用，不冒用 Pi、Codex CLI 或 OpenAI |
+| 内部 application ID | `morphiecore` | 本地应用识别，不作为 OAuth client ID 或身份验证材料 |
+| 首次 `agent_name_hint` | `MorphieCore` | 所有安装一致；只用于首次动态注册，用户可修改展示名称 |
 | OAuth profile ID | `siwc` | 与产品 `codex`、其他 authority 和 Platform API key 分离 |
 | 推理 Provider ID | `openai-siwc` | 明确公共 Responses + SIWC binding，不依 Bearer 拼写或 token 前缀选 profile |
 | Credential binding ID | `openai-siwc-oauth` | 指向操作者显式选择的 registration，不做账户自动轮换 |
 | Endpoint / Route 命名前缀 | `openai-siwc` | 每个显式模型 binding 再分配唯一 Endpoint/Route；不写死动态上游模型库存 |
 | Adapter profile ID | `openai-siwc-responses` | 独立准入，不冒用 Codex 产品 dialect 或全量 Standard 能力 |
-| 自有请求 UA | `OpenBridge/<package-version>` | 版本取实际构建，不固定旧版本或冒充 `codex_cli_rs`；具体发送阶段归 driver/transport |
+| 自有请求 UA | `MorphieCore/<package-version>` | 版本取实际构建，不固定旧版本或冒充 `codex_cli_rs`；具体发送阶段归 driver/transport |
 | Sign-in 标签 | `Continue with ChatGPT` | 按 [UI/UX][ux] 使用获准品牌格式，不复制未经许可资产 |
 
 公共 model label 与 canonical model、upstream slug 分别绑定，不把 Provider/profile 塞进语义 identity。多个 binding 的后缀语法、私有文件布局和未来 `/models` 扩展 schema 在相应切片定稿；本页不提前声明可用模型或 legacy alias。
@@ -88,7 +88,7 @@ OpenBridge 的用途限定为本人单用户、同一自研分布式 Agent 应�
 | HTTP 推理 transport | JSON request / SSE response，`store:false`、`stream:true` |
 | Usage 管理 | `https://chatgpt.com/settings/usage` |
 
-选择 OS 分配端口避免与 Pi/Codex 的 1455 listener 竞争；这是 OpenBridge 策略，不是 authority 固定端口。后续授权只能改变 port，不能改变 callback scheme/host/path；同一 attempt 的 authorize 与 exchange 必须使用准确相同 URI。显式端口占用即失败，不取消其他进程或偷偷换地址。首片只提供 browser flow，不移植 Codex 私有设备轮询。
+选择 OS 分配端口避免与 Pi/Codex 的 1455 listener 竞争；这是 MorphieCore 策略，不是 authority 固定端口。后续授权只能改变 port，不能改变 callback scheme/host/path；同一 attempt 的 authorize 与 exchange 必须使用准确相同 URI。显式端口占用即失败，不取消其他进程或偷偷换地址。首片只提供 browser flow，不移植 Codex 私有设备轮询。
 
 ### 不能预先写死的值
 
@@ -132,7 +132,7 @@ Token 响应包含 access、refresh、ID token、token type、expiry、scope，�
 
 Refresh 用 form encoding，发送 `grant_type=refresh_token`、issued client、当前 refresh token 和相同 resource，省略 scope。同 session 的 refresh 串行化，锁内重读 generation，避免多进程消费旧 token；文件事务不跨网络。Replacement tokens、expiry 和 scopes 同 generation 原子发布，不向数据面暴露 refresh/ID token。
 
-OpenBridge 迁移规划采用以下安全与恢复边界，不照搬“任何失败都重试”：
+MorphieCore 迁移规划采用以下安全与恢复边界，不照搬“任何失败都重试”：
 
 - 发出前的本地错误与已可能消费 token 的错误分别处理。
 - 已收到 replacement、但新 ID-token 验证暂时受阻时，将新材料保存为受保护的 pending-verification 状态；禁止借用，允许后续恢复验证，不再次消费旧 refresh token。
@@ -193,15 +193,15 @@ SIWC 不继承 Codex 产品 account locator、CLI 身份或 private turn-state�
 
 公共 [API request-ID 合同][api-overview] 将 `X-Client-Request-Id` 定位为每请求唯一的追踪 ID（ASCII、至多 512 字符）；它不是通用 thread identity。`session-id` 与 `session_id` 是不同名字，不能因某客户端重复使用 session 值就推定 SIWC cache/turn sticky 语义。Host、OAuth session、logical session、thread、turn、request、prompt cache key 分别有 owner，具体 cache/连接状态归 [扩展与上下文](extensions-and-context.md)。`store:false` 不等于关闭 prompt cache。
 
-OpenBridge 直接 HTTP 首片不自动发送自定义 session/turn/originator header；未定稿的 carrier 不透传。自有 UA 采用本页规划，但 UA 本身不验证应用归属。Pi `1.0.2`（固定 `earendil-works/pi@cd32f7725fdbddbaecdff5b1e68491563394e0ca`，[MIT][pi-license]）的 [SIWC module][pi-siwc]、[Responses adapter][pi-responses] 和 [resolver][pi-resolver] 只作实现来源导航，不替代官方验证、registration 和最终准入要求，也不升级其他固定基线。
+MorphieCore 直接 HTTP 首片不自动发送自定义 session/turn/originator header；未定稿的 carrier 不透传。自有 UA 采用本页规划，但 UA 本身不验证应用归属。Pi `1.0.2`（固定 `earendil-works/pi@cd32f7725fdbddbaecdff5b1e68491563394e0ca`，[MIT][pi-license]）的 [SIWC module][pi-siwc]、[Responses adapter][pi-responses] 和 [resolver][pi-resolver] 只作实现来源导航，不替代官方验证、registration 和最终准入要求，也不升级其他固定基线。
 
 若以后使用官方 [Codex app-server][app-server] 作为同一应用的子组件：
 
 - 应用自己取得 SIWC access token，显式提供给子进程；不另外执行产品 Codex login，不把 refresh/ID token 交给工具或 renderer。
-- 配置公共 Responses base URL、`requires_openai_auth=false`、`supports_websockets=false`；具体配置和 RPC 命令仍由官方页面拥有，OpenBridge 不因此依赖 app-server。
-- `initialize.clientInfo` 如实采用 `name:"OpenBridge"`、`title:"OpenBridge"`、实际 version，与首次 `agent_name_hint` 保持应用名称一致；这是应用 attribution，不冒用 Codex CLI。SIWC 因而不是一概禁止 originator，只是不自动继承另一个产品身份。
+- 配置公共 Responses base URL、`requires_openai_auth=false`、`supports_websockets=false`；具体配置和 RPC 命令仍由官方页面拥有，MorphieCore 不因此依赖 app-server。
+- `initialize.clientInfo` 如实采用 `name:"MorphieCore"`、`title:"MorphieCore"`、实际 version，与首次 `agent_name_hint` 保持应用名称一致；这是应用 attribution，不冒用 Codex CLI。SIWC 因而不是一概禁止 originator，只是不自动继承另一个产品身份。
 - 子进程通过 stdio/RPC 使用自己的 thread/turn；只有 `turn/completed` 且 status completed 才算成功。模型 RPC 目录可能是 bundled catalog，不能证明资格。
-- 应用负责续期；env-key 模式要用新 access token 重启子进程并 resume 其本地 thread。自有子进程的显式 token 注入不改变 OpenBridge 默认从显式文件读取 credential 的边界。
+- 应用负责续期；env-key 模式要用新 access token 重启子进程并 resume 其本地 thread。自有子进程的显式 token 注入不改变 MorphieCore 默认从显式文件读取 credential 的边界。
 
 ## 用户体验与隐私控制
 
@@ -215,7 +215,7 @@ OpenBridge 直接 HTTP 首片不自动发送自定义 session/turn/originator he
 
 依据 [Errors and recovery][errors] 保留 status、受限机器 code/param 和 request ID，检查响应形状；admission 可能只有 `{"detail":"..."}`，其文字不是稳定 machine code。原始敏感正文不进入日志、CLI 或下游；未知错误不套入已知恢复策略。
 
-| 来源错误 | 官方恢复方向 / OpenBridge 边界 |
+| 来源错误 | 官方恢复方向 / MorphieCore 边界 |
 |---|---|
 | Direct admission 401 / 403 | 检查 identity/direct permission 或 policy/region；不换账户或计费路径 |
 | Direct admission 503 | Direct routing 暂不可用或未启用；保留 credential，不把所有此类失败判为可重试 |
@@ -229,7 +229,7 @@ OpenBridge 直接 HTTP 首片不自动发送自定义 session/turn/originator he
 | Refresh `invalid_grant`、`invalid_refresh_token`、`token_expired`、`refresh_token_expired`、`refresh_token_invalidated`、`refresh_token_reused` | 旧 refresh 不可用，清理其复用权限，以保存 issued client 重授权 |
 | `invalid_client` | 修正 client 配置，不解释为用户账户额度故障 |
 
-这是恢复来源，不是完整错误枚举或本地公共错误 schema。官方不静默切换计费；OpenBridge 首片单选 registration、单成员绑定、`fallback=false`、`max_attempts=1`，无同请求重试。多个 worker 共用应用总预算，不形成多个套餐 allowance。连接断开目前没有服务端通知；只有请求/refresh 确认撤销才停止使用该 token set，不因临时服务错误删账户。
+这是恢复来源，不是完整错误枚举或本地公共错误 schema。官方不静默切换计费；MorphieCore 首片单选 registration、单成员绑定、`fallback=false`、`max_attempts=1`，无同请求重试。多个 worker 共用应用总预算，不形成多个套餐 allowance。连接断开目前没有服务端通知；只有请求/refresh 确认撤销才停止使用该 token set，不因临时服务错误删账户。
 
 ## 远程 host 与分布式应用边界
 
@@ -239,7 +239,7 @@ OpenBridge 直接 HTTP 首片不自动发送自定义 session/turn/originator he
 
 但 [SIWC Terms][terms] 对持久化写明 local/user-controlled、not in a remote or managed environment，而 sessions/VM 指南包含 self-hosted 存储与转移。**不能自行采用宽松解释消除这项边界；远程持久化/复制前确认适用部署合同。** 通用托管、多用户服务和 token 共享没有由 VM 指南获得默认许可。
 
-OpenBridge 首片规划为本地 credential owner + 本地模型执行；未来自研 worker 只通过同一应用内部的受信通道提交本人任务，不取得 refresh/ID token，也不对任意第三方工具开放套餐出口。该结构降低 token 复制和 rotation 风险，不构成用途合规或网络部署批准。后台巡检/部署推理需明确授权范围、期限、预算和停止控制；模型请求权限不授予集群变更权限。不因 worker 扩容注册更多 client 或轮换账户绕过限制。
+MorphieCore 首片规划为本地 credential owner + 本地模型执行；未来自研 worker 只通过同一应用内部的受信通道提交本人任务，不取得 refresh/ID token，也不对任意第三方工具开放套餐出口。该结构降低 token 复制和 rotation 风险，不构成用途合规或网络部署批准。后台巡检/部署推理需明确授权范围、期限、预算和停止控制；模型请求权限不授予集群变更权限。不因 worker 扩容注册更多 client 或轮换账户绕过限制。
 
 ## 本项目采用与实施边界
 

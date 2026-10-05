@@ -1,6 +1,6 @@
 # 当前架构
 
-OpenBridge 将共享语义库接入最小认证 loopback 网关。这里说明跨模块职责；字段映射、默认值、预算和失败分支由 owning code、注释与独立测试维护。设计理由见 [ADRs](architecture-v2/README.md#架构决策)，未闭合范围见[实施缺口](implementation-status/generation.md)。
+MorphieCore 将共享语义库接入最小认证 loopback 网关。这里说明跨模块职责；字段映射、默认值、预算和失败分支由 owning code、注释与独立测试维护。设计理由见 [ADRs](architecture-v2/README.md#架构决策)，未闭合范围见[实施缺口](implementation-status/generation.md)。
 
 ```text
 Authenticated bounded HTTP input
@@ -27,7 +27,7 @@ Authenticated bounded HTTP input
 | [execution](../src/execution/mod.rs) | 候选计划、请求准备、增量 intake、响应投影和显式交付生命周期 |
 | [SSE transport](../src/transport/sse.rs) / [HTTP transport](../src/transport/http.rs) | 有界 framing / 对已准备可信请求执行 I/O；不解释或改写 IR |
 | [gateway](../src/gateway/mod.rs) | 认证、启动准入、预算和实际 HTTP body 所有权 |
-| [binary](../src/bin/openbridge.rs) | 显式私有文件 bootstrap 与 loopback listener |
+| [binary](../src/bin/morphiecore.rs) | 显式私有文件 bootstrap 与 loopback listener |
 
 独立静态图片生成采用 [ImageGeneration task](../src/semantic/task/image_generation.rs)、[类型化请求入口](../src/adapter/images.rs) 与 [Images codec](../src/protocol/openai/images.rs)。[图片 binding](../src/topology/images.rs)在同一 CompiledTopology 中显式声明 public label、canonical identity、单 endpoint 与 Provider operation 路径，不给 Generation 合同填占位字段；采用范围为静态单图切片，目标 profile 与计量投影策略分别显式选择。Gateway 的 [Images intake](../src/gateway/images.rs)共享认证、受信 transport 和上述 body publication/handoff 生命周期，不增加重试或资源服务。产品绑定归[图片 catalog](../src/topology/catalog/images.rs)，binary 仅激活明确选定的图片标签，不从已有凭据池推定媒体授权。
 

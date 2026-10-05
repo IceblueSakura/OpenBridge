@@ -1,6 +1,6 @@
 # Grok Build / xAI 账户登录参考
 
-本页维护 Grok Build 登录的来源、协议差异和采用边界，不是 OpenBridge 的已实现认证合同、模型清单或运行报告。共用标准与授权边界归 [OAuth 来源入口](oauth-login.md)；推进方向归 [next-goal](../implementation-plans/next-goal.md)。登录协议、账户/订阅权限和推理表示必须分别确定。
+本页维护 Grok Build 登录的来源、协议差异和采用边界，不是 MorphieCore 的已实现认证合同、模型清单或运行报告。共用标准与授权边界归 [OAuth 来源入口](oauth-login.md)；推进方向归 [next-goal](../implementation-plans/next-goal.md)。登录协议、账户/订阅权限和推理表示必须分别确定。
 
 ## 来源与版本
 
@@ -27,7 +27,7 @@
 
 官方解析还区分 per-model key、per-model env key、活动 session 与全局 API key。企业 `disable_api_key_auth` / `force_login_team_uuid` 可进一步限制登录方式及 team principal。不要在网关复制一套隐式凭据 fallback，也不要把个人登录、team 登录、SuperGrok、X Premium 或企业资格视为互相等价。
 
-上面的命令是官方客户端入口，不是 OpenBridge 命令；执行登录、保存或撤销凭据仍需明确授权。
+上面的命令是官方客户端入口，不是 MorphieCore 命令；执行登录、保存或撤销凭据仍需明确授权。
 
 ## xAI authority 与 public client
 
@@ -58,7 +58,7 @@ pi 内置请求的 scope 为 `openid profile email offline_access grok-cli:acces
 5. 个人 OIDC 分支校验 ID-token 签名、issuer、client audience、expiry 和 nonce，然后保存 credential；team 分支可能没有个人 ID token，按具体 principal 合同处理，不能强造个人身份。
 6. 结束 listener、输入等待和临时授权状态。浏览器页面收到 code 不等于 exchange、身份校验和持久化已经成功。
 
-官方快照提供 loopback 与手动粘贴两条路径，并允许裸 authorization code 在没有 state 时跳过 state 检查。补充插件的浏览器路径只接受带匹配 state 的完整 redirect URL，并固定第一方 discovery/JWKS 与 ES256/S256 策略。OpenBridge 的 [callback owner](../../src/credential/callback.rs)不接受裸 code 或手动 URL 绕过；错误 callback 也先验证其事务绑定，不覆盖另一登录尝试。PKCE、state、nonce 分别约束不同边界，不能相互替代。
+官方快照提供 loopback 与手动粘贴两条路径，并允许裸 authorization code 在没有 state 时跳过 state 检查。补充插件的浏览器路径只接受带匹配 state 的完整 redirect URL，并固定第一方 discovery/JWKS 与 ES256/S256 策略。MorphieCore 的 [callback owner](../../src/credential/callback.rs)不接受裸 code 或手动 URL 绕过；错误 callback 也先验证其事务绑定，不覆盖另一登录尝试。PKCE、state、nonce 分别约束不同边界，不能相互替代。
 
 ## 标准设备授权
 
@@ -77,7 +77,7 @@ pi 内置请求的 scope 为 `openid profile email offline_access grok-cli:acces
 - `authorization_pending` 继续等待；`slow_down` 调整后续 polling interval；拒绝、过期、取消和不可恢复错误结束当前尝试。第一轮等待、整体 deadline、单次 HTTP timeout 和响应预算分别控制，不能靠无界轮询等待人完成授权。
 - 404 表示所选部署的设备入口可能未启用，不意味着自动获准另一 authority 或登录方法。
 
-pi 的 [xai OAuth][pi-xai-oauth]采用此 grant，支持 `verification_uri_complete`、取消和 pending/slow-down。其验证网址检查主要限制 HTTPS；OpenBridge 还需要第一方 origin 白名单、禁止重定向泄露、长度/JSON/body 预算和每次网络操作的 deadline，不能直接将最小客户端实现当作网关安全边界。
+pi 的 [xai OAuth][pi-xai-oauth]采用此 grant，支持 `verification_uri_complete`、取消和 pending/slow-down。其验证网址检查主要限制 HTTPS；MorphieCore 还需要第一方 origin 白名单、禁止重定向泄露、长度/JSON/body 预算和每次网络操作的 deadline，不能直接将最小客户端实现当作网关安全边界。
 
 官方 device 分支仅解码 ID token 用于显示，未执行浏览器分支的签名校验，源代码明确区分这两个场景。不得把这种 decoded claim 当作网关本地身份认证或客户端自证权限；需要本地可信身份时，采用相应验证或经过认证的 identity API，推理权限仍由 issuer/backend 判断。
 
@@ -91,13 +91,13 @@ pi 的 [xai OAuth][pi-xai-oauth]采用此 grant，支持 `verification_uri_compl
 - 官方刷新源码含 reload/rotation/recovery 策略；只参考职责和不确定结果处理，不照搬其自动 retry、诊断 token 片段或恢复整个 CLI 运行时。
 - xAI 本地 sign-out、远端 token revocation 与撤销账户/应用授权分别确定；共用 pi 本地退出行为归 [credential 生命周期][pi-resolve]，不证明 issuer session 已撤销。
 
-`~/.grok/auth.json` 是官方客户端 store 的源码定位，不是 OpenBridge 的调查、测试或默认导入路径。独立存储与迁移授权归 [共用采用边界](oauth-login.md#共用采用边界)。
+`~/.grok/auth.json` 是官方客户端 store 的源码定位，不是 MorphieCore 的调查、测试或默认导入路径。独立存储与迁移授权归 [共用采用边界](oauth-login.md#共用采用边界)。
 
 ## pi 内置与补充插件
 
 固定 pi 内置 `/login xai` 提供订阅 device flow，认证数据由 pi 自身持有；`xai` Provider 使用公共 `https://api.x.ai/v1` Responses，access token 在内部 `apiKey` 字段中传递不使它变成静态 API key。
 
-补充 `pi-xai-oauth` 注册 `xai-auth`，提供浏览器/设备方法及 session-token CLI proxy 路由。其参考价值在 account-bound catalog、受控 headers、truthful client attribution 及严格浏览器校验，不是建立第二套 Provider IR。插件另提供读取官方 CLI credential 的便利路径，不能作为 OpenBridge 默认依赖。
+补充 `pi-xai-oauth` 注册 `xai-auth`，提供浏览器/设备方法及 session-token CLI proxy 路由。其参考价值在 account-bound catalog、受控 headers、truthful client attribution 及严格浏览器校验，不是建立第二套 Provider IR。插件另提供读取官方 CLI credential 的便利路径，不能作为 MorphieCore 默认依赖。
 
 插件 `1.6.0` 的 peer range 不包含 pi `0.99.2`；它是固定源码参考，不是本项目安装建议或当前兼容声明。以后使用其他版本需重新核对，而不是从包目录或 README 推定能运行。
 
@@ -106,17 +106,17 @@ pi 的 [xai OAuth][pi-xai-oauth]采用此 grant，支持 `verification_uri_compl
 [Grok Build 官方文档][grok-enterprise]把 `cli-chat-proxy.grok.com` 列为 session inference/settings 入口，公共 API-key 路径另有 `api.x.ai`。固定客户端里还存在 client version/mode、request/conversation/session/model 等 metadata 投影，属于受信执行/adapter 边界。
 
 - 相同 authority、client ID 或 token 字符串不证明两条推理路径、全部模型、额度或计费等价。
-- 账户模型发现是独立的 credential-bearing 请求，不属于登录完成的隐式许可；结果只描述所选账户的上游准入，不直接成为 OpenBridge 注册或激活。
+- 账户模型发现是独立的 credential-bearing 请求，不属于登录完成的隐式许可；结果只描述所选账户的上游准入，不直接成为 MorphieCore 注册或激活。
 - 固定产品 client/metadata 只作为显式兼容参考，不授予订阅资格，也不允许伪造 UI surface 绕过资格/版本检查。必要 header 与 origin 由受信 profile 选择，业务 JSON 不能覆盖；Gateway 接线与部署用途仍须独立确认。
 - CLI 请求中的 conversation/session metadata、Provider prompt cache、credential session 和服务器签发的 continuation 不互为别名；不能从相同 header 名复制 Codex 生命周期或生成上游身份。共同分类归 [扩展与上下文](extensions-and-context.md#缓存存储与连接状态)，xAI 的具体 carrier 仍需自己的固定 profile。
 
 ## 采用前需要定稿的事项
 
-1. xAI 对 OpenBridge 的合法 client/redirect/scope、第三方客户端及网关用途的接入合同。
-2. OpenBridge 选定个人账户、公共 Responses 方向；设备与显式浏览器 wire、nonce/ES256/UserInfo 一致性与总期限由 [Grok authority](../../src/credential/grok.rs)拥有，callback 注册资格仍需操作者确认；自有 store 与生命周期由 [共用池 ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)及 [credential owner](../../src/credential/mod.rs)拥有，按认证类型与 Codex 隔离，不实现 team 或数据面账户调度。UserInfo identity 不证明订阅 inference contract，不能只用登录 UI 文案判断权限。
+1. xAI 对 MorphieCore 的合法 client/redirect/scope、第三方客户端及网关用途的接入合同。
+2. MorphieCore 选定个人账户、公共 Responses 方向；设备与显式浏览器 wire、nonce/ES256/UserInfo 一致性与总期限由 [Grok authority](../../src/credential/grok.rs)拥有，callback 注册资格仍需操作者确认；自有 store 与生命周期由 [共用池 ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)及 [credential owner](../../src/credential/mod.rs)拥有，按认证类型与 Codex 隔离，不实现 team 或数据面账户调度。UserInfo identity 不证明订阅 inference contract，不能只用登录 UI 文案判断权限。
 3. Gateway 的固定 access 借用由 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md)拥有；进一步的订阅准入与 inference/cache carrier 扩展仍需自己的执行切片；共用存储、验证和操作授权归 [OAuth 采用边界](oauth-login.md#共用采用边界)，不重复建立通用运行时。
 
-外部来源不能替代 OpenBridge 的采用决策，也不补齐当前 [Generation 缺口](../implementation-status/generation.md)中的 Gateway 接线与执行合同。
+外部来源不能替代 MorphieCore 的采用决策，也不补齐当前 [Generation 缺口](../implementation-status/generation.md)中的 Gateway 接线与执行合同。
 
 [grok-auth-doc]: https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md
 [grok-enterprise]: https://docs.x.ai/build/enterprise

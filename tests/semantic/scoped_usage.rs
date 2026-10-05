@@ -1,6 +1,6 @@
 //! Counting scope, basis and relationships remain explicit reported facts.
 use crate::events_support::{self as events, text};
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_response,
     },

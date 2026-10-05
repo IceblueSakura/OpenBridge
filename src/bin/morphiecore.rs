@@ -1,6 +1,6 @@
 //! Minimal loopback bootstrap; startup never prints credential values.
 use clap::Parser;
-use openbridge::gateway::bootstrap::Bootstrap;
+use morphiecore::gateway::bootstrap::Bootstrap;
 #[derive(Parser)]
 struct Options {
     #[arg(long)]
@@ -30,7 +30,7 @@ async fn main() -> std::process::ExitCode {
     let bootstrap = match Bootstrap::from_files(&config, &options.credentials_dir) {
         Ok(value) => value,
         Err(error) => {
-            eprintln!("OpenBridge startup failed: {error}");
+            eprintln!("MorphieCore startup failed: {error}");
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -42,7 +42,7 @@ async fn main() -> std::process::ExitCode {
         }
     };
     if let Ok(address) = listener.local_addr() {
-        println!("OpenBridge listening on http://{address}");
+        println!("MorphieCore listening on http://{address}");
     }
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -53,7 +53,7 @@ async fn main() -> std::process::ExitCode {
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(_) => {
-            eprintln!("OpenBridge server stopped with an I/O error");
+            eprintln!("MorphieCore server stopped with an I/O error");
             std::process::ExitCode::FAILURE
         }
     }

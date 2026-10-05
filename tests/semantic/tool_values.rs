@@ -1,6 +1,6 @@
 //! Raw/structured authority and execution reports are independent of wire carriers.
 use crate::events_support::text;
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_request,
     },

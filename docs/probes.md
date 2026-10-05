@@ -19,13 +19,13 @@ uv run --project tests/sdk --locked --offline python examples/probe.py run \
 授权覆盖这一具体批次后，显式运行：
 
 ```sh
-cargo build --locked --offline --bin openbridge
+cargo build --locked --offline --bin morphiecore
 uv run --project tests/sdk --locked --offline python examples/probe.py run \
   testdata/runtime/my-run --live --model "$PUBLIC_MODEL" --cases json
 uv run --project tests/sdk --locked --offline python examples/probe.py report testdata/runtime/my-run
 ```
 
-- Provider 只取固定 catalog 中的绑定。真实执行须用 `OPENBRIDGE_PROBE_CREDENTIALS_DIR` 指定已配置的自有 JSON 目录；该变量仅含路径，不含 key 或账户选择。Gateway probe 将选定 models、临时入口 token 和 `max_attempts: 1` 写入 run 下的私有配置，binary 独自加载上游凭据；即使 store 的 pool 开启 fallback，probe 也不隐式多发请求。无 TOML/env key 回退或第三方 auth-cache 搜索。库级 probe 只读取已配置 API-key 池的首项快照，不自动 fallback/refresh。订阅 Provider 仍须明确选择。实际 SDK 客户端只获得临时 gateway token；上游凭据不复制进 run 或进程环境。
+- Provider 只取固定 catalog 中的绑定。真实执行须用 `MORPHIECORE_PROBE_CREDENTIALS_DIR` 指定已配置的自有 JSON 目录；该变量仅含路径，不含 key 或账户选择。Gateway probe 将选定 models、临时入口 token 和 `max_attempts: 1` 写入 run 下的私有配置，binary 独自加载上游凭据；即使 store 的 pool 开启 fallback，probe 也不隐式多发请求。无 TOML/env key 回退或第三方 auth-cache 搜索。库级 probe 只读取已配置 API-key 池的首项快照，不自动 fallback/refresh。订阅 Provider 仍须明确选择。实际 SDK 客户端只获得临时 gateway token；上游凭据不复制进 run 或进程环境。
 - `plan --model` 可重复，将所选 Provider 缩小到精确模型子集。重复、未知或不属于所选 Provider 的模型在读取凭据前拒绝。省略模型筛选则包含所选 Provider 的全部已登记测试绑定，不能将此默认扩大解释为授权。
 - `run --model` 可重复，必须属于计划；`--protocol chat|responses`、`--delivery json|sse` 缩小范围。`--effort none|minimal|medium|max` 是明确请求控制，不自动改默认。
 - cases：`text`、`json`、`tool`、`history`、`length`、`cancel`、`image`、`image_math`、`file`、`file_url`、`file_continue`、`file_replay`、`file_reasoning`、`file_reasoning_math`；`reasoning` 的目标限制读取 `examples/probe_support/scenarios.py`，不得套用到任意模型。
@@ -33,7 +33,7 @@ uv run --project tests/sdk --locked --offline python examples/probe.py report te
 - `image_math` 每个协议/交付一请求，先从两张程序生成的方块图获得视觉计数，再计算固定算术式，以严格 JSON 数值 oracle 验收；预算取 run 的 token cap（最多 2048）。图片像素、计数和算术预期由独立离线检查保护。可用相同输入分别选取 `--effort none|minimal|medium|max`；档位的真实语义和支持按官方页面现场核对，不从名称推导强度排序。
 - `file` 的精确目标限制由 `scenarios.py` 与 catalog 维护，仅 Responses；每个交付两请求（首次提取 build marker、显式回传实际 output 与原始文件后提取 patch marker），JSON/SSE 合计四请求。使用程序生成的一页有效 PDF（小于 16 KiB）、最多 512 输出 tokens，marker 只在文件内，不在 prompt 提供答案；沿用共享账本、零重试和正文禁存。场景与文档结构的独立预期归 `tests/sdk/test_probe_core.py`，不证明一般 PDF 质量或扩大文件 URL/ID 准入。
 - `file_url` 仅明确选定的 Responses 目标，每种交付两请求、最多512输出tokens：读取公开W3C测试PDF的可见文本，再保留原URL与实际output续轮回答词数。来源/许可归[资源参考](references/multimodal-and-resources.md#5-后续验收的最小单元)；probe不上传/发布文件，Gateway不下载，外部PDF仅用于有授权的live场景。此检查不能证明上游确实下载而非缓存/先验知识回答，也不证明远端内容永久不变。
-- `file_replay` 每组两请求：SSE 首轮提取 build marker，随后将原始文件和实际 output 回传至 JSON 续轮提取 patch marker。只选 Responses/SSE 组（第二次交付固定 JSON），最多 512 输出 tokens，首轮失败停止；opaque 未报告时不宣称已验证 opaque 回传。OpenBridge 不 retry/fallback，聚合商内部路由策略不由本地账本保证。
+- `file_replay` 每组两请求：SSE 首轮提取 build marker，随后将原始文件和实际 output 回传至 JSON 续轮提取 patch marker。只选 Responses/SSE 组（第二次交付固定 JSON），最多 512 输出 tokens，首轮失败停止；opaque 未报告时不宣称已验证 opaque 回传。MorphieCore 不 retry/fallback，聚合商内部路由策略不由本地账本保证。
 - `file_reasoning_math` 沿用下述三轮/预算与opaque门槛，但先从PDF marker提取数字相乘，再分别加回文件中的两个数字；每轮严格JSON整数oracle，不在prompt提供答案，用于区别简单摘录不产生reasoning与协议拒绝。
 - `file_reasoning` 固定目标由 `scenarios.py` 限定，显式 medium reasoning/include，每组三请求 SSE→JSON→SSE、每次最多1024输出tokens；原文件和实际output原样追加。每轮必须报告非空opaque且文件marker正确，缺值不算通过，失败停止；只保存计数不保存密文。该有限场景不证明任意文件或多轮可靠性。
 - `file_continue` 使用明确的客户端自有 synthetic 历史（PDF、已知 build marker 的 assistant message、patch 查询），每个交付一请求、最多 512 输出 tokens。它用于隔离续轮问题，不冒充实际上游 transcript，也不能替代 `file` 的真实 output 回传门槛。
@@ -74,7 +74,7 @@ uv run --project tests/sdk --locked --offline python examples/probe.py run \
 
 ## 原调用诊断
 
-见 [HTTP guide](http-gateway.md#操作者诊断)。runner 为每个 owned binary 创建新的、私有 `gateway-*.jsonl` 文件，以 `x-openbridge-probe-id = run-id:attempt` 关联同一次请求。诊断在入口认证后才开始，且不向客户端回显。
+见 [HTTP guide](http-gateway.md#操作者诊断)。runner 为每个 owned binary 创建新的、私有 `gateway-*.jsonl` 文件，以 `x-morphiecore-probe-id = run-id:attempt` 关联同一次请求。诊断在入口认证后才开始，且不向客户端回显。
 
 可观察字段限于最后阶段、完成/中断结果、上游 HTTP、规范化 Retry-After、接收/已 handoff 字节、耗时、固定 decode 失败分类和成功消费的语义事件结构计数。分类不输出未知字段名、异常消息或正文；事件计数不含身份、文本、reasoning、opaque 或认证值，不证明产物完整或终态闭合。`upstream_head_ms`、`first_upstream_bytes_ms` 从认证后的请求处理开始计时，不是 TTFT 或 Provider 纯推理时间；handoff 不等于客户端收到。静态 JSON 的解析可发生于 `terminal`（intake EOF finalize）阶段。
 
@@ -82,18 +82,18 @@ uv run --project tests/sdk --locked --offline python examples/probe.py run \
 
 ## 具名入口与库级对照
 
-以下入口保留有意义的场景选择，统一要求 `OPENBRIDGE_PROBE_RUN=<existing run>`：
+以下入口保留有意义的场景选择，统一要求 `MORPHIECORE_PROBE_RUN=<existing run>`：
 
 | 入口 | 显式 gate / 场景 |
 |---|---|
-| `examples/live_nvidia_probe.py` | `OPENBRIDGE_NVIDIA_PROBE=1`；目标专用边界场景，选择项读取代码 |
-| `examples/live_provider_matrix.py` | `OPENBRIDGE_PROVIDER_MATRIX=1`；PROVIDERS/PROTOCOL/DELIVERY/CASE filter，默认只取计划的模型 |
-| `examples/live_gateway_probe.py` | `OPENBRIDGE_GATEWAY_PROBE=1`；固定文本/工具或真实 opaque 对照，目标限制读取代码 |
-| `examples/live_probe.rs` | `OPENBRIDGE_PROBE=1`；库级独立链，明确选择计划内目标，每次调用在共享账本登记和结算 |
+| `examples/live_nvidia_probe.py` | `MORPHIECORE_NVIDIA_PROBE=1`；目标专用边界场景，选择项读取代码 |
+| `examples/live_provider_matrix.py` | `MORPHIECORE_PROVIDER_MATRIX=1`；PROVIDERS/PROTOCOL/DELIVERY/CASE filter，默认只取计划的模型 |
+| `examples/live_gateway_probe.py` | `MORPHIECORE_GATEWAY_PROBE=1`；固定文本/工具或真实 opaque 对照，目标限制读取代码 |
+| `examples/live_probe.rs` | `MORPHIECORE_PROBE=1`；库级独立链，明确选择计划内目标，每次调用在共享账本登记和结算 |
 
-Rust 入口在凭据加载前验证计划选择，默认不做目录请求。显式 `OPENBRIDGE_PROBE_LIST_MODELS=1` 的目录查询也占共享 request slot，不将“免费预检”当作预算外 I/O。所有 native 报告位于 run 子目录。
+Rust 入口在凭据加载前验证计划选择，默认不做目录请求。显式 `MORPHIECORE_PROBE_LIST_MODELS=1` 的目录查询也占共享 request slot，不将“免费预检”当作预算外 I/O。所有 native 报告位于 run 子目录。
 
-库级 raw capture 默认关闭；仅另行授权的 synthetic forensic 调查才能启用 `OPENBRIDGE_PROBE_CAPTURE=1`。会拒存包含当前 key 的数据并去掉已知 opaque/signature/credential 字段和 error 对象；这不是通用敏感数据脱敏器，也不授权生产内容捕获。redacted capture 不再是原始 wire 或可靠 replay oracle，不进入独立 fixtures。既有 `OPENBRIDGE_PROBE_REPLAY_DIR` 和 `examples/replay_chat.rs` 保持离线，不加载 key；只能使用明确选定、符合其旧格式边界的历史 synthetic capture。
+库级 raw capture 默认关闭；仅另行授权的 synthetic forensic 调查才能启用 `MORPHIECORE_PROBE_CAPTURE=1`。会拒存包含当前 key 的数据并去掉已知 opaque/signature/credential 字段和 error 对象；这不是通用敏感数据脱敏器，也不授权生产内容捕获。redacted capture 不再是原始 wire 或可靠 replay oracle，不进入独立 fixtures。既有 `MORPHIECORE_PROBE_REPLAY_DIR` 和 `examples/replay_chat.rs` 保持离线，不加载 key；只能使用明确选定、符合其旧格式边界的历史 synthetic capture。
 
 ## pi
 

@@ -36,7 +36,7 @@ async fn forced_sse_projects_json_and_rejects_missing_terminal_or_conflicting_me
                 public: original.public.clone(),
                 client: Adapter::new(
                     Profile::Responses,
-                    crate::adapter::Dialect::OpenBridge,
+                    crate::adapter::Dialect::MorphieCore,
                     None,
                 ),
                 downstream: crate::lowering::generation::GenerationRepresentationContract::full(),

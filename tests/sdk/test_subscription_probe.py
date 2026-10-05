@@ -27,8 +27,8 @@ class SubscriptionProbeTests(unittest.TestCase):
                 self.assertNotIn("access_token", config)
                 raise Stop()
             with patch.dict(os.environ, {
-                "OPENBRIDGE_PROBE_LIVE": "1",
-                "OPENBRIDGE_PROBE_CREDENTIALS_DIR": "/synthetic/owned/store",
+                "MORPHIECORE_PROBE_LIVE": "1",
+                "MORPHIECORE_PROBE_CREDENTIALS_DIR": "/synthetic/owned/store",
             }, clear=True), patch("probe_support.runtime.subprocess.Popen", side_effect=spawn), patch(
                 "pathlib.Path.read_text", side_effect=AssertionError("no upstream credential reads")
             ):

@@ -32,7 +32,7 @@ async fn command(dir: &Directory, args: &[&str], input: Option<&[u8]>) -> std::p
             }
         })
         .collect();
-    let child = Command::new(env!("CARGO_BIN_EXE_openbridge-auth"))
+    let child = Command::new(env!("CARGO_BIN_EXE_morphiecore-auth"))
         .args(args)
         .arg("--store")
         .arg(&dir.path)

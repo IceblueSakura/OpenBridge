@@ -18,9 +18,9 @@ function requiredEnv(name: string): string {
   if (!value) throw new Error('Missing explicit probe input');
   return value;
 }
-const run = requiredEnv('OPENBRIDGE_PROBE_RUN');
-const home = requiredEnv('OPENBRIDGE_PI_HOME');
-const pkg = requiredEnv('OPENBRIDGE_PI_PACKAGE');
+const run = requiredEnv('MORPHIECORE_PROBE_RUN');
+const home = requiredEnv('MORPHIECORE_PI_HOME');
+const pkg = requiredEnv('MORPHIECORE_PI_PACKAGE');
 const version = object(JSON.parse(await readFile(join(pkg,'package.json'),'utf8'))).version;
 if (version !== '0.87.1') throw new Error('Unpinned Pi');
 const sdk: typeof import('@earendil-works/pi-coding-agent') = await import(pathToFileURL(join(pkg,'dist/index.js')).href);
@@ -28,18 +28,18 @@ const {createAgentSession,createExtensionRuntime,defineTool,ModelRuntime,Session
 const plan = object(JSON.parse(await readFile(join(run,'plan.json'),'utf8')));
 const tokens = plan.tokens;
 if (typeof tokens !== 'number' || !Number.isSafeInteger(tokens) || tokens < 1 || tokens > 2048) throw new Error('Invalid plan budget');
-const modelId = process.env.OPENBRIDGE_TEST_MODEL;
+const modelId = process.env.MORPHIECORE_TEST_MODEL;
 if (!modelId || !array(plan.models).includes(modelId)) throw new Error('Unselected model');
-const checking = process.env.OPENBRIDGE_TEST_MODE === 'check';
-const invalidAuth = process.env.OPENBRIDGE_TEST_INVALID_AUTH === '1';
+const checking = process.env.MORPHIECORE_TEST_MODE === 'check';
+const invalidAuth = process.env.MORPHIECORE_TEST_INVALID_AUTH === '1';
 if (invalidAuth && !checking) throw new Error('Invalid auth requires synthetic mode');
-const selectedProtocol = protocol(process.env.OPENBRIDGE_TEST_PROTOCOL);
+const selectedProtocol = protocol(process.env.MORPHIECORE_TEST_PROTOCOL);
 const responses = selectedProtocol === 'responses';
-const thinking = process.env.OPENBRIDGE_TEST_THINKING ?? 'off';
+const thinking = process.env.MORPHIECORE_TEST_THINKING ?? 'off';
 if (thinking !== 'off' && thinking !== 'minimal') throw new Error('Unselected effort');
 const expectedEffort = thinking === 'off' ? (responses ? 'none' : undefined) : 'minimal';
 const endpoint = responses ? '/v1/responses' : '/v1/chat/completions';
-const upstream = process.env.OPENBRIDGE_TEST_UPSTREAM;
+const upstream = process.env.MORPHIECORE_TEST_UPSTREAM;
 if (!upstream || !/^http:\/\/127\.0\.0\.1:\d+$/.test(upstream)) throw new Error('Unowned destination');
 interface AttemptRecord {
   attempt: string; case: string; tool_results: number;
@@ -49,7 +49,7 @@ const slots = new ProbeSlots(checking ? 2 : 3);
 const records: AttemptRecord[] = [], reports: {case: string; ok: boolean}[] = [];
 let reads = 0, caseName = 'text';
 function control(action: 'check' | 'register' | 'reserve' | 'dispatched' | 'finish', data: Record<string, unknown>) {
-  const result = spawnSync(process.env.OPENBRIDGE_PROBE_PYTHON ?? 'python3',[join(root,'examples/probe.py'),'control',run,action],
+  const result = spawnSync(process.env.MORPHIECORE_PROBE_PYTHON ?? 'python3',[join(root,'examples/probe.py'),'control',run,action],
     {input:JSON.stringify(data),encoding:'utf8',maxBuffer:16384,timeout:10000});
   if (result.status !== 0) throw new Error('Probe ledger rejected operation');
   return result.stdout.trim();
@@ -82,7 +82,7 @@ const relay = createServer(async (req,res) => {
     record = {attempt:identity,case:caseName,tool_results:responses ? array(value.input ?? []).map(object).filter(i => i.type === 'function_call_output').length : array(value.messages ?? []).map(object).filter(i => i.role === 'tool').length};
     records.push(record);
     const headers = relayHeaders(req.rawHeaders);
-    headers['x-openbridge-probe-id'] = identity;
+    headers['x-morphiecore-probe-id'] = identity;
     control('dispatched',{attempt:identity});
     const response = await fetch(upstream + endpoint,{method:'POST',headers,body,redirect:'error',signal:AbortSignal.timeout(130000)});
     record.http = response.status;
@@ -121,7 +121,7 @@ const address = relay.address();
 if (!address || typeof address === 'string') throw new Error('Missing owned listener');
 await mkdir(home,{recursive:true,mode:0o700});
 const api = responses ? 'openai-responses' : 'openai-completions';
-await writeFile(join(home,'models.json'),JSON.stringify({providers:{openbridge:{baseUrl:`http://127.0.0.1:${address.port}/v1`,apiKey:'${OPENBRIDGE_CLIENT_KEY}',api,
+await writeFile(join(home,'models.json'),JSON.stringify({providers:{morphiecore:{baseUrl:`http://127.0.0.1:${address.port}/v1`,apiKey:'${MORPHIECORE_CLIENT_KEY}',api,
   compat:{supportsDeveloperRole:false,supportsStore:false,supportsStrictMode:true,maxTokensField:'max_completion_tokens',
     supportsOpenAIGrammarTools:false,supportsReasoningEffort:true,supportsUsageInStreaming:true,supportsLongCacheRetention:false},models:[{
   id:modelId,name:modelId,api,reasoning:true,input:['text'],contextWindow:32768,maxTokens:tokens,
@@ -129,8 +129,8 @@ await writeFile(join(home,'models.json'),JSON.stringify({providers:{openbridge:{
   ...(responses ? {thinkingLevelMap:{off:'none'}} : {}),
 }]}}}),{mode:0o600});
 const runtime = await ModelRuntime.create({authPath:join(home,'auth.json'),modelsPath:join(home,'models.json')});
-if (invalidAuth) await runtime.setRuntimeApiKey('openbridge','synthetic-wrong-client-token');
-const model = runtime.getModel('openbridge',modelId);
+if (invalidAuth) await runtime.setRuntimeApiKey('morphiecore','synthetic-wrong-client-token');
+const model = runtime.getModel('morphiecore',modelId);
 if (!model) throw new Error('Unregistered model');
 const resources: ResourceLoader = {
   getExtensions:() => ({extensions:[],errors:[],runtime:createExtensionRuntime()}),getSkills:() => ({skills:[],diagnostics:[]}),

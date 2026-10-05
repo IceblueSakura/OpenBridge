@@ -10,39 +10,39 @@ from .scenarios import matrix
 def entry(kind):
     install_signals()
     gate = {
-        "nvidia": "OPENBRIDGE_NVIDIA_PROBE",
-        "matrix": "OPENBRIDGE_PROVIDER_MATRIX",
-        "gateway": "OPENBRIDGE_GATEWAY_PROBE",
+        "nvidia": "MORPHIECORE_NVIDIA_PROBE",
+        "matrix": "MORPHIECORE_PROVIDER_MATRIX",
+        "gateway": "MORPHIECORE_GATEWAY_PROBE",
     }[kind]
     require(os.environ.get(gate) == "1", "live_not_enabled", "setup")
-    run = Run(os.environ["OPENBRIDGE_PROBE_RUN"])
-    os.environ["OPENBRIDGE_PROBE_LIVE"] = "1"
+    run = Run(os.environ["MORPHIECORE_PROBE_RUN"])
+    os.environ["MORPHIECORE_PROBE_LIVE"] = "1"
     if kind == "nvidia":
         models = ["nemotron-3-super"]
-        case = os.environ.get("OPENBRIDGE_NVIDIA_CASE")
+        case = os.environ.get("MORPHIECORE_NVIDIA_CASE")
         cases = (case,) if case else ("json", "history", "length", "cancel")
         protocol = "chat"
-        delivery = os.environ.get("OPENBRIDGE_NVIDIA_DELIVERY")
-        effort = os.environ.get("OPENBRIDGE_NVIDIA_EFFORT")
+        delivery = os.environ.get("MORPHIECORE_NVIDIA_DELIVERY")
+        effort = os.environ.get("MORPHIECORE_NVIDIA_EFFORT")
     elif kind == "gateway":
         models = ["gpt-6-luna"]
         protocol = delivery = effort = None
         cases = (
             ("reasoning",)
-            if os.environ.get("OPENBRIDGE_GATEWAY_REASONING") == "1"
+            if os.environ.get("MORPHIECORE_GATEWAY_REASONING") == "1"
             else ("text", "tool")
         )
     else:
-        selected = os.environ.get("OPENBRIDGE_MATRIX_PROVIDERS")
+        selected = os.environ.get("MORPHIECORE_MATRIX_PROVIDERS")
         models = (
             [row[1] for row in select_bindings(selected)]
             if selected is not None
             else run.plan["models"]
         )
-        case = os.environ.get("OPENBRIDGE_MATRIX_CASE")
+        case = os.environ.get("MORPHIECORE_MATRIX_CASE")
         cases = (case,) if case else ("text", "tool")
-        protocol = os.environ.get("OPENBRIDGE_MATRIX_PROTOCOL")
-        delivery = os.environ.get("OPENBRIDGE_MATRIX_DELIVERY")
+        protocol = os.environ.get("MORPHIECORE_MATRIX_PROTOCOL")
+        delivery = os.environ.get("MORPHIECORE_MATRIX_DELIVERY")
         effort = None
     require(
         protocol in (None, "chat", "responses") and delivery in (None, "json", "sse"),

@@ -1,4 +1,4 @@
-//! Protocol-neutral semantic model for OpenBridge v2.
+//! Protocol-neutral semantic model for MorphieCore v2.
 
 pub mod cache;
 pub mod context;

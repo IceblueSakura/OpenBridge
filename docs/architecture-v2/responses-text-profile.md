@@ -16,7 +16,7 @@
 
 ## Message owners and cross-protocol grouping
 
-当前标准 Responses 没有 `ToolCall.message` 的 carrier。Request/static lowering 拒绝显式 message-call membership，event 投影在 attached call 的 opening 拒绝；不能仅保留两个独立 item 就声称关系仍在。空的 tool-only message owner 也适用。当前 OpenBridge adapter 也不提供私有 wire-ID 关联。
+当前标准 Responses 没有 `ToolCall.message` 的 carrier。Request/static lowering 拒绝显式 message-call membership，event 投影在 attached call 的 opening 拒绝；不能仅保留两个独立 item 就声称关系仍在。空的 tool-only message owner 也适用。当前 MorphieCore adapter 也不提供私有 wire-ID 关联。
 
 独立 assistant message（包括空 owner）与独立 function call 按其身份/状态保留，不从邻接推断归属。Standalone-call run 的具名 Chat 投影不使反向 membership 自动获得标准位置。重排依赖 final typed identity，删除 owner 不能附到相同位置的新项。
 
@@ -40,7 +40,7 @@ Responses function/custom result history 的标准 carrier 接受有序 `input_t
 
 Codec 不下载、重定向、OCR、解析像素、转码或上传；URL 语法合法不证明 Provider 获取安全或可用。库级、HTTP body 与 Endpoint 预算独立。Owners：[resource](../../src/semantic/task/generation/resource.rs)、[image codec](../../src/protocol/openai/image.rs)、[image tests](../../tests/semantic/images.rs)。
 
-Reported image/text/audio token counts 不是从正文或图像大小估计的值。OpenBridge 对 image/text usage 的具名 carrier 属于非标准位置，普通 Responses 目标无对应位置时当前拒绝，包括显式零。计量别名/视图从最终 typed 报告再投影，不保存第二个 total；来源不足不补猜。精确规则归 [adaptation](../../src/protocol/adaptation.rs)、[image usage](../../tests/semantic/image_usage.rs)和[billing modality tests](../../tests/semantic/billing_modal_usage.rs)。
+Reported image/text/audio token counts 不是从正文或图像大小估计的值。MorphieCore 对 image/text usage 的具名 carrier 属于非标准位置，普通 Responses 目标无对应位置时当前拒绝，包括显式零。计量别名/视图从最终 typed 报告再投影，不保存第二个 total；来源不足不补猜。精确规则归 [adaptation](../../src/protocol/adaptation.rs)、[image usage](../../tests/semantic/image_usage.rs)和[billing modality tests](../../tests/semantic/billing_modal_usage.rs)。
 
 ## User inline file input
 
@@ -97,7 +97,7 @@ Value 调用方负责入站前未丢顺序；普通 Value equality/round trip �
 当前有几个不能与标准目标混同的边界：
 
 - `reasoning.summary:false` 与 `response.cancelled` 是本地兼容形式，不是固定 SDK 的标准 summary 值或 SSE 事件名。
-- `session_id` 是 OpenBridge body 扩展；identity/cache hints 有各自 owner，不从 key/user/token 派生 session，不透传 session headers，也不提供服务端会话。
+- `session_id` 是 MorphieCore body 扩展；identity/cache hints 有各自 owner，不从 key/user/token 派生 session，不透传 session headers，也不提供服务端会话。
 - 仅 inactive state forms 准入，request `store` 投影为 false；活动 conversation、previous response、background、模板、moderation 和 compaction 尚未形成主链。
 - Configuration/program/custom 分支按 owning codecs 明确准入，只表示有限语义；不是任意设置 patch、工具执行或脚本授权。Program history 需要匹配的 reported output，Chat 不自动支持它。
 - `CustomSections`/`CodexHeaders` 是低层 carrier；非空 body sections 在 adapter 主链拒绝，headers 未因此接入 HTTP。未知字段不能通过它们旁路。

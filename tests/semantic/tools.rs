@@ -1,6 +1,6 @@
 //! Independent oracles for the function-tool migration, without providers or production routing.
 use crate::events_support::{apply, close, created, encode, envelope, metadata, start, terminal};
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_request,
         lower_response,

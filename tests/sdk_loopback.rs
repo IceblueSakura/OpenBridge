@@ -27,7 +27,7 @@ use axum::{
     response::Response,
     routing::post,
 };
-use openbridge::{
+use morphiecore::{
     lowering::generation::{GenerationRepresentationContract, lower_request, lower_response},
     protocol::openai::{
         Profile, envelope,
@@ -330,8 +330,9 @@ async fn sdk_case(sse: bool, profile: Profile) {
             .unwrap();
     });
     let guard = ServerGuard(server.abort_handle());
-    let mut command =
-        Command::new(std::env::var_os("OPENBRIDGE_SDK_PYTHON").unwrap_or_else(|| "python3".into()));
+    let mut command = Command::new(
+        std::env::var_os("MORPHIECORE_SDK_PYTHON").unwrap_or_else(|| "python3".into()),
+    );
     command
         .args([
             if profile == Profile::Responses {
@@ -351,7 +352,7 @@ async fn sdk_case(sse: bool, profile: Profile) {
         "OPENAI_BASE_URL",
         "OPENAI_ORG_ID",
         "OPENAI_PROJECT_ID",
-        "OPENBRIDGE_CONFIG",
+        "MORPHIECORE_CONFIG",
     ] {
         command.env_remove(name);
     }

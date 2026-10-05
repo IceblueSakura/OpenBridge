@@ -1,5 +1,5 @@
 //! Classification and commit/attempt budgets, not Provider quality, govern fallback.
-use openbridge::{
+use morphiecore::{
     execution::{DeliveryState, fallback::may_advance},
     provider::ErrorClass,
     topology::{FallbackPolicy, RoutePolicy},
@@ -60,8 +60,8 @@ fn fixed_route_policy_never_replays_visible_or_exhausted_attempts() {
             true
         ));
     }
-    let redirect = match openbridge::provider::classify_status(302) {
-        openbridge::provider::StatusClass::Failure(error) => error,
+    let redirect = match morphiecore::provider::classify_status(302) {
+        morphiecore::provider::StatusClass::Failure(error) => error,
         _ => panic!("redirect is not success"),
     };
     assert!(!may_advance(

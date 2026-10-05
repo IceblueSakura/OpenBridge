@@ -1,5 +1,5 @@
 //! Refusal and non-success terminals for the text and function-call path.
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_request,
         lower_response,
@@ -36,7 +36,7 @@ fn refusal_is_not_text_and_user_refusal_fails() {
         panic!("message");
     };
     assert!(matches!(message.parts[0].content, ContentPart::Refusal(_)));
-    let fidelity = openbridge::protocol::fidelity::FidelityRecords::default();
+    let fidelity = morphiecore::protocol::fidelity::FidelityRecords::default();
     let metadata = metadata();
     let chat = lower_response(
         &decoded.semantic,
@@ -50,7 +50,7 @@ fn refusal_is_not_text_and_user_refusal_fails() {
         chat::encode_response(&chat).unwrap()["choices"][0]["message"]["refusal"],
         json!("Cannot do that.")
     );
-    let mut responses_fidelity = openbridge::protocol::fidelity::FidelityRecords::default();
+    let mut responses_fidelity = morphiecore::protocol::fidelity::FidelityRecords::default();
     responses_fidelity
         .record_response_item_id(ItemId::new(1), "item_1")
         .unwrap();
@@ -89,7 +89,7 @@ fn incomplete_and_failed_responses_do_not_encode_as_success() {
     let decoded = chat::decode_response(&chat_wire).unwrap();
     assert_eq!(decoded.semantic.outcome(), Outcome::Incomplete);
     assert_eq!(decoded.semantic.continuation(), Continuation::Unreported);
-    let fidelity = openbridge::protocol::fidelity::FidelityRecords::default();
+    let fidelity = morphiecore::protocol::fidelity::FidelityRecords::default();
     let metadata = metadata();
     let encoded = lower_response(
         &decoded.semantic,
@@ -108,7 +108,7 @@ fn incomplete_and_failed_responses_do_not_encode_as_success() {
     failed["output"][0]["status"] = json!("incomplete");
     let decoded = responses::decode_response(&failed).unwrap();
     assert_eq!(decoded.semantic.outcome(), Outcome::Failed);
-    let mut fidelity = openbridge::protocol::fidelity::FidelityRecords::default();
+    let mut fidelity = morphiecore::protocol::fidelity::FidelityRecords::default();
     fidelity
         .record_response_item_id(decoded.semantic.items()[0].0, "item_1")
         .unwrap();
@@ -144,14 +144,14 @@ fn chat_length_has_the_same_partial_semantics_in_json_and_events() {
     wire["choices"][0]["message"] = json!({"role":"assistant","content":"Partial"});
     wire["choices"][0]["finish_reason"] = json!("length");
     let expected = chat::decode_response(&wire).unwrap().semantic;
-    let mut decoder = openbridge::protocol::openai::events::EventDecoder::new(Profile::Chat);
+    let mut decoder = morphiecore::protocol::openai::events::EventDecoder::new(Profile::Chat);
     decoder.push(&json!({"id":"response_1","object":"chat.completion.chunk","created":10,"model":"fixture-model","choices":[{"index":0,"delta":{"role":"assistant","content":"Partial"},"finish_reason":"length"}]})).unwrap();
     assert!(decoder.finish().is_err());
     decoder.done().unwrap();
     assert_eq!(decoder.materialize().unwrap().semantic, expected);
     assert_eq!(
         expected.details().incomplete,
-        Some(openbridge::semantic::task::generation::IncompleteReason::MaxOutputTokens)
+        Some(morphiecore::semantic::task::generation::IncompleteReason::MaxOutputTokens)
     );
 }
 
@@ -271,7 +271,7 @@ fn empty_message_wire_identity_cannot_collide_with_another_item() {
         ),
     ];
     let response = GenerationResponse::new(items, Outcome::Completed).unwrap();
-    let mut f = openbridge::protocol::fidelity::FidelityRecords::default();
+    let mut f = morphiecore::protocol::fidelity::FidelityRecords::default();
     f.record_response_item_id(ItemId::new(2), "item_1").unwrap();
     assert!(
         lower_response(

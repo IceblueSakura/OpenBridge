@@ -71,7 +71,7 @@ async fn response(
     let request=entry.client.decode_request(serde_json::json!({"model":"deepseek-flash","messages":[{"role":"user","content":"hello"}],"stream":stream,"stream_options":if stream {serde_json::json!({"include_usage":true,"include_obfuscation":false})}else{serde_json::Value::Null}}).to_string().as_bytes()).unwrap();
     let mut diagnostic_headers = axum::http::HeaderMap::new();
     diagnostic_headers.insert(
-        "x-openbridge-probe-id",
+        "x-morphiecore-probe-id",
         "00000000000000000000000000000001:1".parse().unwrap(),
     );
     let candidate = entry.candidates[0].clone();

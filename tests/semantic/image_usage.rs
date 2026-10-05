@@ -1,5 +1,5 @@
 //! Image-token reports are typed facts with explicit profile projections.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::Profile,
@@ -20,7 +20,7 @@ fn named_image_usage_mapping_preserves_counts_and_rejects_standard_targets() {
         .decode_response(&serde_json::to_vec(&source).unwrap())
         .unwrap();
     for profile in [Profile::Chat, Profile::Responses] {
-        let client = Adapter::new(profile, Dialect::OpenBridge, None);
+        let client = Adapter::new(profile, Dialect::MorphieCore, None);
         let encoded = client.encode_response(&decoded, &Contract::full()).unwrap();
         let detail = if profile == Profile::Chat {
             "prompt_tokens_details"
@@ -58,12 +58,12 @@ fn readable_chat_modality_counters_remain_typed_without_claiming_responses_slots
     assert_eq!(usage.input_image_tokens, Some(7));
     assert_eq!(usage.input_text_tokens, Some(3));
     assert_eq!(usage.output_text_tokens, Some(2));
-    let client = Adapter::new(Profile::Chat, Dialect::OpenBridge, None);
+    let client = Adapter::new(Profile::Chat, Dialect::MorphieCore, None);
     assert_eq!(
         client.encode_response(&decoded, &Contract::full()).unwrap()["usage"],
         source["usage"]
     );
-    let responses = Adapter::new(Profile::Responses, Dialect::OpenBridge, None)
+    let responses = Adapter::new(Profile::Responses, Dialect::MorphieCore, None)
         .encode_response(&decoded, &Contract::full())
         .unwrap();
     assert_eq!(
@@ -82,13 +82,13 @@ fn readable_chat_modality_counters_remain_typed_without_claiming_responses_slots
     decoded.semantic = decoded
         .semantic
         .clone()
-        .with_usage(openbridge::semantic::task::generation::Usage {
-            scope: openbridge::semantic::task::generation::UsageScope::Operation,
-            basis: openbridge::semantic::task::generation::UsageBasis::Final,
+        .with_usage(morphiecore::semantic::task::generation::Usage {
+            scope: morphiecore::semantic::task::generation::UsageScope::Operation,
+            basis: morphiecore::semantic::task::generation::UsageBasis::Final,
             output_relation:
-                openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
+                morphiecore::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
             total_relation:
-                openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
+                morphiecore::semantic::task::generation::TotalTokenRelation::InputAndOutput,
             input_image_tokens: Some(5),
             ..usage
         })
@@ -100,7 +100,7 @@ fn readable_chat_modality_counters_remain_typed_without_claiming_responses_slots
 
 #[test]
 fn image_usage_presence_edits_and_bounds_do_not_restore_deleted_counts() {
-    use openbridge::semantic::task::generation::Usage;
+    use morphiecore::semantic::task::generation::Usage;
     let provider = Adapter::new(Profile::Chat, Dialect::Xiaomi, None);
     for count in [Value::Null, json!(0), json!(10)] {
         let mut decoded = provider
@@ -109,7 +109,7 @@ fn image_usage_presence_edits_and_bounds_do_not_restore_deleted_counts() {
         let usage = decoded.semantic.usage().unwrap();
         assert_eq!(usage.input_image_tokens, count.as_u64());
         for profile in [Profile::Chat, Profile::Responses] {
-            let client = Adapter::new(profile, Dialect::OpenBridge, None);
+            let client = Adapter::new(profile, Dialect::MorphieCore, None);
             let encoded = client.encode_response(&decoded, &Contract::full()).unwrap();
             let field = if profile == Profile::Chat {
                 "prompt_tokens_details"
@@ -121,12 +121,12 @@ fn image_usage_presence_edits_and_bounds_do_not_restore_deleted_counts() {
                 count.as_u64().map(|_| &count)
             );
             let changed = Usage {
-                scope: openbridge::semantic::task::generation::UsageScope::Operation,
-                basis: openbridge::semantic::task::generation::UsageBasis::Final,
+                scope: morphiecore::semantic::task::generation::UsageScope::Operation,
+                basis: morphiecore::semantic::task::generation::UsageBasis::Final,
                 output_relation:
-                    openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
+                    morphiecore::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
                 total_relation:
-                    openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
+                    morphiecore::semantic::task::generation::TotalTokenRelation::InputAndOutput,
                 input_image_tokens: Some(3),
                 ..usage
             };
@@ -137,7 +137,7 @@ fn image_usage_presence_edits_and_bounds_do_not_restore_deleted_counts() {
                 .semantic
                 .clone()
                 .with_usage(Usage {
-                    scope: openbridge::semantic::task::generation::UsageScope::Operation, basis: openbridge::semantic::task::generation::UsageBasis::Final, output_relation: openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning, total_relation: openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
+                    scope: morphiecore::semantic::task::generation::UsageScope::Operation, basis: morphiecore::semantic::task::generation::UsageBasis::Final, output_relation: morphiecore::semantic::task::generation::OutputTokenRelation::IncludesReasoning, total_relation: morphiecore::semantic::task::generation::TotalTokenRelation::InputAndOutput,
                     input_image_tokens: None,
                     ..usage
                 })
@@ -163,8 +163,8 @@ fn image_usage_presence_edits_and_bounds_do_not_restore_deleted_counts() {
 
 #[test]
 fn image_usage_static_and_events_close_under_named_slots_and_poison_unsupported_targets() {
-    use openbridge::protocol::openai::events::EventEncoder;
-    use openbridge::semantic::task::generation::StreamEvent;
+    use morphiecore::protocol::openai::events::EventEncoder;
+    use morphiecore::semantic::task::generation::StreamEvent;
     let provider = Adapter::new(Profile::Chat, Dialect::Xiaomi, None);
     let source = response(json!(7));
     let expected = provider
@@ -181,7 +181,7 @@ fn image_usage_static_and_events_close_under_named_slots_and_poison_unsupported_
     events.extend(decoder.done().unwrap());
     assert_eq!(decoder.materialize().unwrap().semantic, expected.semantic);
     for profile in [Profile::Chat, Profile::Responses] {
-        let client = Adapter::new(profile, Dialect::OpenBridge, None);
+        let client = Adapter::new(profile, Dialect::MorphieCore, None);
         let mut encoder = EventEncoder::new(profile, expected.metadata.clone())
             .unwrap()
             .with_contract(client.contract(&Contract::full()));

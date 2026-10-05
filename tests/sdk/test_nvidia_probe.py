@@ -112,7 +112,7 @@ class ClientGuardTests(unittest.TestCase):
                     self.assertEqual(send.call_count, 1)
                     self.assertEqual(len(run.snapshot()), 1)
                     self.assertIn(
-                        "x-openbridge-probe-id", send.call_args.args[0].headers
+                        "x-morphiecore-probe-id", send.call_args.args[0].headers
                     )
                     stream.close()
 

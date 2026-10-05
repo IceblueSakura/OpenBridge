@@ -16,7 +16,7 @@ mod unix {
 
     use crate::test_files::Directory;
     async fn command(args: &[&std::ffi::OsStr]) -> std::process::Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_openbridge-auth"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_morphiecore-auth"));
         command
             .args(args)
             .env_clear()
@@ -292,7 +292,7 @@ mod unix {
         let store = dir.path.join("sessions");
         let egress = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let proxy = format!("http://{}", egress.local_addr().unwrap());
-        let mut child = Command::new(env!("CARGO_BIN_EXE_openbridge-auth"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_morphiecore-auth"))
             .args([
                 "grok",
                 "login",

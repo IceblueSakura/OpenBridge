@@ -1,6 +1,6 @@
 //! Independent field and transformation contracts for stateless Responses text.
 use crate::wire;
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, lower_request, lower_response,
     },

@@ -7,7 +7,7 @@ use tokio::process::Command;
 
 #[test]
 fn fixture() {
-    match std::env::var("OPENBRIDGE_SYNTHETIC_CHILD").as_deref() {
+    match std::env::var("MORPHIECORE_SYNTHETIC_CHILD").as_deref() {
         Ok("wait") => loop {
             std::thread::park();
         },
@@ -29,7 +29,7 @@ fn command(mode: &str) -> Command {
     command
         .args(["--exact", "process_tests::fixture", "--nocapture"])
         .env_clear()
-        .env("OPENBRIDGE_SYNTHETIC_CHILD", mode);
+        .env("MORPHIECORE_SYNTHETIC_CHILD", mode);
     command
 }
 #[tokio::test]

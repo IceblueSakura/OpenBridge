@@ -1,5 +1,5 @@
 //! Independent Chat probability and context oracles against the pinned SDK contract.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::{Profile, events::EventEncoder},
@@ -239,13 +239,13 @@ fn chat_content_and_refusal_probabilities_close_static_and_event_paths() {
         // Replacement through a fresh semantic part cannot restore source probabilities.
         message.parts[0].content = if refusal {
             ContentPart::Refusal(
-                openbridge::semantic::value::Text::new("changed", "test", 128)
+                morphiecore::semantic::value::Text::new("changed", "test", 128)
                     .unwrap()
                     .into(),
             )
         } else {
             ContentPart::Text(
-                openbridge::semantic::value::Text::new("changed", "test", 128)
+                morphiecore::semantic::value::Text::new("changed", "test", 128)
                     .unwrap()
                     .into(),
             )
@@ -315,7 +315,7 @@ fn chat_probability_arrays_are_reported_even_when_empty_and_bad_owners_fail() {
 
 #[test]
 fn independent_probability_owners_encode_and_text_edits_invalidate_only_their_facts() {
-    use openbridge::{protocol::openai::ResponseMetadata, semantic::value::Text};
+    use morphiecore::{protocol::openai::ResponseMetadata, semantic::value::Text};
     let probs: Vec<Logprob> = serde_json::from_value(json!([probability("no")])).unwrap();
     let refusal = RefusalContent::new(
         Text::new("no", "test", 128).unwrap(),
@@ -357,7 +357,7 @@ fn independent_probability_owners_encode_and_text_edits_invalidate_only_their_fa
         context: Default::default(),
         instruction_fidelity: Default::default(),
     };
-    let fidelity = openbridge::protocol::fidelity::FidelityRecords::default();
+    let fidelity = morphiecore::protocol::fidelity::FidelityRecords::default();
     for content in [ContentPart::Text(plain), ContentPart::Refusal(refusal)] {
         let kind = if matches!(content, ContentPart::Text(_)) {
             PartKind::Text
@@ -380,7 +380,7 @@ fn independent_probability_owners_encode_and_text_edits_invalidate_only_their_fa
         });
         let response =
             GenerationResponse::new(vec![(ItemId::new(7), message)], Outcome::Completed).unwrap();
-        let lowered = openbridge::lowering::generation::lower_response(
+        let lowered = morphiecore::lowering::generation::lower_response(
             &response,
             &fidelity,
             &metadata,
@@ -388,7 +388,7 @@ fn independent_probability_owners_encode_and_text_edits_invalidate_only_their_fa
             Contract::full(),
         )
         .unwrap();
-        let wire = openbridge::protocol::openai::chat_envelope::encode_response(&lowered).unwrap();
+        let wire = morphiecore::protocol::openai::chat_envelope::encode_response(&lowered).unwrap();
         assert_eq!(
             wire["choices"][0]["logprobs"][key],
             json!([probability("no")])
@@ -463,7 +463,7 @@ fn independent_probability_owners_encode_and_text_edits_invalidate_only_their_fa
             _ => unreachable!(),
         };
         let edited = response.with_items(items).unwrap();
-        let lowered = openbridge::lowering::generation::lower_response(
+        let lowered = morphiecore::lowering::generation::lower_response(
             &edited,
             &fidelity,
             &metadata,
@@ -471,13 +471,13 @@ fn independent_probability_owners_encode_and_text_edits_invalidate_only_their_fa
             Contract::full(),
         )
         .unwrap();
-        assert!(openbridge::protocol::openai::chat_envelope::encode_response(&lowered).unwrap()["choices"][0].get("logprobs").is_none());
+        assert!(morphiecore::protocol::openai::chat_envelope::encode_response(&lowered).unwrap()["choices"][0].get("logprobs").is_none());
     }
 }
 
 #[test]
 fn chat_stream_metadata_and_probability_retractions_fail_before_success() {
-    use openbridge::semantic::value::Text;
+    use morphiecore::semantic::value::Text;
     let decoded = adapter(Profile::Chat)
         .decode_response(
             response(false, json!({"content":[probability("ok")]}))

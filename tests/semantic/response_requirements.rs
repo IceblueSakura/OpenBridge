@@ -1,6 +1,6 @@
 //! Output requirements do not manufacture a request or inherit request controls.
 use crate::events_support::{metadata, text};
-use openbridge::{
+use morphiecore::{
     lowering::generation::{GenerationRepresentationContract as Contract, lower_response},
     protocol::{CodecError, DecodedResponse, ResponseMetadata},
     protocol::{fidelity::FidelityRecords, openai::Profile},
@@ -72,7 +72,7 @@ fn self_describing_response_program_output_does_not_require_request_history() {
         Contract::full(),
     )
     .unwrap();
-    let wire = openbridge::protocol::openai::responses::encode_response(&target).unwrap();
+    let wire = morphiecore::protocol::openai::responses::encode_response(&target).unwrap();
     assert_eq!(
         wire["output"][0],
         serde_json::json!({"type":"program_output","id":"item_1","call_id":"p","result":"reported","status":"completed"})

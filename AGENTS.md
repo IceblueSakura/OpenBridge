@@ -1,4 +1,4 @@
-# OpenBridge Agent Instructions
+# MorphieCore Agent Instructions
 
 These rules apply repository-wide. More specific guidance may narrow, not weaken, authorization, security or change-control boundaries.
 

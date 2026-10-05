@@ -1,6 +1,6 @@
 //! Final history owns call/result dependencies; no view authorizes another attempt.
 use crate::events_support::text;
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_request,
@@ -153,7 +153,7 @@ fn unresolved_or_reported_partial_values_do_not_become_execution_readiness() {
     let request = GenerationRequest::from_settings(
         vec![],
         GenerationSettings {
-            instructions: openbridge::semantic::value::Presence::Value(text("instructions only")),
+            instructions: morphiecore::semantic::value::Presence::Value(text("instructions only")),
             ..GenerationSettings::default()
         },
     )

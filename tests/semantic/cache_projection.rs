@@ -1,12 +1,12 @@
 //! Cache affinity is Provider functionality, not gateway sessions or route selection.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::Profile,
 };
 use serde_json::{Value, json};
 fn client(p: Profile) -> Adapter {
-    Adapter::new(p, Dialect::OpenBridge, None)
+    Adapter::new(p, Dialect::MorphieCore, None)
 }
 fn request(p: Profile) -> Value {
     match p {
@@ -120,7 +120,7 @@ fn scoped_session_and_standard_cache_key_remain_independent_on_both_wires() {
         assert_eq!(out["prompt_cache_key"], "key-a");
         let mut edited = req.clone();
         edited.cache_session = None;
-        edited.context.cache.prompt_cache_key = openbridge::semantic::value::Presence::Absent;
+        edited.context.cache.prompt_cache_key = morphiecore::semantic::value::Presence::Absent;
         let erased = target
             .encode_request(&edited, "upstream", &Contract::full())
             .unwrap();

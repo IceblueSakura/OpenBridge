@@ -1,4 +1,4 @@
-use openbridge::{
+use morphiecore::{
     adapter::images::{Profile, Request},
     lowering::images::{AccountingPolicy, project_response},
     protocol::{openai::images, openrouter_images},

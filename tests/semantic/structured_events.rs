@@ -1,6 +1,6 @@
 //! Structured builders become one JSON authority, never a repaired string at terminal.
 use crate::events_support::{self as events, text};
-use openbridge::{
+use morphiecore::{
     protocol::{
         fidelity::FidelityRecords,
         openai::{Profile, events::EventEncoder},

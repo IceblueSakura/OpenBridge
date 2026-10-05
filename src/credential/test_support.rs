@@ -132,7 +132,9 @@ pub(super) struct Authority {
 fn assert_grok_headers(headers: &axum::http::HeaderMap, stage: Option<&str>) {
     let agent = headers["user-agent"].to_str().unwrap();
     assert!(agent.starts_with("grok-shell/1.0.46 (") && agent.ends_with(')'));
-    assert!(agent.contains("; ") && !agent.contains("OpenBridge") && !agent.contains("openbridge"));
+    assert!(
+        agent.contains("; ") && !agent.contains("MorphieCore") && !agent.contains("morphiecore")
+    );
     assert!(!headers.contains_key("originator"));
     match stage {
         Some("device" | "urn:ietf:params:oauth:grant-type:device_code") => {
@@ -209,7 +211,9 @@ impl Authority {
                             let agent = headers["user-agent"].to_str().unwrap();
                             assert!(agent.starts_with("codex_cli_rs/0.160.0 ("));
                             assert!(agent.contains("; ") && agent.contains(") "));
-                            assert!(!agent.contains("OpenBridge") && !agent.contains("openbridge"));
+                            assert!(
+                                !agent.contains("MorphieCore") && !agent.contains("morphiecore")
+                            );
                         } else {
                             assert!(!headers.contains_key("originator"));
                             assert!(!headers.contains_key("user-agent"));

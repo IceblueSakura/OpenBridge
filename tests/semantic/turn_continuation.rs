@@ -1,6 +1,6 @@
 //! Explicit local relations never manufacture wire identity or execution permission.
 use crate::events_support::text;
-use openbridge::semantic::task::generation::*;
+use morphiecore::semantic::task::generation::*;
 
 fn call(id: u64, name: &str) -> (ItemId, Item) {
     (
@@ -144,7 +144,7 @@ fn declared_dependencies_are_checked_even_after_results_arrive() {
     let proofs = [RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(1)),
-        openbridge::semantic::task::generation::SettingsDependency::All,
+        morphiecore::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap()];
     let exchange = ResponseContinuation::new(relation(), &response).with_dependencies(&proofs);

@@ -1,5 +1,5 @@
 //! Provider-scoped extension carriers: Codex header lifecycle and custom body sections.
-use openbridge::{
+use morphiecore::{
     lowering::generation::{GenerationRepresentationContract as Contract, lower_request},
     protocol::{
         extensions::{CodexHeaders, CustomSections, RoutingHint},

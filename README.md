@@ -1,8 +1,10 @@
-# OpenBridge
+# MorphieCore
 
-OpenBridge 建立**可由 Gateway 与未来自研 Agent 复用的模型交互 Semantic Model / IR**，以尽量低的语义损失连接不同 Provider，并向下游提供稳定的标准 API。项目尚未上线；优先稳定概念、所有权与不变量，不冻结当前 Rust 类型或照搬协议 DTO。
+MorphieCore 建立**可由 Gateway 与未来自研 Agent 复用的模型交互 Semantic Model / IR**，以尽量低的语义损失连接不同 Provider，并向下游提供稳定的标准 API。项目尚未上线；优先稳定概念、所有权与不变量，不冻结当前 Rust 类型或照搬协议 DTO。
 
 当前主线是 Agent-first 的 Text/Image/File 交互，优先完善规范 Responses；Chat Completions 仅作允许声明损失的兼容路径。Embedding 与更多独立标准媒体 operation 后续选片，具体端点范围另行讨论。音频 Realtime 明确要实现，但推迟设计与实施以降低每阶段关注度。有效合同归[语义架构](docs/architecture-v2/README.md)，具体步骤归[后续计划](docs/implementation-plans/next-goal.md)，不代表当前能力已经扩大。
+
+项目展示名为 **MorphieCore**；Rust crate 与主程序为 `morphiecore`，凭据 CLI 为 `morphiecore-auth`。开发工具环境变量统一使用 `MORPHIECORE_` 前缀。
 
 ## 当前范围
 
@@ -18,10 +20,10 @@ OpenBridge 建立**可由 Gateway 与未来自研 Agent 复用的模型交互 Se
 
 ## 验证
 
-语义库构造不读取私有配置。`openbridge` binary 通过显式入口配置与凭据目录启动；命令本身不发生成请求：
+语义库构造不读取私有配置。`morphiecore` binary 通过显式入口配置与凭据目录启动；命令本身不发生成请求：
 
 ```sh
-cargo run --locked --offline --bin openbridge -- --credentials-dir /path/to/private-store
+cargo run --locked --offline --bin morphiecore -- --credentials-dir /path/to/private-store
 ```
 
 先按[HTTP 指南](docs/http-gateway.md)准备入口配置，账户与池操作见[凭据指南](docs/credentials.md)。真实登录、推理或付费测试需独立授权，使用[受控 probe](docs/probes.md)，不属于默认检查。

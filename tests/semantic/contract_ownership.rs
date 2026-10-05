@@ -1,5 +1,5 @@
 //! Semantic admission must not depend on a wire profile or Provider binding.
-use openbridge::semantic::{
+use morphiecore::semantic::{
     task::generation::*,
     value::{Presence, Text},
 };

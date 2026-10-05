@@ -1,6 +1,6 @@
 //! Reported progress never substitutes for operation outcome or execution permission.
 use crate::events_support::{self as events, text};
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_response,
     },

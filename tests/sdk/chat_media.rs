@@ -7,7 +7,7 @@ use axum::{
     response::Response,
     routing::post,
 };
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::{
@@ -124,7 +124,7 @@ async fn handle(State(context): State<Context>, headers: HeaderMap, body: Bytes)
                         decoder.metadata().ok_or(())?.clone(),
                         contract(),
                         SseLimits::default(),
-                        openbridge::semantic::context::StreamOptions {
+                        morphiecore::semantic::context::StreamOptions {
                             include_obfuscation: Presence::Value(false),
                             ..Default::default()
                         },
@@ -196,8 +196,9 @@ async fn sdk_chat_media_values_streams_and_history() {
         .unwrap()
     });
     let guard = crate::ServerGuard(server.abort_handle());
-    let mut command =
-        Command::new(std::env::var_os("OPENBRIDGE_SDK_PYTHON").unwrap_or_else(|| "python3".into()));
+    let mut command = Command::new(
+        std::env::var_os("MORPHIECORE_SDK_PYTHON").unwrap_or_else(|| "python3".into()),
+    );
     command
         .args([
             "tests/sdk/chat_media_loop.py",
@@ -212,7 +213,7 @@ async fn sdk_chat_media_values_streams_and_history() {
         "OPENAI_BASE_URL",
         "OPENAI_ORG_ID",
         "OPENAI_PROJECT_ID",
-        "OPENBRIDGE_CONFIG",
+        "MORPHIECORE_CONFIG",
     ] {
         command.env_remove(name);
     }

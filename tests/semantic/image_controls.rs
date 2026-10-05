@@ -1,5 +1,5 @@
 //! Independent static generation controls, not provider capability inference.
-use openbridge::{
+use morphiecore::{
     adapter::images::{Profile, Request},
     protocol::{openai::images, openrouter_images},
     semantic::{

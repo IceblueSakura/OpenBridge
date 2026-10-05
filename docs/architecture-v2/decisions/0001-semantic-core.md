@@ -6,7 +6,7 @@ Accepted design direction. Current codec admission and implementation gaps remai
 
 ## Decision
 
-OpenBridge has one independent Semantic Model for model API interactions; IR is its typed representation. Gateway and a future Agent share that authority. Generation owns ordered content, actions/results and continuation dependencies; Embedding has a distinct task contract, not a message variant. OpenAI Responses is the primary design reference; Google Gemini and Anthropic Messages provide supplementary semantic checks and projection targets. The IR remains independent: no protocol defines its expressiveness ceiling.
+MorphieCore has one independent Semantic Model for model API interactions; IR is its typed representation. Gateway and a future Agent share that authority. Generation owns ordered content, actions/results and continuation dependencies; Embedding has a distinct task contract, not a message variant. OpenAI Responses is the primary design reference; Google Gemini and Anthropic Messages provide supplementary semantic checks and projection targets. The IR remains independent: no protocol defines its expressiveness ceiling.
 
 Keep ordered heterogeneous items, stable identities and explicit lifecycles where they express independent concepts. Do not clone a protocol union, SDK DTO, common denominator or mechanical field union. Shared concepts have one owner; scoped typed extensions preserve genuinely source-specific meaning without creating a Provider IR.
 
@@ -16,7 +16,7 @@ Same-protocol and cross-protocol paths decode, validate/transform, derive requir
 
 ## Rationale and consequences
 
-OpenBridge is pre-release and in design exploration. Stability belongs to concepts, ownership and invariants, not current Rust shapes. New designs are evaluated against independent task contracts and selected consumers rather than incumbent implementation convenience. Future Agent planning, memory and tool orchestration remain outside model-interaction semantics. Realtime detailed design is deferred; no speculative session framework is required to stabilize the current request-based scope.
+MorphieCore is pre-release and in design exploration. Stability belongs to concepts, ownership and invariants, not current Rust shapes. New designs are evaluated against independent task contracts and selected consumers rather than incumbent implementation convenience. Future Agent planning, memory and tool orchestration remain outside model-interaction semantics. Realtime detailed design is deferred; no speculative session framework is required to stabilize the current request-based scope.
 
 A narrow target must reject or explicitly convert unsupported meaning, not redefine the IR. Protocol neutrality does not erase existing Responses semantics or promise arbitrary lossless translation. Other tasks keep their own contracts; Agent-first representation does not authorize orchestration, storage or tools. Runtime secrets, selected targets and retry/commit state stay outside IR.
 

@@ -114,7 +114,7 @@ mod tests {
             "codex_cli_rs/0.160.0 (Linux__Injected 1; x86_64) unknown"
         );
         assert!(HeaderValue::from_str(user_agent()).is_ok());
-        assert!(!user_agent().contains("OpenBridge") && !user_agent().contains("openbridge"));
+        assert!(!user_agent().contains("MorphieCore") && !user_agent().contains("morphiecore"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Bounded loopback body lifecycle; no OpenBridge service, Provider, or private config.
+//! Bounded loopback body lifecycle; no MorphieCore service, Provider, or private config.
 use crate::wire;
 use axum::{
     Router,
@@ -7,7 +7,7 @@ use axum::{
     routing::get,
 };
 use futures_util::stream;
-use openbridge::protocol::openai::sse::{ResponsesSseDecoder, SseLimits, encode_frame};
+use morphiecore::protocol::openai::sse::{ResponsesSseDecoder, SseLimits, encode_frame};
 use std::{convert::Infallible, time::Duration};
 use tokio::{net::TcpListener, sync::mpsc};
 

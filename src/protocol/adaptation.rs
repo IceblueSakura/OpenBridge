@@ -26,7 +26,7 @@ pub struct WireRules {
     /// Typed image-token fact in Chat input details, not an opaque vendor Usage.
     /// Source: <https://mimo.mi.com/docs/zh-CN/api/chat/openai-api>.
     pub chat_image_usage: bool,
-    /// OpenBridge's explicit image-token extension on Responses input details;
+    /// MorphieCore's explicit image-token extension on Responses input details;
     /// the fixed standard Responses schema has no such position.
     pub responses_image_usage: bool,
     /// Omitted text delta/done probabilities mean unreported, not a static empty
@@ -99,7 +99,7 @@ pub struct WireRules {
     /// Source: <https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses>.
     pub responses_billing_view: bool,
     /// Explicit typed text-token positions beyond the fixed Responses schema.
-    /// OpenBridge uses canonical detail slots; billing-view profiles own their wire.
+    /// MorphieCore uses canonical detail slots; billing-view profiles own their wire.
     pub responses_text_usage: bool,
     /// A created/queued snapshot emits Queued, not Started. Only a subsequent
     /// in_progress event starts it; absent progress cannot be synthesized.

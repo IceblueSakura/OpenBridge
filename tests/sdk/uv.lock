@@ -134,7 +134,7 @@ wheels = [
 ]
 
 [[package]]
-name = "openbridge-sdk-tests"
+name = "morphiecore-sdk-tests"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

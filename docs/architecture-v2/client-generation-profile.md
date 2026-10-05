@@ -1,8 +1,10 @@
 # 客户端 Generation 边界
 
-公开主目标是[规范 Responses](semantic-ir.md#3-客户端-api-目标与扩展边界)，Chat 仅作有界有损的兼容路径。当前 HTTP 仍选择 `Dialect::OpenBridge` 的具名规则，不代表全部标准已经符合；现有 reasoning、usage、cache 等差异按 owning codec/profile 分别核对。
+公开主目标是[规范 Responses](semantic-ir.md#3-客户端-api-目标与扩展边界)，Chat 仅作有界有损的兼容路径。当前 HTTP 仍选择 `Dialect::MorphieCore` 的具名规则，不代表全部标准已经符合；现有 reasoning、usage、cache 等差异按 owning codec/profile 分别核对。
 
 ## 无独立私有 attachment
+
+`_openbridge` 是被禁止的历史字段的精确拼写，不随项目更名而替换；MorphieCore 不引入同义 carrier。
 
 请求、响应及事件的 envelope/item **不接受或输出独立 `_openbridge` 字段**，包括 null、空对象及带版本的对象。不存在开关恢复、同义替代字段或私有事件。普通文本、raw tool arguments/output 或允许任意键的用户 metadata 中的同名业务数据不被当作协议 attachment。
 

@@ -1,6 +1,6 @@
 //! Reasoning ownership, opaque replay, mixed tool continuation and resource failures.
 use crate::events_support::*;
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, lower_request, lower_response,
     },
@@ -178,7 +178,7 @@ fn opaque_origin_and_owner_dependencies_are_checked_but_deleted_owners_are_irrel
     assert!(lower_request(&d.semantic, &d.fidelity, Profile::Responses, contract()).is_ok());
     let mut other = contract();
     other.replay_origin =
-        Some(openbridge::semantic::value::ReplayOrigin::new("different-owner").unwrap());
+        Some(morphiecore::semantic::value::ReplayOrigin::new("different-owner").unwrap());
     assert!(lower_request(&d.semantic, &d.fidelity, Profile::Responses, other).is_err());
     let mut items = d.semantic.items().to_vec();
     let Item::Reasoning(r) = &mut items[0].1 else {

@@ -1,6 +1,6 @@
 //! Format identity and selected dependencies never prove issuer authenticity.
 use crate::events_support::{metadata, text};
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_response,
     },

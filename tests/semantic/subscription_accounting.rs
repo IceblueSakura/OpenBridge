@@ -1,5 +1,5 @@
 //! Independent closed accounting and event-owned output counterexamples.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::Profile,
@@ -38,7 +38,7 @@ fn accounting_keeps_distinct_counters_scoped_and_invalidates_after_edits() {
             .is_err()
     );
     for other in [
-        adapter(Dialect::OpenBridge, "one"),
+        adapter(Dialect::MorphieCore, "one"),
         adapter(Dialect::Grok, "two"),
     ] {
         let wire = other.encode_response(&decoded, &Contract::full()).unwrap();
@@ -83,7 +83,7 @@ fn product_metadata_is_closed_and_never_authorizes_hosted_usage() {
         json!({"cyber":"synthetic"})
     );
     assert!(
-        adapter(Dialect::OpenBridge, "one")
+        adapter(Dialect::MorphieCore, "one")
             .encode_response(&decoded, &Contract::full())
             .unwrap()
             .get("access_programs")

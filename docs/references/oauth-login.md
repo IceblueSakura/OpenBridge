@@ -4,7 +4,7 @@
 
 - [Grok Build / xAI 账户登录](grok-login.md)：官方浏览器 OIDC、标准设备授权、企业路径、pi 内置登录与补充插件。
 - [待弃用的 Codex 产品登录来源](chatgpt-login.md)：仅保留旧产品 wire 出处、私有设备协议识别与移除前约束。
-- [公开 SIWC 与 ChatGPT plan usage](siwc-login.md)：官方条款、动态 registration、identity/permission、renewal、公共 Responses 与 OpenBridge 参数规划。
+- [公开 SIWC 与 ChatGPT plan usage](siwc-login.md)：官方条款、动态 registration、identity/permission、renewal、公共 Responses 与 MorphieCore 参数规划。
 - [扩展与上下文](extensions-and-context.md#2-codex-session_id-的实际含义)：logical session、cache affinity、thread/turn、连接级 continuation 和选定客户端投影；不是登录协议的第二份定义。
 
 方向归 [next-goal](../implementation-plans/next-goal.md)，有效决策归 [ADRs](../architecture-v2/README.md#架构决策)，获准行为切片归 [current-focus](../implementation-plans/current-focus.md)。这些文档均不授予登录、凭据操作、网络调用或部署权限。
@@ -49,4 +49,4 @@ pi `/logout` 清理自身 stored credential，不撤销 Provider credential，�
 - [LiteLLM ChatGPT authenticator](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/litellm/llms/chatgpt/authenticator.py)，固定 `23de7a15d9d40006ee596e617475ba101d60c5e9`，[许可入口](https://github.com/BerriAI/litellm/blob/23de7a15d9d40006ee596e617475ba101d60c5e9/LICENSE)：采用具体文件前核对许可范围。
 - [CLIProxyAPI device login](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/sdk/auth/codex_device.go)、[refresh scheduler](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/sdk/cliproxy/auth/auto_refresh_loop.go)，固定 `bc71c77f5cc42f3fbe1bf040cf14d4f166894835`，[MIT](https://github.com/router-for-me/CLIProxyAPI/blob/bc71c77f5cc42f3fbe1bf040cf14d4f166894835/LICENSE)：来源导航，不采用其账号池或 fallback 为默认策略。
 
-不据此建立客户端兼容矩阵或宣称已成功执行。具体 OpenBridge 实现查独立 [credential owner](../../src/credential/mod.rs)、数据面的 [provider auth](../../src/provider/auth.rs)与 [bootstrap](../../src/gateway/bootstrap.rs)；Grok / Codex 共用多账户管理不等于 token 互换或 Gateway 接线，参见 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md) 与 [Generation 缺口](../implementation-status/generation.md)。
+不据此建立客户端兼容矩阵或宣称已成功执行。具体 MorphieCore 实现查独立 [credential owner](../../src/credential/mod.rs)、数据面的 [provider auth](../../src/provider/auth.rs)与 [bootstrap](../../src/gateway/bootstrap.rs)；Grok / Codex 共用多账户管理不等于 token 互换或 Gateway 接线，参见 [ADR 0012](../architecture-v2/decisions/0012-grok-personal-credential-pool.md) 与 [Generation 缺口](../implementation-status/generation.md)。

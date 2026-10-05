@@ -1,5 +1,5 @@
 //! Independent image admission and projection oracles; no network or media decoder.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract,
     protocol::openai::Profile,
@@ -88,7 +88,7 @@ fn edits_delete_replace_insert_and_reorder_images_without_source_resurrection() 
         panic!()
     };
     resource.location = ResourceLocation::Url(
-        openbridge::semantic::value::Text::new(
+        morphiecore::semantic::value::Text::new(
             "https://example.test/replaced.png",
             "synthetic",
             8192,
@@ -102,7 +102,7 @@ fn edits_delete_replace_insert_and_reorder_images_without_source_resurrection() 
         id: PartId::new(100),
         content: ContentPart::Resource(Resource {
             location: ResourceLocation::Url(
-                openbridge::semantic::value::Text::new(
+                morphiecore::semantic::value::Text::new(
                     "https://example.test/new.png",
                     "synthetic",
                     8192,
@@ -241,7 +241,7 @@ fn invalid_image_sources_shells_details_and_placements_fail_closed() {
 
 #[test]
 fn typed_images_are_bounded_after_transforms_and_cannot_become_output() {
-    use openbridge::semantic::value::Text;
+    use morphiecore::semantic::value::Text;
     let resource = Resource {
         location: ResourceLocation::Inline {
             media_type: Text::new("image/png", "synthetic", 64).unwrap(),
@@ -355,7 +355,7 @@ fn lowering_rejects_disabled_images_and_undeclared_detail_without_mutating_ir() 
         Profile::Responses,
         json!([{"type":"input_image","image_url":"data:image/bmp;base64,AQID"}]),
     );
-    let request = Adapter::new(Profile::Responses, Dialect::OpenBridge, None)
+    let request = Adapter::new(Profile::Responses, Dialect::MorphieCore, None)
         .decode_request(&serde_json::to_vec(&bmp).unwrap())
         .unwrap();
     for profile in [Profile::Chat, Profile::Responses] {

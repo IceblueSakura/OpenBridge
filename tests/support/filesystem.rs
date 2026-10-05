@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 fn temporary_directory(private: bool) -> tempfile::TempDir {
     let mut builder = tempfile::Builder::new();
-    builder.prefix("openbridge-test-");
+    builder.prefix("morphiecore-test-");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

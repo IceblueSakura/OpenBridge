@@ -1,6 +1,6 @@
 //! Explicit assistant ownership is not adjacency, a turn ID, or tool execution.
 use crate::events_support::{metadata, start, terminal, text};
-use openbridge::{
+use morphiecore::{
     protocol::{
         fidelity::FidelityRecords,
         openai::{Profile, chat, events::EventEncoder},
@@ -159,7 +159,7 @@ fn chat_history_declares_separate_groups_even_without_body_text() {
 
 #[test]
 fn responses_adjacency_does_not_declare_a_message_group() {
-    let decoded = openbridge::protocol::openai::responses::decode_generation(&json!({"input":[
+    let decoded = morphiecore::protocol::openai::responses::decode_generation(&json!({"input":[
         {"role":"user","content":"lookup"},
         {"type":"reasoning","id":"r","summary":[]},
         {"type":"message","id":"m","role":"assistant","status":"completed","content":[]},

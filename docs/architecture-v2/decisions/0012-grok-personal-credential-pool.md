@@ -19,7 +19,7 @@ Accepted. Configuring a pool does not authorize live credential operations, migr
 
 ## Rationale and consequences
 
-Mature libraries own generic CLI, filesystem and serialization mechanics; OpenBridge retains identity, refresh-consumption, replay and fallback policy. File-only activation removes competing environment/file selection paths. Concurrent CLI management does not require a new daemon or stopping the Gateway, but it still requires cooperating writers and a local filesystem supporting the selected guarantees.
+Mature libraries own generic CLI, filesystem and serialization mechanics; MorphieCore retains identity, refresh-consumption, replay and fallback policy. File-only activation removes competing environment/file selection paths. Concurrent CLI management does not require a new daemon or stopping the Gateway, but it still requires cooperating writers and a local filesystem supporting the selected guarantees.
 
 This is not distributed coordination, remote key provisioning, automatic refresh, quota recovery or session affinity. Fallback can duplicate upstream work and billing; local cancellation/removal cannot prove upstream termination. A malicious same-user process or trusted administrator is outside filesystem privacy isolation.
 

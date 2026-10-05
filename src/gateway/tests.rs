@@ -149,7 +149,7 @@ async fn diagnostics_only_record_authenticated_requests_and_never_expose_headers
             .method("POST")
             .uri("/v1/chat/completions")
             .header(
-                "x-openbridge-probe-id",
+                "x-morphiecore-probe-id",
                 "00000000000000000000000000000001:1",
             )
             .header("content-type", "application/json");

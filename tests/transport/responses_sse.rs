@@ -1,7 +1,7 @@
 //! Offline HTTP/SSE framing acceptance for the stateless Responses text profile.
 use crate::wire;
 
-use openbridge::{
+use morphiecore::{
     lowering::generation::GenerationRepresentationContract,
     protocol::{
         fidelity::FidelityRecords,
@@ -52,7 +52,7 @@ fn consume_all(d: &mut ResponsesSseDecoder, bytes: &[u8], chunk_len: usize) -> u
 
 #[test]
 fn strict_json_rejection_and_poisoning_survive_fragmentation() {
-    use openbridge::protocol::openai::{CodecError, sse::SseError};
+    use morphiecore::protocol::openai::{CodecError, sse::SseError};
     let values = wire::events(2);
     let first = encode_frame(&values[0], SseLimits::default().max_event_bytes).unwrap();
     let item = values[1].to_string();
@@ -177,8 +177,8 @@ fn opaque_replay_cannot_be_promoted_by_missing_done_conflicting_terminal_or_eof(
                             if failure == "conflicting_token" {
                                 assert!(matches!(
                                     error,
-                                    openbridge::protocol::openai::sse::SseError::Codec(
-                                        openbridge::protocol::CodecError::Invalid(
+                                    morphiecore::protocol::openai::sse::SseError::Codec(
+                                        morphiecore::protocol::CodecError::Invalid(
                                             "terminal snapshot replay changed"
                                         )
                                     )
@@ -557,7 +557,7 @@ fn padding_has_an_independent_cumulative_utf8_budget() {
                     Err(error) => {
                         assert!(matches!(
                             error,
-                            openbridge::protocol::openai::sse::SseError::Limit
+                            morphiecore::protocol::openai::sse::SseError::Limit
                         ));
                         rejected = true;
                         break;
@@ -623,7 +623,7 @@ fn padding_encoder_respects_zero_budget_and_disabled_switch() {
                 Err(error) => {
                     assert!(matches!(
                         error,
-                        openbridge::protocol::openai::sse::SseError::Limit
+                        morphiecore::protocol::openai::sse::SseError::Limit
                     ));
                     rejected = true;
                     break;
@@ -695,7 +695,7 @@ fn multiline_data_is_joined_and_an_invalid_json_record_poisons_the_stream() {
 
 #[test]
 fn empty_terminal_summary_requires_real_closed_items_and_exact_nonempty_snapshots() {
-    use openbridge::{
+    use morphiecore::{
         adapter::{Adapter, Dialect},
         execution::Attempt,
         protocol::openai::{Profile, sse::SseLimits},

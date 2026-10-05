@@ -1,5 +1,5 @@
 //! A named unreported-probability rule must not weaken complete SSE or fabricate facts.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     protocol::openai::{Profile, events::EventEncoder, sse::ResponsesSseDecoder},
     semantic::{task::generation::*, value::Presence},

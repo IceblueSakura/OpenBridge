@@ -1,6 +1,6 @@
 //! Offline diagnostic: `cargo run --example replay_chat -- PROVIDER CAPTURE.json|sse [chat|responses]`.
 //! Reads only the supplied bounded capture; never loads credentials or opens sockets.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     execution::{Attempt, ResponseDelivery},
     lowering::generation::GenerationRepresentationContract,
@@ -57,7 +57,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut delivery = ResponseDelivery::new(
         Adapter::new(
             profile,
-            Dialect::OpenBridge,
+            Dialect::MorphieCore,
             Some(ReplayOrigin::new("offline-diagnostic")?),
         ),
         GenerationRepresentationContract::full(),

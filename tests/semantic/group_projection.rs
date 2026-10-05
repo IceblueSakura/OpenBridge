@@ -1,6 +1,6 @@
 //! A standard Responses target cannot carry explicit message-call ownership.
 use crate::events_support::{metadata, text};
-use openbridge::{
+use morphiecore::{
     lowering::{
         events::check_event,
         generation::{

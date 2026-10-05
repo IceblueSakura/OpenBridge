@@ -1,5 +1,5 @@
 //! Model identity does not authorize a Provider to erase unsupported media.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Representation,
     protocol::openai::Profile,
@@ -9,7 +9,7 @@ use serde_json::json;
 #[test]
 fn same_model_keeps_semantics_while_each_target_projects_media_independently() {
     let contract = GenerationSemanticContract::text_images();
-    let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);
+    let client = Adapter::new(Profile::Responses, Dialect::MorphieCore, None);
     let request=client.decode_request(&serde_json::to_vec(&json!({"model":"synthetic-model","input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/bmp;base64,AQ=="}]}]})).unwrap()).unwrap();
     assert!(request.check_semantic(&contract).is_ok());
     let original = request.clone();

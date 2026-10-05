@@ -1,5 +1,5 @@
 //! Candidate filtering must be value-sensitive and preserve trusted ordering.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     execution::ExecutionPlan,
     lowering::generation::GenerationRepresentationContract as Representation,
@@ -28,7 +28,7 @@ fn topology(policy: CandidatePolicy) -> CompiledTopology {
         ("a", provider("first"), vec![ImageFormat::Png]),
         ("b", provider("second"), vec![ImageFormat::Bmp]),
     ] {
-        let mut representation = Adapter::new(Profile::Responses, Dialect::OpenBridge, None)
+        let mut representation = Adapter::new(Profile::Responses, Dialect::MorphieCore, None)
             .contract(&Representation::full());
         representation.images.inline_formats = formats;
         endpoints.push(Endpoint {
@@ -49,7 +49,7 @@ fn topology(policy: CandidatePolicy) -> CompiledTopology {
                 request_body_limit: 4096,
                 response_body_limit: 4096,
                 timeout_ms: 1000,
-                credential_kind: openbridge::provider::CredentialKind::ApiKey,
+                credential_kind: morphiecore::provider::CredentialKind::ApiKey,
             },
             credential: CredentialBindingId::new(&format!("{id}-key")).unwrap(),
         });
@@ -85,14 +85,14 @@ fn topology(policy: CandidatePolicy) -> CompiledTopology {
 }
 #[test]
 fn forced_upstream_stream_is_rejected_before_attempt_preparation() {
-    use openbridge::execution::plan::{RejectionReason, representable};
+    use morphiecore::execution::plan::{RejectionReason, representable};
     let compiled = topology(CandidatePolicy::SkipUnrepresentable);
     let mut endpoint = compiled
         .endpoint(&EndpointId::new("a").unwrap())
         .unwrap()
         .clone();
     endpoint.execution.streaming = false;
-    let request = Adapter::new(Profile::Responses, Dialect::OpenBridge, None)
+    let request = Adapter::new(Profile::Responses, Dialect::MorphieCore, None)
         .decode_request(br#"{"model":"public","input":"hello","stream":false}"#)
         .unwrap();
     assert!(representable(&endpoint, &request).is_ok());
@@ -110,7 +110,7 @@ fn forced_upstream_stream_is_rejected_before_attempt_preparation() {
 
 #[test]
 fn full_requests_are_filtered_without_mutation_or_reordering() {
-    let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);
+    let client = Adapter::new(Profile::Responses, Dialect::MorphieCore, None);
     let request=client.decode_request(&serde_json::to_vec(&json!({"model":"public","input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/bmp;base64,AQ=="}]}]})).unwrap()).unwrap();
     let before = request.clone();
     let plan =
@@ -128,10 +128,10 @@ fn full_requests_are_filtered_without_mutation_or_reordering() {
     assert_eq!(plan.rejections[0].endpoint_id.as_str(), "a");
     assert_eq!(
         plan.rejections[0].reason,
-        openbridge::execution::plan::RejectionReason::Image
+        morphiecore::execution::plan::RejectionReason::Image
     );
     let compiled = topology(CandidatePolicy::SkipUnrepresentable);
-    let active = openbridge::execution::plan::select_candidates(
+    let active = morphiecore::execution::plan::select_candidates(
         &request,
         CandidatePolicy::SkipUnrepresentable,
         compiled.route_endpoints(&RouteId::new("route").unwrap()),
@@ -143,14 +143,14 @@ fn full_requests_are_filtered_without_mutation_or_reordering() {
     let both=client.decode_request(&serde_json::to_vec(&json!({"model":"public","input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/bmp;base64,AQ=="},{"type":"input_image","image_url":"data:image/png;base64,AQ=="}]}]})).unwrap()).unwrap();
     let error = ExecutionPlan::for_request(&topology(CandidatePolicy::SkipUnrepresentable), &both)
         .unwrap_err();
-    let openbridge::execution::PlanError::NoCandidate { rejections } = error else {
+    let morphiecore::execution::PlanError::NoCandidate { rejections } = error else {
         panic!("expected all candidate rejections")
     };
     assert_eq!(rejections.len(), 2);
     assert!(
         rejections
             .iter()
-            .all(|r| r.reason == openbridge::execution::plan::RejectionReason::Image)
+            .all(|r| r.reason == morphiecore::execution::plan::RejectionReason::Image)
     );
     let text = client
         .decode_request(br#"{"model":"public","input":"x"}"#)
@@ -166,11 +166,11 @@ fn full_requests_are_filtered_without_mutation_or_reordering() {
     );
     let endpoint = compiled.endpoint(&EndpointId::new("a").unwrap()).unwrap();
     assert_eq!(
-        openbridge::execution::plan::select_candidates(
+        morphiecore::execution::plan::select_candidates(
             &text,
             CandidatePolicy::SkipUnrepresentable,
             std::iter::repeat_n(endpoint, 65)
         ),
-        Err(openbridge::execution::PlanError::CandidateLimit)
+        Err(morphiecore::execution::PlanError::CandidateLimit)
     );
 }

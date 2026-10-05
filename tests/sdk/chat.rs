@@ -8,7 +8,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header::CONTENT_TYPE},
     response::Response,
 };
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, lower_request, lower_response,
     },

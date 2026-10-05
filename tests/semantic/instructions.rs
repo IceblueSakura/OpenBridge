@@ -1,5 +1,5 @@
 //! Instruction authority, controls and deletion across independent protocol projections.
-use openbridge::{
+use morphiecore::{
     lowering::generation::{GenerationRepresentationContract as Contract, check, lower_request},
     protocol::openai::{DecodedRequest, Profile, chat, responses},
     semantic::task::generation::{GenerationRequirements, Item},
@@ -52,9 +52,9 @@ fn ir_deletion_controls_both_encoders() {
 fn unrepresentable_instructions_fail_before_encoding() {
     let d = chat::decode_generation(&json!({"messages":[{"role":"system","content":"required"},{"role":"user","content":"hello"}]})).unwrap();
     let contract = Contract {
-        semantics: openbridge::semantic::task::generation::GenerationSemanticContract {
+        semantics: morphiecore::semantic::task::generation::GenerationSemanticContract {
             instructions: false,
-            ..openbridge::semantic::task::generation::GenerationSemanticContract::full()
+            ..morphiecore::semantic::task::generation::GenerationSemanticContract::full()
         },
         ..Contract::full()
     };

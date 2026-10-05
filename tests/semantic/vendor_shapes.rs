@@ -1,5 +1,5 @@
 //! Boundary-specific derived views, reported-fact policy and structural admission.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::{
         GenerationRepresentationContract as Contract, ReportedFactPolicy, RepresentationError,

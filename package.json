@@ -1,5 +1,5 @@
 {
-  "name": "openbridge-test-tools",
+  "name": "morphiecore-test-tools",
   "private": true,
   "type": "module",
   "engines": { "node": "24.21.0" },

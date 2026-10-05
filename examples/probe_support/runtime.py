@@ -112,7 +112,7 @@ class ProbeClient(DefaultHttpxClient):
         require(body.get(field) == self.expected_history, "history_changed", "budget")
         self.history_ok = True
         self.attempt = self.run.reserve(model, scenario, cap)
-        request.headers["x-openbridge-probe-id"] = self.attempt
+        request.headers["x-morphiecore-probe-id"] = self.attempt
         self.run.dispatched(self.attempt)
         streaming = kwargs.pop("stream", False)
         response = super().send(request, stream=True, **kwargs)
@@ -198,9 +198,9 @@ def gateway(run, models=None, *, synthetic=False, proxy=None):
     require(all(model in run.plan["models"] for model in models), "selection", "budget")
     require(__version__ == "3.19.0", "sdk_version", "setup")
     if not synthetic:
-        require(os.environ.get("OPENBRIDGE_PROBE_LIVE") == "1", "live_not_enabled", "setup")
+        require(os.environ.get("MORPHIECORE_PROBE_LIVE") == "1", "live_not_enabled", "setup")
         require(
-            bool(os.environ.get("OPENBRIDGE_PROBE_CREDENTIALS_DIR")),
+            bool(os.environ.get("MORPHIECORE_PROBE_CREDENTIALS_DIR")),
             "credential_directory", "setup",
         )
     key = secrets.token_urlsafe(32)
@@ -233,7 +233,7 @@ def gateway(run, models=None, *, synthetic=False, proxy=None):
         for provider, document in documents.items():
             save(provider + ".json", document)
     credential_directory = (
-        str(private) if synthetic else os.environ["OPENBRIDGE_PROBE_CREDENTIALS_DIR"]
+        str(private) if synthetic else os.environ["MORPHIECORE_PROBE_CREDENTIALS_DIR"]
     )
     config = {
         "bind": "127.0.0.1:0", "client_key": key, "models": models, "max_attempts": 1,
@@ -243,7 +243,7 @@ def gateway(run, models=None, *, synthetic=False, proxy=None):
         config["proxy"] = proxy
     elif not synthetic:
         for name in (
-            "OPENBRIDGE_PROXY",
+            "MORPHIECORE_PROXY",
             "https_proxy",
             "HTTPS_PROXY",
             "http_proxy",
@@ -262,7 +262,7 @@ def gateway(run, models=None, *, synthetic=False, proxy=None):
     save("gateway.json", config)
     server = subprocess.Popen(
         [
-            str(ROOT / "target/debug/openbridge"),
+            str(ROOT / "target/debug/morphiecore"),
             "--credentials-dir", credential_directory,
             "--config", str(private / "gateway.json"),
         ],
@@ -277,7 +277,7 @@ def gateway(run, models=None, *, synthetic=False, proxy=None):
             selector.register(server.stdout, selectors.EVENT_READ)
             require(bool(selector.select(timeout=15)), "startup_timeout", "setup")
             line = server.stdout.readline(256).strip()
-        match = re.fullmatch(r"OpenBridge listening on (http://127\.0\.0\.1:\d+)", line)
+        match = re.fullmatch(r"MorphieCore listening on (http://127\.0\.0\.1:\d+)", line)
         require(match is not None, "startup", "setup")
         yield match[1], key
     finally:

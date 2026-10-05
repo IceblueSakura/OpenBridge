@@ -1,5 +1,5 @@
 //! Independent inline-file wire oracles; no file parser, credentials or network.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::Profile,
@@ -16,7 +16,9 @@ fn wire(parts: Value) -> Value {
 fn file() -> Value {
     json!({"type":"input_file","file_data":"data:application/pdf;base64,AQID","filename":"synthetic.pdf","detail":"low"})
 }
-fn decode(parts: Value) -> Result<openbridge::adapter::Request, openbridge::protocol::CodecError> {
+fn decode(
+    parts: Value,
+) -> Result<morphiecore::adapter::Request, morphiecore::protocol::CodecError> {
     adapter().decode_request(&serde_json::to_vec(&wire(parts)).unwrap())
 }
 #[test]
@@ -163,8 +165,8 @@ fn file_model_admission_and_chat_rejection_do_not_mutate_input() {
     assert_eq!(request, before);
 }
 
-fn text(value: &str) -> openbridge::semantic::value::Text {
-    openbridge::semantic::value::Text::allowing_empty(value, "synthetic", MAX_TOTAL_BYTES).unwrap()
+fn text(value: &str) -> morphiecore::semantic::value::Text {
+    morphiecore::semantic::value::Text::allowing_empty(value, "synthetic", MAX_TOTAL_BYTES).unwrap()
 }
 fn typed_file(name: Option<&str>) -> Resource {
     Resource {
@@ -202,15 +204,15 @@ fn typed_request(resources: Vec<Resource>) -> Result<GenerationRequest, Generati
 fn encode_typed(
     request: &GenerationRequest,
     contract: Contract,
-) -> Result<Value, openbridge::lowering::generation::RepresentationError> {
-    let fidelity = openbridge::protocol::fidelity::FidelityRecords::default();
-    let target = openbridge::lowering::generation::lower_request(
+) -> Result<Value, morphiecore::lowering::generation::RepresentationError> {
+    let fidelity = morphiecore::protocol::fidelity::FidelityRecords::default();
+    let target = morphiecore::lowering::generation::lower_request(
         request,
         &fidelity,
         Profile::Responses,
         contract,
     )?;
-    Ok(openbridge::protocol::openai::responses::encode_generation(&target).unwrap())
+    Ok(morphiecore::protocol::openai::responses::encode_generation(&target).unwrap())
 }
 
 #[test]
@@ -239,7 +241,7 @@ fn typed_consumer_encodes_files_without_a_protocol_dto_or_image_admission() {
 
 #[test]
 fn target_file_limits_are_independent_and_do_not_mutate_or_expand_the_request() {
-    use openbridge::lowering::generation::RepresentationError;
+    use morphiecore::lowering::generation::RepresentationError;
     let request = typed_request(vec![
         typed_file(Some("synthetic.pdf")),
         typed_file(Some("second.pdf")),

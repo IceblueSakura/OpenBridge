@@ -1,15 +1,15 @@
 //! Explicit live acceptance probe for fixed provider bindings.
 //!
-//! Explicitly gated: refuses to run unless `OPENBRIDGE_PROBE=1`.
+//! Explicitly gated: refuses to run unless `MORPHIECORE_PROBE=1`.
 //!
-//!     OPENBRIDGE_PROBE=1 cargo run --locked --offline --example live_probe
+//!     MORPHIECORE_PROBE=1 cargo run --locked --offline --example live_probe
 //!
 //! Boundaries honored here:
 //! - credentials are read from the private local config at run time and used
 //!   in-process only for auth headers; nothing secret is logged or reported;
 //! - the matrix is chat/responses × {text, json_object, tool} × {JSON, SSE};
 //!   tools continue with actual response history, never reconstructed reasoning;
-//! - OpenRouter and additional Providers require explicit `OPENBRIDGE_PROBE_MODEL`; optional
+//! - OpenRouter and additional Providers require explicit `MORPHIECORE_PROBE_MODEL`; optional
 //!   PROTOCOL/CASE/DELIVERY filters narrow calls; MAX_TOKENS is bounded at 2048;
 //! - one request per call, 120s timeout, 2s spacing, bounded `max_output_tokens`;
 //! - model ids are verified through the free Models listing before any paid call;
@@ -20,7 +20,7 @@
 #[path = "../tests/support/filesystem.rs"]
 mod test_files;
 
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     execution::{Attempt, AttemptError, ResponseDelivery, admit, prepare},
     protocol::openai::{
@@ -245,7 +245,7 @@ struct CallReport {
 struct ToolCallInfo {
     call_id: String,
     name: String,
-    arguments: openbridge::semantic::task::generation::ToolArguments,
+    arguments: morphiecore::semantic::task::generation::ToolArguments,
     history: Vec<Value>,
 }
 
@@ -255,11 +255,11 @@ struct Credentials {
 
 /// Explicit owned JSON documents; no environment key, legacy import or fallback.
 fn load_credentials(path: &str) -> Result<Credentials, String> {
-    let load = || -> Result<Credentials, openbridge::credential::CredentialError> {
+    let load = || -> Result<Credentials, morphiecore::credential::CredentialError> {
         if !std::path::Path::new(path).is_dir() {
-            return Err(openbridge::credential::CredentialError::Storage);
+            return Err(morphiecore::credential::CredentialError::Storage);
         }
-        let manager = openbridge::credential::CredentialManager::new(path, vec![])?;
+        let manager = morphiecore::credential::CredentialManager::new(path, vec![])?;
         let mut pools = BTreeMap::new();
         for (provider, binding, mut status) in manager.pools()? {
             if !topology_catalog::API_KEY_BINDINGS
@@ -271,12 +271,12 @@ fn load_credentials(path: &str) -> Result<Credentials, String> {
             status.config.max_attempts = 1;
             status.config.fallback = false;
             let pool = manager.bind_pool(&provider, &status.config)?;
-            if let Some(openbridge::credential::PoolMember::ApiKey(key)) = pool.members.first() {
+            if let Some(morphiecore::credential::PoolMember::ApiKey(key)) = pool.members.first() {
                 pools.insert(binding, key.borrow()?.expose().to_owned());
             }
         }
         if pools.is_empty() {
-            return Err(openbridge::credential::CredentialError::KeyUnavailable);
+            return Err(morphiecore::credential::CredentialError::KeyUnavailable);
         }
         Ok(Credentials { pools })
     };
@@ -384,8 +384,8 @@ fn responses_tool() -> Value {
 
 fn chat_stream_options() -> StreamOptions {
     StreamOptions {
-        include_usage: openbridge::semantic::value::Presence::Value(true),
-        include_obfuscation: openbridge::semantic::value::Presence::Value(false),
+        include_usage: morphiecore::semantic::value::Presence::Value(true),
+        include_obfuscation: morphiecore::semantic::value::Presence::Value(false),
     }
 }
 
@@ -442,7 +442,7 @@ struct CallContext<'a> {
 }
 
 fn write_capture(path: &str, body: &[u8], secret: &SecretMaterial) {
-    if std::env::var("OPENBRIDGE_PROBE_CAPTURE").as_deref() == Ok("1")
+    if std::env::var("MORPHIECORE_PROBE_CAPTURE").as_deref() == Ok("1")
         && let Some(clean) = capture_bytes(body, secret)
     {
         let _ = std::fs::write(path, clean);
@@ -647,7 +647,7 @@ async fn run_call_inner(
     };
     let client_adapter = Adapter::new(
         family,
-        Dialect::OpenBridge,
+        Dialect::MorphieCore,
         ctx.endpoint.representation.adaptation.scope.clone(),
     );
     let decoded = match client_adapter.decode_request(&bytes) {
@@ -1005,7 +1005,7 @@ async fn run_call_inner(
 }
 
 fn extract(
-    response: &openbridge::semantic::task::generation::GenerationResponse,
+    response: &morphiecore::semantic::task::generation::GenerationResponse,
 ) -> (String, Option<ToolCallInfo>) {
     let mut text = String::new();
     let mut call = None;
@@ -1037,7 +1037,7 @@ fn consume_chat_stream(delivered: &[u8]) -> Result<(), String> {
         200,
         "text/event-stream; charset=utf-8",
         SseLimits::default(),
-        Adapter::new(Profile::Chat, Dialect::OpenBridge, None).event_decoder(),
+        Adapter::new(Profile::Chat, Dialect::MorphieCore, None).event_decoder(),
     )
     .map_err(|e| e.to_string())?;
     feed(
@@ -1181,7 +1181,7 @@ fn replay_capture(dir: &str) -> Result<(), String> {
                     }
                     let client = Adapter::new(
                         profile,
-                        Dialect::OpenBridge,
+                        Dialect::MorphieCore,
                         endpoint.representation.adaptation.scope.clone(),
                     );
                     let mut attempt =
@@ -1266,19 +1266,19 @@ fn replay_capture(dir: &str) -> Result<(), String> {
 
 #[tokio::main]
 async fn main() {
-    if let Ok(dir) = std::env::var("OPENBRIDGE_PROBE_REPLAY_DIR") {
+    if let Ok(dir) = std::env::var("MORPHIECORE_PROBE_REPLAY_DIR") {
         if let Err(error) = replay_capture(&dir) {
             eprintln!("{error}");
             std::process::exit(1);
         }
         return;
     }
-    if std::env::var("OPENBRIDGE_PROBE").as_deref() != Ok("1") {
-        eprintln!("live probe is an explicit paid gate; set OPENBRIDGE_PROBE=1 to run");
+    if std::env::var("MORPHIECORE_PROBE").as_deref() != Ok("1") {
+        eprintln!("live probe is an explicit paid gate; set MORPHIECORE_PROBE=1 to run");
         std::process::exit(2);
     }
     let only = selection(
-        "OPENBRIDGE_PROBE_MODEL",
+        "MORPHIECORE_PROBE_MODEL",
         &[
             "deepseek-flash",
             "mimo-v2.6-pro",
@@ -1298,13 +1298,13 @@ async fn main() {
     );
     let only = Some(only.unwrap_or_else(|| "nemotron-3-super".into()));
     probe_control::call("check", json!({"model":only.as_deref().unwrap()})).await;
-    let protocol_only = selection("OPENBRIDGE_PROBE_PROTOCOL", &["chat", "responses"]);
+    let protocol_only = selection("MORPHIECORE_PROBE_PROTOCOL", &["chat", "responses"]);
     let case_only = selection(
-        "OPENBRIDGE_PROBE_CASE",
+        "MORPHIECORE_PROBE_CASE",
         &["text", "json_object", "tool", "length"],
     );
-    let delivery_only = selection("OPENBRIDGE_PROBE_DELIVERY", &["json", "sse"]);
-    let cap = std::env::var("OPENBRIDGE_PROBE_MAX_TOKENS").ok().map(|s| {
+    let delivery_only = selection("MORPHIECORE_PROBE_DELIVERY", &["json", "sse"]);
+    let cap = std::env::var("MORPHIECORE_PROBE_MAX_TOKENS").ok().map(|s| {
         s.parse::<u64>()
             .ok()
             .filter(|n| (1..=2048).contains(n))
@@ -1313,7 +1313,7 @@ async fn main() {
                 std::process::exit(2)
             })
     });
-    if std::env::var("OPENBRIDGE_PROBE_LIST_MODELS").as_deref() == Ok("1")
+    if std::env::var("MORPHIECORE_PROBE_LIST_MODELS").as_deref() == Ok("1")
         && MODELS
             .iter()
             .any(|spec| only.as_deref() == Some(spec.label) && spec.models_path.is_none())
@@ -1321,10 +1321,11 @@ async fn main() {
         eprintln!("model directory is not declared for this target; no request sent");
         std::process::exit(2);
     }
-    let credentials_path = std::env::var("OPENBRIDGE_PROBE_CREDENTIALS_DIR").unwrap_or_else(|_| {
-        eprintln!("explicit OPENBRIDGE_PROBE_CREDENTIALS_DIR is required");
-        std::process::exit(2)
-    });
+    let credentials_path =
+        std::env::var("MORPHIECORE_PROBE_CREDENTIALS_DIR").unwrap_or_else(|_| {
+            eprintln!("explicit MORPHIECORE_PROBE_CREDENTIALS_DIR is required");
+            std::process::exit(2)
+        });
     let credentials = match load_credentials(&credentials_path) {
         Ok(credentials) => credentials,
         Err(error) => {
@@ -1372,7 +1373,7 @@ async fn main() {
     let stamp = report_dir();
     let out_dir = format!(
         "{}/{}",
-        std::env::var("OPENBRIDGE_PROBE_RUN").expect("validated run"),
+        std::env::var("MORPHIECORE_PROBE_RUN").expect("validated run"),
         std::path::Path::new(&stamp)
             .file_name()
             .unwrap()
@@ -1391,7 +1392,7 @@ async fn main() {
         {
             continue;
         }
-        if std::env::var("OPENBRIDGE_PROBE_LIST_MODELS").as_deref() != Ok("1") {
+        if std::env::var("MORPHIECORE_PROBE_LIST_MODELS").as_deref() != Ok("1") {
             eligible.push(spec);
             continue;
         }
@@ -1686,12 +1687,12 @@ mod tests {
         file.write_all(br#"{"api_keys":["synthetic-must-not-appear" invalid"#)
             .unwrap();
         drop(file);
-        assert!(openbridge::credential::read_private_file(&path, 4096).is_ok());
+        assert!(morphiecore::credential::read_private_file(&path, 4096).is_ok());
         let manager =
-            openbridge::credential::CredentialManager::new(directory.path(), vec![]).unwrap();
+            morphiecore::credential::CredentialManager::new(directory.path(), vec![]).unwrap();
         assert!(matches!(
             manager.pools(),
-            Err(openbridge::credential::CredentialError::Storage)
+            Err(morphiecore::credential::CredentialError::Storage)
         ));
         let error = load_credentials(directory.path().to_str().unwrap())
             .err()

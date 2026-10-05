@@ -16,7 +16,7 @@ use axum::{
     response::Response,
     routing::post,
 };
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     gateway::Limits,
     lowering::generation::GenerationRepresentationContract,
@@ -32,6 +32,25 @@ use std::{
     time::Duration,
 };
 use tokio::{net::TcpListener, sync::oneshot};
+
+#[tokio::test]
+async fn renamed_binaries_report_current_cli_names_without_loading_credentials() {
+    for (binary, name) in [
+        (env!("CARGO_BIN_EXE_morphiecore"), "morphiecore"),
+        (env!("CARGO_BIN_EXE_morphiecore-auth"), "morphiecore-auth"),
+    ] {
+        let mut command = tokio::process::Command::new(binary);
+        command.arg("--help").env_clear().kill_on_drop(true);
+        let output = tokio::time::timeout(Duration::from_secs(5), command.output())
+            .await
+            .expect("bounded CLI help")
+            .unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let help = String::from_utf8(output.stdout).unwrap();
+        assert!(help.contains(&format!("Usage: {name} ")), "{help}");
+    }
+}
 
 #[derive(Clone, Default)]
 struct Upstream(Arc<Mutex<Vec<Value>>>);
@@ -201,7 +220,7 @@ async fn answer(
                 bytes.extend_from_slice(format!("data: {frame}\n\n").as_bytes());
             } else {
                 bytes.extend_from_slice(
-                    &openbridge::protocol::openai::sse::encode_frame(frame, 1 << 20).unwrap(),
+                    &morphiecore::protocol::openai::sse::encode_frame(frame, 1 << 20).unwrap(),
                 );
             }
         }
@@ -483,7 +502,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         assert_eq!(response.status(), 200);
         let bytes = response.bytes().await.unwrap();
         let decoded = if stream {
-            let mut decoder = openbridge::protocol::openai::chat_sse::ChatSseDecoder::new(
+            let mut decoder = morphiecore::protocol::openai::chat_sse::ChatSseDecoder::new(
                 200,
                 "text/event-stream",
                 Default::default(),
@@ -500,20 +519,20 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         } else {
             let wire: Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(wire["metadata"], json!({"provider":"reported"}));
-            openbridge::adapter::Adapter::new(
+            morphiecore::adapter::Adapter::new(
                 Profile::Chat,
-                openbridge::adapter::Dialect::Standard,
+                morphiecore::adapter::Dialect::Standard,
                 None,
             )
             .decode_response(&bytes)
             .unwrap()
         };
-        let openbridge::semantic::task::generation::Item::Message(message) =
+        let morphiecore::semantic::task::generation::Item::Message(message) =
             &decoded.semantic.items()[0].1
         else {
             panic!("message")
         };
-        let openbridge::semantic::task::generation::ContentPart::Text(text) =
+        let morphiecore::semantic::task::generation::ContentPart::Text(text) =
             &message.parts[0].content
         else {
             panic!("text")
@@ -522,8 +541,8 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         assert_eq!(text.logprobs().value().unwrap().len(), 2);
         assert_eq!(
             decoded.metadata.context.execution.service_tier,
-            openbridge::semantic::value::Presence::Value(
-                openbridge::semantic::context::ServiceTier::Default
+            morphiecore::semantic::value::Presence::Value(
+                morphiecore::semantic::context::ServiceTier::Default
             )
         );
         if stream {
@@ -572,15 +591,15 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
             assert_eq!(response.status(), 200);
             let bytes = response.bytes().await.unwrap();
             let decoded = if !stream {
-                openbridge::adapter::Adapter::new(
+                morphiecore::adapter::Adapter::new(
                     profile,
-                    openbridge::adapter::Dialect::Standard,
+                    morphiecore::adapter::Dialect::Standard,
                     None,
                 )
                 .decode_response(&bytes)
                 .unwrap()
             } else if profile == Profile::Chat {
-                let mut decoder = openbridge::protocol::openai::chat_sse::ChatSseDecoder::new(
+                let mut decoder = morphiecore::protocol::openai::chat_sse::ChatSseDecoder::new(
                     200,
                     "text/event-stream",
                     Default::default(),
@@ -595,7 +614,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
                 decoder.finish().unwrap();
                 decoder.materialize().unwrap()
             } else {
-                let mut decoder = openbridge::protocol::openai::sse::ResponsesSseDecoder::new(
+                let mut decoder = morphiecore::protocol::openai::sse::ResponsesSseDecoder::new(
                     200,
                     "text/event-stream",
                     Default::default(),
@@ -613,9 +632,9 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
             };
             assert_eq!(
                 decoded.semantic.outcome(),
-                openbridge::semantic::task::generation::Outcome::Completed
+                morphiecore::semantic::task::generation::Outcome::Completed
             );
-            let openbridge::semantic::task::generation::Item::Message(message) =
+            let morphiecore::semantic::task::generation::Item::Message(message) =
                 &decoded.semantic.items()[0].1
             else {
                 panic!("text output")
@@ -626,7 +645,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
                 "old 🧪"
             };
             assert!(
-                matches!(&message.parts[0].content,openbridge::semantic::task::generation::ContentPart::Text(text) if text.as_str()==expected)
+                matches!(&message.parts[0].content,morphiecore::semantic::task::generation::ContentPart::Text(text) if text.as_str()==expected)
             );
         }
     }
@@ -962,12 +981,12 @@ async fn binary_bootstraps_only_explicit_files_and_ignores_environment_keys() {
     }));
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
-    let manager = openbridge::credential::CredentialManager::new(&root, vec![]).unwrap();
+    let manager = morphiecore::credential::CredentialManager::new(&root, vec![]).unwrap();
     manager
         .add_api_key(
             "deepseek",
             "one",
-            openbridge::credential::Secret::new("synthetic-file-key".into()).unwrap(),
+            morphiecore::credential::Secret::new("synthetic-file-key".into()).unwrap(),
         )
         .unwrap();
     manager
@@ -975,8 +994,8 @@ async fn binary_bootstraps_only_explicit_files_and_ignores_environment_keys() {
             "deepseek",
             "deepseek-api-key",
             0,
-            openbridge::credential::CredentialPool {
-                members: vec![openbridge::credential::CredentialRef::ApiKey {
+            morphiecore::credential::CredentialPool {
+                members: vec![morphiecore::credential::CredentialRef::ApiKey {
                     alias: "one".into(),
                 }],
                 fallback: false,
@@ -1003,16 +1022,16 @@ async fn binary_bootstraps_only_explicit_files_and_ignores_environment_keys() {
             .unwrap(),
         )
         .unwrap();
-    let mut process = tokio::process::Command::new(env!("CARGO_BIN_EXE_openbridge"))
+    let mut process = tokio::process::Command::new(env!("CARGO_BIN_EXE_morphiecore"))
         .args(["--credentials-dir"])
         .arg(&root)
         .env_clear()
         .env(
-            "OPENBRIDGE_CLIENT_KEY",
+            "MORPHIECORE_CLIENT_KEY",
             "synthetic-ignored-environment-key-0001",
         )
         .env(
-            "OPENBRIDGE_DEEPSEEK_API_KEY",
+            "MORPHIECORE_DEEPSEEK_API_KEY",
             "synthetic-not-a-provider-key-0001",
         )
         .stdin(std::process::Stdio::null())
@@ -1029,7 +1048,7 @@ async fn binary_bootstraps_only_explicit_files_and_ignores_environment_keys() {
         .unwrap();
     let origin = ready
         .trim()
-        .strip_prefix("OpenBridge listening on ")
+        .strip_prefix("MorphieCore listening on ")
         .expect("bounded readiness line");
     assert!(origin.starts_with("http://127.0.0.1:"));
     assert!(ready.len() < 128);

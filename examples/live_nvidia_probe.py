@@ -1,4 +1,4 @@
-"""NVIDIA boundary selection; requires an existing shared OPENBRIDGE_PROBE_RUN.
+"""NVIDIA boundary selection; requires an existing shared MORPHIECORE_PROBE_RUN.
 
 Plan offline with examples/probe.py. See docs/probes.md for budgets and gates.
 """

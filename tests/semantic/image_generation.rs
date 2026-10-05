@@ -1,4 +1,4 @@
-use openbridge::{
+use morphiecore::{
     protocol::openai::images,
     semantic::{task::image_generation::*, value::Presence},
 };
@@ -23,7 +23,7 @@ fn image_generation_request_decode_and_typed_edit_have_independent_wire_expectat
     assert!(ImageGenerationRequest::new("x".repeat(32_001)).is_err());
     assert!(ImageGenerationRequest::new("图".repeat(32_000)).is_ok());
     assert!(!format!("{task:?}").contains("pure library consumer"));
-    let mut request = openbridge::adapter::images::Request::new("public-image", task);
+    let mut request = morphiecore::adapter::images::Request::new("public-image", task);
     assert!(request.task.set_prompt("").is_err());
     assert_eq!(request.task.prompt(), "pure library consumer");
     request.task.count = Presence::Value(2);
@@ -98,7 +98,7 @@ fn image_generation_reported_values_are_not_request_defaults() {
 
 #[test]
 fn image_generation_typed_reports_encode_without_wire_round_trips() {
-    use openbridge::semantic::value::ImageFormat;
+    use morphiecore::semantic::value::ImageFormat;
     let mut response = ImageGenerationResponse::new(987, ImageData::new("BAUG").unwrap());
     response.image.format = Presence::Value(ImageFormat::Webp);
     response.image.size = Presence::Value(ImageSize {

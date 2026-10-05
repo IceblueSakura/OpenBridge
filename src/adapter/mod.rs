@@ -23,7 +23,7 @@ pub enum Dialect {
     Standard,
     Codex,
     Grok,
-    OpenBridge,
+    MorphieCore,
     DeepSeek,
     Xiaomi,
     OpenRouter,
@@ -58,8 +58,8 @@ impl Dialect {
                     ..Default::default()
                 },
             ),
-            Self::OpenBridge => (
-                "openbridge-v1",
+            Self::MorphieCore => (
+                "morphiecore-v1",
                 WireRules {
                     readable_reasoning: true,
                     structured_chat_reasoning: true,
@@ -207,7 +207,7 @@ impl Dialect {
             ),
         };
         let mut images = match self {
-            Self::OpenBridge | Self::Xiaomi => {
+            Self::MorphieCore | Self::Xiaomi => {
                 crate::protocol::image_constraints::ImageConstraints::all()
             }
             _ => crate::protocol::image_constraints::ImageConstraints::common(),
@@ -220,7 +220,7 @@ impl Dialect {
                 session_id: false,
                 ..crate::protocol::cache::CacheProjection::all()
             },
-            Self::OpenBridge => crate::protocol::cache::CacheProjection::all(),
+            Self::MorphieCore => crate::protocol::cache::CacheProjection::all(),
             // The standard cache key is explicitly accepted as an affinity fallback.
             // session_id is a separate caller-supplied grouping value, never synthesized.
             // https://openrouter.ai/docs/guides/best-practices/prompt-caching
@@ -242,7 +242,7 @@ impl Dialect {
             rules,
             images,
             files: match self {
-                Self::Standard | Self::OpenBridge => {
+                Self::Standard | Self::MorphieCore => {
                     crate::protocol::file_constraints::FileConstraints::all()
                 }
                 Self::OpenRouter => crate::protocol::file_constraints::FileConstraints {

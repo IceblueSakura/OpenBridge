@@ -1,5 +1,5 @@
 //! Independent synthetic oracles for scoped provider boundary differences.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::Profile,
@@ -20,7 +20,7 @@ fn body() -> Value {
 }
 #[test]
 fn provider_token_spelling_is_only_an_outbound_mapping() {
-    let client = adapter(Dialect::OpenBridge);
+    let client = adapter(Dialect::MorphieCore);
     let request=client.decode_request(br#"{"model":"m","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":17}"#).unwrap();
     let wire = adapter(Dialect::Nvidia)
         .encode_request(&request, "bound", &Contract::full())
@@ -50,7 +50,7 @@ fn provider_token_spelling_is_only_an_outbound_mapping() {
 #[test]
 fn opencode_go_keeps_readable_reasoning_and_tool_result_history() {
     let provider = adapter(Dialect::OpenCodeGo);
-    let client = adapter(Dialect::OpenBridge);
+    let client = adapter(Dialect::MorphieCore);
     let decoded = provider
         .decode_response(body().to_string().as_bytes())
         .unwrap();
@@ -111,8 +111,8 @@ fn opencode_go_keeps_readable_reasoning_and_tool_result_history() {
 
 #[test]
 fn opencode_go_unversioned_readable_views_are_closed_and_never_restore_deleted_reasoning() {
-    use openbridge::semantic::task::generation::{Item, ReasoningContent};
-    use openbridge::semantic::value::Text;
+    use morphiecore::semantic::task::generation::{Item, ReasoningContent};
+    use morphiecore::semantic::value::Text;
     let provider = adapter(Dialect::OpenCodeGo);
     let details = json!([{"type":"reasoning.text","text":"think","format":"unknown","index":0}]);
     let mut source = body();
@@ -126,7 +126,7 @@ fn opencode_go_unversioned_readable_views_are_closed_and_never_restore_deleted_r
     let decoded = provider
         .decode_response(source.to_string().as_bytes())
         .unwrap();
-    let client = adapter(Dialect::OpenBridge);
+    let client = adapter(Dialect::MorphieCore);
     let wire = client.encode_response(&decoded, &Contract::full()).unwrap();
     assert_eq!(wire["choices"][0]["message"]["reasoning_content"], "think");
     assert_eq!(
@@ -246,7 +246,7 @@ fn opencode_go_usage_tail_can_repeat_only_the_existing_finish_without_new_conten
     let mut decoder = started();
     decoder.push(&tail).unwrap();
     decoder.done().unwrap();
-    let wire = adapter(Dialect::OpenBridge)
+    let wire = adapter(Dialect::MorphieCore)
         .encode_response(&decoder.materialize().unwrap(), &Contract::full())
         .unwrap();
     assert_eq!(wire["choices"][0]["finish_reason"], "tool_calls");
@@ -292,7 +292,7 @@ fn transport_markers_and_stop_diagnostics_do_not_replace_semantic_terminals() {
         .encode_response(&decoded, &Contract::full())
         .unwrap();
     assert_eq!(same["choices"][0]["matched_stop"], 2);
-    let client = adapter(Dialect::OpenBridge)
+    let client = adapter(Dialect::MorphieCore)
         .encode_response(&decoded, &Contract::full())
         .unwrap();
     assert!(client["choices"][0].get("matched_stop").is_none());
@@ -347,7 +347,7 @@ fn documented_inactive_message_fields_do_not_admit_media_or_legacy_calls() {
     let decoded = provider
         .decode_response(value.to_string().as_bytes())
         .unwrap();
-    let output = adapter(Dialect::OpenBridge)
+    let output = adapter(Dialect::MorphieCore)
         .encode_response(&decoded, &Contract::full())
         .unwrap();
     assert_eq!(output["choices"][0]["message"]["content"], "pong");
@@ -386,7 +386,7 @@ fn reported_text_usage_is_typed_even_when_a_view_equals_the_total() {
     );
     assert_eq!(decoded.semantic.usage().unwrap().input_text_tokens, Some(4));
     assert_eq!(
-        adapter(Dialect::OpenBridge)
+        adapter(Dialect::MorphieCore)
             .decode_response(value.to_string().as_bytes())
             .unwrap()
             .semantic
@@ -487,8 +487,8 @@ fn responses_duplicate_usage_details_are_scoped_and_conflicts_poison_snapshots()
 
 #[test]
 fn queued_creation_waits_for_real_progress_and_projects_existing_lifecycle() {
-    use openbridge::protocol::openai::events::EventEncoder;
-    use openbridge::semantic::task::generation::StreamEvent;
+    use morphiecore::protocol::openai::events::EventEncoder;
+    use morphiecore::semantic::task::generation::StreamEvent;
     let provider = Adapter::new(Profile::Responses, Dialect::Bailian, None);
     let source = crate::wire::events(2);
     let mut queued = source[0].clone();
@@ -600,8 +600,8 @@ fn summary_alias_fixture() -> (Value, Vec<Value>) {
 
 #[test]
 fn reasoning_event_alias_keeps_summary_kind_and_emits_standard_part_lifecycle() {
-    use openbridge::protocol::openai::events::EventEncoder;
-    use openbridge::semantic::task::generation::{Item, ReasoningContent};
+    use morphiecore::protocol::openai::events::EventEncoder;
+    use morphiecore::semantic::task::generation::{Item, ReasoningContent};
     let provider = Adapter::new(Profile::Responses, Dialect::Bailian, None);
     let (expected, source) = summary_alias_fixture();
     let mut decoder = provider.event_decoder();
@@ -685,7 +685,7 @@ fn inactive_response_state_placeholders_do_not_enable_remote_state() {
         .unwrap();
     assert_eq!(encoded["previous_response_id"], Value::Null);
     assert!(encoded.get("conversation_id").is_none());
-    for dialect in [Dialect::Standard, Dialect::OpenBridge, Dialect::Bailian] {
+    for dialect in [Dialect::Standard, Dialect::MorphieCore, Dialect::Bailian] {
         assert!(
             Adapter::new(Profile::Responses, dialect, None)
                 .decode_response(value.to_string().as_bytes())
@@ -709,7 +709,7 @@ fn inactive_response_state_placeholders_do_not_enable_remote_state() {
         }
     }
     for conflict in [false, true] {
-        use openbridge::protocol::openai::sse::{ResponsesSseDecoder, SseLimits};
+        use morphiecore::protocol::openai::sse::{ResponsesSseDecoder, SseLimits};
         let mut decoder = ResponsesSseDecoder::with_decoder(
             200,
             "text/event-stream",
@@ -747,7 +747,7 @@ fn inactive_response_state_placeholders_do_not_enable_remote_state() {
 
 #[test]
 fn null_billing_placeholder_does_not_admit_active_billing_or_usage_views() {
-    use openbridge::protocol::openai::sse::{ResponsesSseDecoder, SseLimits};
+    use morphiecore::protocol::openai::sse::{ResponsesSseDecoder, SseLimits};
     let provider = Adapter::new(
         Profile::Responses,
         Dialect::Nvidia,
@@ -777,7 +777,7 @@ fn null_billing_placeholder_does_not_admit_active_billing_or_usage_views() {
             .get("frequency_penalty")
             .is_none()
     );
-    for dialect in [Dialect::Standard, Dialect::OpenBridge] {
+    for dialect in [Dialect::Standard, Dialect::MorphieCore] {
         assert!(
             Adapter::new(Profile::Responses, dialect, None)
                 .decode_response(value.to_string().as_bytes())
@@ -880,11 +880,11 @@ fn terminal_reasoning_fixture() -> (Value, Vec<Value>) {
 
 #[test]
 fn terminal_reasoning_snapshot_closes_only_received_text_and_projects_standard_events() {
-    use openbridge::protocol::openai::{
+    use morphiecore::protocol::openai::{
         events::EventEncoder,
         sse::{ResponsesSseDecoder, SseLimits},
     };
-    use openbridge::semantic::task::generation::{Item, ItemKind, ReasoningContent, StreamEvent};
+    use morphiecore::semantic::task::generation::{Item, ItemKind, ReasoningContent, StreamEvent};
     let provider = Adapter::new(Profile::Responses, Dialect::Nvidia, None);
     let (mut snapshot, source) = terminal_reasoning_fixture();
     let static_value = provider
@@ -1040,7 +1040,7 @@ fn response_billing_view_is_checked_not_a_second_usage_authority() {
     assert_eq!(same["frequency_penalty"], 0.25);
     assert!(same.get("billing").is_none());
     assert!(same["usage"].get("x_details").is_none());
-    for dialect in [Dialect::Standard, Dialect::OpenBridge, Dialect::Xiaomi] {
+    for dialect in [Dialect::Standard, Dialect::MorphieCore, Dialect::Xiaomi] {
         let other = Adapter::new(
             Profile::Responses,
             dialect,
@@ -1074,7 +1074,7 @@ fn response_billing_view_is_checked_not_a_second_usage_authority() {
     assert_eq!(projected["usage"]["input_tokens"], 4);
     assert!(projected["usage"].get("x_details").is_none());
     assert!(projected.get("frequency_penalty").is_none());
-    edited.semantic = openbridge::semantic::task::generation::GenerationResponse::new(
+    edited.semantic = morphiecore::semantic::task::generation::GenerationResponse::new(
         edited.semantic.items().to_vec(),
         edited.semantic.outcome(),
     )
@@ -1232,7 +1232,7 @@ fn request_diagnostics_are_source_bound_not_public_facts() {
             .is_none()
     );
     assert!(
-        adapter(Dialect::OpenBridge)
+        adapter(Dialect::MorphieCore)
             .encode_response(&decoded, &Contract::full())
             .unwrap()
             .get("request_id")
@@ -1246,7 +1246,7 @@ fn request_diagnostics_are_source_bound_not_public_facts() {
         .filter(|(_, i)| {
             !matches!(
                 i,
-                openbridge::semantic::task::generation::Item::Reasoning(_)
+                morphiecore::semantic::task::generation::Item::Reasoning(_)
             )
         })
         .cloned()

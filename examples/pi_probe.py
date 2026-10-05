@@ -19,7 +19,7 @@ from probe_support.runtime import gateway, ROOT
 def main():
     install_signals()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run", default=os.environ.get("OPENBRIDGE_PROBE_RUN"))
+    parser.add_argument("--run", default=os.environ.get("MORPHIECORE_PROBE_RUN"))
     parser.add_argument(
         "--package", required=True, help="Explicit fixed Pi package directory (0.87.1)"
     )
@@ -65,7 +65,7 @@ def main():
             stack.callback(reject.shutdown)
             proxy = f"http://127.0.0.1:{reject.server_port}"
         else:
-            os.environ["OPENBRIDGE_PROBE_LIVE"] = "1"
+            os.environ["MORPHIECORE_PROBE_LIVE"] = "1"
         with gateway(run, [args.model], synthetic=args.check, proxy=proxy) as (
             origin,
             key,
@@ -77,16 +77,16 @@ def main():
             }
             home = run.directory / f"pi-{uuid.uuid4().hex}"
             env.update(
-                OPENBRIDGE_PROBE_RUN=str(run.directory),
-                OPENBRIDGE_PI_HOME=str(home),
-                OPENBRIDGE_PI_PACKAGE=str(Path(args.package).resolve()),
-                OPENBRIDGE_PROBE_PYTHON=sys.executable,
-                OPENBRIDGE_TEST_MODEL=args.model,
-                OPENBRIDGE_TEST_PROTOCOL=protocol,
-                OPENBRIDGE_TEST_THINKING=args.thinking,
-                OPENBRIDGE_TEST_MODE="check" if args.check else "live",
-                OPENBRIDGE_TEST_UPSTREAM=origin,
-                OPENBRIDGE_CLIENT_KEY=key,
+                MORPHIECORE_PROBE_RUN=str(run.directory),
+                MORPHIECORE_PI_HOME=str(home),
+                MORPHIECORE_PI_PACKAGE=str(Path(args.package).resolve()),
+                MORPHIECORE_PROBE_PYTHON=sys.executable,
+                MORPHIECORE_TEST_MODEL=args.model,
+                MORPHIECORE_TEST_PROTOCOL=protocol,
+                MORPHIECORE_TEST_THINKING=args.thinking,
+                MORPHIECORE_TEST_MODE="check" if args.check else "live",
+                MORPHIECORE_TEST_UPSTREAM=origin,
+                MORPHIECORE_CLIENT_KEY=key,
                 PI_CODING_AGENT_DIR=str(home),
                 PI_OFFLINE="1",
                 PI_TELEMETRY="0",
@@ -94,7 +94,7 @@ def main():
                 NO_PROXY="127.0.0.1,localhost",
             )
             if args.invalid_auth:
-                env["OPENBRIDGE_TEST_INVALID_AUTH"] = "1"
+                env["MORPHIECORE_TEST_INVALID_AUTH"] = "1"
             child = subprocess.Popen(
                 ["node", str(ROOT / "examples/pi_probe.ts")], env=env, cwd=ROOT
             )

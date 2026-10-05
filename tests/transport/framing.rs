@@ -1,6 +1,6 @@
 //! Verifies incremental SSE decoder fragmentation, UTF-8, CRLF, multiline data, and terminal boundaries.
 
-use openbridge::transport::sse::{SseDecodeError, SseDecoder};
+use morphiecore::transport::sse::{SseDecodeError, SseDecoder};
 
 #[test]
 fn decoder_handles_fragmented_utf8_crlf_and_multiline_data() {

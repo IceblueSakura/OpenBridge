@@ -1,14 +1,14 @@
 # 最小模型交互 HTTP 网关
 
-`openbridge` binary 与可嵌入的 `gateway::Gateway` 将共享 IR、双向 adapters、固定目标和实际 HTTP body 接通，不是完整标准实现或生产网关。本文描述当前接线：HTTP 客户端由配置层选择 OpenBridge profile，并非纯 Standard profile；同名路径不证明完全标准兼容。规范客户端目标与扩展政策归[语义设计](architecture-v2/semantic-ir.md#3-客户端-api-目标与扩展边界)，允许有损的 Chat 投影、独立 Embeddings 接口与标准路径收敛均属于设计/计划，方向调整不自动改变现行 wire。HTTP 决策归 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，公共接口摘要归 [OpenAPI](openapi.json)，模块接线归[架构](architecture.md)。
+`morphiecore` binary 与可嵌入的 `gateway::Gateway` 将共享 IR、双向 adapters、固定目标和实际 HTTP body 接通，不是完整标准实现或生产网关。本文描述当前接线：HTTP 客户端由配置层选择 MorphieCore profile，并非纯 Standard profile；同名路径不证明完全标准兼容。规范客户端目标与扩展政策归[语义设计](architecture-v2/semantic-ir.md#3-客户端-api-目标与扩展边界)，允许有损的 Chat 投影、独立 Embeddings 接口与标准路径收敛均属于设计/计划，方向调整不自动改变现行 wire。HTTP 决策归 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，公共接口摘要归 [OpenAPI](openapi.json)，模块接线归[架构](architecture.md)。
 
 ## 启动
 
 启动只读取操作者指定的私有 JSON 配置与凭据目录，不读取环境 key/账户 alias、`.env`、旧 TOML 或第三方 auth cache。默认入口配置为目录内的 `gateway.json`，可用 `--config` 指定独立路径：
 
 ```sh
-cargo run --locked --offline --bin openbridge -- --credentials-dir /path/to/private-store
-cargo run --locked --offline --bin openbridge -- \
+cargo run --locked --offline --bin morphiecore -- --credentials-dir /path/to/private-store
+cargo run --locked --offline --bin morphiecore -- \
   --credentials-dir /path/to/private-store --config /path/to/private/gateway.json
 ```
 
@@ -110,7 +110,7 @@ OpenRouter 的独立 Images profile 使用受信固定路径和 Provider 限制�
 
 入口配置的 `diagnostics` 显式启用本地 probe 元数据，不是内容日志或生产观测。父目录由操作者准备，文件必须新建；精确权限、队列、文件预算与白名单归 [diagnostics owner](../src/gateway/diagnostics.rs)。无效路径/已存在文件拒绝启动，运行时写失败或队列满丢诊断，不改变业务响应。结束时 best-effort 有界 drain；缺少记录只能记为未知。
 
-仅认证后的 POST 且唯一 `x-openbridge-probe-id` 符合 owner 语法才关联；无效/重复 ID 禁用观察但不改变请求准入。ID 不进入 IR、不选择上游、不透传或回显。诊断只保存封闭阶段/结果、HTTP、规范化 Retry-After、字节与时间及候选观察，不保存正文、header 原文、URL、reasoning、opaque 或凭据。
+仅认证后的 POST 且唯一 `x-morphiecore-probe-id` 符合 owner 语法才关联；无效/重复 ID 禁用观察但不改变请求准入。ID 不进入 IR、不选择上游、不透传或回显。诊断只保存封闭阶段/结果、HTTP、规范化 Retry-After、字节与时间及候选观察，不保存正文、header 原文、URL、reasoning、opaque 或凭据。
 
 Run/attempt 归属、指标解释与真实调用预算只由[Probe 指南](probes.md)维护；诊断不触发 retry/backoff，不把 Retry-After 透传下游。嵌入方可在共享 Gateway 前调用 `with_probe_diagnostics(path)`，结束时调用 `flush_probe_diagnostics().await`。
 

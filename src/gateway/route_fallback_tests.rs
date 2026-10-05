@@ -101,7 +101,7 @@ async fn ordered_route_only_falls_back_before_visible_delivery() {
                 upstream_model: format!("{id}-alias"),
                 representation: Adapter::new(
                     Profile::Responses,
-                    crate::adapter::Dialect::OpenBridge,
+                    crate::adapter::Dialect::MorphieCore,
                     None,
                 )
                 .contract(&Representation::full()),

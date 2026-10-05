@@ -1,6 +1,6 @@
 # pi 的 Provider、Model 与协议抽象
 
-本页是 pi 模型接入机制的固定版本技术参考，解释服务商身份、wire protocol、模型目录、统一 transcript、流事件和 Agent 执行的责任边界。它不是 OpenBridge 的设计决策、Provider 支持清单、运行结果或迁移实施计划；采用边界仍由 [Semantic Model](../architecture-v2/semantic-ir.md)、[protocol/lowering](../architecture-v2/protocol-and-lowering.md)和 [execution model](../architecture-v2/execution-model.md)拥有。
+本页是 pi 模型接入机制的固定版本技术参考，解释服务商身份、wire protocol、模型目录、统一 transcript、流事件和 Agent 执行的责任边界。它不是 MorphieCore 的设计决策、Provider 支持清单、运行结果或迁移实施计划；采用边界仍由 [Semantic Model](../architecture-v2/semantic-ir.md)、[protocol/lowering](../architecture-v2/protocol-and-lowering.md)和 [execution model](../architecture-v2/execution-model.md)拥有。
 
 ## 1. 来源、版本与阅读边界
 
@@ -83,7 +83,7 @@ SDK / HTTP / SSE / WebSocket
 
 共享 API implementation 内部仍可能检查 `model.provider` 或 `baseUrl`。例如固定 [OpenAI Chat 实现][chat-api]包含兼容检测和 Copilot 动态 headers；[Responses 实现][responses-api]也包含特定认证路径和端点行为。
 
-所以 pi 的分层是**降低 wire 重复、保留客户端特例**，不是声明底层实现完全不认识服务商。API implementation 还执行网络 I/O；不能把它直接等同于 OpenBridge 的纯 codec/lowering。
+所以 pi 的分层是**降低 wire 重复、保留客户端特例**，不是声明底层实现完全不认识服务商。API implementation 还执行网络 I/O；不能把它直接等同于 MorphieCore 的纯 codec/lowering。
 
 ## 5. Model：纯描述与操作身份
 
@@ -317,15 +317,15 @@ ModelRuntime 的 direct virtual call 在跨 Provider 时不沿用原 Provider �
 
 Provider 扩展在 Pi 进程内拥有文件、提示词、工具和凭据访问权限，应当视为受信代码，而不是安全沙箱。取消、request deadline、SDK retry、Agent recovery、连接清理和 replay 是不同生命周期；统一接口不会自动替所有自定义实现建立资源预算或取消闭环。
 
-## 15. OpenBridge 的采用边界
+## 15. MorphieCore 的采用边界
 
 本页提供外部实现方法，不增加 ADR 或修改本项目合同。适用的结构线索是：分离服务商身份与 wire；让消费者使用统一交互表示；保持任务操作独立；将认证、目录和路由放在执行边界；在目标表示层明确兼容差异。
 
 不能直接移植为本项目默认行为的部分包括：
 
-- **语义表示**：pi 的 transcript、text/thinking/toolCall 并不是 OpenBridge Generation 有序 items、资源、引用、presence 和独立 task 的完整替代。缺失概念必须按 [IR 缺口规则](../architecture-v2/semantic-ir.md#4-ir-不足与标准载体缺口)处理，不能藏在 compat 或 raw JSON。
-- **有损回放**：图片占位、thinking 转 text、signature 删除、ID 重写和合成工具结果属于有具体后果的变换，不自动进入 OpenBridge 的 [损失许可](../architecture-v2/protocol-and-lowering.md#semantic-loss)。尤其合成结果不能被报告为真实工具执行。
-- **I/O 所有权**：pi API implementation 将转换与网络封装在一起；OpenBridge 纯 codec/lowering 不得查询目录、解析 credential 或联网。
+- **语义表示**：pi 的 transcript、text/thinking/toolCall 并不是 MorphieCore Generation 有序 items、资源、引用、presence 和独立 task 的完整替代。缺失概念必须按 [IR 缺口规则](../architecture-v2/semantic-ir.md#4-ir-不足与标准载体缺口)处理，不能藏在 compat 或 raw JSON。
+- **有损回放**：图片占位、thinking 转 text、signature 删除、ID 重写和合成工具结果属于有具体后果的变换，不自动进入 MorphieCore 的 [损失许可](../architecture-v2/protocol-and-lowering.md#semantic-loss)。尤其合成结果不能被报告为真实工具执行。
+- **I/O 所有权**：pi API implementation 将转换与网络封装在一起；MorphieCore 纯 codec/lowering 不得查询目录、解析 credential 或联网。
 - **目标与认证**：Model 的 endpoint、Provider env、auth-derived base URL、任意 headers 和 payload replacement 是受信客户端配置。本项目业务数据不得选择可信 origin、credential、auth/proxy headers 或脚本。
 - **回放与计量**：Provider/model 字符串相同不替代 issuer/principal、owner dependency 和 finality 校验；初始化 usage、客户端成本估算与目录标志不替代真实报告。
 - **运行时策略**：自动 OAuth refresh、retry、compaction、虚拟路由、WebSocket continuation 和 cache warming 均不因参考存在而成为 Gateway 默认行为或本阶段前置。

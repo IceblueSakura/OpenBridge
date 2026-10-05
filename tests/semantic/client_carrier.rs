@@ -1,6 +1,6 @@
 //! Public protocol boundaries reject private attachments without weakening typed IR.
 use crate::{events_support as event, wire};
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::{Profile, events::EventEncoder},
@@ -32,7 +32,7 @@ fn no_attachment(value: &Value) {
 #[test]
 fn public_client_rejects_independent_attachments() {
     let call = json!({"type":"function_call","id":"call","call_id":"c","name":"lookup","arguments":"{}","status":"completed"});
-    for dialect in [Dialect::Standard, Dialect::OpenBridge] {
+    for dialect in [Dialect::Standard, Dialect::MorphieCore] {
         let adapter = client(dialect);
         for attachment in [
             Value::Null,
@@ -102,7 +102,7 @@ fn attachment_at_any_snapshot_boundary_poisons_the_stream() {
         .iter()
         .position(|v| v["type"] == "response.output_item.done")
         .unwrap();
-    for dialect in [Dialect::Standard, Dialect::OpenBridge] {
+    for dialect in [Dialect::Standard, Dialect::MorphieCore] {
         for (index, pointer, attachment) in [
             (
                 0,
@@ -140,7 +140,7 @@ fn attachment_at_any_snapshot_boundary_poisons_the_stream() {
 }
 #[test]
 fn standard_values_and_native_replay_do_not_need_an_attachment() {
-    for dialect in [Dialect::Standard, Dialect::OpenBridge] {
+    for dialect in [Dialect::Standard, Dialect::MorphieCore] {
         let adapter = client(dialect);
         let response = adapter
             .decode_response(&serde_json::to_vec(&wire::response(1)).unwrap())
@@ -198,7 +198,7 @@ fn standard_values_and_native_replay_do_not_need_an_attachment() {
 }
 #[test]
 fn unsupported_typed_values_remain_rejected_instead_of_becoming_text_or_extras() {
-    let adapter = client(Dialect::OpenBridge);
+    let adapter = client(Dialect::MorphieCore);
     let base = adapter
         .decode_response(&serde_json::to_vec(&wire::response(2)).unwrap())
         .unwrap();
@@ -280,7 +280,7 @@ fn unsupported_typed_values_remain_rejected_instead_of_becoming_text_or_extras()
 }
 #[test]
 fn unrepresentable_events_fail_at_their_first_publication_boundary() {
-    let adapter = client(Dialect::OpenBridge);
+    let adapter = client(Dialect::MorphieCore);
     let mut usage = Usage::operation(3, 5, 8);
     usage.scope = UsageScope::Session;
     for event in [

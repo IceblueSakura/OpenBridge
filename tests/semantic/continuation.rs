@@ -1,6 +1,6 @@
 //! Response closure and pending tool results are independent; neither executes tools.
 use crate::events_support::{call_item, created, envelope};
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::{Profile, events::EventDecoder},
@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 fn adapter() -> Adapter {
     Adapter::new(Profile::Responses, Dialect::Standard, None)
 }
-fn decode(status: &str, output: Value) -> openbridge::protocol::openai::DecodedResponse {
+fn decode(status: &str, output: Value) -> morphiecore::protocol::openai::DecodedResponse {
     adapter()
         .decode_response(envelope(status, output).to_string().as_bytes())
         .unwrap()

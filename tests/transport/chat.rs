@@ -1,6 +1,6 @@
 //! Chat byte boundaries, explicit DONE lifecycle and independent static/event closure.
 use crate::chat_wire as wire;
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, lower_request, lower_response,
     },

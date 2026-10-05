@@ -124,7 +124,7 @@ def main():
         )
         return 0
     require(args.live, "live_not_enabled", "setup")
-    os.environ["OPENBRIDGE_PROBE_LIVE"] = "1"
+    os.environ["MORPHIECORE_PROBE_LIVE"] = "1"
     if ledger.is_images:
         from probe_support.image_generation import matrix
     else:

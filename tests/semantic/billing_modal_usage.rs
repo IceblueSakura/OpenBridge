@@ -1,5 +1,5 @@
 //! Billing views must promote independent modality facts, never replay stale counters.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::{Profile, events::EventEncoder},
@@ -33,7 +33,7 @@ fn modality_billing_view_promotes_typed_facts_and_edits_cannot_restore_the_view(
         ),
         (Some(7), Some(3), Some(2))
     );
-    let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);
+    let client = Adapter::new(Profile::Responses, Dialect::MorphieCore, None);
     assert_eq!(
         client.encode_response(&decoded, &Contract::full()).unwrap()["usage"],
         expected_usage()
@@ -58,12 +58,12 @@ fn modality_billing_view_promotes_typed_facts_and_edits_cannot_restore_the_view(
         .semantic
         .clone()
         .with_usage(Usage {
-            scope: openbridge::semantic::task::generation::UsageScope::Operation,
-            basis: openbridge::semantic::task::generation::UsageBasis::Final,
+            scope: morphiecore::semantic::task::generation::UsageScope::Operation,
+            basis: morphiecore::semantic::task::generation::UsageBasis::Final,
             output_relation:
-                openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
+                morphiecore::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
             total_relation:
-                openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
+                morphiecore::semantic::task::generation::TotalTokenRelation::InputAndOutput,
             input_image_tokens: Some(5),
             input_text_tokens: Some(2),
             ..usage
@@ -81,12 +81,12 @@ fn modality_billing_view_promotes_typed_facts_and_edits_cannot_restore_the_view(
         .semantic
         .clone()
         .with_usage(Usage {
-            scope: openbridge::semantic::task::generation::UsageScope::Operation,
-            basis: openbridge::semantic::task::generation::UsageBasis::Final,
+            scope: morphiecore::semantic::task::generation::UsageScope::Operation,
+            basis: morphiecore::semantic::task::generation::UsageBasis::Final,
             output_relation:
-                openbridge::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
+                morphiecore::semantic::task::generation::OutputTokenRelation::IncludesReasoning,
             total_relation:
-                openbridge::semantic::task::generation::TotalTokenRelation::InputAndOutput,
+                morphiecore::semantic::task::generation::TotalTokenRelation::InputAndOutput,
             input_image_tokens: None,
             input_text_tokens: None,
             output_text_tokens: None,
@@ -188,7 +188,8 @@ fn modality_usage_static_event_closure_uses_declared_client_slots() {
     let mut encoder = EventEncoder::new(Profile::Responses, decoded.metadata.clone())
         .unwrap()
         .with_contract(
-            Adapter::new(Profile::Responses, Dialect::OpenBridge, None).contract(&Contract::full()),
+            Adapter::new(Profile::Responses, Dialect::MorphieCore, None)
+                .contract(&Contract::full()),
         );
     let mut output = vec![];
     for event in events {

@@ -1,5 +1,5 @@
 //! Explicit Chat dialect mappings over one semantic model.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::{GenerationRepresentationContract as Contract, lower_request},
     protocol::openai::{Profile, chat, events::EventEncoder},
@@ -82,7 +82,7 @@ fn vendor() -> Adapter {
     Adapter::new(Profile::Chat, Dialect::Xiaomi, None)
 }
 fn client() -> Adapter {
-    Adapter::new(Profile::Chat, Dialect::OpenBridge, None)
+    Adapter::new(Profile::Chat, Dialect::MorphieCore, None)
 }
 fn response(content: &str) -> Value {
     json!({"id":"c1","object":"chat.completion","created":1,"model":"m",
@@ -174,7 +174,7 @@ fn history_reasoning_maps_to_a_carrier_and_rejects_unrepresentable_edits() {
         )
         .is_err()
     );
-    // The OpenBridge client now has the scoped structured-summary carrier;
+    // The MorphieCore client now has the scoped structured-summary carrier;
     // readable-only vendor profiles still cannot flatten a summary into text.
     assert!(
         lower_request(

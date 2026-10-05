@@ -7,13 +7,13 @@ use tokio::process::Command;
 
 pub async fn call(action: &str, data: Value) -> String {
     let result = async {
-        let run = std::env::var("OPENBRIDGE_PROBE_RUN").map_err(|_| ())?;
+        let run = std::env::var("MORPHIECORE_PROBE_RUN").map_err(|_| ())?;
         let input = serde_json::to_vec(&data).map_err(|_| ())?;
         if input.len() > 16384 {
             return Err(());
         }
         let mut command = Command::new(
-            std::env::var_os("OPENBRIDGE_PROBE_PYTHON").unwrap_or_else(|| "python3".into()),
+            std::env::var_os("MORPHIECORE_PROBE_PYTHON").unwrap_or_else(|| "python3".into()),
         );
         command
             .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/probe.py"))

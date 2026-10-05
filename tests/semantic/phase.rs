@@ -1,7 +1,7 @@
 //! Assistant `phase` is typed, status-independent and preserved on every projection.
 use crate::events_support::*;
 use crate::wire;
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, lower_request, lower_response,
     },

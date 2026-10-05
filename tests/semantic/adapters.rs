@@ -1,5 +1,5 @@
 //! Independent adapter contracts: normalized semantics never fork by vendor.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::openai::{Profile, events::EventEncoder},
@@ -18,7 +18,7 @@ fn response() -> Value {
 }
 #[test]
 fn forced_upstream_stream_preserves_client_delivery_and_final_controls() {
-    let client = adapter(Profile::Responses, Dialect::OpenBridge, "a");
+    let client = adapter(Profile::Responses, Dialect::MorphieCore, "a");
     let provider = adapter(Profile::Responses, Dialect::Codex, "a");
     for streaming in [false, true] {
         let mut request = client.decode_request(
@@ -162,9 +162,9 @@ fn extras_require_matching_source_and_surviving_response_dependencies() {
             .get("content_filters")
             .is_none()
     );
-    decoded.semantic = openbridge::semantic::task::generation::GenerationResponse::new(
+    decoded.semantic = morphiecore::semantic::task::generation::GenerationResponse::new(
         vec![],
-        openbridge::semantic::task::generation::Outcome::Completed,
+        morphiecore::semantic::task::generation::Outcome::Completed,
     )
     .unwrap();
     let output = source.encode_response(&decoded, &Contract::full()).unwrap();
@@ -321,7 +321,7 @@ fn chat_projection_cannot_attach_reasoning_to_a_user_message() {
         {"type":"reasoning","id":"rs1","summary":[],"content":[{"type":"reasoning_text","text":"think"}]},
         {"role":"user","content":"hello"}
     ]}).to_string().as_bytes()).unwrap();
-    let chat = adapter(Profile::Chat, Dialect::OpenBridge, "b");
+    let chat = adapter(Profile::Chat, Dialect::MorphieCore, "b");
     assert!(
         chat.encode_request(&request, "m", &Contract::full())
             .is_err()

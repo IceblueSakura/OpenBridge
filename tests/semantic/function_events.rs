@@ -1,6 +1,6 @@
 //! Function argument, mixed-item identity, snapshot and terminal conformance.
 use crate::events_support::*;
-use openbridge::{
+use morphiecore::{
     protocol::{
         fidelity::FidelityRecords,
         openai::{

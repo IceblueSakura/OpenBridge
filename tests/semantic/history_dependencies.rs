@@ -1,6 +1,6 @@
 //! Dependency proofs bind relationships and source values, not just surviving IDs.
 use crate::events_support::text;
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_request,
     },
@@ -18,7 +18,7 @@ fn message(id: u64, body: &str) -> (ItemId, Item) {
                     TextContent::new(
                         text(body),
                         vec![],
-                        openbridge::semantic::value::Presence::Absent,
+                        morphiecore::semantic::value::Presence::Absent,
                     )
                     .unwrap(),
                 ),
@@ -51,7 +51,7 @@ fn group_proof_rejects_value_and_membership_edits_but_ignores_unrelated_items() 
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::MessageGroup(ItemId::new(1)),
-        openbridge::semantic::task::generation::SettingsDependency::None,
+        morphiecore::semantic::task::generation::SettingsDependency::None,
     )
     .unwrap();
     proof.check(&source).unwrap();
@@ -70,7 +70,7 @@ fn group_proof_rejects_value_and_membership_edits_but_ignores_unrelated_items() 
         RequestDependencyProof::capture(
             &source,
             HistoryDependency::MessageGroup(ItemId::new(2)),
-            openbridge::semantic::task::generation::SettingsDependency::None
+            morphiecore::semantic::task::generation::SettingsDependency::None
         )
         .is_err()
     );
@@ -81,7 +81,7 @@ fn prefix_proof_preserves_append_but_rejects_insertion_reorder_and_settings_chan
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(2)),
-        openbridge::semantic::task::generation::SettingsDependency::All,
+        morphiecore::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     let mut items = source.items().to_vec();
@@ -108,7 +108,7 @@ fn prefix_proof_preserves_append_but_rejects_insertion_reorder_and_settings_chan
     let unbound = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(2)),
-        openbridge::semantic::task::generation::SettingsDependency::None,
+        morphiecore::semantic::task::generation::SettingsDependency::None,
     )
     .unwrap();
     let mut settings = source.settings().clone();
@@ -155,7 +155,7 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(1)),
-        openbridge::semantic::task::generation::SettingsDependency::All,
+        morphiecore::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     assert!(
@@ -184,7 +184,7 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(1)),
-        openbridge::semantic::task::generation::SettingsDependency::All,
+        morphiecore::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     assert!(
@@ -195,7 +195,7 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
     let mut settings = source.settings().clone();
     settings.text.presence = true;
     settings.text.format =
-        openbridge::semantic::value::Presence::Value(OutputConstraint::JsonSchema {
+        morphiecore::semantic::value::Presence::Value(OutputConstraint::JsonSchema {
             name: text("answer"),
             description: None,
             strict: Some(false),
@@ -208,7 +208,7 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(ItemId::new(1)),
-        openbridge::semantic::task::generation::SettingsDependency::All,
+        morphiecore::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     let OutputConstraint::JsonSchema { schema, .. } = settings.text.format.value().unwrap() else {
@@ -218,7 +218,7 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
     reordered["properties"] =
         serde_json::from_str(r#"{"b":{"type":"string"},"a":{"type":"string"}}"#).unwrap();
     assert_eq!(*schema, reordered);
-    let openbridge::semantic::value::Presence::Value(OutputConstraint::JsonSchema {
+    let morphiecore::semantic::value::Presence::Value(OutputConstraint::JsonSchema {
         schema, ..
     }) = &mut settings.text.format
     else {
@@ -254,7 +254,7 @@ fn prefix_bound_replay_lowers_only_unchanged_final_history() {
             RequestDependencyProof::capture(
                 &source,
                 HistoryDependency::PrefixThrough(ItemId::new(1)),
-                openbridge::semantic::task::generation::SettingsDependency::All,
+                morphiecore::semantic::task::generation::SettingsDependency::All,
             )
             .unwrap(),
             &source,
@@ -299,7 +299,7 @@ fn repeating_a_bound_report_cannot_erase_history_dependencies() {
     let proof = RequestDependencyProof::capture(
         &source,
         HistoryDependency::PrefixThrough(owner),
-        openbridge::semantic::task::generation::SettingsDependency::All,
+        morphiecore::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     fidelity
@@ -367,7 +367,7 @@ fn group_bound_replay_cannot_bypass_final_history_checks() {
     let proof = RequestDependencyProof::capture(
         &request,
         HistoryDependency::MessageGroup(ItemId::new(1)),
-        openbridge::semantic::task::generation::SettingsDependency::All,
+        morphiecore::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     fidelity
@@ -396,7 +396,7 @@ fn group_bound_replay_cannot_bypass_final_history_checks() {
                 RequestDependencyProof::capture(
                     &changed,
                     HistoryDependency::MessageGroup(ItemId::new(1)),
-                    openbridge::semantic::task::generation::SettingsDependency::None
+                    morphiecore::semantic::task::generation::SettingsDependency::None
                 )
                 .unwrap(),
                 &changed

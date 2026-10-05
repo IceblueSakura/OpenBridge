@@ -1,6 +1,6 @@
 # 待弃用的 Codex 产品登录来源
 
-OpenBridge 将以公开 SIWC 作为 ChatGPT plan usage 的迁移方向。本页只保留待移除的 Codex 产品认证出处、协议识别与有效约束，不再作为新接入指南；“待弃用”指本项目路径，不是 OpenAI 已弃用 Codex 产品。
+MorphieCore 将以公开 SIWC 作为 ChatGPT plan usage 的迁移方向。本页只保留待移除的 Codex 产品认证出处、协议识别与有效约束，不再作为新接入指南；“待弃用”指本项目路径，不是 OpenAI 已弃用 Codex 产品。
 
 公开 SIWC 的完整参考与参数规划直接查 [siwc-login.md](siwc-login.md)，无需先阅读本页。本次文档收敛不删除认证代码、修改私有文件或撤销远端 credential。
 

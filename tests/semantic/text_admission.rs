@@ -1,6 +1,6 @@
 //! Admission regressions for the existing text subset, not the whole SDK union.
 use crate::wire;
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     protocol::openai::{
         Profile,
@@ -51,7 +51,7 @@ fn text_delta_and_done_require_probability_arrays_at_both_event_boundaries() {
 
 #[test]
 fn function_and_custom_event_payloads_keep_branch_specific_admission_after_fragmentation() {
-    use openbridge::protocol::openai::sse::SseError;
+    use morphiecore::protocol::openai::sse::SseError;
     fn feed(decoder: &mut ResponsesSseDecoder, frame: &[u8], size: usize) -> Result<(), SseError> {
         for chunk in frame.chunks(size) {
             let mut rest = chunk;
@@ -172,7 +172,7 @@ fn chat_nullable_continuation_fields_do_not_replace_call_identity_or_arguments()
         .unwrap();
     decoder.done().unwrap();
     let decoded = decoder.materialize().unwrap();
-    let openbridge::semantic::task::generation::Item::ToolCall(call) =
+    let morphiecore::semantic::task::generation::Item::ToolCall(call) =
         &decoded.semantic.items()[1].1
     else {
         panic!("call")
@@ -193,7 +193,7 @@ fn chat_nullable_continuation_fields_do_not_replace_call_identity_or_arguments()
 
 #[test]
 fn role_specific_history_fields_cannot_disappear_during_decode() {
-    let adapter = Adapter::new(Profile::Chat, Dialect::OpenBridge, None);
+    let adapter = Adapter::new(Profile::Chat, Dialect::MorphieCore, None);
     for role in ["user", "system", "developer", "tool"] {
         let mut message = if role == "tool" {
             json!({"role":"tool","tool_call_id":"call","content":"result"})
@@ -237,7 +237,7 @@ fn nullable_reasoning_effort_and_optional_function_headers_follow_their_own_sche
     let wire =
         json!({"model":"m","messages":[{"role":"user","content":"hi"}],"reasoning_effort":null});
     let decoded = adapter.decode_request(wire.to_string().as_bytes()).unwrap();
-    let contract = openbridge::lowering::generation::GenerationRepresentationContract::full();
+    let contract = morphiecore::lowering::generation::GenerationRepresentationContract::full();
     assert!(
         adapter
             .encode_request(&decoded, "m", &contract)
@@ -253,14 +253,14 @@ fn nullable_reasoning_effort_and_optional_function_headers_follow_their_own_sche
     assert!(
         decoded
             .fidelity
-            .response_item_id(openbridge::semantic::task::generation::ItemId::new(1))
+            .response_item_id(morphiecore::semantic::task::generation::ItemId::new(1))
             .is_none()
     );
     assert_eq!(
         decoded.semantic.continuation(),
-        openbridge::semantic::task::generation::Continuation::ToolResults(vec![
-            openbridge::semantic::task::generation::CallReference {
-                item: openbridge::semantic::task::generation::ItemId::new(1),
+        morphiecore::semantic::task::generation::Continuation::ToolResults(vec![
+            morphiecore::semantic::task::generation::CallReference {
+                item: morphiecore::semantic::task::generation::ItemId::new(1),
                 call_id: "call",
             },
         ])
@@ -269,7 +269,7 @@ fn nullable_reasoning_effort_and_optional_function_headers_follow_their_own_sche
 
 #[test]
 fn known_unrepresentable_event_fields_and_changed_bound_metadata_fail_early() {
-    use openbridge::{
+    use morphiecore::{
         protocol::{
             fidelity::FidelityRecords,
             openai::{ResponseMetadata, events::EventEncoder},
@@ -339,12 +339,12 @@ fn chat_reported_context_is_protocol_specific_and_never_guessed() {
         decoded.metadata.context.execution.metadata.value().unwrap()["trace"],
         "reported"
     );
-    let contract = openbridge::lowering::generation::GenerationRepresentationContract::full();
+    let contract = morphiecore::lowering::generation::GenerationRepresentationContract::full();
     assert_eq!(
         adapter.encode_response(&decoded, &contract).unwrap()["metadata"],
         wire["metadata"]
     );
-    decoded.metadata.context.execution.metadata = openbridge::semantic::value::Presence::Absent;
+    decoded.metadata.context.execution.metadata = morphiecore::semantic::value::Presence::Absent;
     assert!(
         adapter
             .encode_response(&decoded, &contract)

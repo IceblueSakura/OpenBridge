@@ -11,7 +11,7 @@
 | [账户登录来源与采用边界](oauth-login.md) | 共用 OAuth/OIDC 标准、授权边界与必要归档导航 |
 | [Grok Build / xAI 登录](grok-login.md) | 官方浏览器/标准设备授权、pi 内置与补充参考、credential/backend 边界 |
 | [待弃用的 Codex 产品登录来源](chatgpt-login.md) | 旧产品认证的必要固定出处、协议识别与移除前约束；不是新接入入口 |
-| [公开 SIWC 与 ChatGPT plan usage](siwc-login.md) | 官方条款、动态 registration、身份/权限、renewal、推理限制及 OpenBridge 名称/ID 参数规划 |
+| [公开 SIWC 与 ChatGPT plan usage](siwc-login.md) | 官方条款、动态 registration、身份/权限、renewal、推理限制及 MorphieCore 名称/ID 参数规划 |
 | [多模态与资源](multimodal-and-resources.md) | task、wire、资源与媒体的语义边界 |
 | [Codec 验收方法](conformance-baseline.md) | 独立 oracle、变换和失败/资源边界；不是执行记录 |
 | [OpenAI operation 导航](openai/README.md) | 集中定位标准资料与既有日期；Embedding 有独立任务来源，不复制多份字段/事件快照 |

@@ -1,6 +1,6 @@
 //! Tool result kind, artifact lifecycle and wire representability are independent.
 use crate::events_support::text;
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_request,
     },
@@ -132,7 +132,7 @@ fn ordered_media_has_unique_parts_and_distinct_requirements() {
     let proof = RequestDependencyProof::capture(
         &history,
         HistoryDependency::PrefixThrough(ItemId::new(2)),
-        openbridge::semantic::task::generation::SettingsDependency::All,
+        morphiecore::semantic::task::generation::SettingsDependency::All,
     )
     .unwrap();
     assert!(
@@ -169,7 +169,7 @@ fn ordered_media_has_unique_parts_and_distinct_requirements() {
 }
 #[test]
 fn responses_tool_images_have_independent_decode_and_encode_oracles() {
-    use openbridge::protocol::openai::responses;
+    use morphiecore::protocol::openai::responses;
     let expected = json!({"input":[
         {"type":"function_call","call_id":"c","name":"lookup","arguments":"{}"},
         {"type":"function_call_output","call_id":"c","output":[
@@ -212,7 +212,8 @@ fn responses_tool_images_have_independent_decode_and_encode_oracles() {
             (
                 PartId::new(32),
                 ToolResultPart::Text(
-                    openbridge::semantic::value::Text::allowing_empty("", "synthetic", 10).unwrap(),
+                    morphiecore::semantic::value::Text::allowing_empty("", "synthetic", 10)
+                        .unwrap(),
                 ),
             ),
             (PartId::new(33), ToolResultPart::Resource(inline)),
@@ -251,7 +252,7 @@ fn responses_tool_images_have_independent_decode_and_encode_oracles() {
 
 #[test]
 fn tool_image_decode_rejects_wrong_branches_and_unsafe_resources() {
-    use openbridge::protocol::openai::responses;
+    use morphiecore::protocol::openai::responses;
     for part in [
         json!({"type":"input_image","image_url":"https://example.invalid/a.png","text":"cross-kind"}),
         json!({"type":"input_text","text":"caption","image_url":"https://example.invalid/a.png"}),
@@ -273,7 +274,7 @@ fn tool_image_decode_rejects_wrong_branches_and_unsafe_resources() {
 
 #[test]
 fn custom_image_results_share_the_carrier_without_becoming_function_results() {
-    use openbridge::protocol::openai::responses;
+    use morphiecore::protocol::openai::responses;
     let expected = json!({"input":[
         {"type":"custom_tool_call","call_id":"c","name":"lookup","input":"query"},
         {"type":"custom_tool_call_output","call_id":"c","output":[{"type":"input_image","image_url":"https://example.invalid/a.png"}]}
@@ -326,7 +327,7 @@ fn custom_image_results_share_the_carrier_without_becoming_function_results() {
 
 #[test]
 fn tool_and_user_images_share_target_limits_and_edits_remove_media() {
-    use openbridge::protocol::openai::responses;
+    use morphiecore::protocol::openai::responses;
     let mut items = request(media("https://example.invalid/a.png"), None)
         .unwrap()
         .items()
@@ -416,7 +417,7 @@ fn tool_and_user_images_share_target_limits_and_edits_remove_media() {
 
 #[test]
 fn result_history_requires_payload_and_call_identity_but_preserves_explicit_empty_values() {
-    use openbridge::adapter::{Adapter, Dialect};
+    use morphiecore::adapter::{Adapter, Dialect};
     let adapter = Adapter::new(Profile::Responses, Dialect::Standard, None);
     for custom in [false, true] {
         let call = if custom {
@@ -470,7 +471,7 @@ fn result_history_requires_payload_and_call_identity_but_preserves_explicit_empt
 
 #[test]
 fn replacing_inserting_reordering_and_deleting_tool_parts_never_revives_old_media() {
-    use openbridge::protocol::openai::responses;
+    use morphiecore::protocol::openai::responses;
     let source = responses::decode_generation(&json!({"input":[
         {"type":"function_call","call_id":"c","name":"lookup","arguments":"{}"},
         {"type":"function_call_output","call_id":"c","output":[

@@ -2,7 +2,7 @@
 //! raw text; they are never IR state, never emitted, and never admitted as wire facts.
 use crate::events_support::*;
 use crate::wire;
-use openbridge::{
+use morphiecore::{
     lowering::generation::{
         GenerationRepresentationContract as Contract, RepresentationError, lower_request,
     },
@@ -265,7 +265,7 @@ fn replaced_text_cannot_resurrect_a_parsed_value() {
             };
             m.parts[0].content = ContentPart::Text(
                 t.replace_text(
-                    openbridge::semantic::value::Text::allowing_empty(
+                    morphiecore::semantic::value::Text::allowing_empty(
                         "{\"ok\":false}",
                         "synthetic",
                         MAX_TEXT_BYTES,

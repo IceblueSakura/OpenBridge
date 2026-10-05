@@ -1,5 +1,5 @@
 //! Readable-only and opaque reasoning have separate lifecycle/portability contracts.
-use openbridge::{
+use morphiecore::{
     adapter::{Adapter, Dialect},
     lowering::generation::GenerationRepresentationContract as Contract,
     protocol::{
@@ -40,7 +40,7 @@ fn encrypted() -> Value {
 #[test]
 fn readable_only_output_is_reasoning_not_fabricated_assistant_text_and_replays() {
     let source = Adapter::new(Profile::Chat, Dialect::Xiaomi, None);
-    let client = adapter(Dialect::OpenBridge);
+    let client = adapter(Dialect::MorphieCore);
     let decoded = source
         .decode_response(
             body(
@@ -152,7 +152,7 @@ fn completed_encrypted_owner_survives_an_incomplete_carrier_in_json_and_events()
 
 #[test]
 fn chat_ciphertext_requires_both_final_value_and_completed_owner() {
-    let client = adapter(Dialect::OpenBridge);
+    let client = adapter(Dialect::MorphieCore);
     for value in [
         ReplayValue::partial(ReplayFormat::ResponsesEncrypted, text("synthetic-partial")),
         ReplayValue::final_value(ReplayFormat::ResponsesEncrypted, text("synthetic-final")),
@@ -239,7 +239,7 @@ fn chat_ciphertext_requires_both_final_value_and_completed_owner() {
 #[test]
 fn chat_event_final_value_replaces_or_removes_stale_ciphertext() {
     use crate::events_support::{close, part, start, terminal};
-    let client = adapter(Dialect::OpenBridge);
+    let client = adapter(Dialect::MorphieCore);
     let source=client.decode_response(body(json!({"role":"assistant","content":"answer","reasoning_details":[{"type":"reasoning.summary","summary":"old summary","format":"openai-responses-v1","index":0},{"type":"reasoning.encrypted","id":"rs","data":"old-synthetic-token","format":"openai-responses-v1","index":1}]}),"stop").to_string().as_bytes()).unwrap();
     for replacement in [Some("new-synthetic-token"), None] {
         let mut events = vec![StreamEvent::Started, start(1, ItemKind::Reasoning)];
@@ -286,7 +286,7 @@ fn chat_event_final_value_replaces_or_removes_stale_ciphertext() {
 
 #[test]
 fn chat_replay_edits_deletion_and_origin_are_checked_independently_of_plain_text() {
-    let source = adapter(Dialect::OpenBridge);
+    let source = adapter(Dialect::MorphieCore);
     let history = json!({"model":"m","messages":[{"role":"assistant","content":"answer","reasoning_details":[{"type":"reasoning.summary","summary":"summary","format":"openai-responses-v1","index":0},{"type":"reasoning.encrypted","id":"rs","data":"synthetic-final","format":"openai-responses-v1","index":1}]},{"role":"user","content":"next"}]});
     let mut request = source
         .decode_request(history.to_string().as_bytes())

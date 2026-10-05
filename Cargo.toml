@@ -1,8 +1,8 @@
 [package]
-name = "openbridge"
+name = "morphiecore"
 version = "0.1.0"
 edition = "2024"
-description = "Semantic IR and a minimal OpenAI-compatible text gateway for OpenBridge v2."
+description = "Semantic IR and a minimal OpenAI-compatible text gateway for MorphieCore v2."
 license = "MIT"
 
 [dependencies]
