@@ -426,7 +426,7 @@ pub(super) fn validate_part_snapshot(v: &Value) -> Result<(), CodecError> {
 }
 pub(super) fn timestamp(v: &Value) -> Result<Number, CodecError> {
     match v {
-        Value::Number(n) if n.as_f64().is_some_and(|v| v.is_finite() && v >= 0.0) => Ok(n.clone()),
+        Value::Number(n) if crate::semantic::value::valid_timestamp(n) => Ok(n.clone()),
         _ => Err(CodecError::Invalid("timestamp")),
     }
 }

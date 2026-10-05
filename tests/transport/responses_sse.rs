@@ -51,6 +51,96 @@ fn consume_all(d: &mut ResponsesSseDecoder, bytes: &[u8], chunk_len: usize) -> u
 }
 
 #[test]
+fn timestamp_underflow_is_rejected_in_snapshots_and_poisons_fragmented_streams() {
+    for (kind, field) in [
+        ("response.created", "created_at"),
+        ("response.in_progress", "completed_at"),
+        ("response.completed", "completed_at"),
+    ] {
+        let mut events = wire::events(2);
+        let index = if kind == "response.in_progress" {
+            events.insert(
+                1,
+                json!({"type":kind,"sequence_number":1,"response":events[0]["response"].clone()}),
+            );
+            for (n, event) in events.iter_mut().enumerate() {
+                event["sequence_number"] = json!(n);
+            }
+            1
+        } else {
+            events.iter().position(|v| v["type"] == kind).unwrap()
+        };
+        events[index]["response"][field] = serde_json::from_str("-1e-9999").unwrap();
+        let bad = encode_frame(&events[index], SseLimits::default().max_event_bytes).unwrap();
+        for fragment in [1, 7, bad.len()] {
+            let mut d = decoder(SseLimits::default());
+            for event in &events[..index] {
+                let frame = encode_frame(event, SseLimits::default().max_event_bytes).unwrap();
+                consume_all(&mut d, &frame, fragment);
+            }
+            let mut rejected = false;
+            for chunk in bad.chunks(fragment) {
+                match d.consume(chunk) {
+                    Ok((used, parsed)) => {
+                        assert_eq!(used, chunk.len());
+                        assert!(
+                            !parsed
+                                .iter()
+                                .any(|e| matches!(e, StreamEvent::Terminal { .. }))
+                        );
+                    }
+                    Err(_) => {
+                        rejected = true;
+                        break;
+                    }
+                }
+            }
+            assert!(rejected, "{kind} {field}");
+            assert!(d.consume(&wire_events()).is_err());
+            assert!(d.finish().is_err());
+            assert!(d.materialize().is_err());
+        }
+    }
+}
+
+#[test]
+fn timestamp_zero_fractional_and_underflow_positive_values_survive_fragmentation() {
+    for source in [
+        "-0.0",
+        "-0e-9999",
+        "1.25",
+        "1e-9999",
+        "9007199254740993.125",
+    ] {
+        let expected: serde_json::Number = source.parse().unwrap();
+        let mut events = wire::events(2);
+        for event in &mut events {
+            if let Some(response) = event.get_mut("response") {
+                response["created_at"] = Value::Number(expected.clone());
+                if response["completed_at"].is_number() {
+                    response["completed_at"] = Value::Number(expected.clone());
+                }
+            }
+        }
+        let frames: Vec<u8> = events
+            .iter()
+            .flat_map(|v| encode_frame(v, SseLimits::default().max_event_bytes).unwrap())
+            .collect();
+        for fragment in [1, frames.len()] {
+            let mut d = decoder(SseLimits::default());
+            consume_all(&mut d, &frames, fragment);
+            d.finish().unwrap();
+            let metadata = d.materialize().unwrap().metadata;
+            assert_eq!(metadata.created.as_str(), expected.as_str());
+            assert_eq!(
+                metadata.context.completed_at.value().unwrap().as_str(),
+                expected.as_str()
+            );
+        }
+    }
+}
+
+#[test]
 fn strict_json_rejection_and_poisoning_survive_fragmentation() {
     use morphiecore::protocol::openai::{CodecError, sse::SseError};
     let values = wire::events(2);

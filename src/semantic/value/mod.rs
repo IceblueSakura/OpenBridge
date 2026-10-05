@@ -31,8 +31,10 @@ mod image;
 pub use image::ImageFormat;
 mod presence;
 mod replay;
+mod timestamp;
 pub use presence::Presence;
 pub use replay::ReplayOrigin;
+pub(crate) use timestamp::valid_timestamp;
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 pub enum ValueError {
     #[error("{kind} must not be empty")]

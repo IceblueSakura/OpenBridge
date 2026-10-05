@@ -240,7 +240,7 @@ impl ResponseContext {
         if self
             .completed_at
             .value()
-            .is_some_and(|n| n.as_f64().is_none_or(|n| !n.is_finite() || n < 0.0))
+            .is_some_and(|n| !super::value::valid_timestamp(n))
         {
             return Err(ContextError::Invalid("completion timestamp"));
         }

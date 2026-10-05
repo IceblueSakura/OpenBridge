@@ -411,10 +411,7 @@ pub fn lower_response<'a>(
         return Err(RepresentationError::Metadata);
     }
     if metadata.context.validate().is_err()
-        || metadata
-            .created
-            .as_f64()
-            .is_none_or(|v| !v.is_finite() || v < 0.0)
+        || !crate::semantic::value::valid_timestamp(&metadata.created)
         || profile == Profile::Chat && metadata.created.as_u64().is_none()
     {
         return Err(RepresentationError::Metadata);
