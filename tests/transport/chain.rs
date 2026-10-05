@@ -436,6 +436,165 @@ fn opencode_go_projects_only_fixed_identity_and_explicit_session_headers() {
 }
 
 #[test]
+fn openrouter_luna_pdf_is_bounded_responses_with_strict_replay() {
+    let topology = catalog::default_topology().unwrap();
+    let endpoint = topology
+        .endpoint(&EndpointId::new("openrouter-responses").unwrap())
+        .unwrap();
+    let client = Adapter::new(
+        Profile::Responses,
+        Dialect::OpenBridge,
+        endpoint.representation.adaptation.scope.clone(),
+    );
+    let body = json!({"model":"gpt-6-luna","input":[{"role":"user","content":[
+        {"type":"input_text","text":"Read."},
+        {"type":"input_file","filename":"synthetic.pdf","file_data":"data:application/pdf;base64,JVBERi0xLjQK"}
+    ]}]});
+    let request = client.decode_request(body.to_string().as_bytes()).unwrap();
+    assert!(admit(topology.model("gpt-6-luna").unwrap(), &request).is_ok());
+    let secret = SecretMaterial::new("synthetic").unwrap();
+    let prepared = prepare(endpoint, &providers::openrouter(), &secret, &request).unwrap();
+    let wire: Value = serde_json::from_slice(&prepared.body).unwrap();
+    assert_eq!(
+        wire["input"],
+        json!([{"type":"message","role":"user","content":[
+            {"type":"input_text","text":"Read."},
+            {"type":"input_file","filename":"synthetic.pdf","file_data":"data:application/pdf;base64,JVBERi0xLjQK"}
+        ]}])
+    );
+    assert_eq!(wire["model"], "openai/gpt-6-luna");
+    assert_eq!(prepared.path, "/api/v1/responses");
+    assert!(wire.get("plugins").is_none());
+    assert_eq!(
+        endpoint.representation.files.max_total_inline_bytes,
+        128 * 1024
+    );
+    let mut invalid = body.clone();
+    invalid["input"][0]["content"][1]["file_data"] = json!("data:text/plain;base64,QQ==");
+    let invalid = client
+        .decode_request(invalid.to_string().as_bytes())
+        .unwrap();
+    assert!(prepare(endpoint, &providers::openrouter(), &secret, &invalid).is_err());
+    let chat = topology
+        .endpoint(&EndpointId::new("openrouter-chat").unwrap())
+        .unwrap();
+    assert!(prepare(chat, &providers::openrouter(), &secret, &request).is_err());
+}
+
+#[test]
+fn router_pdf_budgets_and_history_do_not_expand_other_models() {
+    let topology = catalog::default_topology().unwrap();
+    let model = topology.model("gpt-6-luna").unwrap();
+    assert!(model.contract.file_input);
+    assert!(topology.model("gpt-6-luna-go").is_none());
+    assert!(
+        topology
+            .endpoint(&EndpointId::new("opencode-go-luna-responses").unwrap())
+            .is_none()
+    );
+    for other in topology.models().filter(|m| m.id != model.id) {
+        assert!(!other.contract.file_input);
+    }
+    let endpoint = topology
+        .endpoint(&EndpointId::new("openrouter-responses").unwrap())
+        .unwrap();
+    let client = Adapter::new(Profile::Responses, Dialect::OpenBridge, None);
+    let body = json!({"model":"gpt-6-luna","max_output_tokens":512,"input":[{
+        "role":"user","content":[{"type":"input_text","text":"Read the build marker."},
+        {"type":"input_file","file_data":"data:application/pdf;base64,AQID","filename":"synthetic.pdf"}]
+    }]});
+    let request = client.decode_request(body.to_string().as_bytes()).unwrap();
+    let original = request.clone();
+    admit(model, &request).unwrap();
+    let prepared = prepare(
+        endpoint,
+        &providers::openrouter(),
+        &SecretMaterial::new("synthetic-router-key").unwrap(),
+        &request,
+    )
+    .unwrap();
+    let wire: Value = serde_json::from_slice(&prepared.body).unwrap();
+    assert_eq!(
+        wire["input"],
+        json!([{"type":"message","role":"user","content":body["input"][0]["content"]}])
+    );
+    assert_eq!(wire["model"], "openai/gpt-6-luna");
+    assert_eq!(wire["max_output_tokens"], 512);
+    assert_eq!(request, original);
+    for location in [
+        json!({"type":"input_file","file_data":"data:text/plain;base64,AQID","filename":"synthetic.txt"}),
+        json!({"type":"input_file","file_url":"https://example.test/file.pdf"}),
+        json!({"type":"input_file","file_id":"file-synthetic"}),
+    ] {
+        let mut changed = body.clone();
+        changed["input"][0]["content"][1] = location;
+        if let Ok(request) = client.decode_request(changed.to_string().as_bytes()) {
+            assert!(
+                prepare(
+                    endpoint,
+                    &providers::openrouter(),
+                    &SecretMaterial::new("synthetic-router-key").unwrap(),
+                    &request
+                )
+                .is_err()
+            );
+        }
+    }
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    for (bytes, count) in [(129 * 1024, 1), (70 * 1024, 2)] {
+        let part = json!({"type":"input_file","filename":"synthetic.pdf",
+            "file_data":format!("data:application/pdf;base64,{}", STANDARD.encode(vec![0; bytes]))});
+        let mut oversized = body.clone();
+        oversized["input"][0]["content"] = json!(vec![part; count]);
+        let request = client
+            .decode_request(oversized.to_string().as_bytes())
+            .unwrap();
+        assert!(
+            prepare(
+                endpoint,
+                &providers::openrouter(),
+                &SecretMaterial::new("synthetic-router-key").unwrap(),
+                &request
+            )
+            .is_err()
+        );
+    }
+    let mut history = body.clone();
+    history["input"].as_array_mut().unwrap().extend([
+        json!({"type":"reasoning","id":"synthetic-reasoning","summary":[],"status":"completed"}),
+        json!({"type":"message","role":"assistant","id":"synthetic-reply","status":"completed","content":[{"type":"output_text","text":"synthetic-marker","annotations":[],"logprobs":[]}]}),
+        json!({"role":"user","content":"Read the next marker."}),
+    ]);
+    let request = client
+        .decode_request(history.to_string().as_bytes())
+        .unwrap();
+    admit(model, &request).unwrap();
+    let prepared = prepare(
+        endpoint,
+        &providers::openrouter(),
+        &SecretMaterial::new("synthetic-router-key").unwrap(),
+        &request,
+    )
+    .unwrap();
+    let wire: Value = serde_json::from_slice(&prepared.body).unwrap();
+    assert_eq!(wire["input"][2]["content"][0]["logprobs"], json!([]));
+    let mut too_many = body.clone();
+    too_many["input"][0]["content"] = json!(vec![body["input"][0]["content"][1].clone(); 5]);
+    let request = client
+        .decode_request(too_many.to_string().as_bytes())
+        .unwrap();
+    assert!(
+        prepare(
+            endpoint,
+            &providers::openrouter(),
+            &SecretMaterial::new("synthetic-router-key").unwrap(),
+            &request
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn router_request_policy_is_fixed_and_luna_controls_are_not_silently_ignored() {
     let topology = catalog::default_topology().unwrap();
     let secret = SecretMaterial::new("synthetic-router-secret").unwrap();

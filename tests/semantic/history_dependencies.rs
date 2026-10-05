@@ -171,9 +171,8 @@ fn redacted_values_and_schema_order_remain_real_dependencies() {
                 parts: vec![Part {
                     id: PartId::new(1),
                     content: ContentPart::Resource(Resource {
-                        kind: ResourceKind::Image,
                         location: ResourceLocation::Url(text(url)),
-                        image_detail: None,
+                        description: ResourceDescription::Image { detail: None },
                     }),
                 }],
                 status: ItemLifecycle::Completed,

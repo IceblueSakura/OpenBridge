@@ -16,6 +16,7 @@ pub struct GenerationRequirements {
     pub custom_tools: bool,
     pub text_metadata: bool,
     pub top_p: bool,
+    /// Requested output probabilities; reported history slots belong to text_metadata.
     pub logprobs: bool,
     pub truncation: bool,
     pub tool_choice: Option<super::ToolChoice>,
@@ -63,18 +64,16 @@ impl GenerationRequirements {
                             ContentPart::Text(t) => {
                                 x.text_part_count += 1;
                                 x.text_metadata |= !t.is_plain();
-                                x.logprobs |= !t.logprobs().is_absent();
                             }
                             ContentPart::Refusal(t) => {
                                 x.text_metadata |= !t.logprobs().is_absent();
-                                x.logprobs |= !t.logprobs().is_absent();
                             }
                             ContentPart::Audio(_) | ContentPart::AudioReference(_) => {
                                 x.audio_history = true
                             }
                             ContentPart::Resource(resource) => {
                                 x.resource_count += 1;
-                                match resource.kind {
+                                match resource.kind() {
                                     ResourceKind::Image => x.image_inputs += 1,
                                     ResourceKind::Audio => x.audio_inputs += 1,
                                     ResourceKind::File => x.file_inputs += 1,
@@ -96,7 +95,7 @@ impl GenerationRequirements {
                         super::ToolOutput::Structured(_) => x.structured_tool_results = true,
                         super::ToolOutput::Parts(parts) => {
                             for (_, part) in parts {
-                                if matches!(part, super::ToolResultPart::Resource(resource) if resource.kind == ResourceKind::Image)
+                                if matches!(part, super::ToolResultPart::Resource(resource) if resource.kind() == ResourceKind::Image)
                                 {
                                     x.tool_result_images += 1;
                                     x.resource_count += 1;

@@ -51,9 +51,8 @@ fn request_with_execution(
 }
 fn image(url: &str) -> Resource {
     Resource {
-        kind: ResourceKind::Image,
         location: ResourceLocation::Url(text(url)),
-        image_detail: None,
+        description: ResourceDescription::Image { detail: None },
     }
 }
 fn media(url: &str) -> ToolOutput {
@@ -189,21 +188,22 @@ fn responses_tool_images_have_independent_decode_and_encode_oracles() {
     };
     assert_eq!(parts.len(), 4);
     assert!(
-        matches!(&parts[1].1, ToolResultPart::Resource(r) if r.kind == ResourceKind::Image && r.image_detail == Some(ImageDetail::Low))
+        matches!(&parts[1].1, ToolResultPart::Resource(r) if r.kind() == ResourceKind::Image && r.image_detail() == Some(ImageDetail::Low))
     );
     assert!(matches!(&parts[2].1, ToolResultPart::Text(t) if t.as_str().is_empty()));
     assert!(
-        matches!(&parts[3].1, ToolResultPart::Resource(r) if r.image_detail.is_none() && matches!(&r.location, ResourceLocation::Inline { data_base64, .. } if data_base64.as_str() == "AQID"))
+        matches!(&parts[3].1, ToolResultPart::Resource(r) if r.image_detail().is_none() && matches!(&r.location, ResourceLocation::Inline { data_base64, .. } if data_base64.as_str() == "AQID"))
     );
     let mut url = image("https://example.invalid/a.png");
-    url.image_detail = Some(ImageDetail::Low);
+    url.description = ResourceDescription::Image {
+        detail: Some(ImageDetail::Low),
+    };
     let inline = Resource {
-        kind: ResourceKind::Image,
         location: ResourceLocation::Inline {
             media_type: text("image/png"),
             data_base64: text("AQID"),
         },
-        image_detail: None,
+        description: ResourceDescription::Image { detail: None },
     };
     let independent = request(
         ToolOutput::Parts(vec![
@@ -364,8 +364,9 @@ fn tool_and_user_images_share_target_limits_and_edits_remove_media() {
         ToolOutput::Parts(vec![(
             PartId::new(10),
             ToolResultPart::Resource(Resource {
-                kind: ResourceKind::Image,
-                image_detail: Some(ImageDetail::Low),
+                description: ResourceDescription::Image {
+                    detail: Some(ImageDetail::Low),
+                },
                 location: ResourceLocation::Inline {
                     media_type: text("image/png"),
                     data_base64: text("AQID"),

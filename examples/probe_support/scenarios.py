@@ -93,6 +93,16 @@ def call(
             tool_calls=len(calls),
             reasoning_chars=reasoning_chars(output, protocol),
         )
+        if protocol == "responses":
+            # Shape counters diagnose replay admission without capturing values.
+            metrics["reported_logprob_slots"] = sum(
+                "logprobs" in part for item in output if item.get("type") == "message"
+                for part in item.get("content") or []
+            )
+            metrics["reported_opaque_items"] = sum(
+                bool(item.get("encrypted_content"))
+                for item in output if item.get("type") == "reasoning"
+            )
         require(transport.wire.closed, "missing_wire_eof", "wire")
         if streaming:
             require(text == transport.wire.text, "consumer_wire_mismatch", "wire")
@@ -208,6 +218,12 @@ def expect_visual_math(text, calls, output):
     require(value["answer"] == 18, "visual_math_value")
 
 
+def expect_file_marker(expected):
+    def check(text, calls, output):
+        require(not calls and text.strip() == expected, "file_marker")
+    return check
+
+
 def expect_call(key):
     def check(text, calls, output):
         require(len(calls) == 1, "tool_count")
@@ -248,10 +264,19 @@ def plan_groups(
                             "reasoning",
                             "image",
                             "image_math",
+                            "file",
+                            "file_continue",
+                            "file_replay",
+                            "file_reasoning",
+                            "file_reasoning_math",
                         ),
                         "case",
                         "setup",
                     )
+                    require(case not in ("file", "file_continue", "file_replay") or model == "gpt-6-luna" and proto == "responses", "file_target", "setup")
+                    require(case not in ("file_reasoning", "file_reasoning_math") or model == "gpt-6-luna" and proto == "responses" and effort in (None, "medium"), "file_reasoning_target", "setup")
+                    if case in ("file_replay", "file_reasoning", "file_reasoning_math") and not stream:
+                        continue
                     if case in ("length", "cancel") and proto != "chat":
                         continue
                     if case == "cancel" and not stream:
@@ -276,11 +301,16 @@ def plan_groups(
                         "reasoning": 2,
                         "image": 1,
                         "image_math": 1,
+                        "file": 2,
+                        "file_continue": 1,
+                        "file_replay": 2,
+                        "file_reasoning": 3,
+                        "file_reasoning_math": 3,
                     }[case]
-                    cap = 8 if case == "length" else min(512 if case == "image" else 2048, run.plan["tokens"])
+                    cap = min(1024, run.plan["tokens"]) if case in ("file_reasoning", "file_reasoning_math") else 8 if case == "length" else min(512 if case in ("image", "file", "file_continue", "file_replay") else 2048, run.plan["tokens"])
                     require(cap <= run.plan["tokens"], "case_budget", "budget")
                     selected_effort = (
-                        "medium" if case == "reasoning" else effort or "default"
+                        "medium" if case in ("reasoning", "file_reasoning", "file_reasoning_math") else effort or "default"
                     )
                     group = f"sdk:{model}:{proto}:{'sse' if stream else 'json'}:{case}:{selected_effort}"
                     groups.append((model, proto, stream, case, group, count, cap))
@@ -326,13 +356,56 @@ def matrix(
                     proto,
                     f"{group}:{n}",
                     history,
-                    stream,
+                    options.pop("streaming", stream),
                     cap=cap,
                     **options,
                 )
 
             try:
-                if case in ("image", "image_math"):
+                if case in ("file_reasoning", "file_reasoning_math"):
+                    from .files import file_history
+                    history = file_history()
+                    math_case = case == "file_reasoning_math"
+                    if math_case:
+                        history[0]["content"][-1]["text"] = ("Extract the numeric suffix of each build and patch marker from the PDF, multiply them, and return only JSON with integer field answer. Do not omit either factor.")
+                    controls = {"reasoning": {"effort": "medium", "summary": "auto"},
+                                "include": ["reasoning.encrypted_content"]}
+                    if math_case:
+                        controls["text"] = {"format": {"type": "json_object"}}
+                    for n, marker in enumerate(("BUILD-A17", "PATCH-B29", "BUILD-A17"), 1):
+                        def check(text, calls, output, marker=marker, n=n):
+                            if math_case:
+                                value = json.loads(text)
+                                require(not calls and isinstance(value,dict) and set(value) == {"answer"} and type(value["answer"]) is int and value["answer"] == (493,510,539)[n-1], "file_math")
+                            else:
+                                expect_file_marker(marker)(text, calls, output)
+                            records = opaque_records(output)
+                            require(bool(records) and all(
+                                isinstance(identity,str) and identity and
+                                isinstance(token,str) and token for identity,token in records),
+                                "missing_opaque")
+                        output, _, _ = invoke(n, history, extra=controls,
+                            streaming=n != 2, oracle=check)
+                        history.extend(output)
+                        if n < 3:
+                            field = "patch" if n == 1 else "build"
+                            history.append({"role":"user","content":
+                                (f"Add the numeric suffix of the {'build' if n == 1 else 'patch'} marker from the original PDF to your previous answer. Return only JSON with integer field answer."
+                                 if math_case else f"From the same document, return only the exact {field} marker, without quotes or explanation.")})
+                elif case == "file_continue":
+                    from .files import file_continuation_history
+                    invoke(1, file_continuation_history(), extra=extra,
+                        oracle=expect_file_marker("PATCH-B29"))
+                elif case in ("file", "file_replay"):
+                    from .files import file_history
+                    history = file_history()
+                    output, _, _ = invoke(1, history, extra=extra,
+                        oracle=expect_file_marker("BUILD-A17"))
+                    history.extend(output)
+                    history.append({"role": "user", "content": "From the same document, return only the exact patch marker, without quotes or explanation."})
+                    invoke(2, history, extra=extra, oracle=expect_file_marker("PATCH-B29"),
+                        streaming=False if case == "file_replay" else stream)
+                elif case in ("image", "image_math"):
                     from .images import image_history, visual_math_history
 
                     # The explicit vision preset uses effort only, no unrelated summary control.

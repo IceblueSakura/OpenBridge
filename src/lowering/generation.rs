@@ -31,6 +31,7 @@ pub struct GenerationRepresentationContract {
     pub reported_facts: ReportedFactPolicy,
     pub semantics: GenerationSemanticContract,
     pub images: crate::protocol::image_constraints::ImageConstraints,
+    pub files: crate::protocol::file_constraints::FileConstraints,
     pub cache: crate::protocol::cache::CacheProjection,
     /// Identity/safety acceptance is independent of optional cache hints.
     pub identity_hints: bool,
@@ -46,6 +47,7 @@ impl GenerationRepresentationContract {
             reported_facts: ReportedFactPolicy::Faithful,
             semantics: GenerationSemanticContract::full(),
             images: crate::protocol::image_constraints::ImageConstraints::all(),
+            files: crate::protocol::file_constraints::FileConstraints::all(),
             cache: crate::protocol::cache::CacheProjection::all(),
             identity_hints: true,
             standard_context: true,
@@ -130,12 +132,15 @@ pub fn lower_request<'a>(
     c.images
         .check(r)
         .map_err(|_| RepresentationError::ImageInput)?;
+    c.files
+        .check(r)
+        .map_err(|_| RepresentationError::FileInput)?;
     for (_, item) in r.items() {
         if let Item::Message(message) = item {
             for part in &message.parts {
                 if let ContentPart::Resource(resource) = &part.content
                     && profile == Profile::Chat
-                    && resource.image_detail == Some(ImageDetail::Original)
+                    && resource.image_detail() == Some(ImageDetail::Original)
                     && !c.adaptation.rules.chat_original_image_detail
                 {
                     return Err(RepresentationError::ImageInput);
@@ -582,8 +587,16 @@ fn text_items(
                 ContentPart::AudioReference(_) => profile != Profile::Chat || !request,
                 ContentPart::Resource(resource) => {
                     !request
-                        || resource.kind != ResourceKind::Image
-                        || matches!(resource.location, ResourceLocation::OpaqueReference(_))
+                        || match resource.kind() {
+                            ResourceKind::Image => {
+                                matches!(resource.location, ResourceLocation::OpaqueReference(_))
+                            }
+                            ResourceKind::File => {
+                                profile != Profile::Responses
+                                    || !matches!(resource.location, ResourceLocation::Inline { .. })
+                            }
+                            ResourceKind::Audio => true,
+                        }
                 }
             }) {
                 return Err(RepresentationError::UnmigratedSemantic);

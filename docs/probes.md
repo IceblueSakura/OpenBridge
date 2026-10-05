@@ -28,9 +28,14 @@ uv run --project tests/sdk --locked --offline python examples/probe.py report te
 - Provider 只取固定 catalog 中的绑定。真实执行须用 `OPENBRIDGE_PROBE_CREDENTIALS_DIR` 指定已配置的自有 JSON 目录；该变量仅含路径，不含 key 或账户选择。Gateway probe 将选定 models、临时入口 token 和 `max_attempts: 1` 写入 run 下的私有配置，binary 独自加载上游凭据；即使 store 的 pool 开启 fallback，probe 也不隐式多发请求。无 TOML/env key 回退或第三方 auth-cache 搜索。库级 probe 只读取已配置 API-key 池的首项快照，不自动 fallback/refresh。订阅 Provider 仍须明确选择。实际 SDK 客户端只获得临时 gateway token；上游凭据不复制进 run 或进程环境。
 - `plan --model` 可重复，将所选 Provider 缩小到精确模型子集。重复、未知或不属于所选 Provider 的模型在读取凭据前拒绝。省略模型筛选则包含所选 Provider 的全部已登记测试绑定，不能将此默认扩大解释为授权。
 - `run --model` 可重复，必须属于计划；`--protocol chat|responses`、`--delivery json|sse` 缩小范围。`--effort none|minimal|medium|max` 是明确请求控制，不自动改默认。
-- cases：`text`、`json`、`tool`、`history`、`length`、`cancel`、`image`、`image_math`；`reasoning` 的目标限制读取 `examples/probe_support/scenarios.py`，不得套用到任意模型。
+- cases：`text`、`json`、`tool`、`history`、`length`、`cancel`、`image`、`image_math`、`file`、`file_continue`、`file_replay`、`file_reasoning`、`file_reasoning_math`；`reasoning` 的目标限制读取 `examples/probe_support/scenarios.py`，不得套用到任意模型。
 - `image` 每个协议/交付一请求，使用程序生成的两张无敏感 PNG 与交错文本，oracle 检查按图片顺序返回颜色；最多 512 输出 token，可显式 `--effort none`。不下载图片、不使用账号文件资源、不保存图片或正文；模型准入必须按 catalog 现场查询。独立 PNG 像素/预算守卫在 `tests/sdk/test_probe_core.py`，此场景不证明一般视觉理解质量。
 - `image_math` 每个协议/交付一请求，先从两张程序生成的方块图获得视觉计数，再计算固定算术式，以严格 JSON 数值 oracle 验收；预算取 run 的 token cap（最多 2048）。图片像素、计数和算术预期由独立离线检查保护。可用相同输入分别选取 `--effort none|minimal|medium|max`；档位的真实语义和支持按官方页面现场核对，不从名称推导强度排序。
+- `file` 的精确目标限制由 `scenarios.py` 与 catalog 维护，仅 Responses；每个交付两请求（首次提取 build marker、显式回传实际 output 与原始文件后提取 patch marker），JSON/SSE 合计四请求。使用程序生成的一页有效 PDF（小于 16 KiB）、最多 512 输出 tokens，marker 只在文件内，不在 prompt 提供答案；沿用共享账本、零重试和正文禁存。场景与文档结构的独立预期归 `tests/sdk/test_probe_core.py`，不证明一般 PDF 质量或扩大文件 URL/ID 准入。
+- `file_replay` 每组两请求：SSE 首轮提取 build marker，随后将原始文件和实际 output 回传至 JSON 续轮提取 patch marker。只选 Responses/SSE 组（第二次交付固定 JSON），最多 512 输出 tokens，首轮失败停止；opaque 未报告时不宣称已验证 opaque 回传。OpenBridge 不 retry/fallback，聚合商内部路由策略不由本地账本保证。
+- `file_reasoning_math` 沿用下述三轮/预算与opaque门槛，但先从PDF marker提取数字相乘，再分别加回文件中的两个数字；每轮严格JSON整数oracle，不在prompt提供答案，用于区别简单摘录不产生reasoning与协议拒绝。
+- `file_reasoning` 固定目标由 `scenarios.py` 限定，显式 medium reasoning/include，每组三请求 SSE→JSON→SSE、每次最多1024输出tokens；原文件和实际output原样追加。每轮必须报告非空opaque且文件marker正确，缺值不算通过，失败停止；只保存计数不保存密文。该有限场景不证明任意文件或多轮可靠性。
+- `file_continue` 使用明确的客户端自有 synthetic 历史（PDF、已知 build marker 的 assistant message、patch 查询），每个交付一请求、最多 512 输出 tokens。它用于隔离续轮问题，不冒充实际上游 transcript，也不能替代 `file` 的真实 output 回传门槛。
 - `history` 每个交付四请求，两个实际 lookup 调用/返回；`length` 是 8-token Chat 截断，只有这一场景接受 length；`cancel` 是 Chat SSE 提前关闭和后续普通请求，不证明 Provider 停算/停止计费。
 - 默认串行、SDK 零重试，精确限制目标 origin/port/path、model、请求大小、输出 cap 与完整序列化历史。不会因省略 filter 而跳出 run 的模型集合。
 - 所有组在 I/O 前登记；未执行的请求显示 `not_run`，中断的 reservation/dispatched 不算通过。HTTP/传输/wire/配置错误停止该目标；工具链失败跳过其依赖轮次。只有计划明确 `--continue-oracle` 时，内容/预期终态失败后才继续独立组。不自动重复失败请求。
@@ -52,7 +57,7 @@ uv run --project tests/sdk --locked --offline python examples/probe.py report te
 
 见 [HTTP guide](http-gateway.md#操作者诊断)。runner 为每个 owned binary 创建新的、私有 `gateway-*.jsonl` 文件，以 `x-openbridge-probe-id = run-id:attempt` 关联同一次请求。诊断在入口认证后才开始，且不向客户端回显。
 
-可观察字段限于最后阶段、完成/中断结果、上游 HTTP、规范化 Retry-After、接收/已 handoff 字节和耗时。`upstream_head_ms`、`first_upstream_bytes_ms` 从认证后的请求处理开始计时，不是 TTFT 或 Provider 纯推理时间；handoff 不等于客户端收到。静态 JSON 的解析可发生于 `terminal`（intake EOF finalize）阶段。
+可观察字段限于最后阶段、完成/中断结果、上游 HTTP、规范化 Retry-After、接收/已 handoff 字节、耗时、固定 decode 失败分类和成功消费的语义事件结构计数。分类不输出未知字段名、异常消息或正文；事件计数不含身份、文本、reasoning、opaque 或认证值，不证明产物完整或终态闭合。`upstream_head_ms`、`first_upstream_bytes_ms` 从认证后的请求处理开始计时，不是 TTFT 或 Provider 纯推理时间；handoff 不等于客户端收到。静态 JSON 的解析可发生于 `terminal`（intake EOF finalize）阶段。
 
 有界队列满、文件预算满、写失败或强杀均可能缺少诊断，缺失必须记为未知，不据此猜测上游状态。原 HTTP 错误映射、取消和交付策略不变；这不是生产可观测性系统，也不因此启用任何自动 retry/backoff。
 

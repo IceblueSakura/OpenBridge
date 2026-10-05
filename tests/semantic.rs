@@ -26,6 +26,8 @@ mod continuation;
 mod contract_ownership;
 #[path = "semantic/extensions.rs"]
 mod extensions;
+#[path = "semantic/files.rs"]
+mod files;
 #[path = "semantic/function_events.rs"]
 mod function_events;
 #[path = "semantic/group_projection.rs"]

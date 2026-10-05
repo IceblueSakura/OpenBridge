@@ -72,14 +72,17 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
             EndpointId::new("chat").unwrap(),
         ],
     };
-    let models = ["public-model", "cross-model"]
+    let models = ["public-model", "cross-model", "no-files-model"]
         .into_iter()
         .map(|label| PublicModel {
             id: ModelId::new(label).unwrap(),
             canonical_model: ModelId::new("canonical-fixture").unwrap(),
             task: TaskKind::Generation,
             route: route.id.clone(),
-            contract: GenerationSemanticContract::full(),
+            contract: GenerationSemanticContract {
+                file_input: label != "no-files-model",
+                ..GenerationSemanticContract::full()
+            },
             standard_context: true,
             reported_facts: openbridge::lowering::generation::ReportedFactPolicy::Faithful,
         })
@@ -119,6 +122,12 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
             endpoint: EndpointId::new("responses").unwrap(),
         },
     ];
+    let mut entries = entries;
+    entries.push(Entry {
+        model: "no-files-model".into(),
+        protocol: Profile::Responses,
+        endpoint: EndpointId::new("responses").unwrap(),
+    });
     let credentials = BTreeMap::from([(
         CredentialBindingId::new("fixture-key").unwrap(),
         Arc::new(SecretMaterial::new("synthetic-upstream-credential-0001").unwrap()),

@@ -221,4 +221,11 @@ fn resource_dependency(hash: &mut Sha256, resource: &Resource) {
         hash.update((value.len() as u64).to_le_bytes());
         hash.update(value.as_bytes());
     }
+    // Debug retains filename presence, but its private value must bind separately.
+    if let ResourceDescription::File(file) = &resource.description
+        && let Some(filename) = &file.filename
+    {
+        hash.update((filename.as_str().len() as u64).to_le_bytes());
+        hash.update(filename.as_str().as_bytes());
+    }
 }

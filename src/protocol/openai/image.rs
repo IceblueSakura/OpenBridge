@@ -42,7 +42,7 @@ pub(super) fn read(part: &Map<String, Value>, profile: Profile) -> Result<Resour
         }
     } else {
         ResourceLocation::Url(
-            Text::new(raw, "image URL", MAX_IMAGE_URL_BYTES)
+            Text::new(raw, "image URL", MAX_RESOURCE_URL_BYTES)
                 .map_err(|_| CodecError::Invalid("image URL"))?,
         )
     };
@@ -55,9 +55,10 @@ pub(super) fn read(part: &Map<String, Value>, profile: Profile) -> Result<Resour
         _ => return Err(CodecError::Invalid("image detail")),
     };
     let resource = Resource {
-        kind: ResourceKind::Image,
         location,
-        image_detail,
+        description: ResourceDescription::Image {
+            detail: image_detail,
+        },
     };
     resource.validate()?;
     Ok(resource)
@@ -79,7 +80,7 @@ pub(super) fn write(resource: &Resource, profile: Profile) -> Value {
         Profile::Chat => json!({"url":url}),
         Profile::Responses => json!({"type":"input_image","image_url":url}),
     };
-    if let Some(detail) = resource.image_detail {
+    if let Some(detail) = resource.image_detail() {
         image["detail"] = json!(detail.label());
     }
     if profile == Profile::Chat {

@@ -2,7 +2,7 @@
 
 本页描述当前库级合同，不是完整标准符合性声明。标准目标归 [Semantic Model](semantic-ir.md#3-客户端-api-目标与扩展边界)；本地兼容形式仍需单独识别；[客户端边界](client-generation-profile.md)不提供独立私有 attachment。精确字段/预算/拒绝分支归 [OpenAI codecs](../../src/protocol/openai/mod.rs)、[lowering](../../src/lowering/generation.rs)和独立测试，HTTP 接线归[网关指南](../http-gateway.md)。
 
-当前范围是有序文本/选定图片 history、文本/工具/reasoning 输出及适用事件。单个 profile 能解析不等于 Public Model/Endpoint 准入；未实现媒体、资源或 task 不由标准名称激活。标准来源和本地选择分开，见[固定基线](../references/responses-standard.md)。
+当前范围是有序文本/选定图片/inline 文件 history、文本/工具/reasoning 输出及适用事件。单个 profile 能解析不等于 Public Model/Endpoint 准入；未实现媒体、资源或 task 不由标准名称激活。标准来源和本地选择分开，见[固定基线](../references/responses-standard.md)。
 
 ## Response outcome and continuation
 
@@ -41,6 +41,16 @@ Responses function/custom result history 的标准 carrier 接受有序 `input_t
 Codec 不下载、重定向、OCR、解析像素、转码或上传；URL 语法合法不证明 Provider 获取安全或可用。库级、HTTP body 与 Endpoint 预算独立。Owners：[resource](../../src/semantic/task/generation/resource.rs)、[image codec](../../src/protocol/openai/image.rs)、[image tests](../../tests/semantic/images.rs)。
 
 Reported image/text/audio token counts 不是从正文或图像大小估计的值。OpenBridge 对 image/text usage 的具名 carrier 属于非标准位置，普通 Responses 目标无对应位置时当前拒绝，包括显式零。计量别名/视图从最终 typed 报告再投影，不保存第二个 total；来源不足不补猜。精确规则归 [adaptation](../../src/protocol/adaptation.rs)、[image usage](../../tests/semantic/image_usage.rs)和[billing modality tests](../../tests/semantic/billing_modal_usage.rs)。
+
+## User inline file input
+
+标准 `input_file.file_data` 仅接受有界 Base64 data URL；文件 MIME/source 与可选 filename、file detail 由 [Resource](../../src/semantic/task/generation/resource.rs) 的类型化描述分别拥有。filename 是描述，不是本地路径；缺省与显式空字符串分开。File detail 缺省与 explicit auto 分开，不能承载 image original；null、多个来源和未准入字段拒绝。
+
+纯 codec 不打开文件、下载、上传、解析文档、OCR 或推定 MIME 与文件内容相符。File ID/URL、cache breakpoint、工具文件结果、assistant/instruction 文件、文件输出与 Chat 文件投影仍拒绝。共享资源值能表达 URL/opaque source 不代表标准文件主链已经准入这些来源。
+
+文件 requirements 与图片独立；模型语义、目标 MIME/detail/name/count、单资源及总 decoded bytes、总 encoded 状态与 HTTP body 分层检查。已注册的文本/图片绑定不自动获得文件能力；文件目标可以只准入 PDF，不能从单个文件 carrier 推定一般格式或来源都可用。其他 Provider dialect 未声明文件 carrier 时保持拒绝。编辑后按最终值重验，文件描述及私有来源进入进程内依赖证明，但该证明不成为 issuer 认证或跨请求持久化格式。
+
+Owners：[file codec](../../src/protocol/openai/file.rs)、[file constraints](../../src/protocol/file_constraints.rs)、[independent oracles](../../tests/semantic/files.rs)。标准来源为固定 [input file union](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_input_file_param.py)；适用 guide 导航归[媒体基线](../references/multimodal-and-resources.md)。
 
 ## Raw JSON admission
 

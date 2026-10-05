@@ -75,6 +75,18 @@ async fn provider(
         }],
         32
     );
+    if !chat && !owner_case {
+        // The fixed SDK must keep file description and ordered source parts
+        // in the initial request and the history it appends for tool replay.
+        assert_eq!(
+            request["input"][0]["content"],
+            json!([
+                {"type":"input_text","text":"lookup"},
+                {"type":"input_file","file_data":"data:application/pdf;base64,AQID","filename":"synthetic.pdf","detail":"low"},
+                {"type":"input_image","image_url":"data:image/png;base64,AQID"}
+            ])
+        );
+    }
     let turn = {
         let mut seen = state.0.lock().unwrap();
         let count = seen

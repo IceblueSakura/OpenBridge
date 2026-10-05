@@ -240,6 +240,13 @@ impl Dialect {
         Adaptation {
             rules,
             images,
+            files: match self {
+                Self::Standard | Self::OpenBridge => {
+                    crate::protocol::file_constraints::FileConstraints::all()
+                }
+                Self::OpenRouter => crate::protocol::file_constraints::FileConstraints::pdf(),
+                _ => crate::protocol::file_constraints::FileConstraints::none(),
+            },
             cache,
             profile_id,
             scope,
@@ -272,6 +279,7 @@ impl Adapter {
         let mut result = contract.clone();
         result.adaptation = self.adaptation.clone();
         result.images.intersect(&self.adaptation.images);
+        result.files.intersect(&self.adaptation.files);
         result.cache.intersect(self.adaptation.cache);
         result
     }

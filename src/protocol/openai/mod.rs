@@ -11,6 +11,7 @@ pub mod chat_sse;
 mod common;
 pub mod envelope;
 pub mod events;
+mod file;
 mod function_tools;
 mod image;
 mod inference_shapes;

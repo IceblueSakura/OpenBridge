@@ -53,10 +53,13 @@ NUMBERS = {
     "reported_reasoning_tokens",
     "reported_image_tokens",
     "reported_cached_tokens",
+    "reported_logprob_slots",
+    "reported_opaque_items",
     "handed_off_bytes",
     "received_bytes",
     "upstream_head_ms",
     "first_upstream_bytes_ms",
+    "event_items", "event_reasoning_items", "event_parts", "event_deltas", "event_item_closures",
 }
 BOOLS = {
     "sdk_consumed",
@@ -67,9 +70,17 @@ BOOLS = {
     "exact_answer",
 }
 ENUMS = {
+    "decode_failure": {"invalid_sequence", "invalid_metadata", "invalid_item_snapshot",
+        "invalid_terminal_snapshot", "invalid_value_snapshot", "invalid_reasoning",
+        "invalid_probabilities", "invalid_item", "invalid_identity", "invalid_other",
+        "unsupported", "event_identity", "event_lifecycle", "limit", "missing_terminal",
+        "semantic", "framing", "other", "snapshot_shape", "snapshot_identity",
+        "snapshot_lifecycle", "snapshot_phase", "snapshot_replay", "snapshot_summary",
+        "snapshot_replay_added", "snapshot_replay_removed", "snapshot_replay_changed",
+        "snapshot_text", "snapshot_annotations", "snapshot_probability_presence", "snapshot_probabilities"},
     "oracle_failure": {
         "exact_text", "visual_math_format", "visual_math_value",
-        "visual_math_calls", "unexpected_terminal", "other",
+        "visual_math_calls", "file_marker", "file_math", "missing_opaque", "unexpected_terminal", "other",
     },
     "operator_outcome": {"error", "interrupted", "timeout", "shutdown", "complete"},
     "stage": {
@@ -122,7 +133,7 @@ def closed_metrics(metrics):
         elif key in BOOLS:
             require(type(value) is bool, "report_bool", "setup")
         elif key in ENUMS:
-            require(value in ENUMS[key], "report_enum", "setup")
+            require(value in ENUMS[key] or key == "decode_failure" and value is None, "report_enum", "setup")
         else:
             raise RuntimeError("unknown diagnostic field")
         result[key] = value

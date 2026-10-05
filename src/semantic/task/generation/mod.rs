@@ -59,8 +59,10 @@ pub use request::{
 };
 pub use requirements::{GenerationRequirements, GenerationResponseRequirements};
 pub use resource::{
-    ImageDetail, ImageFormat, MAX_IMAGE_DECODED_BYTES, MAX_IMAGE_URL_BYTES, Resource, ResourceKind,
-    ResourceLocation,
+    FileDescription, FileDetail, ImageDetail, ImageFormat, MAX_FILE_DECODED_BYTES,
+    MAX_FILE_NAME_BYTES, MAX_IMAGE_DECODED_BYTES, MAX_RESOURCE_MEDIA_TYPE_BYTES,
+    MAX_RESOURCE_URL_BYTES, MAX_TOTAL_FILE_DECODED_BYTES, Resource, ResourceDescription,
+    ResourceKind, ResourceLocation,
 };
 pub use text::{
     Annotation, Logprob, RefusalContent, TextContent, TopLogprob, compatible_logprobs,

@@ -35,7 +35,11 @@ async fn produce(
         }
         let mut rest = chunk.as_ref();
         while !rest.is_empty() {
-            let (used, events) = attempt.push(rest).map_err(|_| ApiError::upstream())?;
+            let (used, events) = attempt.push(rest).map_err(|error| {
+                trace.decode_error(&error);
+                ApiError::upstream()
+            })?;
+            trace.events(&events);
             if used == 0 {
                 return Err(ApiError::upstream());
             }
@@ -51,7 +55,10 @@ async fn produce(
         }
     }
     trace.stage(Stage::Terminal);
-    attempt.finish().map_err(|_| ApiError::upstream())?;
+    attempt.finish().map_err(|error| {
+        trace.decode_error(&error);
+        ApiError::upstream()
+    })?;
     trace.stage(Stage::Projection);
     let frames = if stream {
         delivery

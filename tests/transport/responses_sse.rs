@@ -164,11 +164,26 @@ fn opaque_replay_cannot_be_promoted_by_missing_done_conflicting_terminal_or_eof(
                 let mut rest = chunk;
                 while !rest.is_empty() {
                     match d.consume(rest) {
-                        Ok((used, _)) => {
+                        Ok((used, events)) => {
                             assert!(used > 0);
+                            assert!(
+                                !events
+                                    .iter()
+                                    .any(|event| matches!(event, StreamEvent::Terminal { .. }))
+                            );
                             rest = &rest[used..];
                         }
-                        Err(_) => {
+                        Err(error) => {
+                            if failure == "conflicting_token" {
+                                assert!(matches!(
+                                    error,
+                                    openbridge::protocol::openai::sse::SseError::Codec(
+                                        openbridge::protocol::CodecError::Invalid(
+                                            "terminal snapshot replay changed"
+                                        )
+                                    )
+                                ));
+                            }
                             rejected = true;
                             break 'input;
                         }

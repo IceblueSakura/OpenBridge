@@ -96,9 +96,8 @@ fn request_codecs_enforce_result_carriers_before_rendering() {
             ToolOutput::Parts(vec![(
                 PartId::new(1),
                 ToolResultPart::Resource(Resource {
-                    kind: ResourceKind::Image,
                     location: ResourceLocation::Url(text("https://example.invalid/image.png")),
-                    image_detail: None,
+                    description: ResourceDescription::Image { detail: None },
                 }),
             )]),
             None,

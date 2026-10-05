@@ -33,6 +33,65 @@ pub(super) enum Outcome {
     Shutdown,
     Complete,
 }
+#[derive(Default, Serialize)]
+struct EventCounts {
+    event_items: u64,
+    event_reasoning_items: u64,
+    event_parts: u64,
+    event_deltas: u64,
+    event_item_closures: u64,
+}
+// Only fixed classes escape; unsupported names and error payloads never do.
+fn decode_failure(error: &crate::execution::AttemptError) -> &'static str {
+    use crate::{
+        execution::AttemptError,
+        protocol::{CodecError, openai::sse::SseError},
+        semantic::task::generation::EventError,
+    };
+    let codec = match error {
+        AttemptError::Codec(error) | AttemptError::Sse(SseError::Codec(error)) => error,
+        AttemptError::Sse(_) => return "framing",
+        _ => return "other",
+    };
+    match codec {
+        CodecError::Invalid(label) => match *label {
+            "sequence" => "invalid_sequence",
+            "metadata changed" | "service tier changed" | "fingerprint changed" => {
+                "invalid_metadata"
+            }
+            "item snapshot" => "invalid_item_snapshot",
+            "terminal snapshot" => "invalid_terminal_snapshot",
+            "terminal snapshot count" | "terminal snapshot content" => "snapshot_shape",
+            "terminal snapshot identity" => "snapshot_identity",
+            "terminal snapshot lifecycle" => "snapshot_lifecycle",
+            "terminal snapshot phase" => "snapshot_phase",
+            "terminal snapshot replay" => "snapshot_replay",
+            "terminal snapshot replay added" => "snapshot_replay_added",
+            "terminal snapshot replay removed" => "snapshot_replay_removed",
+            "terminal snapshot replay changed" => "snapshot_replay_changed",
+            "terminal snapshot summary" => "snapshot_summary",
+            "terminal snapshot text" => "snapshot_text",
+            "terminal snapshot annotations" => "snapshot_annotations",
+            "terminal snapshot probability presence" => "snapshot_probability_presence",
+            "terminal snapshot probabilities" => "snapshot_probabilities",
+            "part snapshot" | "value snapshot" => "invalid_value_snapshot",
+            "initial reasoning" | "reasoning status" | "terminal reasoning closure" => {
+                "invalid_reasoning"
+            }
+            "logprobs" | "logprob owner" | "initial text metadata" => "invalid_probabilities",
+            "item status" | "initial message" => "invalid_item",
+            "item id" | "output index" | "part index" | "part index domain" => "invalid_identity",
+            _ => "invalid_other",
+        },
+        CodecError::Unsupported(_) => "unsupported",
+        CodecError::Event(EventError::Identity) => "event_identity",
+        CodecError::Event(EventError::Lifecycle) => "event_lifecycle",
+        CodecError::Event(EventError::Limit) | CodecError::Limit => "limit",
+        CodecError::Event(EventError::EofBeforeTerminal) => "missing_terminal",
+        CodecError::Event(EventError::Semantic(_)) | CodecError::Semantic(_) => "semantic",
+        _ => "other",
+    }
+}
 #[derive(Serialize)]
 struct CandidateRecord {
     ordinal: usize,
@@ -58,6 +117,9 @@ struct Record {
     upstream_head_ms: Option<u64>,
     first_upstream_bytes_ms: Option<u64>,
     candidates: Vec<CandidateRecord>,
+    decode_failure: Option<&'static str>,
+    #[serde(flatten)]
+    events: EventCounts,
 }
 impl Sink {
     pub(super) fn open(path: &Path) -> std::io::Result<Self> {
@@ -146,6 +208,8 @@ impl Trace {
                 upstream_head_ms: None,
                 first_upstream_bytes_ms: None,
                 candidates: vec![],
+                decode_failure: None,
+                events: EventCounts::default(),
             },
             start: Instant::now(),
             candidate_start: None,
@@ -215,6 +279,39 @@ impl Trace {
         }
         self.record.received_bytes = self.record.received_bytes.saturating_add(n as u64);
     }
+    pub(super) fn decode_error(&mut self, error: &crate::execution::AttemptError) {
+        if self.sink.is_some() {
+            self.record.decode_failure = Some(decode_failure(error));
+        }
+    }
+    pub(super) fn events(&mut self, events: &[crate::semantic::task::generation::StreamEvent]) {
+        use crate::semantic::task::generation::{ItemKind, StreamEvent};
+        if self.sink.is_none() {
+            return;
+        }
+        for event in events {
+            let counts = &mut self.record.events;
+            match event {
+                StreamEvent::ItemStarted { kind, .. } => {
+                    counts.event_items = counts.event_items.saturating_add(1);
+                    if matches!(kind, ItemKind::Reasoning) {
+                        counts.event_reasoning_items =
+                            counts.event_reasoning_items.saturating_add(1);
+                    }
+                }
+                StreamEvent::PartStarted { .. } => {
+                    counts.event_parts = counts.event_parts.saturating_add(1)
+                }
+                StreamEvent::Delta { .. } => {
+                    counts.event_deltas = counts.event_deltas.saturating_add(1)
+                }
+                StreamEvent::ItemFinished { .. } => {
+                    counts.event_item_closures = counts.event_item_closures.saturating_add(1)
+                }
+                _ => {}
+            }
+        }
+    }
     pub(super) fn handed_off(&mut self, n: usize) {
         self.record.handed_off_bytes = self.record.handed_off_bytes.saturating_add(n as u64);
     }
@@ -236,6 +333,8 @@ impl Drop for Trace {
                 upstream_head_ms: None,
                 first_upstream_bytes_ms: None,
                 candidates: vec![],
+                decode_failure: None,
+                events: EventCounts::default(),
             };
             let _ = sink.0.try_send(Message::Record(std::mem::replace(
                 &mut self.record,
@@ -279,6 +378,56 @@ mod tests {
         assert_eq!(wire["advanced"], true);
         assert!(wire.get("endpoint").is_none());
         assert!(wire.get("body").is_none());
+    }
+    #[test]
+    fn decode_failure_never_serializes_untrusted_names_or_values() {
+        use crate::{
+            execution::AttemptError,
+            protocol::CodecError,
+            semantic::task::generation::{ItemId, PartId, StreamEvent},
+        };
+        let (tx, _rx) = mpsc::sync_channel(1);
+        let sink = Sink(tx);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-openbridge-probe-id",
+            "00000000000000000000000000000001:1".parse().unwrap(),
+        );
+        let mut trace = Trace::new(Some(&sink), &headers);
+        trace.events(&[StreamEvent::Delta {
+            item: ItemId::new(1),
+            part: PartId::new(1),
+            fragment: "synthetic-private-body".into(),
+            logprobs: vec![],
+        }]);
+        trace.decode_error(&AttemptError::Codec(CodecError::Unsupported(
+            "synthetic-private-field".into(),
+        )));
+        let wire = serde_json::to_string(&trace.record).unwrap();
+        assert!(!wire.contains("synthetic"));
+        assert!(wire.contains("unsupported"));
+        assert_eq!(trace.record.events.event_deltas, 1);
+        trace.decode_error(&AttemptError::Codec(CodecError::Invalid(
+            "terminal snapshot",
+        )));
+        assert_eq!(
+            trace.record.decode_failure,
+            Some("invalid_terminal_snapshot")
+        );
+        for (label, expected) in [
+            ("terminal snapshot replay added", "snapshot_replay_added"),
+            (
+                "terminal snapshot replay removed",
+                "snapshot_replay_removed",
+            ),
+            (
+                "terminal snapshot replay changed",
+                "snapshot_replay_changed",
+            ),
+        ] {
+            trace.decode_error(&AttemptError::Codec(CodecError::Invalid(label)));
+            assert_eq!(trace.record.decode_failure, Some(expected));
+        }
     }
     #[test]
     fn full_or_disconnected_sink_does_not_block_a_request() {

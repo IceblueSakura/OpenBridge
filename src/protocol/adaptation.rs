@@ -132,6 +132,7 @@ pub struct Adaptation {
     pub rules: WireRules,
     /// Profile image admission is intersected with independently configured Endpoint limits.
     pub images: super::image_constraints::ImageConstraints,
+    pub files: super::file_constraints::FileConstraints,
     pub cache: super::cache::CacheProjection,
     /// Stable adapter contract identity, not a network or credential locator.
     pub profile_id: &'static str,

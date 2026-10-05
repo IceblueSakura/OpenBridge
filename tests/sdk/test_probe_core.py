@@ -80,6 +80,168 @@ class ProbeCoreTests(unittest.TestCase):
             self.assertEqual(len(set(sessions)), 4)
             self.assertTrue(all(value.isascii() and len(value) <= 256 for value in sessions))
 
+    def test_pdf_matrix_is_four_requests_and_preserves_actual_history(self):
+        from contextlib import nullcontext
+        from probe_support.scenarios import matrix, plan_groups
+        with tempfile.TemporaryDirectory() as temp:
+            run = Run.create(Path(temp) / "run", providers="openrouter",
+                models=["gpt-6-luna"], limit=4, tokens=512)
+            groups = plan_groups(run, run.plan["models"], cases=("file",), protocol="responses")
+            self.assertEqual(sum(group[5] for group in groups), 4)
+            self.assertTrue(all(g[1] == "responses" and g[6] == 512 for g in groups))
+            with patch("probe_support.scenarios.session", return_value=nullcontext((None, None))), patch(
+                "probe_support.scenarios.call", return_value=([
+                    {"type":"message","role":"assistant","content":[{"type":"output_text","text":"synthetic"}]}
+                ], "", [])
+            ) as send:
+                self.assertTrue(matrix(run, run.plan["models"], cases=("file",), protocol="responses"))
+            self.assertEqual(send.call_count, 4)
+            second = send.call_args_list[1].args[5]
+            self.assertEqual(len(second), 3)
+            self.assertEqual(second[0]["content"][1]["type"], "input_file")
+            self.assertTrue(all(c.kwargs["cap"] == 512 for c in send.call_args_list))
+        with tempfile.TemporaryDirectory() as temp:
+            run = Run.create(Path(temp) / "run", providers="opencode-go",
+                models=["hy4-preview"], limit=4, tokens=512)
+            with self.assertRaises(ProbeFailure):
+                plan_groups(run, run.plan["models"], cases=("file",))
+
+    def test_openrouter_file_replay_uses_two_deliveries_and_actual_output(self):
+        from contextlib import nullcontext
+        from probe_support.scenarios import matrix, plan_groups
+        output = [{"type":"reasoning","id":"synthetic","summary":[],
+                   "encrypted_content":"synthetic-opaque"}]
+        with tempfile.TemporaryDirectory() as temp:
+            run = Run.create(Path(temp) / "run", providers="openrouter",
+                models=["gpt-6-luna"], limit=2, tokens=512)
+            groups = plan_groups(run, run.plan["models"], cases=("file_replay",), protocol="responses")
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(groups[0][5:], (2,512))
+            with patch("probe_support.scenarios.session", return_value=nullcontext((None,None))), patch(
+                "probe_support.scenarios.call", return_value=(output,"",[])
+            ) as send:
+                self.assertTrue(matrix(run, run.plan["models"], cases=("file_replay",), protocol="responses"))
+            self.assertEqual(send.call_count, 2)
+            self.assertTrue(send.call_args_list[0].args[6])
+            self.assertFalse(send.call_args_list[1].args[6])
+            history = send.call_args_list[1].args[5]
+            self.assertEqual(history[1], output[0])
+            self.assertEqual(history[0]["content"][1]["type"], "input_file")
+            self.assertTrue(all(c.kwargs["cap"] == 512 for c in send.call_args_list))
+            with self.assertRaises(ProbeFailure):
+                plan_groups(run,run.plan["models"],cases=("file_replay",),protocol="chat")
+            with patch("probe_support.scenarios.session", return_value=nullcontext((None,None))), patch(
+                "probe_support.scenarios.call", side_effect=ProbeFailure("synthetic","transport")
+            ) as send:
+                self.assertFalse(matrix(run,run.plan["models"],cases=("file_replay",),protocol="responses"))
+            self.assertEqual(send.call_count,1)
+
+    def test_file_reasoning_requires_opaque_and_preserves_three_turn_history(self):
+        from contextlib import nullcontext
+        from copy import deepcopy
+        from probe_support.scenarios import matrix, plan_groups
+        output = [{"type":"reasoning","id":"synthetic","summary":[],
+                   "encrypted_content":"synthetic-cipher"}]
+        observed = []
+        def send(*args, **kwargs):
+            observed.append((deepcopy(args[5]),args[6],deepcopy(kwargs)))
+            kwargs["oracle"](["BUILD-A17","PATCH-B29","BUILD-A17"][len(observed)-1],[],output)
+            return deepcopy(output),"",[]
+        with tempfile.TemporaryDirectory() as temp:
+            run = Run.create(Path(temp)/"run", providers="openrouter",
+                models=["gpt-6-luna"], limit=3, tokens=1024)
+            groups=plan_groups(run,run.plan["models"],cases=("file_reasoning",),protocol="responses")
+            self.assertEqual(len(groups),1)
+            self.assertEqual(groups[0][5:],(3,1024))
+            with patch("probe_support.scenarios.session",return_value=nullcontext((None,None))), patch(
+                "probe_support.scenarios.call",side_effect=send):
+                self.assertTrue(matrix(run,run.plan["models"],cases=("file_reasoning",),protocol="responses"))
+            self.assertEqual([r[1] for r in observed],[True,False,True])
+            self.assertEqual(observed[1][0][1],output[0])
+            self.assertEqual(observed[2][0][3],output[0])
+            for history,stream,kw in observed:
+                self.assertEqual(history[0]["content"][1]["type"],"input_file")
+                self.assertEqual(kw["extra"]["include"],["reasoning.encrypted_content"])
+                self.assertEqual(kw["extra"]["reasoning"]["effort"],"medium")
+            with self.assertRaises(ProbeFailure):
+                observed[0][2]["oracle"]("BUILD-A17",[],[])
+            with patch("probe_support.scenarios.session",return_value=nullcontext((None,None))), patch(
+                "probe_support.scenarios.call",side_effect=ProbeFailure("synthetic","transport")) as fail:
+                self.assertFalse(matrix(run,run.plan["models"],cases=("file_reasoning",),protocol="responses"))
+                self.assertEqual(fail.call_count,1)
+
+    def test_file_reasoning_math_uses_file_factors_and_exact_oracles(self):
+        from contextlib import nullcontext
+        from probe_support.scenarios import matrix
+        output=[{"type":"reasoning","id":"synthetic","encrypted_content":"synthetic"}]
+        count=0
+        def send(*args,**kw):
+            nonlocal count
+            expected=(17*29,17*29+17,17*29+17+29)[count]
+            count+=1
+            check=kw["oracle"]
+            check(json.dumps({"answer":expected}),[],output)
+            for bad in (json.dumps({"answer":expected+1}),json.dumps({"answer":str(expected)})):
+                with self.assertRaises(ProbeFailure): check(bad,[],output)
+            with self.assertRaises(ProbeFailure): check(json.dumps({"answer":expected}),[],[])
+            self.assertEqual(args[6],count!=2)
+            self.assertEqual(kw["cap"],1024)
+            return output,"",[]
+        with tempfile.TemporaryDirectory() as temp:
+            run=Run.create(Path(temp)/"run",providers="openrouter",models=["gpt-6-luna"],limit=3,tokens=1024)
+            with patch("probe_support.scenarios.session",return_value=nullcontext((None,None))),patch(
+                "probe_support.scenarios.call",side_effect=send):
+                self.assertTrue(matrix(run,run.plan["models"],cases=("file_reasoning_math",),protocol="responses"))
+        self.assertEqual(count,3)
+
+    def test_client_owned_file_continuation_is_one_bounded_diagnostic_request(self):
+        from probe_support.files import file_continuation_history
+        from probe_support.scenarios import plan_groups
+        from probe_support.ledger import closed_metrics
+        history = file_continuation_history()
+        self.assertEqual(len(history), 3)
+        self.assertEqual(history[1]["content"][0]["logprobs"], [])
+        self.assertNotIn("PATCH-B29", history[1]["content"][0]["text"] + history[2]["content"])
+        with tempfile.TemporaryDirectory() as temp:
+            run = Run.create(Path(temp) / "run", providers="openrouter",
+                models=["gpt-6-luna"], limit=1, tokens=512)
+            groups = plan_groups(run, run.plan["models"], cases=("file_continue",), delivery="sse", protocol="responses")
+            self.assertEqual(sum(g[5] for g in groups), 1)
+        self.assertEqual(closed_metrics({"decode_failure":"invalid_item_snapshot", "event_items":2}),
+            {"decode_failure":"invalid_item_snapshot", "event_items":2})
+        with self.assertRaises(RuntimeError):
+            closed_metrics({"decode_failure":"synthetic-private-body"})
+
+    def test_pdf_fixture_has_independent_offsets_lengths_and_document_markers(self):
+        import base64
+        import re
+        from probe_support.files import file_history
+        history = file_history()
+        content = history[0]["content"]
+        self.assertEqual([p["type"] for p in content], ["input_text","input_file","input_text"])
+        raw = base64.b64decode(content[1]["file_data"].split(",", 1)[1], validate=True)
+        self.assertLess(len(raw), 16384)
+        self.assertTrue(raw.startswith(b"%PDF-1.4\n"))
+        self.assertIn(b"BUILD-A17", raw)
+        self.assertIn(b"PATCH-B29", raw)
+        self.assertNotIn("BUILD-A17", content[0]["text"] + content[2]["text"])
+        xref = int(re.search(rb"startxref\n([0-9]+)\n%%EOF", raw).group(1))
+        self.assertEqual(raw[xref:xref+4], b"xref")
+        rows = raw[xref:].splitlines()
+        self.assertEqual(rows[1], b"0 6")
+        for number, row in enumerate(rows[3:8], 1):
+            offset = int(row.split()[0])
+            self.assertTrue(raw[offset:].startswith(f"{number} 0 obj\n".encode()))
+        self.assertIn(b"/Count 1", raw)
+        stream = re.search(rb"/Length ([0-9]+) >>\nstream\n(.*?)endstream", raw, re.S)
+        self.assertEqual(len(stream.group(2)), int(stream.group(1)))
+        from probe_support.scenarios import expect_file_marker
+        expect_file_marker("BUILD-A17")("BUILD-A17", [], [])
+        with self.assertRaises(ProbeFailure):
+            expect_file_marker("BUILD-A17")("PATCH-B29", [], [])
+        with self.assertRaises(ProbeFailure):
+            expect_file_marker("BUILD-A17")("BUILD-A17", [{"name":"unexpected"}], [])
+
     def test_image_matrix_is_eight_bounded_requests_with_independent_pixels(self):
         import base64
         import struct

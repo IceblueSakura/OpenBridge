@@ -2,6 +2,63 @@
 use super::*;
 use serde_json::json;
 
+// Fixed structural failure labels only; never include IDs, text or ciphertext.
+fn terminal_snapshot_difference(actual: &[Value], expected: &[Value]) -> &'static str {
+    if actual.len() != expected.len() {
+        return "terminal snapshot count";
+    }
+    for (a, e) in actual.iter().zip(expected) {
+        if a == e {
+            continue;
+        }
+        if a["id"] != e["id"] || a["type"] != e["type"] {
+            return "terminal snapshot identity";
+        }
+        if a["status"] != e["status"] {
+            return "terminal snapshot lifecycle";
+        }
+        if a["phase"] != e["phase"] {
+            return "terminal snapshot phase";
+        }
+        if a["encrypted_content"] != e["encrypted_content"] {
+            return match (
+                a["encrypted_content"].is_null(),
+                e["encrypted_content"].is_null(),
+            ) {
+                (false, true) => "terminal snapshot replay added",
+                (true, false) => "terminal snapshot replay removed",
+                _ => "terminal snapshot replay changed",
+            };
+        }
+        if a["summary"] != e["summary"] {
+            return "terminal snapshot summary";
+        }
+        if let (Some(ap), Some(ep)) = (a["content"].as_array(), e["content"].as_array()) {
+            if ap.len() != ep.len() {
+                return "terminal snapshot content";
+            }
+            for (p, q) in ap.iter().zip(ep) {
+                if p["text"] != q["text"] {
+                    return "terminal snapshot text";
+                }
+                if p["annotations"] != q["annotations"] {
+                    return "terminal snapshot annotations";
+                }
+                if p["logprobs"] != q["logprobs"] {
+                    let empty = |v: &Value| v.is_null() || v.as_array().is_some_and(Vec::is_empty);
+                    return if empty(&p["logprobs"]) && empty(&q["logprobs"]) {
+                        "terminal snapshot probability presence"
+                    } else {
+                        "terminal snapshot probabilities"
+                    };
+                }
+            }
+        }
+        return "terminal snapshot";
+    }
+    "terminal snapshot"
+}
+
 pub struct EventDecoder {
     pub(super) profile: Profile,
     pub(super) adaptation: crate::protocol::adaptation::Adaptation,
@@ -1223,7 +1280,9 @@ impl EventDecoder {
             true,
         );
         if actual != expected {
-            return Err(CodecError::Invalid("terminal snapshot"));
+            return Err(CodecError::Invalid(terminal_snapshot_difference(
+                &actual, &expected,
+            )));
         }
         for usage in decoded.semantic.usage_reports() {
             self.emit(StreamEvent::Usage(*usage), out)?;
@@ -1235,5 +1294,27 @@ impl EventDecoder {
             },
             out,
         )
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    #[test]
+    fn replay_difference_reports_direction_without_values() {
+        let absent = vec![json!({"type":"reasoning","id":"synthetic-private-id","summary":[]})];
+        let first = vec![
+            json!({"type":"reasoning","id":"synthetic-private-id","summary":[],"encrypted_content":"synthetic-private-first"}),
+        ];
+        let second = vec![
+            json!({"type":"reasoning","id":"synthetic-private-id","summary":[],"encrypted_content":"synthetic-private-second"}),
+        ];
+        for (actual, expected, label) in [
+            (&first, &absent, "terminal snapshot replay added"),
+            (&absent, &first, "terminal snapshot replay removed"),
+            (&second, &first, "terminal snapshot replay changed"),
+        ] {
+            assert_eq!(terminal_snapshot_difference(actual, expected), label);
+        }
     }
 }

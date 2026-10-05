@@ -1,7 +1,7 @@
 //! Value-sensitive target restrictions, independent of the model's vision semantics.
 use crate::semantic::task::generation::{
     ContentPart, GenerationRequest, ImageDetail, ImageFormat, Item, MAX_IMAGE_DECODED_BYTES,
-    Resource, ResourceLocation, ToolOutput, ToolResultPart,
+    Resource, ResourceKind, ResourceLocation, ToolOutput, ToolResultPart,
 };
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImageConstraints {
@@ -56,6 +56,9 @@ impl ImageConstraints {
     ) -> Result<(), crate::semantic::task::generation::GenerationError> {
         let mut count = 0;
         let mut check = |resource: &Resource| {
+            if resource.kind() != ResourceKind::Image {
+                return Ok(());
+            }
             count += 1;
             let source_ok = match &resource.location {
                 ResourceLocation::Url(_) => self.urls,
@@ -73,7 +76,7 @@ impl ImageConstraints {
             if count > self.max_images
                 || !source_ok
                 || resource
-                    .image_detail
+                    .image_detail()
                     .is_some_and(|d| !self.details.contains(&d))
             {
                 return Err(crate::semantic::task::generation::GenerationError::InvalidResource);

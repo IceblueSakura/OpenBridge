@@ -164,6 +164,8 @@ def diagnostics(run):
                     "elapsed_ms",
                     "upstream_head_ms",
                     "first_upstream_bytes_ms",
+                    "decode_failure", "event_items", "event_reasoning_items",
+                    "event_parts", "event_deltas", "event_item_closures",
                 }
                 from .ledger import closed_metrics
 

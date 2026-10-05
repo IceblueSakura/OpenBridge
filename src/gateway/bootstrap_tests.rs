@@ -61,6 +61,7 @@ fn opencode_go_key_only_activates_native_hy4_chat() {
     let candidate = &entry.candidates[0];
     assert_eq!(candidate.endpoint.id.as_str(), "opencode-go-chat");
     assert_eq!(candidate.provider.id.as_str(), "opencode-go");
+    assert_eq!(boot.gateway.state.entries.len(), 1);
     assert!(candidate.provider.responses.is_none());
     let prepared = crate::execution::prepare(
         &candidate.endpoint,
@@ -79,6 +80,11 @@ fn opencode_go_key_only_activates_native_hy4_chat() {
         (
             Profile::Responses,
             br#"{"model":"hy4-preview","input":"hi"}"#.as_slice(),
+        ),
+        (Profile::Chat, br#"{"model":"gpt-6-luna-go","messages":[]}"#),
+        (
+            Profile::Responses,
+            br#"{"model":"gpt-6-luna-go","input":"hi"}"#,
         ),
         (
             Profile::Chat,

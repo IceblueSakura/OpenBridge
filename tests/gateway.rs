@@ -85,7 +85,22 @@ async fn answer(
             ])
         );
     }
-    let image_case = !tool_image_case && request.to_string().contains("data:image/png;base64,AQID");
+    let file_case = request["metadata"]["case"] == "files";
+    if file_case {
+        assert!(!chat);
+        assert_eq!(
+            request["input"][0]["content"],
+            json!([
+                {"type":"input_text","text":"first"},
+                {"type":"input_file","file_data":"data:application/pdf;base64,AQID","filename":"synthetic.pdf","detail":"low"},
+                {"type":"input_image","image_url":"data:image/png;base64,AQID"},
+                {"type":"input_text","text":"last"}
+            ])
+        );
+    }
+    let image_case = !tool_image_case
+        && !file_case
+        && request.to_string().contains("data:image/png;base64,AQID");
     if image_case {
         let expected = if chat {
             json!([
@@ -108,6 +123,7 @@ async fn answer(
         );
     }
     let turn = if probability_case
+        || file_case
         || image_case
         || request.to_string().contains("tool_call_id")
         || request.to_string().contains("function_call_output")
@@ -577,6 +593,52 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
             .unwrap();
         assert_eq!(response.status(), 400);
         assert_eq!(observed.0.lock().unwrap().len(), before + 1);
+    }
+    // Inline files traverse real request I/O without resource fetching. The
+    // synthetic fixture proves representation, not a valid PDF or model parsing.
+    for stream in [false, true] {
+        let request = json!({"model":"public-model","metadata":{"case":"files"},"stream":stream,"input":[{
+            "role":"user","content":[
+                {"type":"input_text","text":"first"},
+                {"type":"input_file","file_data":"data:application/pdf;base64,AQID","filename":"synthetic.pdf","detail":"low"},
+                {"type":"input_image","image_url":"data:image/png;base64,AQID"},
+                {"type":"input_text","text":"last"}
+            ]
+        }]});
+        let before = observed.0.lock().unwrap().len();
+        let response = client
+            .post(format!("{url}/v1/responses"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&request)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let decoded = responses_delivery(&response.bytes().await.unwrap(), stream);
+        assert_eq!(decoded.semantic.outcome(), Outcome::Completed);
+        assert_eq!(observed.0.lock().unwrap().len(), before + 1);
+        for case in 0..5 {
+            let mut rejected = request.clone();
+            match case {
+                0 => rejected["model"] = json!("cross-model"),
+                1 => rejected["model"] = json!("no-files-model"),
+                2 => rejected["input"][0]["role"] = json!("assistant"),
+                3 => {
+                    rejected["input"][0]["content"][1] =
+                        json!({"type":"input_file","file_url":"https://example.test/file.pdf"})
+                }
+                _ => rejected["input"][0]["content"][1]["file_id"] = json!("file-synthetic"),
+            }
+            let response = client
+                .post(format!("{url}/v1/responses"))
+                .bearer_auth(support::CLIENT_KEY)
+                .json(&rejected)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 400);
+            assert_eq!(observed.0.lock().unwrap().len(), before + 1);
+        }
     }
     // Private attachments fail admission before any Provider I/O.
     for input in [

@@ -53,7 +53,12 @@ def run(base_url: str) -> None:
                 else:
                     check(result.choices[0].finish_reason == "stop" and message.content == "old 🧪")
         for stream in (False, True):
-            history = [{"role": "user", "content": "lookup"}]
+            history = [{"role": "user", "content": [
+                {"type": "input_text", "text": "lookup"},
+                {"type": "input_file", "file_data": "data:application/pdf;base64,AQID",
+                 "filename": "synthetic.pdf", "detail": "low"},
+                {"type": "input_image", "image_url": "data:image/png;base64,AQID"},
+            ]}]
             tools = [{"type": "function", **function},
                      {"type": "custom", "name": "sql", "format": {
                          "type": "grammar", "syntax": "regex", "definition": "SELECT [0-9]+"}}]

@@ -35,11 +35,14 @@ class SelectionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 select_bindings(provider, models=[model])
 
-    def test_go_subscription_requires_explicit_selection_and_only_admits_hy4_chat(self):
+    def test_go_subscription_only_admits_hy4_and_rejects_removed_luna(self):
         self.assertNotIn("opencode-go", [row[0] for row in select_bindings()])
         rows = select_bindings("opencode-go", models=["hy4-preview"])
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][4], ("chat",))
+        with self.assertRaises(RuntimeError):
+            select_bindings("opencode-go", models=["gpt-6-luna-go"])
+        self.assertEqual([row[1] for row in select_bindings("opencode-go")], ["hy4-preview"])
         with self.assertRaises(RuntimeError):
             select_bindings("opencode-go", models=["gpt-6-luna"])
 

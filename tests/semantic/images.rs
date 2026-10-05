@@ -46,7 +46,7 @@ fn image_sources_detail_and_order_decode_then_project_independent_wire() {
         assert_eq!(message.parts.len(), 4);
         assert!(matches!(&message.parts[0].content, ContentPart::Text(t) if t.as_str()=="before"));
         assert!(
-            matches!(&message.parts[1].content, ContentPart::Resource(r) if r.kind==ResourceKind::Image && matches!(&r.location,ResourceLocation::Url(url) if url.as_str()=="https://example.test/a.png"))
+            matches!(&message.parts[1].content, ContentPart::Resource(r) if r.kind()==ResourceKind::Image && matches!(&r.location,ResourceLocation::Url(url) if url.as_str()=="https://example.test/a.png"))
         );
         assert!(
             matches!(&message.parts[3].content, ContentPart::Resource(r) if matches!(&r.location,ResourceLocation::Inline{media_type,data_base64} if media_type.as_str()=="image/png" && data_base64.as_str()=="AQID"))
@@ -95,11 +95,12 @@ fn edits_delete_replace_insert_and_reorder_images_without_source_resurrection() 
         )
         .unwrap(),
     );
-    resource.image_detail = Some(ImageDetail::High);
+    resource.description = ResourceDescription::Image {
+        detail: Some(ImageDetail::High),
+    };
     let inserted = Part {
         id: PartId::new(100),
         content: ContentPart::Resource(Resource {
-            kind: ResourceKind::Image,
             location: ResourceLocation::Url(
                 openbridge::semantic::value::Text::new(
                     "https://example.test/new.png",
@@ -108,7 +109,9 @@ fn edits_delete_replace_insert_and_reorder_images_without_source_resurrection() 
                 )
                 .unwrap(),
             ),
-            image_detail: Some(ImageDetail::Auto),
+            description: ResourceDescription::Image {
+                detail: Some(ImageDetail::Auto),
+            },
         }),
     };
     message.parts.remove(3);
@@ -240,13 +243,12 @@ fn invalid_image_sources_shells_details_and_placements_fail_closed() {
 fn typed_images_are_bounded_after_transforms_and_cannot_become_output() {
     use openbridge::semantic::value::Text;
     let resource = Resource {
-        kind: ResourceKind::Image,
         location: ResourceLocation::Inline {
             media_type: Text::new("image/png", "synthetic", 64).unwrap(),
             data_base64: Text::new("A".repeat(MAX_TEXT_BYTES + 4), "synthetic", MAX_TOTAL_BYTES)
                 .unwrap(),
         },
-        image_detail: None,
+        description: ResourceDescription::Image { detail: None },
     };
     assert_eq!(resource.validate(), Err(GenerationError::Limit));
     let part = Part {
@@ -279,13 +281,12 @@ fn typed_images_are_bounded_after_transforms_and_cannot_become_output() {
         .map(|i| Part {
             id: PartId::new(i),
             content: ContentPart::Resource(Resource {
-                kind: ResourceKind::Image,
                 location: ResourceLocation::Inline {
                     media_type: Text::new("image/png", "synthetic", 64).unwrap(),
                     data_base64: Text::new("AAAA".repeat(220_000), "synthetic", MAX_TEXT_BYTES)
                         .unwrap(),
                 },
-                image_detail: None,
+                description: ResourceDescription::Image { detail: None },
             }),
         })
         .collect();

@@ -47,6 +47,7 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
     let mut results = BTreeSet::new();
     let mut active_owner = None;
     let mut bytes = 0;
+    let mut file_decoded_bytes = 0usize;
     for (id, item) in items {
         if !ids.insert(*id) {
             return Err(GenerationError::DuplicateItemId);
@@ -108,6 +109,14 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                                 return Err(GenerationError::InvalidResource);
                             }
                             charge(&mut bytes, resource.validate()?)?;
+                            if resource.kind() == ResourceKind::File {
+                                file_decoded_bytes = file_decoded_bytes
+                                    .checked_add(resource.inline_decoded_bytes()?.unwrap_or(0))
+                                    .ok_or(GenerationError::Limit)?;
+                                if file_decoded_bytes > MAX_TOTAL_FILE_DECODED_BYTES {
+                                    return Err(GenerationError::Limit);
+                                }
+                            }
                         }
                     }
                 }
@@ -216,7 +225,7 @@ pub fn items(items: &[(ItemId, Item)], response: bool) -> Result<usize, Generati
                                 ToolResultPart::Resource(resource) => {
                                     // Selected tool media is inert URL/inline image content.
                                     // Opaque references need an issuer/lifecycle contract first.
-                                    if resource.kind != ResourceKind::Image
+                                    if resource.kind() != ResourceKind::Image
                                         || matches!(
                                             resource.location,
                                             ResourceLocation::OpaqueReference(_)
