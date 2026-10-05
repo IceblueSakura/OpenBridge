@@ -1,4 +1,4 @@
-//! Pure codecs for the explicitly supported Generation migration slice.
+//! Pure codecs for explicitly admitted OpenAI operations.
 mod accounting_shapes;
 pub(crate) mod adapter_shapes;
 pub mod chat;
@@ -14,6 +14,7 @@ pub mod events;
 mod file;
 mod function_tools;
 mod image;
+pub mod images;
 mod inference_shapes;
 pub(crate) mod json;
 mod reasoning;

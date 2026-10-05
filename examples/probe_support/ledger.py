@@ -14,10 +14,10 @@ import re
 import sqlite3
 import time
 import uuid
-from .catalog import BINDINGS, select_bindings
+from .catalog import BINDINGS, IMAGE_BINDINGS, select_bindings, select_image_bindings
 from .checks import require
 
-MODELS = {row[1]: row for row in BINDINGS}
+MODELS = {row[1]: row for row in (*BINDINGS, *IMAGE_BINDINGS)}
 
 
 def source_fingerprint(root=None):
@@ -41,6 +41,7 @@ def source_fingerprint(root=None):
 
 NUMBERS = {
     "http",
+    "image_count", "image_bytes", "image_width", "image_height",
     "upstream_status",
     "retry_after_seconds",
     "elapsed_ms",
@@ -63,6 +64,7 @@ NUMBERS = {
 }
 BOOLS = {
     "sdk_consumed",
+    "image_decoded", "image_usage_omitted", "image_billing_omitted",
     "wire_closed",
     "content_ok",
     "history_ok",
@@ -79,7 +81,7 @@ ENUMS = {
         "snapshot_replay_added", "snapshot_replay_removed", "snapshot_replay_changed",
         "snapshot_text", "snapshot_annotations", "snapshot_probability_presence", "snapshot_probabilities"},
     "oracle_failure": {
-        "exact_text", "visual_math_format", "visual_math_value",
+        "exact_text", "image_format", "image_decode", "image_pixels", "visual_math_format", "visual_math_value",
         "visual_math_calls", "file_marker", "file_math", "missing_opaque", "unexpected_terminal", "other",
     },
     "operator_outcome": {"error", "interrupted", "timeout", "shutdown", "complete"},
@@ -99,6 +101,7 @@ ENUMS = {
     },
     "terminal": {
         "stop",
+        "image.complete",
         "tool_calls",
         "length",
         "content_filter",
@@ -124,7 +127,9 @@ ENUMS = {
 def closed_metrics(metrics):
     result = {}
     for key, value in metrics.items():
-        if key in NUMBERS:
+        if key == "reported_image_cost_usd":
+            require(isinstance(value, str) and len(value) <= 128 and re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", value) is not None, "report_cost", "setup")
+        elif key in NUMBERS:
             require(
                 value is None or type(value) is int and 0 <= value <= 10**12,
                 "report_number",
@@ -151,20 +156,22 @@ class Run:
         limit=32,
         tokens=2048,
         continue_oracle=False,
+        task="generation",
     ):
-        rows = select_bindings(providers, models=models)
+        require(task in ("generation", "images"), "plan_task", "setup")
+        image_task = task == "images"
+        rows = select_image_bindings(providers, models) if image_task else select_bindings(providers, models=models)
         require(
             type(limit) is int
             and 1 <= limit <= 256
-            and type(tokens) is int
-            and 1 <= tokens <= 2048,
+            and (tokens is None if image_task else type(tokens) is int and 1 <= tokens <= 2048),
             "plan_budget",
             "setup",
         )
         directory = Path(directory)
         directory.mkdir(mode=0o700, parents=True, exist_ok=False)
         plan = {
-            "version": 1,
+            "version": 2 if image_task else 1,
             "id": uuid.uuid4().hex,
             "models": [row[1] for row in rows],
             "limit": limit,
@@ -176,6 +183,8 @@ class Run:
             "sdk": "3.19.0",
             "pi": "0.87.1",
         }
+        if image_task:
+            plan["images_per_request"] = 1
         raw = json.dumps(plan, sort_keys=True).encode()
         fd = os.open(
             directory / "plan.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
@@ -190,11 +199,11 @@ class Run:
                 "INSERT INTO identity VALUES (?)", (hashlib.sha256(raw).hexdigest(),)
             )
             db.execute(
-                "CREATE TABLE attempts (id INTEGER PRIMARY KEY, scenario TEXT UNIQUE NOT NULL, model TEXT NOT NULL, tokens INTEGER NOT NULL, state TEXT NOT NULL, metrics TEXT NOT NULL, source TEXT NOT NULL)"
+                "CREATE TABLE attempts (id INTEGER PRIMARY KEY, scenario TEXT UNIQUE NOT NULL, model TEXT NOT NULL, tokens INTEGER, state TEXT NOT NULL, metrics TEXT NOT NULL, source TEXT NOT NULL)"
             )
             db.execute("CREATE TABLE blocked (model TEXT PRIMARY KEY)")
             db.execute(
-                "CREATE TABLE cases (scenario TEXT PRIMARY KEY, model TEXT NOT NULL, tokens INTEGER NOT NULL)"
+                "CREATE TABLE cases (scenario TEXT PRIMARY KEY, model TEXT NOT NULL, tokens INTEGER)"
             )
         db.close()
         return cls(directory)
@@ -218,12 +227,12 @@ class Run:
                 "source_fingerprint",
                 "sdk",
                 "pi",
-            },
+            } | ({"images_per_request"} if self._plan.get("version") == 2 else set()),
             "plan_shape",
             "setup",
         )
         require(
-            self.plan["version"] == 1
+            type(self.plan["version"]) is int and self.plan["version"] in (1, 2)
             and re.fullmatch("[0-9a-f]{32}", self.plan["id"]) is not None,
             "plan_id",
             "setup",
@@ -234,13 +243,14 @@ class Run:
             "setup",
         )
         require(
-            type(self.plan["tokens"]) is int and 1 <= self.plan["tokens"] <= 2048,
+            (self.plan["tokens"] is None and type(self.plan["images_per_request"]) is int and self.plan["images_per_request"] == 1
+             if self.is_images else type(self.plan["tokens"]) is int and 1 <= self.plan["tokens"] <= 2048),
             "plan_tokens",
             "setup",
         )
         require(
             self.plan["models"]
-            and all(model in MODELS for model in self.plan["models"]),
+            and all(model in MODELS and (MODELS[model][4] == ("images",)) == self.is_images for model in self.plan["models"]),
             "plan_model",
             "setup",
         )
@@ -248,6 +258,16 @@ class Run:
         self.source = source_fingerprint()
         with self._db() as db:
             self._verify(db)
+
+    @property
+    def is_images(self):
+        return self._plan["version"] == 2
+
+    def valid_budget(self, model, tokens):
+        return model in self.plan["models"] and (
+            tokens is None if self.is_images else
+            type(tokens) is int and 1 <= tokens <= self.plan["tokens"]
+        )
 
     @property
     def plan(self):
@@ -294,9 +314,7 @@ class Run:
             self._verify(db, active=True)
             for model, scenario, tokens in cases:
                 require(
-                    model in self.plan["models"]
-                    and type(tokens) is int
-                    and 1 <= tokens <= self.plan["tokens"],
+                    self.valid_budget(model, tokens),
                     "selection",
                     "budget",
                 )
@@ -330,9 +348,7 @@ class Run:
             "setup",
         )
         require(
-            model in self.plan["models"]
-            and type(tokens) is int
-            and 1 <= tokens <= self.plan["tokens"],
+            self.valid_budget(model, tokens),
             "selection",
             "budget",
         )
@@ -428,6 +444,7 @@ class Run:
                 "scenario": case,
                 "model": model,
                 "tokens": tokens,
+                **({"images": 1} if self.is_images else {}),
                 "state": state,
                 "metrics": json.loads(metrics),
                 "source_fingerprint": source,
@@ -439,6 +456,7 @@ class Run:
                 "scenario": case,
                 "model": model,
                 "tokens": tokens,
+                **({"images": 1} if self.is_images else {}),
                 "state": "not_run",
                 "metrics": {},
             }

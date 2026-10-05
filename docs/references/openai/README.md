@@ -46,6 +46,8 @@ Input/output/resource/stream 合同分别固定；SDK `output_text` 是派生 vi
 
 ## Image
 
+独立静态 GPT Image generation 的公开合同为 [Create image](https://developers.openai.com/api/reference/resources/images/methods/generate)。类型与 nullable/presence 交叉依据固定 [SDK image_generate_params.py](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/image_generate_params.py)、[images_response.py](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/images_response.py) 与 [image.py](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/image.py)；版本与 Apache-2.0 许可归 [upstream-sync](../upstream-sync.md)。仅采用 GPT Image JSON 请求/响应分支，不采用 SDK 中的旧模型缺省或 DALL·E 专属选项；不从事件 union 推定流式准入。最小准入及拒绝边界归 [codec](../../../src/protocol/openai/images.rs) 和 [OpenAPI](../../openapi.json)，不复制动态模型库存。
+
 | Operation / 来源主题 | 官方入口 | 既有来源日期 |
 |---|---|---|
 | Chat Completions 图片输入 | [Images and vision](https://developers.openai.com/api/docs/guides/images-vision)、[Create chat completion](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) | 2026-08-04 |

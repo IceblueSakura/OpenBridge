@@ -2,6 +2,18 @@
 
 OAUTH_PROVIDERS = {"codex", "grok"}
 
+# Separate task selections never enlarge the default conversation matrix.
+IMAGE_BINDINGS = (("openrouter", "gpt-image-2.5-flare", "openrouter-api-key", None, ("images",)),)
+
+
+def select_image_bindings(selection, models):
+    if selection != "openrouter" or not models or len(set(models)) != len(models):
+        raise RuntimeError("explicit image selection required")
+    rows = [row for row in IMAGE_BINDINGS if row[1] in models]
+    if len(rows) != len(models):
+        raise RuntimeError("unknown image model")
+    return rows
+
 BINDINGS = (
     ("codex", "gpt-6.1-sol", "codex-oauth", "codex", ("responses",)),
     ("grok", "grok-4.7", "grok-oauth", "grok", ("responses",)),

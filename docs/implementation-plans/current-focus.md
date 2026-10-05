@@ -2,7 +2,9 @@
 
 ## 当前范围
 
-当前没有已定稿且未完成的新行为切片。文件仅维持既有 Responses user inline/URL 基础输入及必要正确性、安全维护；其他文件功能暂停，恢复评估按[计划的有限首批范围与重评节点](next-goal.md#推进顺序与退出条件)执行，不等待所有模态完成，也不自动恢复实施。不新增 `/v1/files` 上传、存储、下载、删除或 file_id 服务。Inline 与 URL 文件合同分别归 [inline profile](../architecture-v2/responses-text-profile.md#user-inline-file-input)和 [URL profile](../architecture-v2/responses-text-profile.md#user-file-url-input)，其他模态的下一片按[计划](next-goal.md)单独定稿；文件扩展延期，不能从 PDF carrier 推定所有格式、来源或工具文件均准入。
+当前没有已定稿且未完成的新行为切片。后续选片按[计划](next-goal.md#推进顺序与退出条件)重评文件扩展是否继续延期；独立 Images 的具名计量损失只按[投影合同](../architecture-v2/protocol-and-lowering.md#独立-images-的计量投影)适用，不授权更多图片控制、其他模态或流式损失。
+
+文件仅维持既有 Responses user inline/URL 基础输入及必要正确性、安全维护；其他文件功能暂停，恢复评估按[计划的有限首批范围与重评节点](next-goal.md#推进顺序与退出条件)执行，不等待所有模态完成，也不自动恢复实施。不新增 `/v1/files` 上传、存储、下载、删除或 file_id 服务。Inline 与 URL 文件合同分别归 [inline profile](../architecture-v2/responses-text-profile.md#user-inline-file-input)和 [URL profile](../architecture-v2/responses-text-profile.md#user-file-url-input)，其他模态的下一片按[计划](next-goal.md)单独定稿；文件扩展延期，不能从 PDF carrier 推定所有格式、来源或工具文件均准入。
 
 文件与必要 opaque 回传的验证应分别覆盖“实际报告且回传”和“未报告”；后者即便内容正确也不证明 opaque 路径。显式 reasoning 控制不充当已生成 reasoning 的事实，有限场景通过不等于一般可靠性。
 

@@ -42,6 +42,24 @@ uv run --project tests/sdk --locked --offline python examples/probe.py report te
 - 所有组在 I/O 前登记；未执行的请求显示 `not_run`，中断的 reservation/dispatched 不算通过。HTTP/传输/wire/配置错误停止该目标；工具链失败跳过其依赖轮次。只有计划明确 `--continue-oracle` 时，内容/预期终态失败后才继续独立组。不自动重复失败请求。
 - `source_fingerprint` 标记计划创建及各进程预留时的源码/锁文件状态，进程内检测源码变化后拒绝新预留。它不是对正在运行的 binary 的密码学证明；Rust 改动后必须按上述命令重新构建。
 
+## 独立图片生成 probe
+
+图片计划与对话计划分开，不把图片输出套入文本 token cap。`plan --task images` 要求明确 Provider/model 选择，不接受 `--tokens`；图片计划版本 2 使用 `tokens: null` 和 `images_per_request: 1`，沿用共用 SQLite 预留、dispatch、停止与源码指纹检查。版本 1 的对话预算和已有账本不变；不同 task 的计划不能互相消费。
+
+```sh
+uv run --project tests/sdk --locked --offline python examples/probe.py plan \
+  testdata/runtime/image-run --task images --providers "$PROVIDER_ID" \
+  --model "$PUBLIC_MODEL" --limit 3
+uv run --project tests/sdk --locked --offline python examples/probe.py run \
+  testdata/runtime/image-run --model "$PUBLIC_MODEL" --cases image_generate --dry-run
+```
+
+`image_generate` 是缺省、显式单图非流式、null 默认值三种独立请求；可用 `image_generate_minimal`、`image_generate_explicit`、`image_generate_nullable` 分别选择。只有 `images` 协议与 JSON 交付；不使用 reasoning、图片编辑、更多模型或自动 retry。真实发送仍需该矩阵授权、显式 `--live`、已配置的凭据目录与当前 binary；不把 plan 创建当作授权。不设 token cap 或金额 cap 不等于没有 request/image 数量边界，也不是远端费用硬限制。
+
+固定 SDK 消费到完整有界 JSON 后，oracle 在内存中校验单张 Base64、PNG chunk CRC、严格 EOF、有界 zlib 与 8-bit 非交错 RGB/RGBA 像素。固定色块提示只检查目标色像素比例，不证明准确几何形状、美学质量或一般图像能力；未覆盖的编码明确失败，不冒充完整解码。不保存 PNG、Base64 或原始响应，只报告字节数、尺寸、解码与色彩判据结果。
+
+受控 Gateway 诊断另记录 Images 的实际 input/output token、精确 USD 金额文本及具名投影省略标志（仅在确有报告时）。它们与客户端可见 usage 分开，不从省略字段推定上游未报告；正文和像素不进入该 sink。未知费用不补零，计量与投影失败也不能变成生成成功。
+
 ## 共用执行层与结果解释
 
 `examples/probe_support/` 分担 catalog、显式 checks、ledger、SDK collectors、raw wire、listener/send/report 生命周期及固定 scenarios。具名入口只选择场景，不各自实现预算、清理或验收。没有动态插件、业务 transformation 或新 task schema。

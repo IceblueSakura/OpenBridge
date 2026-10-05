@@ -8,7 +8,7 @@ const LIMIT: usize = 1 << 20;
 #[derive(Clone)]
 pub(super) struct Sink(mpsc::SyncSender<Message>);
 enum Message {
-    Record(Record),
+    Record(Box<Record>),
     Flush(tokio::sync::oneshot::Sender<()>),
 }
 #[derive(Clone, Copy, Serialize)]
@@ -104,6 +104,19 @@ struct CandidateRecord {
     error_code: Option<&'static str>,
     advanced: bool,
 }
+#[derive(Default, Serialize)]
+struct ImageAccountingObservation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reported_input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reported_output_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reported_image_cost_usd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_usage_omitted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_billing_omitted: Option<bool>,
+}
 #[derive(Serialize)]
 struct Record {
     attempt: String,
@@ -120,6 +133,8 @@ struct Record {
     decode_failure: Option<&'static str>,
     #[serde(flatten)]
     events: EventCounts,
+    #[serde(flatten)]
+    image: ImageAccountingObservation,
 }
 impl Sink {
     pub(super) fn open(path: &Path) -> std::io::Result<Self> {
@@ -210,6 +225,7 @@ impl Trace {
                 candidates: vec![],
                 decode_failure: None,
                 events: EventCounts::default(),
+                image: ImageAccountingObservation::default(),
             },
             start: Instant::now(),
             candidate_start: None,
@@ -312,6 +328,24 @@ impl Trace {
             }
         }
     }
+    pub(super) fn image_accounting(
+        &mut self,
+        usage: Option<&crate::semantic::task::image_generation::ImageUsage>,
+        loss: crate::lowering::images::AccountingLoss,
+    ) {
+        if self.sink.is_none() {
+            return;
+        }
+        self.record.image = ImageAccountingObservation {
+            reported_input_tokens: usage.map(|u| u.input),
+            reported_output_tokens: usage.map(|u| u.output),
+            reported_image_cost_usd: usage
+                .and_then(|u| u.billing.cost.value())
+                .map(|v| v.amount().to_string()),
+            image_usage_omitted: Some(loss.usage_omitted),
+            image_billing_omitted: Some(loss.billing_omitted),
+        };
+    }
     pub(super) fn handed_off(&mut self, n: usize) {
         self.record.handed_off_bytes = self.record.handed_off_bytes.saturating_add(n as u64);
     }
@@ -335,11 +369,12 @@ impl Drop for Trace {
                 candidates: vec![],
                 decode_failure: None,
                 events: EventCounts::default(),
+                image: ImageAccountingObservation::default(),
             };
-            let _ = sink.0.try_send(Message::Record(std::mem::replace(
+            let _ = sink.0.try_send(Message::Record(Box::new(std::mem::replace(
                 &mut self.record,
                 placeholder,
-            )));
+            ))));
         }
     }
 }
@@ -347,6 +382,36 @@ impl Drop for Trace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_accounting_observation_is_exact_opt_in_and_body_free() {
+        use crate::{
+            lowering::images::{AccountingPolicy, project_response},
+            protocol::openrouter_images,
+        };
+        let response=openrouter_images::decode_response(br#"{"created":1,"data":[{"b64_json":"AQID"}],"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8,"cost":0.01234567890123456789}}"#).unwrap();
+        let projected =
+            project_response(&response, AccountingPolicy::OmitUnrepresentableAccounting).unwrap();
+        let (tx, _rx) = mpsc::sync_channel(1);
+        let sink = Sink(tx);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-openbridge-probe-id",
+            "00000000000000000000000000000001:1".parse().unwrap(),
+        );
+        for enabled in [false, true] {
+            let mut trace = Trace::new(enabled.then_some(&sink), &headers);
+            trace.image_accounting(response.usage.value(), projected.loss);
+            let value = serde_json::to_value(&trace.record).unwrap();
+            assert!(!value.to_string().contains("AQID"));
+            if enabled {
+                assert_eq!(value["reported_image_cost_usd"], "0.01234567890123456789");
+                assert_eq!(value["reported_input_tokens"], 3);
+                assert_eq!(value["image_usage_omitted"], true);
+            } else {
+                assert!(value.get("reported_image_cost_usd").is_none());
+            }
+        }
+    }
     #[test]
     fn candidate_observations_do_not_mix_status_bytes_or_unbounded_identity() {
         let (tx, _rx) = mpsc::sync_channel(1);

@@ -6,7 +6,7 @@ import json
 import os
 import sys
 from probe_support.ledger import Run
-from probe_support.catalog import select_bindings
+from probe_support.catalog import select_bindings, select_image_bindings
 from probe_support.checks import require, install_signals
 
 
@@ -21,15 +21,16 @@ def main():
         "--model", action="append", help="Narrow the selected providers to exact models"
     )
     plan.add_argument("--limit", type=int, default=32)
-    plan.add_argument("--tokens", type=int, default=2048)
+    plan.add_argument("--tokens", type=int)
+    plan.add_argument("--task", choices=["generation", "images"], default="generation")
     plan.add_argument("--continue-oracle", action="store_true")
     plan.add_argument("--dry-run", action="store_true")
     run = sub.add_parser("run")
     run.add_argument("directory")
     run.add_argument("--live", action="store_true")
     run.add_argument("--model", action="append")
-    run.add_argument("--cases", default="text,tool")
-    run.add_argument("--protocol", choices=["chat", "responses"])
+    run.add_argument("--cases")
+    run.add_argument("--protocol", choices=["chat", "responses", "images"])
     run.add_argument("--delivery", choices=["json", "sse"])
     run.add_argument("--effort", choices=["none", "minimal", "medium", "max"])
     run.add_argument("--dry-run", action="store_true")
@@ -42,17 +43,18 @@ def main():
     )
     args = parser.parse_args()
     if args.command == "plan":
-        rows = select_bindings(args.providers, models=args.model)
-        require(
-            1 <= args.limit <= 256 and 1 <= args.tokens <= 2048, "plan_budget", "setup"
-        )
+        image_task = args.task == "images"
+        rows = select_image_bindings(args.providers, args.model) if image_task else select_bindings(args.providers, models=args.model)
+        tokens = args.tokens if image_task else (2048 if args.tokens is None else args.tokens)
+        require(1 <= args.limit <= 256 and (tokens is None if image_task else 1 <= tokens <= 2048), "plan_budget", "setup")
         if args.dry_run:
             print(
                 json.dumps(
                     {
                         "models": [row[1] for row in rows],
                         "limit": args.limit,
-                        "tokens": args.tokens,
+                        "tokens": tokens,
+                        **({"images_per_request": 1} if image_task else {}),
                     }
                 )
             )
@@ -62,7 +64,8 @@ def main():
             providers=args.providers,
             models=args.model,
             limit=args.limit,
-            tokens=args.tokens,
+            tokens=tokens,
+            task=args.task,
             continue_oracle=args.continue_oracle,
         )
         print(json.dumps({"run": str(created.directory), "id": created.plan["id"]}))
@@ -92,13 +95,17 @@ def main():
     require(
         all(model in ledger.plan["models"] for model in models), "selection", "setup"
     )
+    cases = tuple((args.cases or ("image_generate" if ledger.is_images else "text,tool")).split(","))
     if args.dry_run:
-        from probe_support.scenarios import plan_groups
+        if ledger.is_images:
+            from probe_support.image_generation import plan_groups
+        else:
+            from probe_support.scenarios import plan_groups
 
         groups = plan_groups(
             ledger,
             models,
-            cases=tuple(args.cases.split(",")),
+            cases=cases,
             protocol=args.protocol,
             delivery=args.delivery,
             effort=args.effort,
@@ -118,14 +125,17 @@ def main():
         return 0
     require(args.live, "live_not_enabled", "setup")
     os.environ["OPENBRIDGE_PROBE_LIVE"] = "1"
-    from probe_support.scenarios import matrix
+    if ledger.is_images:
+        from probe_support.image_generation import matrix
+    else:
+        from probe_support.scenarios import matrix
 
     return (
         0
         if matrix(
             ledger,
             models,
-            cases=tuple(args.cases.split(",")),
+            cases=cases,
             protocol=args.protocol,
             delivery=args.delivery,
             effort=args.effort,

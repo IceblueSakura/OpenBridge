@@ -246,6 +246,58 @@ fn responses_delivery(body: &[u8], streaming: bool) -> DecodedResponse {
     decoder.materialize().unwrap()
 }
 
+async fn openrouter_image_answer(
+    State(state): State<Upstream>,
+    headers: HeaderMap,
+    axum::Json(request): axum::Json<Value>,
+) -> Response {
+    assert_eq!(
+        headers["authorization"],
+        "Bearer synthetic-router-credential-0001"
+    );
+    assert!(!headers.contains_key("x-never-forward"));
+    assert_eq!(
+        request,
+        json!({"model":"openai/gpt-image-2.5-flare","prompt":"blue square","n":1,"stream":false,"provider":{"only":["openai"],"allow_fallbacks":false}})
+    );
+    state.0.lock().unwrap().push(request);
+    Response::builder().header("content-type","application/json").body(Body::from(json!({"created":456,"data":[{"b64_json":"BAUG","media_type":"image/png"}],"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8,"cost":0.000123}}).to_string())).unwrap()
+}
+async fn image_answer(
+    State(state): State<Upstream>,
+    headers: HeaderMap,
+    axum::Json(request): axum::Json<Value>,
+) -> Response {
+    assert_eq!(
+        headers["authorization"],
+        "Bearer synthetic-upstream-credential-0001"
+    );
+    assert!(!headers.contains_key("x-never-forward"));
+    assert_eq!(request["model"], "private-image");
+    assert!(request.get("max_output_tokens").is_none());
+    state.0.lock().unwrap().push(request.clone());
+    let (status, media, body) = match request["prompt"].as_str().unwrap() {
+        "bad-json" => (200, "application/json", "{\"created\":1".into()),
+        "wrong-format" => (200,"application/json",json!({"created":1,"data":[{"b64_json":"AQID"}],"output_format":"jpeg"}).to_string()),
+        "truncated" => return Response::builder().header("content-type","application/json").body(Body::from_stream(futures_util::stream::iter([
+            Ok(axum::body::Bytes::from_static(b"{\"created\":1,\"data\":[{\"b64_json\":\"AQID\"}]}")),
+            Err(std::io::Error::other("synthetic truncated transport")),
+        ]))).unwrap(),
+        "missing-image" => (200, "application/json", "{\"created\":1,\"data\":[]}".into()),
+        "wrong-media" => (200, "text/event-stream", "data: [DONE]".into()),
+        "rate-limit" => (429, "application/json", "synthetic-private-error".into()),
+        "redirect" => (302, "application/json", "synthetic-private-location".into()),
+        "over-budget" => (200, "application/json", " ".repeat((4 << 20) + 1)),
+        "timeout" => return Response::builder().header("content-type","application/json").body(Body::from_stream(futures_util::stream::pending::<Result<axum::body::Bytes,std::io::Error>>())).unwrap(),
+        _ => (200, "application/json", json!({"created":123,"data":[{"b64_json":"AQID"}],"output_format":"png","size":"1024x1024"}).to_string()),
+    };
+    Response::builder()
+        .status(status)
+        .header("content-type", media)
+        .body(Body::from(body))
+        .unwrap()
+}
+
 #[tokio::test]
 async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
     let upstream = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -254,6 +306,8 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
     let app = Router::new()
         .route("/chat/completions", post(answer))
         .route("/responses", post(answer))
+        .route("/images/generations", post(image_answer))
+        .route("/api/v1/images", post(openrouter_image_answer))
         .with_state(observed.clone());
     let upstream_guard = Guard(tokio::spawn(async move {
         axum::serve(upstream, app).await.unwrap();
@@ -738,6 +792,98 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         ]}))
         .send().await.unwrap();
     assert_eq!(response.status(), 400);
+    assert_eq!(observed.0.lock().unwrap().len(), before);
+    // A distinct operation traverses the same authenticated Router and acknowledged body.
+    let response=client.post(format!("{url}/v1/images/generations"))
+        .bearer_auth(support::CLIENT_KEY).header("x-never-forward","private-client-header")
+        .json(&json!({"model":"public-image","prompt":"square","n":1,"stream":false,"output_format":"png"}))
+        .send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        json!({"created":123,"data":[{"b64_json":"AQID"}],"output_format":"png","size":"1024x1024"})
+    );
+    for (prompt, status) in [
+        ("bad-json", 502),
+        ("wrong-format", 502),
+        ("truncated", 502),
+        ("missing-image", 502),
+        ("wrong-media", 502),
+        ("rate-limit", 429),
+        ("redirect", 502),
+        ("over-budget", 502),
+        ("timeout", 504),
+    ] {
+        let before = observed.0.lock().unwrap().len();
+        let response = client
+            .post(format!("{url}/v1/images/generations"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&json!({"model":"public-image","prompt":prompt,"output_format":"png"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status, "{prompt}");
+        let text = response.text().await.unwrap();
+        assert!(!text.contains("synthetic-private"));
+        assert_eq!(observed.0.lock().unwrap().len(), before + 1, "no retries");
+    }
+    let before = observed.0.lock().unwrap().len();
+    for (request, status) in [
+        (json!({"model":"public-image","prompt":"x","n":2}), 400),
+        (
+            json!({"model":"public-image","prompt":"x","stream":true}),
+            400,
+        ),
+        (
+            json!({"model":"public-image","prompt":"x","provider":null}),
+            400,
+        ),
+        (json!({"model":"public-model","prompt":"x"}), 404),
+    ] {
+        let response = client
+            .post(format!("{url}/v1/images/generations"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&request)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+    }
+    let response = client
+        .post(format!("{url}/v1/images/generations"))
+        .body("not JSON")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        401,
+        "authentication precedes body interpretation"
+    );
+    assert_eq!(observed.0.lock().unwrap().len(), before);
+    let response = client
+        .post(format!("{url}/v1/images/generations"))
+        .bearer_auth(support::CLIENT_KEY)
+        .header("x-never-forward", "synthetic-private")
+        .json(&json!({"model":"gpt-image-2.5-flare","prompt":"blue square"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        json!({"created":456,"data":[{"b64_json":"BAUG"}],"output_format":"png"})
+    );
+    let before = observed.0.lock().unwrap().len();
+    let rejected = client
+        .post(format!("{url}/v1/images/generations"))
+        .bearer_auth(support::CLIENT_KEY)
+        .json(&json!({"model":"gpt-image-2.5-flare","prompt":"blue square","output_format":"png"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), 400);
     assert_eq!(observed.0.lock().unwrap().len(), before);
     shutdown.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(3), serving)

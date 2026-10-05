@@ -71,6 +71,9 @@ Messages 基础合同、beta 能力及各云平台的 wrapper/资源合同分别
 
 ## OpenRouter
 
+- 独立 [Images guide](https://openrouter.ai/docs/guides/overview/multimodal/image-generation.md)、[Generate an image](https://openrouter.ai/docs/api/api-reference/images/generate-an-image.md)：采用其中 OpenAPI 3.1.0 / API `1.0.0` 的 `POST /images` 静态合同；该 schema 声明 MIT 许可。它与 Chat image carrier、OpenAI `/images/generations` 的路径、请求 null 载体和计量结构不同；具体具名映射归 [Images codec](../../../src/protocol/openrouter_images.rs)，不复制动态能力或定价。
+- [Image models](https://openrouter.ai/api/v1/images/models) 提供专用 per-endpoint 导航；采用参数按具体 endpoint 核对，不把模型层 union 或通用 Models 参数当作 Images 准入。
+
 - [Chat](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request)、[Responses](https://openrouter.ai/docs/api/reference/responses/overview)
 - [Models](https://openrouter.ai/docs/api/api-reference/models/get-models)、[model endpoints](https://openrouter.ai/docs/api/api-reference/models/get-endpoints-for-a-model)
 - [API overview](https://openrouter.ai/docs/api_reference/overview)、[streaming](https://openrouter.ai/docs/api_reference/streaming)、[Responses reasoning](https://openrouter.ai/docs/api_reference/responses/reasoning)

@@ -68,6 +68,7 @@ pub struct CompiledTopology {
     routes: BTreeMap<String, Route>,
     models: BTreeMap<String, PublicModel>,
     canonical_models: BTreeMap<String, CanonicalModel>,
+    pub(super) image_routes: BTreeMap<String, super::images::ImageRoute>,
 }
 
 impl CompiledTopology {
@@ -250,6 +251,7 @@ pub fn compile(
         routes: route_map,
         models: model_map,
         canonical_models: canonical_map,
+        image_routes: BTreeMap::new(),
     })
 }
 

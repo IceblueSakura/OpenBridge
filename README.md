@@ -2,13 +2,14 @@
 
 OpenBridge 建立**可由 Gateway 与未来自研 Agent 复用的模型交互 Semantic Model / IR**，以尽量低的语义损失连接不同 Provider，并向下游提供稳定的标准 API。项目尚未上线；优先稳定概念、所有权与不变量，不冻结当前 Rust 类型或照搬协议 DTO。
 
-当前主线是 Agent-first 的 Text/Image/File 交互，优先完善规范 Responses；Chat Completions 仅作允许声明损失的兼容路径。Embedding 与独立标准媒体 operation 后续选片，具体端点范围另行讨论。音频 Realtime 明确要实现，但推迟设计与实施以降低每阶段关注度。有效合同归[语义架构](docs/architecture-v2/README.md)，具体步骤归[后续计划](docs/implementation-plans/next-goal.md)，不代表当前能力已经扩大。
+当前主线是 Agent-first 的 Text/Image/File 交互，优先完善规范 Responses；Chat Completions 仅作允许声明损失的兼容路径。Embedding 与更多独立标准媒体 operation 后续选片，具体端点范围另行讨论。音频 Realtime 明确要实现，但推迟设计与实施以降低每阶段关注度。有效合同归[语义架构](docs/architecture-v2/README.md)，具体步骤归[后续计划](docs/implementation-plans/next-goal.md)，不代表当前能力已经扩大。
 
 ## 当前范围
 
-当前工作区包含 Rust 语义库、统一文件凭据管理器与最小认证 loopback Generation 网关，不是完整标准实现或生产就绪服务。
+当前工作区包含 Rust 语义库、统一文件凭据管理器与最小认证 loopback 网关，不是完整标准实现或生产就绪服务。
 
 - HTTP 入口为 Chat Completions / Responses，提供受限的无状态文本输出与选定 URL/inline 图片输入。库与可嵌入 Gateway 另有标准 Responses inline/URL 文件承载，但仍需模型/目标显式准入，不由 codec 推定启用。工具图片结果有独立准入，不能由 user 图片支持推定；协议、模型与实例启用分别核查。
+- Gateway 另有显式绑定的标准 `/v1/images/generations` 静态单图切片，使用独立 ImageGeneration task 和 inline 产物；图片绑定须显式选择并配置凭据池，不随已有 Chat/Responses 默认启用，入口与边界见 [HTTP 指南](docs/http-gateway.md#独立图片生成)。
 - 同协议与跨协议都走 adapter → IR → validation/transform → requirements/lowering → adapter → JSON/SSE；不可表示的语义明确拒绝，不承诺任意无损转换。
 - 凭据只从操作者指定的自有文件加载；显式池策略允许受预算约束的提交前 fallback，不提供普通请求内登录、自动 refresh、负载均衡或会话管理。
 - 缓存亲和利用 Provider 原生功能和声明的 carrier，不实现网关回答缓存；前缀稳定不证明命中或收益。

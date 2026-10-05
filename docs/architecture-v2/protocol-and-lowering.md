@@ -52,6 +52,15 @@ Responses 完善优先，不为 Chat 扩大标准核心以外的执行行为。�
 
 **标准 wire 正确性、功能覆盖和保真度分别验收。** 有损输出必须仍是规范 Chat，而不是借兼容名义增加任意字段；往返不能被要求恢复已经声明丢失的信息。核心 IR 保留原始权威值，不为 Chat 的限制缩减设计。
 
+### 独立 Images 的计量投影
+
+标准 Images 静态响应另有明确限定的 `OmitUnrepresentableAccounting` 策略，由受信 Route 选择，不继承或扩张 Chat 规则。方向仅为 ImageGeneration response → 标准 Images response；owner 为 [图片计量](../../src/semantic/task/image_generation/accounting.rs)，实现归 [Images lowering](../../src/lowering/images.rs)。
+
+- IR 保留实际 token 报告、稀疏明细与精确 USD 费用；缺少 input text/image 明细时不得从纯文本请求、总量或默认值推算。
+- 标准结构能完整承载 token 报告时输出 usage；否则省略整个 usage，不输出残缺的标准对象。费用及其附加报告没有标准位置，按该策略不输出。
+- 严格策略仍拒绝不可表示的报告。投影只修改副本，并通过 typed loss flags 区分“上游未报告”和“投影省略”；不添加私有 wire 字段。
+- 图片 bytes、格式与其他产物报告、真实完成、错误、资源预算和取消/提交边界不受损失许可影响。非法计量、非法或不完整产物必须先拒绝，不能靠删除 usage 获得成功；本规则不授权流式、请求控制或其他 task 的损失。
+
 ## Source records
 
 Source/fidelity records 只保存有界的表示形式、wire identity、来源与依赖证明，不保存能覆盖 typed 值的第二正文。复用要求 owner 仍存在、目标/profile/scope 兼容、依赖未失效，且不能恢复删除值。请求、静态响应与事件分别检查。

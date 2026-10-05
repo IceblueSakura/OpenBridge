@@ -1,6 +1,8 @@
 //! Offline semantic ownership, codec projection and failure contracts, grouped by domain.
 #[path = "support/semantic_events.rs"]
 mod events_support;
+#[path = "support/image_generation.rs"]
+mod image_support;
 #[path = "support/responses_profile.rs"]
 mod wire;
 
@@ -36,6 +38,10 @@ mod group_projection;
 mod history_continuation;
 #[path = "semantic/history_dependencies.rs"]
 mod history_dependencies;
+#[path = "semantic/image_binding.rs"]
+mod image_binding;
+#[path = "semantic/image_generation.rs"]
+mod image_generation;
 #[path = "semantic/image_usage.rs"]
 mod image_usage;
 #[path = "semantic/images.rs"]
@@ -50,6 +56,8 @@ mod message_groups;
 mod model_constraints;
 #[path = "semantic/modelbest.rs"]
 mod modelbest;
+#[path = "semantic/openrouter_images.rs"]
+mod openrouter_images;
 #[path = "semantic/parsed_replay.rs"]
 mod parsed_replay;
 #[path = "semantic/phase.rs"]

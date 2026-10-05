@@ -15,6 +15,8 @@ use openbridge::{
     },
 };
 use std::{collections::BTreeMap, sync::Arc};
+#[path = "image_generation.rs"]
+mod image_support;
 pub const CLIENT_KEY: &str = "synthetic-gateway-client-token-0001";
 pub fn gateway(origin: &str, limits: Limits) -> Gateway {
     let provider = ProviderDefinition {
@@ -92,12 +94,23 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         task: TaskKind::Generation,
         contract: GenerationSemanticContract::full(),
     };
+    let (image_provider, image_route) = image_support::binding(origin);
+    let router_binding = &openbridge::topology::catalog::IMAGE_BINDINGS[0];
+    let mut router_provider = router_binding.provider();
+    router_provider.origin = TrustedOrigin::parse(origin).unwrap();
+    let mut router_route = router_binding.route();
+    router_route.endpoint.target.origin = router_provider.origin.clone();
     let topology = compile(
-        vec![provider],
+        vec![provider, router_provider],
         endpoints,
         vec![route],
         models,
         vec![canonical],
+    )
+    .unwrap()
+    .with_images(
+        vec![image_provider, router_binding.operation()],
+        vec![image_route, router_route],
     )
     .unwrap();
     let entries = vec![
@@ -128,13 +141,27 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         protocol: Profile::Responses,
         endpoint: EndpointId::new("responses").unwrap(),
     });
-    let credentials = BTreeMap::from([(
-        CredentialBindingId::new("fixture-key").unwrap(),
-        Arc::new(SecretMaterial::new("synthetic-upstream-credential-0001").unwrap()),
-    )]);
-    Gateway::new(
+    let credentials = BTreeMap::from([
+        (
+            CredentialBindingId::new("fixture-key").unwrap(),
+            Arc::new(SecretMaterial::new("synthetic-upstream-credential-0001").unwrap()),
+        ),
+        (
+            CredentialBindingId::new("openrouter-api-key").unwrap(),
+            Arc::new(SecretMaterial::new("synthetic-router-credential-0001").unwrap()),
+        ),
+    ]);
+    Gateway::new_with_images(
         topology,
         entries,
+        vec![
+            openbridge::gateway::ImageEntry {
+                model: "public-image".into(),
+            },
+            openbridge::gateway::ImageEntry {
+                model: router_binding.model.into(),
+            },
+        ],
         credentials,
         SecretMaterial::new(CLIENT_KEY).unwrap(),
         limits,

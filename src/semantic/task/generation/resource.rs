@@ -9,19 +9,7 @@ pub const MAX_IMAGE_DECODED_BYTES: usize = 768 * 1024;
 pub const MAX_FILE_DECODED_BYTES: usize = 768 * 1024;
 pub const MAX_TOTAL_FILE_DECODED_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_FILE_NAME_BYTES: usize = 1024;
-#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
-pub enum ImageFormat {
-    #[strum(serialize = "image/png")]
-    Png,
-    #[strum(serialize = "image/jpeg")]
-    Jpeg,
-    #[strum(serialize = "image/gif")]
-    Gif,
-    #[strum(serialize = "image/webp")]
-    Webp,
-    #[strum(serialize = "image/bmp")]
-    Bmp,
-}
+pub use crate::semantic::value::ImageFormat;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, strum::EnumString, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ImageDetail {

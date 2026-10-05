@@ -66,7 +66,8 @@ class ProbeClient(DefaultHttpxClient):
     def prepare(self, model, protocol, scenario, history):
         require(self.attempt is None, "unfinished_attempt", "setup")
         require(
-            model in self.run.plan["models"] and protocol in MODELS[model][4],
+            model in self.run.plan["models"] and protocol in MODELS[model][4]
+            and (protocol == "images") == self.run.is_images,
             "selection",
             "budget",
         )
@@ -83,7 +84,7 @@ class ProbeClient(DefaultHttpxClient):
             "budget",
         )
         model, protocol, scenario = self.context
-        path = "/v1/responses" if protocol == "responses" else "/v1/chat/completions"
+        path = {"responses": "/v1/responses", "chat": "/v1/chat/completions", "images": "/v1/images/generations"}[protocol]
         require(
             str(request.url) == self.origin + path and request.method == "POST",
             "destination",
@@ -91,22 +92,23 @@ class ProbeClient(DefaultHttpxClient):
         )
         require(len(request.content) <= 256 * 1024, "request_bytes", "budget")
         body = json.loads(request.content)
-        cap = body.get(
-            "max_output_tokens" if protocol == "responses" else "max_completion_tokens"
-        )
-        require(
-            body.get("model") == model
-            and type(cap) is int
-            and 1 <= cap <= self.run.plan["tokens"],
-            "controls",
-            "budget",
-        )
-        require(
-            "max_tokens" not in body and type(body.get("stream", False)) is bool,
-            "controls",
-            "budget",
-        )
-        field = "input" if protocol == "responses" else "messages"
+        if protocol == "images":
+            cap, field = None, "prompt"
+            require(
+                set(body) <= {"model", "prompt", "n", "stream", "output_format"}
+                and body.get("model") == model
+                and isinstance(body.get("prompt"), str)
+                and 0 < len(body["prompt"]) <= 32000
+                and (body.get("n") is None or type(body["n"]) is int and body["n"] == 1)
+                and (body.get("stream") is None or body["stream"] is False)
+                and body.get("output_format") is None,
+                "controls", "budget",
+            )
+        else:
+            cap = body.get("max_output_tokens" if protocol == "responses" else "max_completion_tokens")
+            require(body.get("model") == model and self.run.valid_budget(model, cap), "controls", "budget")
+            require("max_tokens" not in body and type(body.get("stream", False)) is bool, "controls", "budget")
+            field = "input" if protocol == "responses" else "messages"
         require(body.get(field) == self.expected_history, "history_changed", "budget")
         self.history_ok = True
         self.attempt = self.run.reserve(model, scenario, cap)
@@ -116,7 +118,7 @@ class ProbeClient(DefaultHttpxClient):
         response = super().send(request, stream=True, **kwargs)
         self.last_status = response.status_code
         is_sse = response.status_code < 300 and body.get("stream", False)
-        self.wire = Wire(protocol, is_sse)
+        self.wire = Wire(protocol, is_sse, limit=4 << 20 if protocol == "images" else 2 << 20)
         response.stream = ObservedStream(response.stream, self.wire)
         if not streaming:
             try:
@@ -161,6 +163,8 @@ def diagnostics(run):
                     "retry_after_seconds",
                     "received_bytes",
                     "handed_off_bytes",
+                    "reported_input_tokens", "reported_output_tokens", "reported_image_cost_usd",
+                    "image_usage_omitted", "image_billing_omitted",
                     "elapsed_ms",
                     "upstream_head_ms",
                     "first_upstream_bytes_ms",

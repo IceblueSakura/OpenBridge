@@ -13,6 +13,7 @@ use crate::{
     semantic::value::ReplayOrigin,
 };
 use serde_json::Value;
+pub mod images;
 mod request;
 pub use request::Request;
 

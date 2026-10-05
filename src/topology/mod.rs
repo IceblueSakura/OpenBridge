@@ -8,6 +8,7 @@
 pub mod catalog;
 pub mod compile;
 pub mod endpoint;
+pub mod images;
 pub mod model;
 pub mod route;
 

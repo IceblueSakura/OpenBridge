@@ -1,4 +1,4 @@
-//! Minimal HTTP ingress over immutable, explicitly bound text entries.
+//! Minimal HTTP ingress over immutable, explicitly bound task entries.
 mod admission;
 mod auth;
 mod body;
@@ -11,6 +11,7 @@ mod diagnostics;
 mod error;
 mod exchange;
 mod http;
+mod images;
 mod intake;
 #[cfg(test)]
 mod route_fallback_tests;
@@ -30,7 +31,7 @@ use crate::{
     topology::{Endpoint, PublicModel},
     transport::http::HttpTransport,
 };
-pub use config::{Entry, Limits, StartupError};
+pub use config::{Entry, ImageEntry, Limits, StartupError};
 pub use credentials::Credentials;
 use error::ApiError;
 use std::{collections::BTreeMap, sync::Arc};
@@ -83,6 +84,7 @@ struct Runtime {
     diagnostics: Option<diagnostics::Sink>,
     auth: auth::Auth,
     entries: BTreeMap<(u8, String), Arc<BoundEntry>>,
+    images: BTreeMap<String, Arc<images::BoundImage>>,
     limits: Limits,
     permits: Arc<Semaphore>,
     transport: HttpTransport,

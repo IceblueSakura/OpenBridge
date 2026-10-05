@@ -105,23 +105,75 @@ pub(super) async fn send_frames(
     frames: Vec<Bytes>,
     trace: &mut Trace,
 ) -> Result<(), ApiError> {
-    trace.stage(Stage::Delivery);
     for bytes in frames {
-        let size = bytes.len();
-        let (ack, seen) = oneshot::channel();
-        // Freeze advancement before publication, closing the recv/timeout race.
-        // This is not delivery commit; handoff acknowledgement still owns commit.
-        lane.state.published.store(true, Ordering::Release);
-        lane.tx
-            .send(Message::Chunk(Chunk { bytes, ack }))
-            .await
-            .map_err(|_| ApiError::upstream())?;
-        seen.await.map_err(|_| ApiError::upstream())?;
+        send_frame(lane, bytes, trace).await?;
         // Only HTTP body handoff acknowledges commit; queueing cannot do so.
         delivery.commit().map_err(|_| ApiError::upstream())?;
-        trace.handed_off(size);
     }
     Ok(())
+}
+pub(super) async fn send_frame(
+    lane: &Lane<'_>,
+    bytes: Bytes,
+    trace: &mut Trace,
+) -> Result<(), ApiError> {
+    trace.stage(Stage::Delivery);
+    let size = bytes.len();
+    let (ack, seen) = oneshot::channel();
+    // Publication freezes advancement; acknowledgement alone proves body handoff.
+    lane.state.published.store(true, Ordering::Release);
+    lane.tx
+        .send(Message::Chunk(Chunk { bytes, ack }))
+        .await
+        .map_err(|_| ApiError::upstream())?;
+    seen.await.map_err(|_| ApiError::upstream())?;
+    trace.handed_off(size);
+    Ok(())
+}
+pub(super) enum Producer {
+    Generation {
+        entry: Arc<BoundEntry>,
+        request: Box<Request>,
+        source: Upstreams,
+    },
+    Image {
+        runtime: Arc<super::Runtime>,
+        entry: Arc<super::images::BoundImage>,
+        request: crate::adapter::images::Request,
+    },
+}
+impl Producer {
+    async fn produce(
+        self,
+        limits: &Limits,
+        deadline: Instant,
+        tx: &mpsc::Sender<Message>,
+        state: &Status,
+        trace: &mut Trace,
+    ) -> Result<(), ApiError> {
+        match self {
+            Self::Generation {
+                entry,
+                request,
+                source,
+            } => produce_chain(source, &entry, &request, limits, deadline, tx, state, trace).await,
+            Self::Image {
+                runtime,
+                entry,
+                request,
+            } => {
+                super::images::produce(
+                    runtime,
+                    entry,
+                    request,
+                    deadline,
+                    &Lane { tx, state },
+                    trace,
+                )
+                .await
+            }
+        }
+    }
 }
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
@@ -160,9 +212,34 @@ pub(super) async fn respond_source(
     deadline: Instant,
     shutdown: tokio_util::sync::CancellationToken,
     permit: OwnedSemaphorePermit,
-    mut trace: Trace,
+    trace: Trace,
 ) -> Result<Response, ApiError> {
     let stream = request.delivery.streaming();
+    respond_producer(
+        Producer::Generation {
+            entry,
+            request: Box::new(request),
+            source,
+        },
+        stream,
+        limits,
+        deadline,
+        shutdown,
+        permit,
+        trace,
+    )
+    .await
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn respond_producer(
+    producer: Producer,
+    stream: bool,
+    limits: Limits,
+    deadline: Instant,
+    shutdown: tokio_util::sync::CancellationToken,
+    permit: OwnedSemaphorePermit,
+    mut trace: Trace,
+) -> Result<Response, ApiError> {
     let (tx, mut rx) = mpsc::channel(1);
     let state = Arc::new(Status::default());
     let worker_state = state.clone();
@@ -174,7 +251,7 @@ pub(super) async fn respond_source(
             _=shutdown.cancelled()=>Err(ApiError::shutdown()),
             _=tokio::time::sleep_until(deadline)=>Err(ApiError::timeout()),
             _=tx.closed()=>Err(ApiError::upstream()),
-            result=produce_chain(source,&entry,&request,&limits,deadline,&tx,&worker_state,&mut trace)=>result,
+            result=producer.produce(&limits,deadline,&tx,&worker_state,&mut trace)=>result,
         };
         match result {
             Ok(()) => {

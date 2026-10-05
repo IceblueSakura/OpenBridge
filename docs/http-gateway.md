@@ -1,4 +1,4 @@
-# 最小 Generation HTTP 网关
+# 最小模型交互 HTTP 网关
 
 `openbridge` binary 与可嵌入的 `gateway::Gateway` 将共享 IR、双向 adapters、固定目标和实际 HTTP body 接通，不是完整标准实现或生产网关。本文描述当前接线：HTTP 客户端由配置层选择 OpenBridge profile，并非纯 Standard profile；同名路径不证明完全标准兼容。规范客户端目标与扩展政策归[语义设计](architecture-v2/semantic-ir.md#3-客户端-api-目标与扩展边界)，允许有损的 Chat 投影、独立 Embeddings 接口与标准路径收敛均属于设计/计划，方向调整不自动改变现行 wire。HTTP 决策归 [ADR 0009](architecture-v2/decisions/0009-minimal-http-text-gateway.md)，公共接口摘要归 [OpenAPI](openapi.json)，模块接线归[架构](architecture.md)。
 
@@ -24,6 +24,7 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 |---|---|
 | `POST /v1/chat/completions` | [单候选 Chat profile](architecture-v2/chat-text-profile.md)；JSON 或 SSE |
 | `POST /v1/responses` | [无状态 Responses profile](architecture-v2/responses-text-profile.md)；JSON 或 SSE |
+| `POST /v1/images/generations` | 显式激活的静态单图切片；JSON，inline 产物，图片模型须明确选择 |
 
 - 唯一的 `Authorization: Bearer …` 在应用层 body 收集前校验；重复或错误认证拒绝，其他 header 不替代它。请求使用 UTF-8 JSON Content-Type，不接受 Content-Encoding；严格 JSON 拒绝重复 key，先绑定 public model/task 再 decode 语义。
 - `model` 仅接受已激活的 public label，不带 `provider/` 前缀。顶层 `provider` 字段即使为 null 也拒绝。目标 URL/path、上游 model、auth、adapter 与 scope 都来自受信绑定；入站 headers 不透传。
@@ -60,6 +61,22 @@ Chat 请求发送到 `/v1/chat/completions`：
 Chat 图片 part 使用 `{"type":"image_url","image_url":{"url":"https://example.test/synthetic.png"}}`。实际图片与资源限制仍由目标合同检查，不把媒体当普通字符串。
 
 固定 SDK 的 `base_url` 指向本机 `/v1`，`api_key` 使用入口 token；不把上游 key 交给客户端。
+
+### 独立图片生成
+
+图片生成使用独立 [ImageGeneration task](../src/semantic/task/image_generation.rs)，不是 Responses hosted tool 或 Chat assistant message。请求只准入 model、prompt、单张计数、非流式交付与 PNG 格式意图；具体 required/null/预算和结果字段由 [OpenAPI](openapi.json) 与 [codec](../src/protocol/openai/images.rs)维护。结果格式、尺寸、背景、quality 和 usage 只保留上游报告，不从请求补造。Base64 验证不解析像素，不证明图像格式或生成质量。
+
+嵌入方通过 `CompiledTopology::with_images` 编译明确的 Provider operation 路径、image profile、计量投影策略与单 endpoint `ImageRoute`，再由 `Gateway::new_with_images` 和 `ImageEntry` 显式激活；只允许单 API key 来源，无 retry/fallback。Binary 从[图片 catalog](../src/topology/catalog/images.rs)解析绑定，只有操作者在 `models` 中显式选定图片标签且配好对应单来源、禁 fallback 的 API key pool 才激活；省略 `models` 不自动增加图片入口。旧 `Gateway::new` 不启用图片绑定；未激活模型返回 `model_not_found`。输入标签不能选择 origin、路径或凭据，也不从 Chat/Responses 激活推定 Images 支持。
+
+OpenRouter 的独立 Images profile 使用受信固定路径和 Provider 限制，不走 Chat image carrier；目标未声明的显式格式控制在 I/O 前拒绝，不从缺省产物格式推定可控。该绑定使用[具名计量投影](architecture-v2/protocol-and-lowering.md#独立-images-的计量投影)：IR 保留稀疏报告与费用，标准输出仅在完整可表示时提供 usage，否则省略 usage；费用不输出，严格策略仍拒绝。规则不放宽产物、错误或预算验证。
+
+请求型例子中的模型是占位符，不代表注册或调用授权；显式 PNG 意图还需目标支持，OpenRouter 当前具名 profile 不接受该控制：
+
+```json
+{"model":"configured-image-model","prompt":"A blue square on a white background.","n":1,"stream":false,"output_format":"png"}
+```
+
+不支持图片编辑、多图、URL 产物、文件服务或流式图片。图片请求不注入对话输出 token 上限；仍共享认证、并发、取消、严格 EOF、实际 body handoff 与绝对 deadline 约束。请求/响应分别受 operator、endpoint 和 codec 的硬预算限制，不自动扩大媒体缓冲。
 
 ### 默认资源边界
 

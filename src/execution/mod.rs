@@ -11,6 +11,7 @@
 pub mod attempt;
 pub mod delivery;
 pub mod fallback;
+pub mod images;
 pub mod lifecycle;
 pub mod plan;
 

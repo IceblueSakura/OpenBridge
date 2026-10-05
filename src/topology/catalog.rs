@@ -1,6 +1,8 @@
 //! Compile explicit model declarations and deployment bindings. No alias inference.
 mod bindings;
+mod images;
 mod models;
+pub use images::{IMAGE_BINDINGS, ImageBinding};
 mod subscriptions;
 use crate::{
     adapter::Adapter,
@@ -118,6 +120,10 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
         routes,
         public_models,
         models::canonical_models(),
+    )?
+    .with_images(
+        IMAGE_BINDINGS.iter().map(|b| b.operation()).collect(),
+        IMAGE_BINDINGS.iter().map(|b| b.route()).collect(),
     )
 }
 #[cfg(test)]

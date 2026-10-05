@@ -20,6 +20,10 @@ pub struct Entry {
     pub endpoint: EndpointId,
 }
 #[derive(Clone, Debug)]
+pub struct ImageEntry {
+    pub model: String,
+}
+#[derive(Clone, Debug)]
 pub struct Limits {
     pub request_bytes: usize,
     pub response_bytes: usize,
@@ -99,7 +103,29 @@ impl Gateway {
         limits: Limits,
         proxy: Option<&str>,
     ) -> Result<Self, StartupError> {
+        Self::new_with_images(
+            topology,
+            entries,
+            vec![],
+            credentials,
+            client_key,
+            limits,
+            proxy,
+        )
+    }
+    /// Explicit embedded activation; no image catalog or private-file discovery is implied.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_images(
+        topology: CompiledTopology,
+        entries: Vec<Entry>,
+        image_entries: Vec<ImageEntry>,
+        credentials: impl Into<Credentials>,
+        client_key: SecretMaterial,
+        limits: Limits,
+        proxy: Option<&str>,
+    ) -> Result<Self, StartupError> {
         let credentials = credentials.into();
+        let images = super::images::bind(&topology, image_entries, &credentials)?;
         if !limits.validate() {
             return Err(StartupError::Limits);
         }
@@ -201,7 +227,7 @@ impl Gateway {
                 }));
             }
         }
-        if bound.is_empty() {
+        if bound.is_empty() && images.is_empty() {
             return Err(StartupError::Binding);
         }
         let mut activated = BTreeMap::new();
@@ -229,6 +255,7 @@ impl Gateway {
                 diagnostics: None,
                 auth,
                 entries: activated,
+                images,
                 limits,
                 permits,
                 transport,
