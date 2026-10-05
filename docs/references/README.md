@@ -7,6 +7,7 @@
 | [固定上游来源](upstream-sync.md) | OpenAI SDK、Codex 的固定提交、许可和官方页面入口 |
 | [Responses 标准基线](responses-standard.md) | Responses codec 的固定公开语义；不是共享 IR 的上限，也不等于本地准入 |
 | [扩展与上下文](extensions-and-context.md) | session/cache/turn、存储与连接状态；固定 Codex/pi 投影，与认证 owner 分开 |
+| [pi Provider 抽象](pi-provider-abstraction.md) | 固定 `1.0.2` 的 Provider/API/Model 分层、统一 transcript/事件、认证/目录/路由和回放损失；不改变本项目合同 |
 | [账户登录来源与采用边界](oauth-login.md) | 共用 OAuth/OIDC 标准、授权边界与必要归档导航 |
 | [Grok Build / xAI 登录](grok-login.md) | 官方浏览器/标准设备授权、pi 内置与补充参考、credential/backend 边界 |
 | [待弃用的 Codex 产品登录来源](chatgpt-login.md) | 旧产品认证的必要固定出处、协议识别与移除前约束；不是新接入入口 |
