@@ -54,4 +54,6 @@ encoded 与 decoded bytes、单资源与总请求、解压/解析深度、增量
 4. bytes、encoded/decoded 预算、分片、截断与取消；
 5. 静态结果与增量 materialization 一致。
 
+URL live probe 使用 W3C 的公开 [Dummy PDF file](https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf)，来源与许可为 [W3C Document License](https://www.w3.org/copyright/document-license-2023/)。Copyright © 2023 W3C®。Probe 的文本预期来自该公开测试文档；不把其 bytes 提交为仓库 fixture，不建立网关下载入口。外部 URL 无版本不变性，采用时需独立检查内容；本地检查不证明上游实际读取同一bytes。
+
 小型 synthetic 媒体可证明表示和资源边界，不证明 OCR、音质、语音授权、模型质量或 Provider 下载行为。特定 endpoint 或样本的表现不能上升为通用多模态规则。

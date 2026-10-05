@@ -3,7 +3,8 @@
 本页是登录参考的导航与共用标准 owner，不维护认证实现、模型/账号状态、研究过程或运行报告。具体 authority、flow、固定客户端版本和采用差异分别由下列参考维护：
 
 - [Grok Build / xAI 账户登录](grok-login.md)：官方浏览器 OIDC、标准设备授权、企业路径、pi 内置登录与补充插件。
-- [ChatGPT 登录：Codex 与 pi](chatgpt-login.md)：Codex 产品浏览器/私有设备交互、公开 SIWC 动态 registration、refresh 与账户边界。
+- [待弃用的 Codex 产品登录来源](chatgpt-login.md)：仅保留旧产品 wire 出处、私有设备协议识别与移除前约束。
+- [公开 SIWC 与 ChatGPT plan usage](siwc-login.md)：官方条款、动态 registration、identity/permission、renewal、公共 Responses 与 OpenBridge 参数规划。
 - [扩展与上下文](extensions-and-context.md#2-codex-session_id-的实际含义)：logical session、cache affinity、thread/turn、连接级 continuation 和选定客户端投影；不是登录协议的第二份定义。
 
 方向归 [next-goal](../implementation-plans/next-goal.md)，有效决策归 [ADRs](../architecture-v2/README.md#架构决策)，获准行为切片归 [current-focus](../implementation-plans/current-focus.md)。这些文档均不授予登录、凭据操作、网络调用或部署权限。
@@ -40,7 +41,7 @@ pi `/logout` 清理自身 stored credential，不撤销 Provider credential，�
 
 ## 归档与补充源码导航
 
-以下只用于来源定位，不代替上面两份参考或当前产品合同，也不恢复旧配置、实现或研究报告：
+以下只用于来源定位，不代替上面各 authority 参考或当前产品合同，也不恢复旧配置、实现或研究报告：
 
 - [OpenBridge v0.1](https://github.com/IceblueSakura/OpenBridge/tree/adff062e3412760ce5a66ae2e7506d22b142e0b1)，固定 `adff062e3412760ce5a66ae2e7506d22b142e0b1`，[MIT](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/LICENSE)：[旧登录入口](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/src/bin/openbridge-auth.rs)、[旧 refresh owner](https://github.com/IceblueSakura/OpenBridge/blob/adff062e3412760ce5a66ae2e7506d22b142e0b1/src/oauth2_credentials/manager/refresh.rs)；[归档说明](../archive.md)拥有历史定位。
 - [Codex 旧认证定位](https://github.com/openai/codex/tree/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/codex-rs/login)，固定 `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff`，[Apache-2.0](https://github.com/openai/codex/blob/ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff/LICENSE)：只保留旧引用的可追溯性，不作为新的认证基线，也不改写 [upstream-sync](upstream-sync.md)。

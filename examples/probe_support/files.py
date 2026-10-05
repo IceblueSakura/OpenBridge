@@ -34,6 +34,14 @@ def _pdf():
     return bytes(result)
 
 
+def file_url_history():
+    """Public W3C test resource; see docs/references/multimodal-and-resources.md."""
+    return [{"role":"user","content":[
+        {"type":"input_text","text":"Read the public PDF and return only its exact visible text, without quotes or explanation."},
+        {"type":"input_file","file_url":"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"},
+    ]}]
+
+
 def file_continuation_history():
     """Client-owned synthetic history, not a captured upstream transcript."""
     history = file_history()

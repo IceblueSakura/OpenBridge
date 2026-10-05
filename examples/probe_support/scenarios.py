@@ -265,6 +265,7 @@ def plan_groups(
                             "image",
                             "image_math",
                             "file",
+                            "file_url",
                             "file_continue",
                             "file_replay",
                             "file_reasoning",
@@ -273,7 +274,7 @@ def plan_groups(
                         "case",
                         "setup",
                     )
-                    require(case not in ("file", "file_continue", "file_replay") or model == "gpt-6-luna" and proto == "responses", "file_target", "setup")
+                    require(case not in ("file", "file_url", "file_continue", "file_replay") or model == "gpt-6-luna" and proto == "responses", "file_target", "setup")
                     require(case not in ("file_reasoning", "file_reasoning_math") or model == "gpt-6-luna" and proto == "responses" and effort in (None, "medium"), "file_reasoning_target", "setup")
                     if case in ("file_replay", "file_reasoning", "file_reasoning_math") and not stream:
                         continue
@@ -302,12 +303,13 @@ def plan_groups(
                         "image": 1,
                         "image_math": 1,
                         "file": 2,
+                        "file_url": 2,
                         "file_continue": 1,
                         "file_replay": 2,
                         "file_reasoning": 3,
                         "file_reasoning_math": 3,
                     }[case]
-                    cap = min(1024, run.plan["tokens"]) if case in ("file_reasoning", "file_reasoning_math") else 8 if case == "length" else min(512 if case in ("image", "file", "file_continue", "file_replay") else 2048, run.plan["tokens"])
+                    cap = min(1024, run.plan["tokens"]) if case in ("file_reasoning", "file_reasoning_math") else 8 if case == "length" else min(512 if case in ("image", "file", "file_url", "file_continue", "file_replay") else 2048, run.plan["tokens"])
                     require(cap <= run.plan["tokens"], "case_budget", "budget")
                     selected_effort = (
                         "medium" if case in ("reasoning", "file_reasoning", "file_reasoning_math") else effort or "default"
@@ -392,6 +394,13 @@ def matrix(
                             history.append({"role":"user","content":
                                 (f"Add the numeric suffix of the {'build' if n == 1 else 'patch'} marker from the original PDF to your previous answer. Return only JSON with integer field answer."
                                  if math_case else f"From the same document, return only the exact {field} marker, without quotes or explanation.")})
+                elif case == "file_url":
+                    from .files import file_url_history
+                    history = file_url_history()
+                    output, _, _ = invoke(1, history, extra=extra, oracle=expect_text("Dummy PDF file"))
+                    history.extend(output)
+                    history.append({"role":"user","content":"How many words are in the visible text of the original PDF? Return only the integer."})
+                    invoke(2, history, extra=extra, oracle=expect_text("3"))
                 elif case == "file_continue":
                     from .files import file_continuation_history
                     invoke(1, file_continuation_history(), extra=extra,

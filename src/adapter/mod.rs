@@ -244,7 +244,10 @@ impl Dialect {
                 Self::Standard | Self::OpenBridge => {
                     crate::protocol::file_constraints::FileConstraints::all()
                 }
-                Self::OpenRouter => crate::protocol::file_constraints::FileConstraints::pdf(),
+                Self::OpenRouter => crate::protocol::file_constraints::FileConstraints {
+                    urls: true,
+                    ..crate::protocol::file_constraints::FileConstraints::pdf()
+                },
                 _ => crate::protocol::file_constraints::FileConstraints::none(),
             },
             cache,

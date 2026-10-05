@@ -79,10 +79,40 @@ fn file_description_presence_has_independent_wire_expectations() {
     }
 }
 #[test]
+fn file_url_has_independent_wire_and_typed_oracles() {
+    let raw = "https://example.invalid/a%2Fb?signature=synthetic-private&x=1#page=2";
+    let request =
+        decode(json!([{"type":"input_file","file_url":raw,"filename":"","detail":"high"}]))
+            .unwrap();
+    let Item::Message(message) = &request.task.semantic.items()[0].1 else {
+        panic!()
+    };
+    assert!(matches!(&message.parts[0].content, ContentPart::Resource(r)
+        if r.location == ResourceLocation::Url(text(raw)) && r.description == ResourceDescription::File(FileDescription { filename:Some(text("")), detail:Some(FileDetail::High) })));
+    assert!(!format!("{request:?}").contains("synthetic-private"));
+    let mut resource = typed_file(None);
+    resource.location = ResourceLocation::Url(text(raw));
+    let typed = typed_request(vec![resource]).unwrap();
+    let encoded = encode_typed(&typed, Contract::full()).unwrap();
+    assert_eq!(
+        encoded["input"][0]["content"],
+        json!([{"type":"input_file","file_url":raw}])
+    );
+    assert!(
+        adapter()
+            .encode_request(&request, "synthetic", &Contract::full())
+            .is_ok()
+    );
+}
+
+#[test]
 fn malformed_or_unadmitted_file_sources_fail_closed() {
     for part in [
         json!({"type":"input_file"}),
-        json!({"type":"input_file","file_url":"https://example.test/file.pdf"}),
+        json!({"type":"input_file","file_url":null}),
+        json!({"type":"input_file","file_url":""}),
+        json!({"type":"input_file","file_url":42}),
+        json!({"type":"input_file","file_url":"data:application/pdf;base64,AQID"}),
         json!({"type":"input_file","file_id":"file-synthetic"}),
         json!({"type":"input_file","file_id":null}),
         json!({"type":"input_file","file_data":"AQID"}),
@@ -309,6 +339,98 @@ fn file_profile_intersection_never_unions_target_allowlists_or_budgets() {
 }
 
 #[test]
+fn file_url_limits_intersections_and_edits_do_not_claim_remote_bytes() {
+    let mut remote = typed_file(None);
+    remote.location =
+        ResourceLocation::Url(text("https://example.invalid/not-a-pdf?sig=synthetic"));
+    let request = typed_request(vec![remote.clone()]).unwrap();
+    assert_eq!(remote.inline_decoded_bytes().unwrap(), None);
+    let mut contract = Contract::full();
+    contract.files.max_inline_bytes = 0;
+    contract.files.max_total_inline_bytes = 0;
+    contract.files.inline_media_types = Some(vec![]);
+    assert!(encode_typed(&request, contract.clone()).is_ok());
+    for (a, b) in [(true, false), (false, true), (false, false)] {
+        let mut profile = adapter();
+        profile.adaptation.files.urls = a;
+        contract.files.urls = b;
+        assert!(!profile.contract(&contract).files.urls);
+        assert!(encode_typed(&request, profile.contract(&contract)).is_err());
+    }
+    contract.files.urls = true;
+    contract.files.max_files = 1;
+    assert!(
+        encode_typed(
+            &typed_request(vec![remote.clone(), typed_file(None)]).unwrap(),
+            contract
+        )
+        .is_err()
+    );
+    let mut decoded =
+        decode(json!([{"type":"input_file","file_url":"https://example.invalid/old"}])).unwrap();
+    let source = decoded.task.semantic.clone();
+    let proof = RequestDependencyProof::capture(
+        &source,
+        HistoryDependency::Owners(vec![ItemId::new(1)]),
+        SettingsDependency::None,
+    )
+    .unwrap();
+    let mut items = source.items().to_vec();
+    let Item::Message(m) = &mut items[0].1 else {
+        panic!()
+    };
+    let id = m.parts[0].id;
+    m.parts[0].content = ContentPart::Resource(typed_file(Some("edited.pdf")));
+    decoded.task.semantic = source.clone().with_items(items).unwrap();
+    assert!(proof.check(&decoded.task.semantic).is_err());
+    let wire = adapter()
+        .encode_request(&decoded, "synthetic", &Contract::full())
+        .unwrap();
+    assert_eq!(
+        wire["input"][0]["content"],
+        json!([{"type":"input_file","file_data":"data:application/pdf;base64,AQID","filename":"edited.pdf"}])
+    );
+    let Item::Message(m) = &decoded.task.semantic.items()[0].1 else {
+        panic!()
+    };
+    assert_eq!(m.parts[0].id, id);
+    assert!(proof.check(&source).is_ok());
+}
+
+#[test]
+fn malformed_file_urls_are_rejected_by_wire_and_typed_boundaries() {
+    for raw in [
+        "file:///tmp/x",
+        "ftp://example.test/x",
+        "https://user:secret@example.test/x",
+        "https://@example.test/x",
+        "https://example.test/ x",
+        "https://example.test/\\\\x",
+        "https://example.test/\n",
+        "//example.test/x",
+        "https:///",
+    ] {
+        assert!(decode(json!([{"type":"input_file","file_url":raw}])).is_err());
+        let mut r = typed_file(None);
+        r.location = ResourceLocation::Url(text(raw));
+        assert!(typed_request(vec![r]).is_err());
+    }
+    let raw = format!(
+        "https://example.test/{}",
+        "a".repeat(MAX_RESOURCE_URL_BYTES)
+    );
+    assert!(decode(json!([{"type":"input_file","file_url":raw}])).is_err());
+    for other in [json!(null), json!("data:application/pdf;base64,AQID")] {
+        assert!(
+            decode(
+                json!([{"type":"input_file","file_url":"https://example.test/x","file_data":other}])
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn file_edits_preserve_identity_and_never_resurrect_deleted_values() {
     let mut decoded = decode(json!([file(), {"type":"input_text","text":"keep"}])).unwrap();
     let mut items = decoded.task.semantic.items().to_vec();
@@ -483,16 +605,11 @@ fn malformed_typed_files_and_aggregate_budgets_are_revalidated_after_edits() {
     };
     message.parts[0].content = ContentPart::Resource(resource);
     assert!(decoded.task.semantic.clone().with_items(items).is_err());
-    // Generic resources remain typed, but unbound URL/ID sources have no file carrier.
-    for location in [
-        ResourceLocation::Url(text("https://example.test/file.pdf")),
-        ResourceLocation::OpaqueReference(text("file-synthetic")),
-    ] {
-        let mut resource = typed_file(None);
-        resource.location = location;
-        let request = typed_request(vec![resource]).unwrap();
-        assert!(encode_typed(&request, Contract::full()).is_err());
-    }
+    // Generic IDs remain typed but have no issuer-bound file carrier.
+    let mut resource = typed_file(None);
+    resource.location = ResourceLocation::OpaqueReference(text("file-synthetic"));
+    let request = typed_request(vec![resource]).unwrap();
+    assert!(encode_typed(&request, Contract::full()).is_err());
 }
 
 #[test]

@@ -1,4 +1,4 @@
-//! Inline-file target limits, independent of image budgets and model admission.
+//! File-source target limits, independent of image budgets and model admission.
 use crate::semantic::task::generation::{
     ContentPart, FileDetail, GenerationError, GenerationRequest, Item, MAX_FILE_DECODED_BYTES,
     MAX_ITEMS, MAX_TOTAL_FILE_DECODED_BYTES, ResourceDescription, ResourceLocation,
@@ -6,6 +6,8 @@ use crate::semantic::task::generation::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileConstraints {
+    /// URL acceptance is independent of inline MIME limits; remote bytes are unknown.
+    pub urls: bool,
     /// None admits any concrete MIME label; Some is an explicit target allowlist.
     pub inline_media_types: Option<Vec<String>>,
     pub details: Vec<FileDetail>,
@@ -22,6 +24,7 @@ impl Default for FileConstraints {
 impl FileConstraints {
     pub fn all() -> Self {
         Self {
+            urls: true,
             inline_media_types: None,
             details: vec![FileDetail::Auto, FileDetail::Low, FileDetail::High],
             require_filename: false,
@@ -34,6 +37,7 @@ impl FileConstraints {
     /// These are local admission limits, not claims about an upstream maximum.
     pub fn pdf() -> Self {
         Self {
+            urls: false,
             inline_media_types: Some(vec!["application/pdf".into()]),
             max_files: 4,
             max_inline_bytes: 128 * 1024,
@@ -44,11 +48,13 @@ impl FileConstraints {
     /// A dialect without declared file admission cannot gain it from a generic contract.
     pub fn none() -> Self {
         Self {
+            urls: false,
             max_files: 0,
             ..Self::all()
         }
     }
     pub(crate) fn intersect(&mut self, profile: &Self) {
+        self.urls &= profile.urls;
         if let Some(allowed) = &profile.inline_media_types {
             match &mut self.inline_media_types {
                 Some(current) => current.retain(|m| allowed.contains(m)),
@@ -77,21 +83,25 @@ impl FileConstraints {
                 let ResourceDescription::File(file) = &resource.description else {
                     continue;
                 };
-                let ResourceLocation::Inline { media_type, .. } = &resource.location else {
-                    return Err(GenerationError::InvalidResource);
-                };
                 count += 1;
-                let bytes = resource
-                    .inline_decoded_bytes()?
-                    .ok_or(GenerationError::InvalidResource)?;
-                total = total.checked_add(bytes).ok_or(GenerationError::Limit)?;
+                let source_ok = match &resource.location {
+                    ResourceLocation::Url(_) => self.urls,
+                    ResourceLocation::Inline { media_type, .. } => {
+                        let bytes = resource
+                            .inline_decoded_bytes()?
+                            .ok_or(GenerationError::InvalidResource)?;
+                        total = total.checked_add(bytes).ok_or(GenerationError::Limit)?;
+                        bytes <= self.max_inline_bytes
+                            && total <= self.max_total_inline_bytes
+                            && self
+                                .inline_media_types
+                                .as_ref()
+                                .is_none_or(|types| types.iter().any(|t| t == media_type.as_str()))
+                    }
+                    ResourceLocation::OpaqueReference(_) => false,
+                };
                 if count > self.max_files
-                    || bytes > self.max_inline_bytes
-                    || total > self.max_total_inline_bytes
-                    || self
-                        .inline_media_types
-                        .as_ref()
-                        .is_some_and(|types| !types.iter().any(|t| t == media_type.as_str()))
+                    || !source_ok
                     || file.detail.is_some_and(|d| !self.details.contains(&d))
                     || self.require_filename
                         && file.filename.as_ref().is_none_or(|n| n.as_str().is_empty())

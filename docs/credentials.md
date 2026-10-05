@@ -2,7 +2,7 @@
 
 `CredentialManager` 管理 API key 的本地生命周期、OAuth 授权生命周期，以及供推理使用的有序凭据池。凭据只来自显式自有文件目录；CLI、Gateway 和 probe 不从环境变量读取上游 key 或账户 alias，不搜索第三方 auth cache。API key 不伪装成 OAuth grant，登录成功也不证明模型、订阅或额度资格。
 
-合同归 [ADR 0012](architecture-v2/decisions/0012-grok-personal-credential-pool.md)，执行前移归 [ADR 0010](architecture-v2/decisions/0010-canonical-model-fixed-fallback.md)。OAuth 固定来源仍见 [Grok](references/grok-login.md)、[Codex](references/chatgpt-login.md)；Codex 产品授权不是公开 SIWC，也不是 Platform API key。
+合同归 [ADR 0012](architecture-v2/decisions/0012-grok-personal-credential-pool.md)，执行前移归 [ADR 0010](architecture-v2/decisions/0010-canonical-model-fixed-fallback.md)。当前 OAuth 固定来源见 [Grok](references/grok-login.md)、[待弃用的 Codex 产品路径](references/chatgpt-login.md)；Codex 产品授权不是公开 SIWC，也不是 Platform API key。公开 SIWC 的独立迁移来源与名称/ID 参数规划见 [SIWC 参考](references/siwc-login.md)，不改变本文当前 CLI、存储、绑定或恢复合同。
 
 ## Gateway access 绑定
 

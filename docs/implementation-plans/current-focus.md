@@ -2,7 +2,7 @@
 
 ## 当前范围
 
-当前继续完善 Responses 文件输入，不新增 `/v1/files` 上传、存储、下载、删除或 file_id 服务。Inline 文件合同归 [Responses profile](../architecture-v2/responses-text-profile.md#user-inline-file-input)，后续扩展按[计划](next-goal.md)逐片定稿，不能从 PDF carrier 推定所有格式、来源或工具文件均准入。
+当前继续完善 Responses 文件输入，不新增 `/v1/files` 上传、存储、下载、删除或 file_id 服务。Inline 与 URL 文件合同分别归 [inline profile](../architecture-v2/responses-text-profile.md#user-inline-file-input)和 [URL profile](../architecture-v2/responses-text-profile.md#user-file-url-input)，后续扩展按[计划](next-goal.md)逐片定稿，不能从 PDF carrier 推定所有格式、来源或工具文件均准入。
 
 文件与必要 opaque 回传的验证应分别覆盖“实际报告且回传”和“未报告”；后者即便内容正确也不证明 opaque 路径。显式 reasoning 控制不充当已生成 reasoning 的事实，有限场景通过不等于一般可靠性。
 

@@ -29,6 +29,10 @@
 
 Input/output/resource/stream 合同分别固定；SDK `output_text` 是派生 view，状态名也不推出同名 SSE event。必要标准区别以[固定标准基线](../responses-standard.md)为准。
 
+## SIWC ChatGPT plan usage
+
+公开 SIWC 的官方来源、条款、动态 client、身份/permission、renewal 与受限公共 Responses 合同集中在 [SIWC 参考](../siwc-login.md)。同一公共 API origin 不使 SIWC token 与 Platform API key 的 operation/参数准入相同；该参考也不升级本页既有标准/schema/SDK 日期或基线。
+
 ## Chat Completions
 
 | Operation / 来源主题 | 官方入口 | 既有来源日期 |

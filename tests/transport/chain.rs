@@ -465,6 +465,22 @@ fn openrouter_luna_pdf_is_bounded_responses_with_strict_replay() {
     assert_eq!(wire["model"], "openai/gpt-6-luna");
     assert_eq!(prepared.path, "/api/v1/responses");
     assert!(wire.get("plugins").is_none());
+    let mut url_body = body.clone();
+    url_body["input"][0]["content"][1] = json!({"type":"input_file","file_url":"https://example.invalid/opaque?sig=synthetic-private"});
+    let url_request = client
+        .decode_request(url_body.to_string().as_bytes())
+        .unwrap();
+    let prepared_url = prepare(endpoint, &providers::openrouter(), &secret, &url_request).unwrap();
+    let url_wire: Value = serde_json::from_slice(&prepared_url.body).unwrap();
+    assert_eq!(
+        url_wire["input"][0]["content"][1],
+        url_body["input"][0]["content"][1]
+    );
+    assert_eq!(prepared_url.origin, "https://openrouter.ai");
+    assert!(!format!("{prepared_url:?}").contains("synthetic-private"));
+    let mut disabled = endpoint.clone();
+    disabled.representation.files.urls = false;
+    assert!(prepare(&disabled, &providers::openrouter(), &secret, &url_request).is_err());
     assert_eq!(
         endpoint.representation.files.max_total_inline_bytes,
         128 * 1024
@@ -523,7 +539,7 @@ fn router_pdf_budgets_and_history_do_not_expand_other_models() {
     assert_eq!(request, original);
     for location in [
         json!({"type":"input_file","file_data":"data:text/plain;base64,AQID","filename":"synthetic.txt"}),
-        json!({"type":"input_file","file_url":"https://example.test/file.pdf"}),
+        json!({"type":"input_file","file_url":"file:///tmp/private.pdf"}),
         json!({"type":"input_file","file_id":"file-synthetic"}),
     ] {
         let mut changed = body.clone();

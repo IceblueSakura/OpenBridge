@@ -94,6 +94,7 @@ async fn answer(
                 {"type":"input_text","text":"first"},
                 {"type":"input_file","file_data":"data:application/pdf;base64,AQID","filename":"synthetic.pdf","detail":"low"},
                 {"type":"input_image","image_url":"data:image/png;base64,AQID"},
+                {"type":"input_file","file_url":"https://example.invalid/file?sig=synthetic"},
                 {"type":"input_text","text":"last"}
             ])
         );
@@ -594,7 +595,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         assert_eq!(response.status(), 400);
         assert_eq!(observed.0.lock().unwrap().len(), before + 1);
     }
-    // Inline files traverse real request I/O without resource fetching. The
+    // Inline/URL files traverse real request I/O without resource fetching. The
     // synthetic fixture proves representation, not a valid PDF or model parsing.
     for stream in [false, true] {
         let request = json!({"model":"public-model","metadata":{"case":"files"},"stream":stream,"input":[{
@@ -602,6 +603,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
                 {"type":"input_text","text":"first"},
                 {"type":"input_file","file_data":"data:application/pdf;base64,AQID","filename":"synthetic.pdf","detail":"low"},
                 {"type":"input_image","image_url":"data:image/png;base64,AQID"},
+                {"type":"input_file","file_url":"https://example.invalid/file?sig=synthetic"},
                 {"type":"input_text","text":"last"}
             ]
         }]});
@@ -625,7 +627,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
                 2 => rejected["input"][0]["role"] = json!("assistant"),
                 3 => {
                     rejected["input"][0]["content"][1] =
-                        json!({"type":"input_file","file_url":"https://example.test/file.pdf"})
+                        json!({"type":"input_file","file_url":"file:///tmp/private.pdf"})
                 }
                 _ => rejected["input"][0]["content"][1]["file_id"] = json!("file-synthetic"),
             }

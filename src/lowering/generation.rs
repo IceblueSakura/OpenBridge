@@ -593,7 +593,10 @@ fn text_items(
                             }
                             ResourceKind::File => {
                                 profile != Profile::Responses
-                                    || !matches!(resource.location, ResourceLocation::Inline { .. })
+                                    || matches!(
+                                        resource.location,
+                                        ResourceLocation::OpaqueReference(_)
+                                    )
                             }
                             ResourceKind::Audio => true,
                         }

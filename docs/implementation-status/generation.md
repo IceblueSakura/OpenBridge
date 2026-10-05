@@ -6,7 +6,7 @@
 
 ## 语义与表示缺口
 
-- **Text/Image/File 承载**：[Resource](../../src/semantic/task/generation/resource.rs) 的来源与类型化描述尚未闭合一般产物 identity、issuer-bound 引用及生命周期。标准 user inline 文件以 [Responses profile](../architecture-v2/responses-text-profile.md#user-inline-file-input) 为界；文件 URL/ID、工具文件结果、资源操作及更多目标的文件载体仍缺主链。按[当前主线](../implementation-plans/next-goal.md)分别选片，不从共享 source 或文件输入推定所有用途已准入，不以 adapter 或私有字段补偿必要承载不足。
+- **Text/Image/File 承载**：[Resource](../../src/semantic/task/generation/resource.rs) 的来源与类型化描述尚未闭合一般产物 identity、issuer-bound 引用及生命周期。标准 user inline 与 URL 文件分别以 [inline profile](../architecture-v2/responses-text-profile.md#user-inline-file-input)和 [URL profile](../architecture-v2/responses-text-profile.md#user-file-url-input)为界；issuer-bound 文件 ID、工具文件结果、资源操作及更多目标的文件载体仍缺主链。按[当前主线](../implementation-plans/next-goal.md)分别选片，不从共享 source 或文件输入推定所有用途已准入，不以 adapter 或私有字段补偿必要承载不足。
 - **后续媒体与 Embedding**：[生成音频](../../src/semantic/task/generation/audio.rs)仍采用要求 reference/expiry/transcript 的固定 Chat 值组合；生成图片产物及适用事件、vector 所需独立请求/结果合同尚未闭合。[TaskKind](../../src/semantic/task/mod.rs)枚举不证明实现。这些缺口保留，但不作为本阶段 Text/Image/File 的前置。
 - **标准客户端目标**：[HTTP 配置](../../src/gateway/config.rs)仍选择 OpenBridge 具名规则，reasoning/usage/cache 等差异与 Responses [本地兼容形式](../architecture-v2/responses-text-profile.md#control-message-and-annotation-admission-details)仍需逐项收敛。没有独立 `_openbridge` carrier 不等于已经完整标准化。[Chat 有损投影](../architecture-v2/protocol-and-lowering.md#semantic-loss)的具体白名单、观察和静态/事件实现尚需选片；标准缺少载体时不伪造字段。
 

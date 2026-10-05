@@ -8,7 +8,7 @@ OpenBridge 建立**可由 Gateway 与未来自研 Agent 复用的模型交互 Se
 
 当前工作区包含 Rust 语义库、统一文件凭据管理器与最小认证 loopback Generation 网关，不是完整标准实现或生产就绪服务。
 
-- HTTP 入口为 Chat Completions / Responses，提供受限的无状态文本输出与选定 URL/inline 图片输入。库与可嵌入 Gateway 另有标准 Responses inline 文件承载，但仍需模型/目标显式准入，不由 codec 推定启用。工具图片结果有独立准入，不能由 user 图片支持推定；协议、模型与实例启用分别核查。
+- HTTP 入口为 Chat Completions / Responses，提供受限的无状态文本输出与选定 URL/inline 图片输入。库与可嵌入 Gateway 另有标准 Responses inline/URL 文件承载，但仍需模型/目标显式准入，不由 codec 推定启用。工具图片结果有独立准入，不能由 user 图片支持推定；协议、模型与实例启用分别核查。
 - 同协议与跨协议都走 adapter → IR → validation/transform → requirements/lowering → adapter → JSON/SSE；不可表示的语义明确拒绝，不承诺任意无损转换。
 - 凭据只从操作者指定的自有文件加载；显式池策略允许受预算约束的提交前 fallback，不提供普通请求内登录、自动 refresh、负载均衡或会话管理。
 - 缓存亲和利用 Provider 原生功能和声明的 carrier，不实现网关回答缓存；前缀稳定不证明命中或收益。
@@ -25,7 +25,7 @@ cargo run --locked --offline --bin openbridge -- --credentials-dir /path/to/priv
 
 先按[HTTP 指南](docs/http-gateway.md)准备入口配置，账户与池操作见[凭据指南](docs/credentials.md)。真实登录、推理或付费测试需独立授权，使用[受控 probe](docs/probes.md)，不属于默认检查。
 
-Rust/Cargo 由[`rust-toolchain.toml`](rust-toolchain.toml)固定；已有工具链与依赖缓存时：
+Rust/Cargo 使用 stable 工具链，配套 rustfmt/clippy；可由锁定的 nixpkgs 等声明式环境提供，不要求 rustup。[`rust-toolchain.toml`](rust-toolchain.toml)为识别该文件的环境声明 stable，不控制原生 Nix Cargo 的选择。已有工具链与依赖缓存时：
 
 ```sh
 cargo test --locked --offline

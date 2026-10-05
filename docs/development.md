@@ -12,7 +12,7 @@
 
 ## Rust 检查
 
-Rust/Cargo 由根 `rust-toolchain.toml` 固定；rustfmt/clippy 随该工具链安装。不要保留覆盖这个文件的旧目录级 rustup override，也不要为项目更新全局默认工具链。
+Rust/Cargo 使用 stable 工具链与配套 rustfmt/clippy；可由锁定 nixpkgs 等声明式开发环境提供，不要求 rustup。根 `rust-toolchain.toml` 为识别该文件的环境声明 stable，原生 Nix Cargo 不通过它选择版本；实际工具链由开发环境锁定。工具链更新是显式环境维护，不与普通测试捆绑；验证时报告实际版本，不为普通项目检查切换全局工具链。
 
 集成测试按以下入口分工，按职责筛选，不按实现批次增加 binary：
 

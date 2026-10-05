@@ -194,6 +194,31 @@ class ProbeCoreTests(unittest.TestCase):
                 self.assertTrue(matrix(run,run.plan["models"],cases=("file_reasoning_math",),protocol="responses"))
         self.assertEqual(count,3)
 
+    def test_file_url_matrix_has_four_bounded_requests_and_preserves_source(self):
+        from contextlib import nullcontext
+        from copy import deepcopy
+        from probe_support.scenarios import matrix, plan_groups
+        captured=[]
+        def send(*args,**kwargs):
+            captured.append(deepcopy(args[5]))
+            kwargs["oracle"]("Dummy PDF file" if len(captured)%2 else "3",[],[])
+            return [{"type":"message","role":"assistant","content":[
+                {"type":"output_text","text":"synthetic"}]}],"",[]
+        with tempfile.TemporaryDirectory() as temp:
+            run=Run.create(Path(temp)/"run",providers="openrouter",models=["gpt-6-luna"],limit=4,tokens=512)
+            groups=plan_groups(run,run.plan["models"],cases=("file_url",),protocol="responses")
+            self.assertEqual(sum(g[5] for g in groups),4)
+            self.assertTrue(all(g[6]==512 for g in groups))
+            with patch("probe_support.scenarios.session",return_value=nullcontext((None,None))),patch(
+                "probe_support.scenarios.call",side_effect=send):
+                self.assertTrue(matrix(run,run.plan["models"],cases=("file_url",),protocol="responses"))
+        for i in (0,2):
+            self.assertEqual(captured[i][0],captured[i+1][0])
+            part=captured[i][0]["content"][1]
+            self.assertEqual(set(part),{"type","file_url"})
+            self.assertEqual(part["file_url"],"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf")
+            self.assertEqual(len(captured[i+1]),3)
+
     def test_client_owned_file_continuation_is_one_bounded_diagnostic_request(self):
         from probe_support.files import file_continuation_history
         from probe_support.scenarios import plan_groups

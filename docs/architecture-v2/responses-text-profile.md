@@ -2,7 +2,7 @@
 
 本页描述当前库级合同，不是完整标准符合性声明。标准目标归 [Semantic Model](semantic-ir.md#3-客户端-api-目标与扩展边界)；本地兼容形式仍需单独识别；[客户端边界](client-generation-profile.md)不提供独立私有 attachment。精确字段/预算/拒绝分支归 [OpenAI codecs](../../src/protocol/openai/mod.rs)、[lowering](../../src/lowering/generation.rs)和独立测试，HTTP 接线归[网关指南](../http-gateway.md)。
 
-当前范围是有序文本/选定图片/inline 文件 history、文本/工具/reasoning 输出及适用事件。单个 profile 能解析不等于 Public Model/Endpoint 准入；未实现媒体、资源或 task 不由标准名称激活。标准来源和本地选择分开，见[固定基线](../references/responses-standard.md)。
+当前范围是有序文本/选定图片/inline 或 URL 文件 history、文本/工具/reasoning 输出及适用事件。单个 profile 能解析不等于 Public Model/Endpoint 准入；未实现媒体、资源或 task 不由标准名称激活。标准来源和本地选择分开，见[固定基线](../references/responses-standard.md)。
 
 ## Response outcome and continuation
 
@@ -46,11 +46,21 @@ Reported image/text/audio token counts 不是从正文或图像大小估计的�
 
 标准 `input_file.file_data` 仅接受有界 Base64 data URL；文件 MIME/source 与可选 filename、file detail 由 [Resource](../../src/semantic/task/generation/resource.rs) 的类型化描述分别拥有。filename 是描述，不是本地路径；缺省与显式空字符串分开。File detail 缺省与 explicit auto 分开，不能承载 image original；null、多个来源和未准入字段拒绝。
 
-纯 codec 不打开文件、下载、上传、解析文档、OCR 或推定 MIME 与文件内容相符。File ID/URL、cache breakpoint、工具文件结果、assistant/instruction 文件、文件输出与 Chat 文件投影仍拒绝。共享资源值能表达 URL/opaque source 不代表标准文件主链已经准入这些来源。
+纯 codec 不打开文件、下载、上传、解析文档、OCR 或推定 MIME 与文件内容相符。File ID、cache breakpoint、工具文件结果、assistant/instruction 文件、文件输出与 Chat 文件投影仍拒绝。URL 来源按下节独立准入；共享 opaque source 不代表 issuer-bound file ID 已准入。
 
 文件 requirements 与图片独立；模型语义、目标 MIME/detail/name/count、单资源及总 decoded bytes、总 encoded 状态与 HTTP body 分层检查。已注册的文本/图片绑定不自动获得文件能力；文件目标可以只准入 PDF，不能从单个文件 carrier 推定一般格式或来源都可用。其他 Provider dialect 未声明文件 carrier 时保持拒绝。编辑后按最终值重验，文件描述及私有来源进入进程内依赖证明，但该证明不成为 issuer 认证或跨请求持久化格式。
 
 Owners：[file codec](../../src/protocol/openai/file.rs)、[file constraints](../../src/protocol/file_constraints.rs)、[independent oracles](../../tests/semantic/files.rs)。标准来源为固定 [input file union](https://github.com/openai/openai-python/blob/be9d66628ad7377bd36fe5a76ae6d735843f0e76/src/openai/types/responses/response_input_file_param.py)；适用 guide 导航归[媒体基线](../references/multimodal-and-resources.md)。
+
+## User file URL input
+
+标准 `input_file.file_url` 映射既有 `ResourceLocation::Url`，必须与 `file_data` 恰一来源；包含另一来源的 null 也不接受。filename/detail presence 与 inline 文件相同。HTTP(S) URL 沿用共享资源校验，禁止 userinfo、控制/空白字符和反斜杠；原始 URL（含 query/fragment/转义）精确保留，不将 parser 规范化结果写回。URL/签名 query 只在 typed source 与必要请求正文保留，Debug/诊断不回显。
+
+目标的 URL 开关与 inline MIME allowlist 独立，交集只能收窄。URL 和 inline 文件共享 max_files 与请求 encoded bytes 预算，URL 自身还受资源 URL 字节限制；inline decoded bytes 限制不声称覆盖远端下载量。不能根据文件名或扩展名证明 PDF/MIME，也不猜远端 bytes。已有文件模型能力不自动开启目标 URL 开关；Chat、file ID 与工具文件仍拒绝。
+
+URL 是交给明确选定上游的内容来源，不改变网关 upstream origin、认证头、凭据或协议。网关不解析 DNS、不连接 URL、不跟随 redirect；地址可达性、远端重定向、访问许可及资源下载安全由消费上游负责，此语法检查不是远端 SSRF 安全证明。签名 URL 可能授予访问能力，客户端必须有权将其提供给所选上游；不转发额外下载 headers 或 cookies。
+
+URL 值/filename/detail 编辑会使本地依赖证明失效，删除/切换来源不能由 fidelity 恢复。相同 URL 只证明相同来源字符串，不证明相同远端内容或永久可用；本片不建立不可变资源身份、expiry 或 issuer 证明。静态/流式 history 均保留实际 source，不能自动下载后替换为 inline。
 
 ## Raw JSON admission
 
