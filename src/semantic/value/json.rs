@@ -19,6 +19,12 @@ impl JsonLimits {
         depth: 64,
         nodes: 65_536,
     };
+    /// Reserved for the image-response entry point; ordinary parse_json still caps at ENVELOPE.
+    pub const IMAGE_RESPONSE: Self = Self {
+        bytes: 16 << 20,
+        depth: 64,
+        nodes: 65_536,
+    };
     pub const STRUCTURED: Self = Self {
         bytes: 1 << 20,
         depth: 32,
@@ -41,11 +47,27 @@ pub fn parse_json(input: &[u8], limits: JsonLimits) -> Result<Value, JsonError> 
 pub(crate) fn parse_json_view(input: &[u8]) -> Result<Value, JsonError> {
     parse(input, JsonLimits::ENVELOPE, false)
 }
+pub(crate) fn parse_image_response_json(input: &[u8]) -> Result<Value, JsonError> {
+    parse_with_ceiling(
+        input,
+        JsonLimits::IMAGE_RESPONSE,
+        true,
+        JsonLimits::IMAGE_RESPONSE,
+    )
+}
 fn parse(input: &[u8], limits: JsonLimits, reject_duplicates: bool) -> Result<Value, JsonError> {
+    parse_with_ceiling(input, limits, reject_duplicates, JsonLimits::ENVELOPE)
+}
+fn parse_with_ceiling(
+    input: &[u8],
+    limits: JsonLimits,
+    reject_duplicates: bool,
+    ceiling: JsonLimits,
+) -> Result<Value, JsonError> {
     let limits = JsonLimits {
-        bytes: limits.bytes.min(JsonLimits::ENVELOPE.bytes),
-        depth: limits.depth.min(JsonLimits::ENVELOPE.depth),
-        nodes: limits.nodes.min(JsonLimits::ENVELOPE.nodes),
+        bytes: limits.bytes.min(ceiling.bytes),
+        depth: limits.depth.min(ceiling.depth),
+        nodes: limits.nodes.min(ceiling.nodes),
     };
     if input.len() > limits.bytes {
         return Err(JsonError::Limit);

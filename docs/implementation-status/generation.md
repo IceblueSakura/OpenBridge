@@ -22,7 +22,7 @@
 - **文本目标覆盖**：部分 Chat 控制与 history 尚未准入；reasoning、custom/program、phase、概率、reported context 和多 part grouping 并非都有对端位置。按实际消费需求核对[Chat](../architecture-v2/chat-text-profile.md)、[Responses](../architecture-v2/responses-text-profile.md)与[Schema](../architecture-v2/schema-profile.md)，不维护第二份字段清单，也不把单候选 profile 刻意拒绝的多候选当作待补缺口。Schema shell 可表达不证明 strict 缺省语义相同；共享 Schema/adherence 与 fixed profile 配额、reasoning 控制/预算、带单位引用坐标及更广 timestamp/缺失 metadata 的分离仍待后续切片；在具体 Chat 损失规则或其他目标合同落地前，不可表示时仍须拒绝。
 - **状态 API 与更广执行域**：活动 continuation/conversation、store/background、资源操作、compaction、WebSocket、其他独立媒体 operation、hosted/dynamic tools 与其他 task family 尚无完整主链。inactive 形式、queued 事件、TaskKind 名称和选定图片输入均不能代表这些能力已实现；未知分支不能塞进 generic extension。Realtime 等详细设计按计划后置，不是当前主线退出条件。
 
-- **独立图片生成产品接线**：独立静态单图的当前注册与显式激活需查[图片 catalog](../../src/topology/catalog/images.rs)及 bootstrap；真实账户准入与外部执行仍需独立验证。更多请求控制、图片编辑、多图、URL 产物、流式图片与文件服务不由该切片推定。当前最小接口与资源边界归 [HTTP 指南](../http-gateway.md#独立图片生成)和 [Images codec](../../src/protocol/openai/images.rs)。
+- **独立图片生成产品接线**：独立静态单图的当前注册与显式激活需查[图片 catalog](../../src/topology/catalog/images.rs)及 bootstrap；真实账户准入与外部执行仍需独立验证。标准静态控制的表示不证明每个目标都接受，真实控制效果、大图片与跨目标预算仍需独立验证；图片编辑、多图、URL 产物、流式图片与文件服务不由该切片推定。当前接口与资源边界归 [HTTP 指南](../http-gateway.md#独立图片生成)和 [Images codec](../../src/protocol/openai/images.rs)。
 
 ## 扩展与执行缺口
 

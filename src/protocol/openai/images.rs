@@ -10,7 +10,10 @@ use crate::{
 };
 use serde_json::{Map, Value, json};
 
-use crate::{adapter::images::Request, semantic::context::DeliveryIntent};
+use crate::{
+    adapter::images::Request,
+    semantic::context::{ClientIdentityHints, DeliveryIntent},
+};
 fn invalid() -> CodecError {
     CodecError::Invalid("image generation")
 }
@@ -86,13 +89,59 @@ fn valid_model(model: &str) -> bool {
 }
 pub fn decode_request(bytes: &[u8]) -> Result<Request, CodecError> {
     let value = super::json::decode(bytes)?;
-    let map = object(&value, &["model", "prompt", "n", "stream", "output_format"])?;
+    let map = object(
+        &value,
+        &[
+            "model",
+            "prompt",
+            "n",
+            "stream",
+            "output_format",
+            "size",
+            "quality",
+            "background",
+            "output_compression",
+            "moderation",
+            "user",
+        ],
+    )?;
     let mut task =
         ImageGenerationRequest::new(string(required(map, "prompt")?)?).map_err(|_| invalid())?;
     task.count = optional(map, "n", |v| {
         u8::try_from(number(v)?).map_err(|_| invalid())
     })?;
     task.format = optional(map, "output_format", format)?;
+    task.size = optional(map, "size", |v| {
+        if string(v)? == "auto" {
+            Ok(ImageSizeRequest::Auto)
+        } else {
+            size(v).map(ImageSizeRequest::Exact)
+        }
+    })?;
+    task.quality = optional(map, "quality", |v| {
+        if string(v)? == "auto" {
+            Ok(ImageQualityRequest::Auto)
+        } else {
+            Ok(ImageQualityRequest::Exact(
+                string(v)?.parse().map_err(|_| invalid())?,
+            ))
+        }
+    })?;
+    task.background = optional(map, "background", |v| {
+        if string(v)? == "auto" {
+            Ok(ImageBackgroundRequest::Auto)
+        } else {
+            Ok(ImageBackgroundRequest::Exact(
+                string(v)?.parse().map_err(|_| invalid())?,
+            ))
+        }
+    })?;
+    task.compression = optional(map, "output_compression", |v| {
+        u8::try_from(number(v)?).map_err(|_| invalid())
+    })?;
+    task.moderation = optional(map, "moderation", |v| {
+        string(v)?.parse().map_err(|_| invalid())
+    })?;
     let request = Request {
         model: string(required(map, "model")?)?.into(),
         task,
@@ -100,20 +149,25 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, CodecError> {
             stream: optional(map, "stream", |v| v.as_bool().ok_or_else(invalid))?,
             options: Presence::Absent,
         },
+        identity: ClientIdentityHints {
+            user: optional(map, "user", |v| Ok(string(v)?.into()))?,
+            ..Default::default()
+        },
     };
     validate_request(&request)?;
     Ok(request)
 }
 pub fn validate_request(request: &Request) -> Result<(), CodecError> {
     request.task.validate().map_err(|_| invalid())?;
+    request.identity.validate().map_err(|_| invalid())?;
     if !valid_model(&request.model)
         || request.delivery.streaming()
         || !request.delivery.options.is_absent()
-        || request
-            .task
-            .format
-            .value()
-            .is_some_and(|f| *f != ImageFormat::Png)
+        || !request.identity.safety_identifier.is_absent()
+        || matches!(request.identity.user, Presence::Null)
+        // This profile defaults to PNG, unlike the protocol-neutral request.
+        || request.task.compression.value().is_some()
+            && !matches!(request.task.format.value(),Some(ImageFormat::Jpeg|ImageFormat::Webp))
     {
         return Err(invalid());
     }
@@ -135,6 +189,27 @@ pub fn encode_request(request: &Request, model: &str) -> Result<Value, CodecErro
         &request.task.format,
         format_value,
     );
+    put(&mut map, "size", &request.task.size, |v| match v {
+        ImageSizeRequest::Auto => json!("auto"),
+        ImageSizeRequest::Exact(s) => json!(format!("{}x{}", s.width, s.height)),
+    });
+    put(&mut map, "quality", &request.task.quality, |v| {
+        json!(v.label())
+    });
+    put(&mut map, "background", &request.task.background, |v| {
+        json!(v.label())
+    });
+    put(
+        &mut map,
+        "output_compression",
+        &request.task.compression,
+        |v| json!(v),
+    );
+    put(&mut map, "moderation", &request.task.moderation, |v| {
+        let label: &str = (*v).into();
+        json!(label)
+    });
+    put(&mut map, "user", &request.identity.user, |v| json!(v));
     Ok(Value::Object(map))
 }
 fn size(value: &Value) -> Result<ImageSize, CodecError> {
@@ -183,7 +258,7 @@ fn usage(value: &Value) -> Result<ImageUsage, CodecError> {
     Ok(usage)
 }
 pub fn decode_response(bytes: &[u8]) -> Result<ImageGenerationResponse, CodecError> {
-    let value = super::json::decode(bytes)?;
+    let value = super::json::decode_image_response(bytes)?;
     let map = object(
         &value,
         &[

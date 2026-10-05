@@ -90,7 +90,8 @@ class ImageGenerationProbeTests(unittest.TestCase):
             run=Run.create(Path(directory)/"run",providers="openrouter",models=["gpt-image-2.5-flare"],limit=1,tokens=None,task="images")
             with ProbeClient("http://127.0.0.1:12345",run) as client:
                 client.prepare("gpt-image-2.5-flare","images","bad","synthetic")
-                for patch_body in ({"n":2},{"stream":True},{"max_tokens":1},{"output_format":"png"},{"prompt":"different"}):
+                for patch_body in ({"n":2},{"stream":True},{"max_tokens":1},{"output_format":"png"},{"prompt":"different"},
+                                   {"quality":"high"},{"size":"1536x1024"},{"moderation":"low"},{"user":"unplanned-user"}):
                     body={"model":"gpt-image-2.5-flare","prompt":"synthetic",**patch_body}
                     with self.assertRaises(ProbeFailure):client.send(httpx2.Request("POST","http://127.0.0.1:12345/v1/images/generations",json=body))
                 self.assertEqual(run.snapshot(),[])

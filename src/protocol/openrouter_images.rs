@@ -17,17 +17,35 @@ fn invalid() -> CodecError {
     CodecError::Invalid("OpenRouter image generation")
 }
 pub fn encode_request(request: &Request, model: &str) -> Result<Value, CodecError> {
-    // The endpoint catalog does not declare output_format; never promise it from defaults.
-    if model != "openai/gpt-image-2.5-flare" || request.task.format.value().is_some() {
+    // A supported aspect ratio is not an exact pixel-size or encoding guarantee.
+    // Neither size nor output_format is declared by this endpoint. Compression
+    // cannot be honored without an admitted compatible encoding.
+    if model != "openai/gpt-image-2.5-flare"
+        || request.task.format.value().is_some()
+        || request.task.size.value().is_some()
+        || request.task.compression.value().is_some()
+    {
         return Err(invalid());
     }
     super::openai::images::validate_request(request)?;
     // The single-image task and inactive delivery have explicit carriers here;
     // OpenAI null defaults do not authorize nullable upstream controls.
-    Ok(
-        json!({"model":model,"prompt":request.task.prompt(),"n":1,"stream":false,
-        "provider":{"only":["openai"],"allow_fallbacks":false}}),
-    )
+    let mut value = json!({"model":model,"prompt":request.task.prompt(),"n":1,"stream":false,
+        "provider":{"only":["openai"],"allow_fallbacks":false}});
+    if let Some(quality) = request.task.quality.value() {
+        value["quality"] = json!(quality.label());
+    }
+    if let Some(background) = request.task.background.value() {
+        value["background"] = json!(background.label());
+    }
+    if let Some(moderation) = request.task.moderation.value() {
+        let label: &str = (*moderation).into();
+        value["provider"]["options"] = json!({"openai":{"moderation":label}});
+    }
+    if let Some(user) = request.identity.user.value() {
+        value["user"] = json!(user);
+    }
+    Ok(value)
 }
 fn input_details(value: &Value) -> Result<ImageTokenBreakdown, CodecError> {
     let m = object(
@@ -125,7 +143,7 @@ fn usage(value: &Value) -> Result<ImageUsage, CodecError> {
     Ok(usage)
 }
 pub fn decode_response(bytes: &[u8]) -> Result<ImageGenerationResponse, CodecError> {
-    let value = super::openai::json::decode(bytes)?;
+    let value = super::openai::json::decode_image_response(bytes)?;
     let map = object(&value, &["created", "data", "usage"])?;
     let data = required(map, "data")?.as_array().ok_or_else(invalid)?;
     if data.len() != 1 {

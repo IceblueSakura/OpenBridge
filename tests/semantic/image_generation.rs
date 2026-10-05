@@ -35,9 +35,9 @@ fn image_generation_request_rejects_unsupported_semantics_and_duplicate_keys() {
     for patch in [
         json!({"n":2}),
         json!({"stream":true}),
-        json!({"output_format":"jpeg"}),
+        json!({"output_format":"bmp"}),
         json!({"response_format":"b64_json"}),
-        json!({"size":"1024x1024"}),
+        json!({"size":"not-a-size"}),
         json!({"provider":null}),
         json!({"_openbridge":{}}),
         json!({"prompt":null}),

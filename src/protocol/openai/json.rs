@@ -8,6 +8,12 @@ pub(crate) fn decode(input: &[u8]) -> Result<serde_json::Value, CodecError> {
         JsonError::Invalid => CodecError::Invalid("JSON"),
     })
 }
+pub(crate) fn decode_image_response(input: &[u8]) -> Result<serde_json::Value, CodecError> {
+    crate::semantic::value::parse_image_response_json(input).map_err(|error| match error {
+        JsonError::Limit => CodecError::Limit,
+        JsonError::Invalid => CodecError::Invalid("JSON"),
+    })
+}
 #[cfg(test)]
 mod tests {
     use super::*;

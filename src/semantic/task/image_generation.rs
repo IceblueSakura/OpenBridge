@@ -1,10 +1,14 @@
 //! Independent, static single-image task. No conversation, runtime target or file service.
 use crate::semantic::value::{ImageFormat, Presence};
 use base64::engine::general_purpose::STANDARD;
+mod controls;
+pub use controls::{
+    ImageBackgroundRequest, ImageModeration, ImageQualityRequest, ImageSizeRequest,
+};
 
 pub const MAX_PROMPT_CHARS: usize = 32_000;
 pub const MAX_PROMPT_BYTES: usize = MAX_PROMPT_CHARS * 4;
-pub const MAX_IMAGE_BYTES: usize = 2 << 20;
+pub const MAX_IMAGE_BYTES: usize = 8 << 20;
 pub const MAX_IMAGE_BASE64_BYTES: usize = MAX_IMAGE_BYTES.div_ceil(3) * 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
@@ -16,6 +20,11 @@ pub struct ImageGenerationRequest {
     prompt: String,
     pub count: Presence<u8>,
     pub format: Presence<ImageFormat>,
+    pub size: Presence<ImageSizeRequest>,
+    pub quality: Presence<ImageQualityRequest>,
+    pub background: Presence<ImageBackgroundRequest>,
+    pub compression: Presence<u8>,
+    pub moderation: Presence<ImageModeration>,
 }
 impl std::fmt::Debug for ImageGenerationRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -23,6 +32,11 @@ impl std::fmt::Debug for ImageGenerationRequest {
             .field("prompt", &"[redacted]")
             .field("count", &self.count)
             .field("format", &self.format)
+            .field("size", &self.size)
+            .field("quality", &self.quality)
+            .field("background", &self.background)
+            .field("compression", &self.compression)
+            .field("moderation", &self.moderation)
             .finish()
     }
 }
@@ -32,6 +46,11 @@ impl ImageGenerationRequest {
             prompt: prompt.into(),
             count: Presence::Absent,
             format: Presence::Absent,
+            size: Presence::Absent,
+            quality: Presence::Absent,
+            background: Presence::Absent,
+            compression: Presence::Absent,
+            moderation: Presence::Absent,
         };
         value.validate()?;
         Ok(value)
@@ -55,13 +74,28 @@ impl ImageGenerationRequest {
         {
             return Err(ImageError);
         }
+        if let Some(ImageSizeRequest::Exact(size)) = self.size.value() {
+            size.validate()?;
+        }
+        if self.compression.value().is_some_and(|v| *v > 100)
+            || self.compression.value().is_some()
+                && self.format == Presence::Value(ImageFormat::Png)
+            || self.background
+                == Presence::Value(ImageBackgroundRequest::Exact(ImageBackground::Transparent))
+                && self.format == Presence::Value(ImageFormat::Jpeg)
+        {
+            return Err(ImageError);
+        }
         Ok(())
     }
 }
 
 /// Encoded bytes are inert. This checks Base64 and budgets, not pixels or MIME truth.
 #[derive(Clone, Eq, PartialEq)]
-pub struct ImageData(String);
+pub struct ImageData {
+    encoded: String,
+    decoded_bytes: usize,
+}
 impl std::fmt::Debug for ImageData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ImageData([redacted])")
@@ -77,10 +111,16 @@ impl ImageData {
         if bytes == 0 || bytes > MAX_IMAGE_BYTES as u64 {
             return Err(ImageError);
         }
-        Ok(Self(data.into()))
+        Ok(Self {
+            encoded: data.into(),
+            decoded_bytes: usize::try_from(bytes).map_err(|_| ImageError)?,
+        })
     }
     pub fn as_base64(&self) -> &str {
-        &self.0
+        &self.encoded
+    }
+    pub fn decoded_bytes(&self) -> usize {
+        self.decoded_bytes
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -142,6 +182,30 @@ impl ImageGenerationResponse {
         {
             return Err(ImageError);
         }
+        if let (Some(ImageSizeRequest::Exact(expected)), Some(reported)) =
+            (request.size.value(), self.image.size.value())
+            && expected != reported
+        {
+            return Err(ImageError);
+        }
+        if let (Some(ImageQualityRequest::Exact(expected)), Some(reported)) =
+            (request.quality.value(), self.image.quality.value())
+            && expected != reported
+        {
+            return Err(ImageError);
+        }
+        if let (Some(ImageBackgroundRequest::Exact(expected)), Some(reported)) =
+            (request.background.value(), self.image.background.value())
+            && expected != reported
+        {
+            return Err(ImageError);
+        }
+        if request.background
+            == Presence::Value(ImageBackgroundRequest::Exact(ImageBackground::Transparent))
+            && self.image.format == Presence::Value(ImageFormat::Jpeg)
+        {
+            return Err(ImageError);
+        }
         Ok(())
     }
     pub fn new(created: u64, data: ImageData) -> Self {
@@ -163,6 +227,11 @@ impl ImageGenerationResponse {
             .format
             .value()
             .is_some_and(|f| !matches!(f, ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Webp))
+        {
+            return Err(ImageError);
+        }
+        if self.image.background == Presence::Value(ImageBackground::Transparent)
+            && self.image.format == Presence::Value(ImageFormat::Jpeg)
         {
             return Err(ImageError);
         }

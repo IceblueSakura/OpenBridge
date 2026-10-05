@@ -64,23 +64,23 @@ Chat 图片 part 使用 `{"type":"image_url","image_url":{"url":"https://example
 
 ### 独立图片生成
 
-图片生成使用独立 [ImageGeneration task](../src/semantic/task/image_generation.rs)，不是 Responses hosted tool 或 Chat assistant message。请求只准入 model、prompt、单张计数、非流式交付与 PNG 格式意图；具体 required/null/预算和结果字段由 [OpenAPI](openapi.json) 与 [codec](../src/protocol/openai/images.rs)维护。结果格式、尺寸、背景、quality 和 usage 只保留上游报告，不从请求补造。Base64 验证不解析像素，不证明图像格式或生成质量。
+图片生成使用独立 [ImageGeneration task](../src/semantic/task/image_generation.rs)，不是 Responses hosted tool 或 Chat assistant message。请求承载静态单图及类型化尺寸、质量、背景、格式、压缩与 moderation 意图，user 属于独立身份上下文；具体准入、required/null、组合约束、预算和结果字段由 [OpenAPI](openapi.json) 与 [codec](../src/protocol/openai/images.rs)维护。结果格式、尺寸、背景、quality 和 usage 只保留上游报告，不从请求或 auto/default 补造；明确报告与请求矛盾时拒绝。Base64 验证不解析像素，不证明图像格式或生成质量。
 
 嵌入方通过 `CompiledTopology::with_images` 编译明确的 Provider operation 路径、image profile、计量投影策略与单 endpoint `ImageRoute`，再由 `Gateway::new_with_images` 和 `ImageEntry` 显式激活；只允许单 API key 来源，无 retry/fallback。Binary 从[图片 catalog](../src/topology/catalog/images.rs)解析绑定，只有操作者在 `models` 中显式选定图片标签且配好对应单来源、禁 fallback 的 API key pool 才激活；省略 `models` 不自动增加图片入口。旧 `Gateway::new` 不启用图片绑定；未激活模型返回 `model_not_found`。输入标签不能选择 origin、路径或凭据，也不从 Chat/Responses 激活推定 Images 支持。
 
-OpenRouter 的独立 Images profile 使用受信固定路径和 Provider 限制，不走 Chat image carrier；目标未声明的显式格式控制在 I/O 前拒绝，不从缺省产物格式推定可控。该绑定使用[具名计量投影](architecture-v2/protocol-and-lowering.md#独立-images-的计量投影)：IR 保留稀疏报告与费用，标准输出仅在完整可表示时提供 usage，否则省略 usage；费用不输出，严格策略仍拒绝。规则不放宽产物、错误或预算验证。
+OpenRouter 的独立 Images profile 使用受信固定路径和 Provider 限制，不走 Chat image carrier；目标未声明的尺寸/格式等控制在 I/O 前拒绝，不把 aspect ratio 当作精确像素大小，也不从缺省产物格式推定可控。允许的 Provider-specific moderation 只映射到固定 Provider 的受信 carrier，客户端不能提交任意 provider options。该绑定使用[具名计量投影](architecture-v2/protocol-and-lowering.md#独立-images-的计量投影)：IR 保留稀疏报告与费用，标准输出仅在完整可表示时提供 usage，否则省略 usage；费用不输出，严格策略仍拒绝。规则不放宽产物、错误或预算验证。
 
-请求型例子中的模型是占位符，不代表注册或调用授权；显式 PNG 意图还需目标支持，OpenRouter 当前具名 profile 不接受该控制：
+请求型例子中的模型是占位符，不代表注册或调用授权；示例控制还需目标支持，具体 profile 限制查对应 codec：
 
 ```json
-{"model":"configured-image-model","prompt":"A blue square on a white background.","n":1,"stream":false,"output_format":"png"}
+{"model":"configured-image-model","prompt":"A blue square on a white background.","n":1,"stream":false,"quality":"high","background":"opaque","output_format":"jpeg","output_compression":85}
 ```
 
-不支持图片编辑、多图、URL 产物、文件服务或流式图片。图片请求不注入对话输出 token 上限；仍共享认证、并发、取消、严格 EOF、实际 body handoff 与绝对 deadline 约束。请求/响应分别受 operator、endpoint 和 codec 的硬预算限制，不自动扩大媒体缓冲。
+不支持图片编辑、多图、URL 产物、文件服务或流式图片。图片请求不注入对话输出 token 上限；仍共享认证、并发、取消、严格 EOF、实际 body handoff 与绝对 deadline 约束。请求/响应分别受 operator、endpoint 和 codec 的硬预算限制。Images 响应有独立的 JSON 硬上限，不改变普通对话解析；`Limits.image_bytes` 对解码后的单图字节另设上限，不替代 response_bytes 或 endpoint 的整包限制。嵌入方须同时满足各层预算，不能通过调大其中一个绕过其他限制。Binary 使用默认 Limits，本片不增加私有配置格式。
 
 ### 默认资源边界
 
-默认值与可嵌入调整范围只由 [`Limits`](../src/gateway/config.rs)维护：应用层并发、请求收集、上游/下游 bytes、单 SSE frame/事件数、输出 tokens 与绝对 exchange deadline 分别有界，且仍受 Endpoint/codec 预算约束。满载拒绝，不排无限队列；更紧的 Endpoint timeout 优先。媒体输入不自动放宽限制，背压不暂停 deadline。
+默认值与可嵌入调整范围只由 [`Limits`](../src/gateway/config.rs)维护：应用层并发、请求收集、上游/下游 bytes、解码后图片 bytes、单 SSE frame/事件数、输出 tokens 与绝对 exchange deadline 分别有界，且仍受 Endpoint/codec 预算约束。满载拒绝，不排无限队列；更紧的 Endpoint timeout 优先。媒体输入不自动放宽限制，背压不暂停 deadline。
 
 这些是应用层边界，不是全部 HTTP 连接、实际计费或生产抗负载保证。
 

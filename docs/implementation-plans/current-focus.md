@@ -2,7 +2,9 @@
 
 ## 当前范围
 
-当前没有已定稿且未完成的新行为切片。后续选片按[计划](next-goal.md#推进顺序与退出条件)重评文件扩展是否继续延期；独立 Images 的具名计量损失只按[投影合同](../architecture-v2/protocol-and-lowering.md#独立-images-的计量投影)适用，不授权更多图片控制、其他模态或流式损失。
+当前没有已定稿且未完成的新行为切片。图片方向继续优先完善 `/v1/images/generations`，多图产物集合与流式事件按[计划](next-goal.md#推进顺序与退出条件)单独定稿，API 较完善后再追加其他模型验证；不从静态控制准入推定所有目标支持。文件扩展继续延期，下一次选片时重评。
+
+独立 Images 的具名计量损失只按[投影合同](../architecture-v2/protocol-and-lowering.md#独立-images-的计量投影)适用，不授权丢弃请求控制、篡改产物报告或隐藏预算失败。新付费测试需要明确场景，不复用旧矩阵授权扩大控制或模型范围。
 
 文件仅维持既有 Responses user inline/URL 基础输入及必要正确性、安全维护；其他文件功能暂停，恢复评估按[计划的有限首批范围与重评节点](next-goal.md#推进顺序与退出条件)执行，不等待所有模态完成，也不自动恢复实施。不新增 `/v1/files` 上传、存储、下载、删除或 file_id 服务。Inline 与 URL 文件合同分别归 [inline profile](../architecture-v2/responses-text-profile.md#user-inline-file-input)和 [URL profile](../architecture-v2/responses-text-profile.md#user-file-url-input)，其他模态的下一片按[计划](next-goal.md)单独定稿；文件扩展延期，不能从 PDF carrier 推定所有格式、来源或工具文件均准入。
 

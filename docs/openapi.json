@@ -171,11 +171,112 @@
           "output_format": {
             "enum": [
               "png",
+              "jpeg",
+              "webp",
               null
             ]
+          },
+          "size": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImagePixelSize"
+              },
+              {
+                "enum": [
+                  "auto",
+                  null
+                ]
+              }
+            ]
+          },
+          "quality": {
+            "enum": [
+              "auto",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max",
+              null
+            ]
+          },
+          "background": {
+            "enum": [
+              "auto",
+              "transparent",
+              "opaque",
+              null
+            ]
+          },
+          "output_compression": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "moderation": {
+            "enum": [
+              "auto",
+              "low",
+              null
+            ]
+          },
+          "user": {
+            "type": "string",
+            "maxLength": 256
           }
         },
-        "description": "Bounded non-streaming single-image slice. Missing/null options remain distinct. Other image controls, URL output, edits, multiple images and streaming are rejected before I/O. A target may reject controls its endpoint does not declare. Image bindings require explicit model selection; they do not expand default conversation activation."
+        "description": "Bounded static single-image profile. Missing, null and explicit controls remain distinct; user is not nullable. Explicit compression requires explicit JPEG or WebP. Transparent background cannot use JPEG. Unknown/legacy fields, edits, multiple images and streaming are rejected. Targets independently admit controls; a standard carrier does not prove a target accepts it. Identity hints never select credentials or routing. Explicit model activation is required.",
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "output_format",
+                "background"
+              ],
+              "properties": {
+                "output_format": {
+                  "const": "jpeg"
+                },
+                "background": {
+                  "const": "transparent"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "output_compression"
+              ],
+              "properties": {
+                "output_compression": {
+                  "type": "integer"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "output_format"
+              ],
+              "properties": {
+                "output_format": {
+                  "enum": [
+                    "jpeg",
+                    "webp"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ImagePixelSize": {
+        "type": "string",
+        "pattern": "^(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-6])x(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-6])(?![\\s\\S])",
+        "description": "Canonical WIDTHxHEIGHT in pixels, each dimension 1..65536. Target-specific admitted dimensions may be narrower."
       },
       "ImageTokenBreakdown": {
         "type": "object",
@@ -262,9 +363,9 @@
                 "b64_json": {
                   "type": "string",
                   "minLength": 4,
-                  "maxLength": 2796204,
+                  "maxLength": 11184812,
                   "contentEncoding": "base64",
-                  "description": "Strict Base64, nonempty decoded bytes, at most 2 MiB decoded. Representation validation does not decode pixels or attest format."
+                  "description": "Strict Base64, nonempty decoded bytes, at most 8 MiB decoded. Gateway defaults are narrower; operator, endpoint and image-response JSON budgets still apply. Representation validation does not decode pixels or attest format."
                 }
               }
             }
@@ -278,12 +379,14 @@
             ]
           },
           "size": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^[1-9][0-9]{0,4}x[1-9][0-9]{0,4}$",
-            "description": "Reported pixel dimensions, each at most 65536; not inferred from request defaults."
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImagePixelSize"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "background": {
             "enum": [
@@ -306,7 +409,25 @@
             "$ref": "#/components/schemas/ImageUsage"
           }
         },
-        "description": "All optional facts preserve absent/null/value; no URL fetch, file service, revised prompt or private carrier. JSON has the shared 4 MiB hard ceiling and tighter operator/endpoint budgets."
+        "description": "All optional facts preserve absent/null/value; no URL fetch, file service, revised prompt or private carrier. JSON has the shared 4 MiB hard ceiling and tighter operator/endpoint budgets.",
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "output_format",
+                "background"
+              ],
+              "properties": {
+                "output_format": {
+                  "const": "jpeg"
+                },
+                "background": {
+                  "const": "transparent"
+                }
+              }
+            }
+          }
+        ]
       },
       "PublicModelLabel": {
         "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9_.-]+$",

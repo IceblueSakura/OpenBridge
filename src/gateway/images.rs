@@ -1,4 +1,7 @@
 //! Authenticated image admission and a single bounded static exchange.
+#[cfg(test)]
+#[path = "image_tests.rs"]
+mod tests;
 use super::{
     ApiError, Credentials, ImageEntry, Runtime, StartupError, admission, body, credentials,
     diagnostics::{Stage, Trace},
@@ -139,6 +142,19 @@ pub(super) async fn produce(
     trace.end_candidate(result.as_ref().err().map(|e| e.code), false);
     result
 }
+fn check_response(
+    response: &crate::semantic::task::image_generation::ImageGenerationResponse,
+    request: &crate::semantic::task::image_generation::ImageGenerationRequest,
+    image_bytes: usize,
+) -> Result<(), ApiError> {
+    response
+        .validate_for(request)
+        .map_err(|_| ApiError::upstream())?;
+    if response.image.data.decoded_bytes() > image_bytes {
+        return Err(ApiError::upstream());
+    }
+    Ok(())
+}
 async fn produce_one(
     runtime: &Runtime,
     entry: &BoundImage,
@@ -186,7 +202,7 @@ async fn produce_one(
         .limits
         .response_bytes
         .min(entry.route.endpoint.execution.response_body_limit)
-        .min(crate::semantic::value::JsonLimits::ENVELOPE.bytes);
+        .min(crate::semantic::value::JsonLimits::IMAGE_RESPONSE.bytes);
     if upstream.content_length().is_some_and(|n| n > limit as u64) {
         return Err(ApiError::upstream());
     }
@@ -207,9 +223,7 @@ async fn produce_one(
         .profile
         .decode_response(&bytes)
         .map_err(|_| ApiError::upstream())?;
-    response
-        .validate_for(&request.task)
-        .map_err(|_| ApiError::upstream())?;
+    check_response(&response, &request.task, runtime.limits.image_bytes)?;
     trace.stage(Stage::Projection);
     let projected = crate::lowering::images::project_response(&response, entry.route.accounting)
         .map_err(|_| ApiError::upstream())?;

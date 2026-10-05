@@ -54,7 +54,7 @@ uv run --project tests/sdk --locked --offline python examples/probe.py run \
   testdata/runtime/image-run --model "$PUBLIC_MODEL" --cases image_generate --dry-run
 ```
 
-`image_generate` 是缺省、显式单图非流式、null 默认值三种独立请求；可用 `image_generate_minimal`、`image_generate_explicit`、`image_generate_nullable` 分别选择。只有 `images` 协议与 JSON 交付；不使用 reasoning、图片编辑、更多模型或自动 retry。真实发送仍需该矩阵授权、显式 `--live`、已配置的凭据目录与当前 binary；不把 plan 创建当作授权。不设 token cap 或金额 cap 不等于没有 request/image 数量边界，也不是远端费用硬限制。
+公开 Images API 的参数扩展不自动扩大既有付费 probe 矩阵；质量、尺寸、moderation 等新控制须另定场景，现有发送守卫仍拒绝它们。`image_generate` 是缺省、显式单图非流式、null 默认值三种独立请求；可用 `image_generate_minimal`、`image_generate_explicit`、`image_generate_nullable` 分别选择。只有 `images` 协议与 JSON 交付；不使用 reasoning、图片编辑、更多模型或自动 retry。真实发送仍需该矩阵授权、显式 `--live`、已配置的凭据目录与当前 binary；不把 plan 创建当作授权。不设 token cap 或金额 cap 不等于没有 request/image 数量边界，也不是远端费用硬限制。
 
 固定 SDK 消费到完整有界 JSON 后，oracle 在内存中校验单张 Base64、PNG chunk CRC、严格 EOF、有界 zlib 与 8-bit 非交错 RGB/RGBA 像素。固定色块提示只检查目标色像素比例，不证明准确几何形状、美学质量或一般图像能力；未覆盖的编码明确失败，不冒充完整解码。不保存 PNG、Base64 或原始响应，只报告字节数、尺寸、解码与色彩判据结果。
 

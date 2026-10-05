@@ -27,6 +27,8 @@ pub struct ImageEntry {
 pub struct Limits {
     pub request_bytes: usize,
     pub response_bytes: usize,
+    /// Decoded output bytes per image; cannot enlarge response or endpoint ceilings.
+    pub image_bytes: usize,
     pub event_bytes: usize,
     pub max_events: usize,
     pub concurrency: usize,
@@ -40,6 +42,7 @@ impl Default for Limits {
         Self {
             request_bytes: 256 << 10,
             response_bytes: 8 << 20,
+            image_bytes: 2 << 20,
             event_bytes: 1 << 20,
             max_events: 65_536,
             concurrency: 16,
@@ -50,10 +53,24 @@ impl Default for Limits {
         }
     }
 }
+#[cfg(test)]
+#[test]
+fn image_limits_keep_defaults_and_reject_out_of_range_configuration() {
+    let mut limits = Limits::default();
+    assert_eq!(limits.image_bytes, 2 << 20);
+    limits.image_bytes = 0;
+    assert!(!limits.validate());
+    limits.image_bytes = crate::semantic::task::image_generation::MAX_IMAGE_BYTES;
+    assert!(limits.validate());
+    limits.image_bytes += 1;
+    assert!(!limits.validate());
+}
 impl Limits {
     fn validate(&self) -> bool {
         (1..=4 << 20).contains(&self.request_bytes)
             && (1..=64 << 20).contains(&self.response_bytes)
+            && (1..=crate::semantic::task::image_generation::MAX_IMAGE_BYTES)
+                .contains(&self.image_bytes)
             && (1..=4 << 20).contains(&self.event_bytes)
             && (1..=1_000_000).contains(&self.max_events)
             && (1..=256).contains(&self.concurrency)

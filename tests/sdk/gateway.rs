@@ -47,7 +47,10 @@ struct Scenario {
     empty_owner: bool,
 }
 #[derive(Clone, Default)]
-struct Observed(Arc<Mutex<BTreeMap<Scenario, u8>>>);
+struct Observed(
+    Arc<Mutex<BTreeMap<Scenario, u8>>>,
+    Arc<std::sync::atomic::AtomicUsize>,
+);
 async fn provider(
     State(state): State<Observed>,
     headers: HeaderMap,
@@ -188,6 +191,22 @@ async fn provider(
         .body(Body::from(bytes))
         .unwrap()
 }
+async fn image_provider(
+    State(state): State<Observed>,
+    headers: HeaderMap,
+    axum::Json(request): axum::Json<Value>,
+) -> Response {
+    assert_eq!(
+        headers["authorization"],
+        "Bearer synthetic-upstream-credential-0001"
+    );
+    assert_eq!(state.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(
+        request,
+        json!({"model":"private-image","prompt":"synthetic image","n":1,"stream":false,"size":"1536x1024","quality":"high","background":"transparent","output_format":"webp","output_compression":80,"moderation":"low","user":"synthetic-sdk-user"})
+    );
+    Response::builder().header("content-type","application/json").body(Body::from(json!({"created":7,"data":[{"b64_json":"AQID"}],"size":"1536x1024","quality":"high","background":"transparent","output_format":"webp"}).to_string())).unwrap()
+}
 #[tokio::test]
 #[ignore = "requires the pinned SDK; real gateway Router and synthetic HTTP Provider only"]
 async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
@@ -201,6 +220,7 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
             Router::new()
                 .route("/chat/completions", post(provider))
                 .route("/responses", post(provider))
+                .route("/images/generations", post(image_provider))
                 .with_state(state),
         )
         .await
@@ -244,7 +264,8 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["requests"], 10);
+    assert_eq!(report["requests"], 11);
+    assert_eq!(observed.1.load(std::sync::atomic::Ordering::SeqCst), 1);
     {
         let observed = observed.0.lock().unwrap();
         assert_eq!(observed.len(), 6);

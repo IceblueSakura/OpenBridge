@@ -1,10 +1,24 @@
 //! Protocol-neutral single-image request envelope for Gateway and typed consumers.
-use crate::semantic::{context::DeliveryIntent, task::image_generation::ImageGenerationRequest};
-#[derive(Clone, Debug, Eq, PartialEq)]
+use crate::semantic::{
+    context::{ClientIdentityHints, DeliveryIntent},
+    task::image_generation::ImageGenerationRequest,
+};
+#[derive(Clone, Eq, PartialEq)]
 pub struct Request {
     pub model: String,
     pub task: ImageGenerationRequest,
     pub delivery: DeliveryIntent,
+    pub identity: ClientIdentityHints,
+}
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageRequest")
+            .field("model", &self.model)
+            .field("task", &self.task)
+            .field("delivery", &self.delivery)
+            .field("identity", &"[redacted]")
+            .finish()
+    }
 }
 /// Trusted upstream image wire contract, independent of the public Images operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,6 +58,7 @@ impl Request {
             model: model.into(),
             task,
             delivery: DeliveryIntent::default(),
+            identity: ClientIdentityHints::default(),
         }
     }
 }

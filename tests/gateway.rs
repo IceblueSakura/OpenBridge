@@ -256,10 +256,17 @@ async fn openrouter_image_answer(
         "Bearer synthetic-router-credential-0001"
     );
     assert!(!headers.contains_key("x-never-forward"));
-    assert_eq!(
-        request,
-        json!({"model":"openai/gpt-image-2.5-flare","prompt":"blue square","n":1,"stream":false,"provider":{"only":["openai"],"allow_fallbacks":false}})
-    );
+    if request["prompt"] == "controlled-flare" {
+        assert_eq!(
+            request,
+            json!({"model":"openai/gpt-image-2.5-flare","prompt":"controlled-flare","n":1,"stream":false,"quality":"high","background":"transparent","user":"synthetic-user-control","provider":{"only":["openai"],"allow_fallbacks":false,"options":{"openai":{"moderation":"low"}}}})
+        );
+    } else {
+        assert_eq!(
+            request,
+            json!({"model":"openai/gpt-image-2.5-flare","prompt":"blue square","n":1,"stream":false,"provider":{"only":["openai"],"allow_fallbacks":false}})
+        );
+    }
     state.0.lock().unwrap().push(request);
     Response::builder().header("content-type","application/json").body(Body::from(json!({"created":456,"data":[{"b64_json":"BAUG","media_type":"image/png"}],"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8,"cost":0.000123}}).to_string())).unwrap()
 }
@@ -277,6 +284,15 @@ async fn image_answer(
     assert!(request.get("max_output_tokens").is_none());
     state.0.lock().unwrap().push(request.clone());
     let (status, media, body) = match request["prompt"].as_str().unwrap() {
+        "controlled" => {
+            assert_eq!(request,json!({"model":"private-image","prompt":"controlled","size":"1536x1024","quality":"high","background":"transparent","output_format":"webp","output_compression":80,"moderation":"low","user":"synthetic-user-control"}));
+            (200,"application/json",json!({"created":123,"data":[{"b64_json":"AQID"}],"output_format":"webp","size":"1536x1024","background":"transparent","quality":"high"}).to_string())
+        },
+        "decoded-over-budget" => {
+            use base64::Engine;
+            let data=base64::engine::general_purpose::STANDARD.encode(vec![0;(2<<20)+1]);
+            (200,"application/json",json!({"created":123,"data":[{"b64_json":data}],"output_format":"png"}).to_string())
+        },
         "bad-json" => (200, "application/json", "{\"created\":1".into()),
         "wrong-format" => (200,"application/json",json!({"created":1,"data":[{"b64_json":"AQID"}],"output_format":"jpeg"}).to_string()),
         "truncated" => return Response::builder().header("content-type","application/json").body(Body::from_stream(futures_util::stream::iter([
@@ -804,6 +820,13 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         response.json::<Value>().await.unwrap(),
         json!({"created":123,"data":[{"b64_json":"AQID"}],"output_format":"png","size":"1024x1024"})
     );
+    let response=client.post(format!("{url}/v1/images/generations")).bearer_auth(support::CLIENT_KEY)
+        .json(&json!({"model":"public-image","prompt":"controlled","size":"1536x1024","quality":"high","background":"transparent","output_format":"webp","output_compression":80,"moderation":"low","user":"synthetic-user-control"})).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        json!({"created":123,"data":[{"b64_json":"AQID"}],"output_format":"webp","size":"1536x1024","background":"transparent","quality":"high"})
+    );
     for (prompt, status) in [
         ("bad-json", 502),
         ("wrong-format", 502),
@@ -813,6 +836,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         ("rate-limit", 429),
         ("redirect", 502),
         ("over-budget", 502),
+        ("decoded-over-budget", 502),
         ("timeout", 504),
     ] {
         let before = observed.0.lock().unwrap().len();
@@ -831,6 +855,18 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
     let before = observed.0.lock().unwrap().len();
     for (request, status) in [
         (json!({"model":"public-image","prompt":"x","n":2}), 400),
+        (
+            json!({"model":"public-image","prompt":"x","output_format":"jpeg","background":"transparent"}),
+            400,
+        ),
+        (
+            json!({"model":"public-image","prompt":"x","output_format":"png","output_compression":50}),
+            400,
+        ),
+        (
+            json!({"model":"gpt-image-2.5-flare","prompt":"x","size":"1024x1024"}),
+            400,
+        ),
         (
             json!({"model":"public-image","prompt":"x","stream":true}),
             400,
@@ -885,6 +921,13 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         .unwrap();
     assert_eq!(rejected.status(), 400);
     assert_eq!(observed.0.lock().unwrap().len(), before);
+    let response=client.post(format!("{url}/v1/images/generations")).bearer_auth(support::CLIENT_KEY)
+        .json(&json!({"model":"gpt-image-2.5-flare","prompt":"controlled-flare","quality":"high","background":"transparent","moderation":"low","user":"synthetic-user-control"})).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        json!({"created":456,"data":[{"b64_json":"BAUG"}],"output_format":"png"})
+    );
     shutdown.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(3), serving)
         .await
