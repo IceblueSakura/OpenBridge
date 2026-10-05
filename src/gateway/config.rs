@@ -29,6 +29,8 @@ pub struct Limits {
     pub response_bytes: usize,
     /// Decoded output bytes per image; cannot enlarge response or endpoint ceilings.
     pub image_bytes: usize,
+    /// Aggregate decoded output bytes, independent of count and JSON limits.
+    pub images_bytes: usize,
     pub event_bytes: usize,
     pub max_events: usize,
     pub concurrency: usize,
@@ -43,6 +45,7 @@ impl Default for Limits {
             request_bytes: 256 << 10,
             response_bytes: 8 << 20,
             image_bytes: 2 << 20,
+            images_bytes: 2 << 20,
             event_bytes: 1 << 20,
             max_events: 65_536,
             concurrency: 16,
@@ -64,6 +67,14 @@ fn image_limits_keep_defaults_and_reject_out_of_range_configuration() {
     assert!(limits.validate());
     limits.image_bytes += 1;
     assert!(!limits.validate());
+    limits.image_bytes = 1;
+    assert_eq!(limits.images_bytes, 2 << 20);
+    limits.images_bytes = 0;
+    assert!(!limits.validate());
+    limits.images_bytes = crate::semantic::task::image_generation::MAX_IMAGES_BYTES;
+    assert!(limits.validate());
+    limits.images_bytes += 1;
+    assert!(!limits.validate());
 }
 impl Limits {
     fn validate(&self) -> bool {
@@ -71,6 +82,8 @@ impl Limits {
             && (1..=64 << 20).contains(&self.response_bytes)
             && (1..=crate::semantic::task::image_generation::MAX_IMAGE_BYTES)
                 .contains(&self.image_bytes)
+            && (1..=crate::semantic::task::image_generation::MAX_IMAGES_BYTES)
+                .contains(&self.images_bytes)
             && (1..=4 << 20).contains(&self.event_bytes)
             && (1..=1_000_000).contains(&self.max_events)
             && (1..=256).contains(&self.concurrency)

@@ -11,7 +11,7 @@ MorphieCore 建立**可由 Gateway 与未来自研 Agent 复用的模型交互 S
 当前工作区包含 Rust 语义库、统一文件凭据管理器与最小认证 loopback 网关，不是完整标准实现或生产就绪服务。
 
 - HTTP 入口为 Chat Completions / Responses，提供受限的无状态文本输出与选定 URL/inline 图片输入。库与可嵌入 Gateway 另有标准 Responses inline/URL 文件承载，但仍需模型/目标显式准入，不由 codec 推定启用。工具图片结果有独立准入，不能由 user 图片支持推定；协议、模型与实例启用分别核查。
-- Gateway 另有显式绑定的标准 `/v1/images/generations` 静态单图切片，使用独立 ImageGeneration task 和 inline 产物；图片绑定须显式选择并配置凭据池，不随已有 Chat/Responses 默认启用，入口与边界见 [HTTP 指南](docs/http-gateway.md#独立图片生成)。
+- Gateway 另有显式绑定的标准 `/v1/images/generations` 静态图片生成切片，使用独立 ImageGeneration task 和有序 inline 产物集合；图片绑定须显式选择并配置凭据池，不随已有 Chat/Responses 默认启用，入口与边界见 [HTTP 指南](docs/http-gateway.md#独立图片生成)。
 - 同协议与跨协议都走 adapter → IR → validation/transform → requirements/lowering → adapter → JSON/SSE；不可表示的语义明确拒绝，不承诺任意无损转换。
 - 凭据只从操作者指定的自有文件加载；显式池策略允许受预算约束的提交前 fallback，不提供普通请求内登录、自动 refresh、负载均衡或会话管理。
 - 缓存亲和利用 Provider 原生功能和声明的 carrier，不实现网关回答缓存；前缀稳定不证明命中或收益。

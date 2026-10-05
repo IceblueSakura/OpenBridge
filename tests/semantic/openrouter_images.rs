@@ -70,7 +70,11 @@ fn sparse_image_accounting_stays_in_ir_and_has_explicit_downstream_loss() {
 }
 #[test]
 fn complete_tokens_survive_billing_loss_and_edits_never_restore_usage() {
-    let mut response = ImageGenerationResponse::new(9, ImageData::new("AQID").unwrap());
+    let mut response = ImageGenerationResponse::new(
+        9,
+        vec![GeneratedImage::new(ImageData::new("AQID").unwrap())],
+    )
+    .unwrap();
     response.usage = Presence::Value(ImageUsage {
         input: 3,
         input_details: Presence::Value(ImageTokenBreakdown::text_image(3, 0)),
@@ -97,7 +101,7 @@ fn complete_tokens_survive_billing_loss_and_edits_never_restore_usage() {
         project_response(&response, AccountingPolicy::OmitUnrepresentableAccounting).unwrap();
     assert!(projected.response.usage.is_absent());
     assert!(!projected.loss.billing_omitted);
-    response.image.format = Presence::Value(ImageFormat::Gif);
+    response.images[0].format = Presence::Value(ImageFormat::Gif);
     assert!(project_response(&response, AccountingPolicy::OmitUnrepresentableAccounting).is_err());
 }
 #[test]
@@ -136,9 +140,9 @@ fn image_accounting_loss_never_hides_bad_artifacts_or_invalid_reports() {
     let response =
         openrouter_images::decode_response(br#"{"created":1,"data":[{"b64_json":"AQID"}]}"#)
             .unwrap();
-    assert!(response.image.format.is_absent());
+    assert!(response.images[0].format.is_absent());
     let projected =
         project_response(&response, AccountingPolicy::OmitUnrepresentableAccounting).unwrap();
     assert!(!projected.loss.usage_omitted);
-    assert!(projected.response.image.format.is_absent());
+    assert!(projected.response.images[0].format.is_absent());
 }

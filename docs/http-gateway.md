@@ -24,7 +24,7 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 |---|---|
 | `POST /v1/chat/completions` | [单候选 Chat profile](architecture-v2/chat-text-profile.md)；JSON 或 SSE |
 | `POST /v1/responses` | [无状态 Responses profile](architecture-v2/responses-text-profile.md)；JSON 或 SSE |
-| `POST /v1/images/generations` | 显式激活的静态单图切片；JSON，inline 产物，图片模型须明确选择 |
+| `POST /v1/images/generations` | 显式激活的静态有序图片集合；JSON，inline 产物，图片模型须明确选择 |
 
 - 唯一的 `Authorization: Bearer …` 在应用层 body 收集前校验；重复或错误认证拒绝，其他 header 不替代它。请求使用 UTF-8 JSON Content-Type，不接受 Content-Encoding；严格 JSON 拒绝重复 key，先绑定 public model/task 再 decode 语义。
 - `model` 仅接受已激活的 public label，不带 `provider/` 前缀。顶层 `provider` 字段即使为 null 也拒绝。目标 URL/path、上游 model、auth、adapter 与 scope 都来自受信绑定；入站 headers 不透传。
@@ -64,7 +64,9 @@ Chat 图片 part 使用 `{"type":"image_url","image_url":{"url":"https://example
 
 ### 独立图片生成
 
-图片生成使用独立 [ImageGeneration task](../src/semantic/task/image_generation.rs)，不是 Responses hosted tool 或 Chat assistant message。请求承载静态单图及类型化尺寸、质量、背景、格式、压缩与 moderation 意图，user 属于独立身份上下文；具体准入、required/null、组合约束、预算和结果字段由 [OpenAPI](openapi.json) 与 [codec](../src/protocol/openai/images.rs)维护。结果格式、尺寸、背景、quality 和 usage 只保留上游报告，不从请求或 auto/default 补造；明确报告与请求矛盾时拒绝。Base64 验证不解析像素，不证明图像格式或生成质量。
+图片生成使用独立 [ImageGeneration task](../src/semantic/task/image_generation.rs)，不是 Responses hosted tool 或 Chat assistant message。请求承载数量及类型化尺寸、质量、背景、格式、压缩与 moderation 意图，user 属于独立身份上下文；具体准入、required/null、组合约束、预算和结果字段由 [OpenAPI](openapi.json) 与 [codec](../src/protocol/openai/images.rs)维护。结果格式、尺寸、背景、quality 和 usage 只保留上游报告，不从请求或 auto/default 补造；明确报告与请求矛盾时拒绝。Base64 验证不解析像素，不证明图像格式或生成质量。
+
+公开数量采用本地 Exact 交付要求：只在实际有序产物数等于请求数量、全部产物合法且严格 EOF 后返回成功。OpenRouter 的数量参数属于上限合同，允许一次尝试，但其合法少图仍因不满足本地要求而整包失败；这不是上游畸形，也不宣称 OpenAI 官方保证足量。不拆单、不补图、不返回已验证前缀。逐图报告保留在 IR，标准顶层属性须与集合每项一致，不能用首图代表异构或部分缺失的报告；计量属于整次生成，不按数量分摊或复制。
 
 嵌入方通过 `CompiledTopology::with_images` 编译明确的 Provider operation 路径、image profile、计量投影策略与单 endpoint `ImageRoute`，再由 `Gateway::new_with_images` 和 `ImageEntry` 显式激活；只允许单 API key 来源，无 retry/fallback。Binary 从[图片 catalog](../src/topology/catalog/images.rs)解析绑定，只有操作者在 `models` 中显式选定图片标签且配好对应单来源、禁 fallback 的 API key pool 才激活；省略 `models` 不自动增加图片入口。旧 `Gateway::new` 不启用图片绑定；未激活模型返回 `model_not_found`。输入标签不能选择 origin、路径或凭据，也不从 Chat/Responses 激活推定 Images 支持。
 
@@ -76,7 +78,7 @@ OpenRouter 的独立 Images profile 使用受信固定路径和 Provider 限制�
 {"model":"configured-image-model","prompt":"A blue square on a white background.","n":1,"stream":false,"quality":"high","background":"opaque","output_format":"jpeg","output_compression":85}
 ```
 
-不支持图片编辑、多图、URL 产物、文件服务或流式图片。图片请求不注入对话输出 token 上限；仍共享认证、并发、取消、严格 EOF、实际 body handoff 与绝对 deadline 约束。请求/响应分别受 operator、endpoint 和 codec 的硬预算限制。Images 响应有独立的 JSON 硬上限，不改变普通对话解析；`Limits.image_bytes` 对解码后的单图字节另设上限，不替代 response_bytes 或 endpoint 的整包限制。嵌入方须同时满足各层预算，不能通过调大其中一个绕过其他限制。Binary 使用默认 Limits，本片不增加私有配置格式。
+不支持图片编辑、URL 产物、文件服务或流式图片。图片请求不注入对话输出 token 上限；仍共享认证、并发、取消、严格 EOF、实际 body handoff 与绝对 deadline 约束。请求/响应分别受 operator、endpoint 和 codec 的硬预算限制。Images 响应有独立的 JSON 硬上限，不改变普通对话解析；`Limits.image_bytes` 对解码后的单图字节另设上限，`Limits.images_bytes` 独立限制集合累计字节，均不随数量放大，也不替代 response_bytes 或 endpoint 的整包限制。嵌入方须同时满足各层预算，不能通过调大其中一个绕过其他限制。Binary 使用默认 Limits，本片不增加私有配置格式。
 
 ### 默认资源边界
 

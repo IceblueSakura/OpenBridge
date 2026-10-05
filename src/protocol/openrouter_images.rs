@@ -28,9 +28,9 @@ pub fn encode_request(request: &Request, model: &str) -> Result<Value, CodecErro
         return Err(invalid());
     }
     super::openai::images::validate_request(request)?;
-    // The single-image task and inactive delivery have explicit carriers here;
+    // Upstream n is an upper bound; exact local satisfaction is checked after EOF.
     // OpenAI null defaults do not authorize nullable upstream controls.
-    let mut value = json!({"model":model,"prompt":request.task.prompt(),"n":1,"stream":false,
+    let mut value = json!({"model":model,"prompt":request.task.prompt(),"n":request.task.requested_count(),"stream":false,
         "provider":{"only":["openai"],"allow_fallbacks":false}});
     if let Some(quality) = request.task.quality.value() {
         value["quality"] = json!(quality.label());
@@ -146,18 +146,26 @@ pub fn decode_response(bytes: &[u8]) -> Result<ImageGenerationResponse, CodecErr
     let value = super::openai::json::decode_image_response(bytes)?;
     let map = object(&value, &["created", "data", "usage"])?;
     let data = required(map, "data")?.as_array().ok_or_else(invalid)?;
-    if data.len() != 1 {
+    if !(1..=usize::from(MAX_IMAGE_COUNT)).contains(&data.len()) {
         return Err(invalid());
     }
-    let item = object(&data[0], &["b64_json", "media_type"])?;
-    let mut result = ImageGenerationResponse::new(
-        number(required(map, "created")?)?,
-        ImageData::new(string(required(item, "b64_json")?)?).map_err(|_| invalid())?,
-    );
-    if let Some(v) = item.get("media_type") {
-        result.image.format =
-            Presence::Value(string(v)?.parse::<ImageFormat>().map_err(|_| invalid())?);
+    let mut total = 0;
+    let mut images = Vec::with_capacity(data.len());
+    for item in data {
+        let item = object(item, &["b64_json", "media_type"])?;
+        let mut image = GeneratedImage::new(super::openai::images::image_data(
+            required(item, "b64_json")?,
+            &mut total,
+        )?);
+        if let Some(v) = item.get("media_type") {
+            image.format =
+                Presence::Value(string(v)?.parse::<ImageFormat>().map_err(|_| invalid())?);
+        }
+        image.validate().map_err(|_| invalid())?;
+        images.push(image);
     }
+    let mut result = ImageGenerationResponse::new(number(required(map, "created")?)?, images)
+        .map_err(|_| invalid())?;
     result.usage = optional(map, "usage", usage)?;
     result.validate().map_err(|_| invalid())?;
     Ok(result)

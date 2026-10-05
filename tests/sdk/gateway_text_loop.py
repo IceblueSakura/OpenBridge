@@ -113,16 +113,27 @@ def run(base_url: str) -> None:
             check(owner.type == "message" and owner.status == "completed" and owner.content == [])
             check(call.type == "function_call" and call.call_id == "call-local")
             check(json.loads(call.arguments) == {"n": 1})
-        image = client.images.generate(model="public-image", prompt="synthetic image", n=1,
-            stream=False, size="1536x1024", quality="high", background="transparent",
-            output_format="webp", output_compression=80, moderation="low", user="synthetic-sdk-user")
-        requests += 1
-        check(image.created == 7 and image.data is not None and len(image.data) == 1)
-        check(image.data[0].b64_json == "AQID" and image.data[0].url is None)
-        check(image.size == "1536x1024" and image.quality == "high"
-              and image.background == "transparent" and image.output_format == "webp")
-        check(image.usage is None)
-    print(json.dumps({"requests": requests, "protocols": 2, "deliveries": 2, "image_requests": 1}))
+        for index, count in enumerate((1, 2, 2)):
+            params = dict(model="public-image", prompt="synthetic image", n=count,
+                stream=False, size="1536x1024", quality="high", background="transparent",
+                output_format="webp", output_compression=80, moderation="low", user="synthetic-sdk-user")
+            requests += 1
+            if index == 2:
+                try:
+                    client.images.generate(**params)
+                except openai.APIStatusError as error:
+                    check(error.status_code == 502 and "data" not in error.response.json())
+                else:
+                    raise ValueError("bad second artifact must fail the entire response")
+                continue
+            image = client.images.generate(**params)
+            check(image.created == 7 and image.data is not None and len(image.data) == count)
+            check([item.b64_json for item in image.data] == ["AQID", "BAUG"][:count])
+            check(all(item.url is None for item in image.data))
+            check(image.size == "1536x1024" and image.quality == "high"
+                  and image.background == "transparent" and image.output_format == "webp")
+            check(image.usage is None)
+    print(json.dumps({"requests": requests, "protocols": 2, "deliveries": 2, "image_requests": 3}))
 
 
 if __name__ == "__main__":

@@ -53,7 +53,11 @@ async fn renamed_binaries_report_current_cli_names_without_loading_credentials()
 }
 
 #[derive(Clone, Default)]
-struct Upstream(Arc<Mutex<Vec<Value>>>);
+struct Upstream(
+    Arc<Mutex<Vec<Value>>>,
+    Arc<tokio::sync::Notify>,
+    Arc<tokio::sync::Notify>,
+);
 struct Guard(tokio::task::JoinHandle<()>);
 impl Drop for Guard {
     fn drop(&mut self) {
@@ -280,6 +284,31 @@ async fn openrouter_image_answer(
             request,
             json!({"model":"openai/gpt-image-2.5-flare","prompt":"controlled-flare","n":1,"stream":false,"quality":"high","background":"transparent","user":"synthetic-user-control","provider":{"only":["openai"],"allow_fallbacks":false,"options":{"openai":{"moderation":"low"}}}})
         );
+    } else if request["prompt"].as_str().unwrap().starts_with("multi-") {
+        assert_eq!(
+            request,
+            json!({"model":"openai/gpt-image-2.5-flare","prompt":request["prompt"],"n":2,"stream":false,"provider":{"only":["openai"],"allow_fallbacks":false}})
+        );
+        state.0.lock().unwrap().push(request.clone());
+        let data = match request["prompt"].as_str().unwrap() {
+            "multi-short" => json!([{"b64_json":"AQID","media_type":"image/png"}]),
+            "multi-bad" => json!([{"b64_json":"AQID"},{"b64_json":"!"}]),
+            "multi-mixed" => {
+                json!([{"b64_json":"AQID","media_type":"image/png"},{"b64_json":"BAUG","media_type":"image/webp"}])
+            }
+            _ => {
+                json!([{"b64_json":"AQID","media_type":"image/png"},{"b64_json":"BAUG","media_type":"image/png"}])
+            }
+        };
+        let wire = json!({"created":456,"data":data}).to_string();
+        return Response::builder()
+            .header("content-type", "application/json")
+            .body(Body::from(if request["prompt"] == "multi-tail" {
+                wire + " trailing"
+            } else {
+                wire
+            }))
+            .unwrap();
     } else {
         assert_eq!(
             request,
@@ -303,6 +332,28 @@ async fn image_answer(
     assert!(request.get("max_output_tokens").is_none());
     state.0.lock().unwrap().push(request.clone());
     let (status, media, body) = match request["prompt"].as_str().unwrap() {
+        "multi-pending" => {
+            assert_eq!(request["n"], 2);
+            let started = state.1.clone();
+            let release = state.2.clone();
+            let stream = futures_util::stream::unfold(
+                (true, started, release),
+                |(first, started, release)| async move {
+                    if first {
+                        let prefix = axum::body::Bytes::from_static(
+                            br#"{"created":1,"data":[{"b64_json":"AQID"},"#,
+                        );
+                        Some((Ok::<_, std::io::Error>(prefix), (false, started, release)))
+                    } else {
+                        started.notify_one();
+                        release.notified().await;
+                        None
+                    }
+                },
+            );
+            return Response::builder().header("content-type", "application/json")
+                .body(Body::from_stream(stream)).unwrap();
+        },
         "controlled" => {
             assert_eq!(request,json!({"model":"private-image","prompt":"controlled","size":"1536x1024","quality":"high","background":"transparent","output_format":"webp","output_compression":80,"moderation":"low","user":"synthetic-user-control"}));
             (200,"application/json",json!({"created":123,"data":[{"b64_json":"AQID"}],"output_format":"webp","size":"1536x1024","background":"transparent","quality":"high"}).to_string())
@@ -873,7 +924,7 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
     }
     let before = observed.0.lock().unwrap().len();
     for (request, status) in [
-        (json!({"model":"public-image","prompt":"x","n":2}), 400),
+        (json!({"model":"public-image","prompt":"x","n":11}), 400),
         (
             json!({"model":"public-image","prompt":"x","output_format":"jpeg","background":"transparent"}),
             400,
@@ -930,6 +981,37 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         response.json::<Value>().await.unwrap(),
         json!({"created":456,"data":[{"b64_json":"BAUG"}],"output_format":"png"})
     );
+    for (prompt, status) in [
+        ("multi-ok", 200),
+        ("multi-short", 502),
+        ("multi-bad", 502),
+        ("multi-mixed", 502),
+        ("multi-tail", 502),
+    ] {
+        let before = observed.0.lock().unwrap().len();
+        let response = client
+            .post(format!("{url}/v1/images/generations"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&json!({"model":"gpt-image-2.5-flare","prompt":prompt,"n":2}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status, "{prompt}");
+        let wire = response.json::<Value>().await.unwrap();
+        if status == 200 {
+            assert_eq!(
+                wire,
+                json!({"created":456,"data":[{"b64_json":"AQID"},{"b64_json":"BAUG"}],"output_format":"png"})
+            );
+        } else {
+            assert!(wire.get("data").is_none(), "no successful prefix");
+        }
+        assert_eq!(
+            observed.0.lock().unwrap().len(),
+            before + 1,
+            "one upstream request"
+        );
+    }
     let before = observed.0.lock().unwrap().len();
     let rejected = client
         .post(format!("{url}/v1/images/generations"))
@@ -947,6 +1029,43 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         response.json::<Value>().await.unwrap(),
         json!({"created":456,"data":[{"b64_json":"BAUG"}],"output_format":"png"})
     );
+    // The first valid image cannot escape while the second image is unfinished.
+    for cancel in [false, true] {
+        let before = observed.0.lock().unwrap().len();
+        let send = client
+            .post(format!("{url}/v1/images/generations"))
+            .bearer_auth(support::CLIENT_KEY)
+            .json(&json!({"model":"public-image","prompt":"multi-pending","n":2}))
+            .send();
+        let task = tokio::spawn(send);
+        tokio::time::timeout(Duration::from_secs(2), observed.1.notified())
+            .await
+            .unwrap();
+        assert!(!task.is_finished(), "no first-image publication");
+        if cancel {
+            task.abort();
+            assert!(task.await.unwrap_err().is_cancelled());
+        } else {
+            let response = tokio::time::timeout(Duration::from_secs(2), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(response.status(), 504);
+            assert!(
+                response
+                    .json::<Value>()
+                    .await
+                    .unwrap()
+                    .get("data")
+                    .is_none()
+            );
+        }
+        // Local cancellation is not proof of remote termination. Explicitly
+        // release the synthetic peer; shared body-owner tests cover local drop.
+        observed.2.notify_waiters();
+        assert_eq!(observed.0.lock().unwrap().len(), before + 1);
+    }
     shutdown.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(3), serving)
         .await

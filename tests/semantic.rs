@@ -42,6 +42,8 @@ mod history_dependencies;
 mod image_binding;
 #[path = "semantic/image_budgets.rs"]
 mod image_budgets;
+#[path = "semantic/image_collection.rs"]
+mod image_collection;
 #[path = "semantic/image_controls.rs"]
 mod image_controls;
 #[path = "semantic/image_generation.rs"]

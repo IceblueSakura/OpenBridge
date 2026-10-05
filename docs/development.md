@@ -62,6 +62,8 @@ npm test
 
 Python 版本由 `tests/sdk/.python-version` 固定；OpenAI SDK 与测试环境 pip 在 `tests/sdk/pyproject.toml` 声明，全部传递依赖和下载 hash 由 `tests/sdk/uv.lock` 固定。环境只安装到被忽略的 `tests/sdk/.venv/`，不向系统 Python 安装 pip/package。不要直接 `pip install -U` 让环境偏离锁文件。
 
+Images 的公开 Schema 用同一锁定环境中的 `jsonschema` 执行 Draft 2020-12 检查：`uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_image_schema.py`。它验证 Schema、内部引用及独立合法/非法实例；Base64 内容、集合累计预算、请求/响应数量关系与 EOF 仍由 Rust 和交付测试验证，不由 `contentEncoding` 注解证明。
+
 首次准备需要依赖下载；已有缓存可为 sync 加 `--offline`：
 
 ```sh

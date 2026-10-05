@@ -146,11 +146,17 @@ fn check_response(
     response: &crate::semantic::task::image_generation::ImageGenerationResponse,
     request: &crate::semantic::task::image_generation::ImageGenerationRequest,
     image_bytes: usize,
+    images_bytes: usize,
 ) -> Result<(), ApiError> {
     response
         .validate_for(request)
         .map_err(|_| ApiError::upstream())?;
-    if response.image.data.decoded_bytes() > image_bytes {
+    if response
+        .images
+        .iter()
+        .any(|image| image.data.decoded_bytes() > image_bytes)
+        || response.decoded_bytes().map_err(|_| ApiError::upstream())? > images_bytes
+    {
         return Err(ApiError::upstream());
     }
     Ok(())
@@ -215,7 +221,7 @@ async fn produce_one(
         trace.received(chunk.len());
         bytes.extend_from_slice(&chunk);
     }
-    // Only strict transport EOF plus a complete artifact can be published.
+    // Only strict transport EOF plus every complete artifact can be published.
     trace.stage(Stage::Terminal);
     let response = entry
         .route
@@ -223,7 +229,12 @@ async fn produce_one(
         .profile
         .decode_response(&bytes)
         .map_err(|_| ApiError::upstream())?;
-    check_response(&response, &request.task, runtime.limits.image_bytes)?;
+    check_response(
+        &response,
+        &request.task,
+        runtime.limits.image_bytes,
+        runtime.limits.images_bytes,
+    )?;
     trace.stage(Stage::Projection);
     let projected = crate::lowering::images::project_response(&response, entry.route.accounting)
         .map_err(|_| ApiError::upstream())?;

@@ -1,4 +1,4 @@
-//! Protocol-neutral single-image request envelope for Gateway and typed consumers.
+//! Protocol-neutral image request envelope for Gateway and typed consumers.
 use crate::semantic::{
     context::{ClientIdentityHints, DeliveryIntent},
     task::image_generation::ImageGenerationRequest,

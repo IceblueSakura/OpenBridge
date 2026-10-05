@@ -44,7 +44,7 @@ uv run --project tests/sdk --locked --offline python examples/probe.py report te
 
 ## 独立图片生成 probe
 
-图片计划与对话计划分开，不把图片输出套入文本 token cap。`plan --task images` 要求明确 Provider/model 选择，不接受 `--tokens`；图片计划版本 2 使用 `tokens: null` 和 `images_per_request: 1`，沿用共用 SQLite 预留、dispatch、停止与源码指纹检查。版本 1 的对话预算和已有账本不变；不同 task 的计划不能互相消费。
+图片计划与对话计划分开，不把图片输出套入文本 token cap。`plan --task images` 要求明确 Provider/model 选择，不接受 `--tokens`；图片计划版本 2 使用 `tokens: null` 和显式 `images_per_request`（缺省 1），沿用共用 SQLite 预留、dispatch、停止与源码指纹检查。每次预留占用计划规定的图片数量，整批图片上限为 request limit × images_per_request；实际发送数量必须匹配计划。版本 1 的对话预算和已有账本不变；不同 task 的计划不能互相消费。
 
 ```sh
 uv run --project tests/sdk --locked --offline python examples/probe.py plan \
@@ -56,7 +56,9 @@ uv run --project tests/sdk --locked --offline python examples/probe.py run \
 
 公开 Images API 的参数扩展不自动扩大既有付费 probe 矩阵；质量、尺寸、moderation 等新控制须另定场景，现有发送守卫仍拒绝它们。`image_generate` 是缺省、显式单图非流式、null 默认值三种独立请求；可用 `image_generate_minimal`、`image_generate_explicit`、`image_generate_nullable` 分别选择。只有 `images` 协议与 JSON 交付；不使用 reasoning、图片编辑、更多模型或自动 retry。真实发送仍需该矩阵授权、显式 `--live`、已配置的凭据目录与当前 binary；不把 plan 创建当作授权。不设 token cap 或金额 cap 不等于没有 request/image 数量边界，也不是远端费用硬限制。
 
-固定 SDK 消费到完整有界 JSON 后，oracle 在内存中校验单张 Base64、PNG chunk CRC、严格 EOF、有界 zlib 与 8-bit 非交错 RGB/RGBA 像素。固定色块提示只检查目标色像素比例，不证明准确几何形状、美学质量或一般图像能力；未覆盖的编码明确失败，不冒充完整解码。不保存 PNG、Base64 或原始响应，只报告字节数、尺寸、解码与色彩判据结果。
+多图使用独立新计划和显式场景，不扩大旧三场景：`plan --task images --images-per-request 2 --limit 1` 配合 `run --cases image_generate_pair`，其余目标参数同上。该场景一次请求两张图，控制仅为 `n=2, stream=false`；单图计划不能发送它，两图计划也不能消费旧单图场景。工具暂不提供其他数量的场景，不遍历 1–10。
+
+固定 SDK 消费到完整有界 JSON 后，oracle 在内存中逐图校验 Base64、PNG chunk CRC、严格 EOF、有界 zlib 与 8-bit 非交错 RGB/RGBA 像素，集合 decoded bytes 总预算固定为 2 MiB。数量必须匹配计划，任一项失败均使整次失败。固定色块提示只检查每项目标色像素比例，不证明准确几何形状、美学质量或一般图像能力；未覆盖的编码明确失败，不冒充完整解码。不保存 PNG、Base64 或原始响应，只报告实际数量、累计字节数、共同尺寸（若一致）、解码与色彩判据结果。
 
 受控 Gateway 诊断另记录 Images 的实际 input/output token、精确 USD 金额文本及具名投影省略标志（仅在确有报告时）。它们与客户端可见 usage 分开，不从省略字段推定上游未报告；正文和像素不进入该 sink。未知费用不补零，计量与投影失败也不能变成生成成功。
 

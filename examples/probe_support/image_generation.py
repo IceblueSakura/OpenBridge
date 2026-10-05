@@ -13,6 +13,7 @@ CASES = {
     "minimal": ("blue", {}),
     "explicit": ("red", {"n": 1, "stream": False}),
     "nullable": ("blue", {"n": None, "stream": None, "output_format": None}),
+    "pair": ("blue", {"n": 2, "stream": False}),
 }
 
 
@@ -103,8 +104,10 @@ def inspect_png(png, color):
 
 def plan_groups(run, models, *, cases=("image_generate",), protocol=None, delivery=None, effort=None):
     require(run.is_images and protocol in (None, "images") and delivery in (None, "json") and effort is None, "image_selection", "setup")
-    selected = list(CASES) if cases == ("image_generate",) else [c.removeprefix("image_generate_") for c in cases]
+    # The original matrix never silently grows paid work.
+    selected = ["minimal", "explicit", "nullable"] if cases == ("image_generate",) else [c.removeprefix("image_generate_") for c in cases]
     require(selected and len(set(selected)) == len(selected) and all(c in CASES for c in selected), "image_cases", "setup")
+    require(all((CASES[c][1].get("n") or 1) == run.plan["images_per_request"] for c in selected), "image_count", "budget")
     require(models and len(set(models)) == len(models), "image_models", "setup")
     groups = []
     for model in models:
@@ -113,6 +116,33 @@ def plan_groups(run, models, *, cases=("image_generate",), protocol=None, delive
             groups.append((MODELS[model][0], "images", False, case, f"{model}:images:{case}", 1, None))
     run.register([(scenario.split(":", 1)[0], scenario, cap) for _, _, _, _, scenario, _, cap in groups])
     return groups
+
+
+def inspect_result(result, color, count):
+    """Validate all artifacts before reporting success; no first-item proxy."""
+    require(type(count) is int and 1 <= count <= 10, "image_count", "setup")
+    require(type(result.created) is int and result.created >= 0
+            and result.data is not None and len(result.data) == count, "image_response", "wire")
+    require(result.output_format in (None, "png"), "image_format")
+    total, dimensions = 0, set()
+    for image in result.data:
+        require(image.url is None and isinstance(image.b64_json, str)
+                and 0 < len(image.b64_json) <= 2_796_204, "image_response", "wire")
+        require(len(image.b64_json) <= ((2 * 1024 * 1024 - total + 2) // 3) * 4, "image_decode")
+        try:
+            data = base64.b64decode(image.b64_json, validate=True)
+        except (binascii.Error, ValueError):
+            raise ProbeFailure("image_decode") from None
+        total += len(data)
+        require(total <= 2 << 20, "image_decode")
+        facts = inspect_png(data, color)
+        dimensions.add((facts["image_width"], facts["image_height"]))
+        require(result.size is None or result.size == f"{facts['image_width']}x{facts['image_height']}", "image_decode")
+        require(facts["content_ok"], "image_pixels")
+    metrics = {"image_decoded": True, "image_count": count, "image_bytes": total, "content_ok": True}
+    if len(dimensions) == 1:
+        metrics["image_width"], metrics["image_height"] = dimensions.pop()
+    return metrics
 
 
 def matrix(run, models, **options):
@@ -130,18 +160,8 @@ def matrix(run, models, **options):
                 result = client.images.generate(model=model, prompt=prompt, **controls)
                 metrics["sdk_consumed"] = True
                 require(transport.wire.closed, "image_eof", "wire")
-                require(type(result.created) is int and result.created >= 0 and result.data is not None and len(result.data) == 1, "image_response", "wire")
-                image = result.data[0]
-                require(image.url is None and isinstance(image.b64_json, str) and 0 < len(image.b64_json) <= 2_796_204, "image_response", "wire")
-                try:
-                    data = base64.b64decode(image.b64_json, validate=True)
-                except (binascii.Error, ValueError):
-                    raise ProbeFailure("image_decode") from None
-                facts = inspect_png(data, color)
+                facts = inspect_result(result, color, run.plan["images_per_request"])
                 metrics.update(facts, terminal="image.complete")
-                require(result.output_format in (None, "png"), "image_format")
-                require(result.size is None or result.size == f"{facts['image_width']}x{facts['image_height']}", "image_decode")
-                require(facts["content_ok"], "image_pixels")
                 metrics["elapsed_ms"] = round((time.monotonic() - started) * 1000)
                 identity = transport.complete("passed", metrics)
                 print(json.dumps({"attempt": identity, "state": "passed", **facts}), flush=True)

@@ -3,7 +3,7 @@
   "info": {
     "title": "MorphieCore minimal model interaction gateway",
     "version": "0.1.0",
-    "description": "Current envelope-level HTTP contract, not complete standard conformance. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Other named MorphieCore reasoning/usage/cache rules remain separately bounded. Current priority is Agent-first Text/Image/File through standard Responses; Chat is a compatibility path. A static single-image GPT Image operation is available through explicit image bindings, with explicit model selection and single-source API-key activation; image operations are not activated by an existing conversation binding. Embeddings, other media operations and audio Realtime remain later work. No models discovery, stateful resources or implicit retry/fallback."
+    "description": "Current envelope-level HTTP contract, not complete standard conformance. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Other named MorphieCore reasoning/usage/cache rules remain separately bounded. Current priority is Agent-first Text/Image/File through standard Responses; Chat is a compatibility path. A static ordered-image operation is available through explicit image bindings, with explicit model selection and single-source API-key activation; image operations are not activated by an existing conversation binding. Embeddings, other media operations and audio Realtime remain later work. No models discovery, stateful resources or implicit retry/fallback."
   },
   "servers": [{"url": "http://127.0.0.1:8080"}],
   "security": [{"bearerAuth": []}],
@@ -37,7 +37,7 @@
     "/v1/images/generations": {
       "post": {
         "operationId": "imageGeneration",
-        "summary": "Generate one inline image using the static GPT Image profile",
+        "summary": "Generate an ordered inline image collection using the static GPT Image profile",
         "parameters": [
           {
             "$ref": "#/components/parameters/ProbeId"
@@ -55,7 +55,7 @@
         },
         "responses": {
           "200": {
-            "description": "One complete inline image after strict upstream EOF. Requires explicit activation. Binary image bindings must be selected in models and have the matching single-source, non-fallback pool.",
+            "description": "Complete ordered inline images after strict upstream EOF and exact requested-count validation. A short result, excess result or any invalid artifact fails the entire response; no prefix success or supplemental requests. Requires explicit activation. Binary image bindings must be selected in models and have the matching single-source, non-fallback pool.",
             "content": {
               "application/json": {
                 "schema": {
@@ -157,10 +157,10 @@
             "maxLength": 32000
           },
           "n": {
-            "enum": [
-              1,
-              null
-            ]
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Exact local delivery requirement. Missing/null means one. An upper-bound target may be attempted once, but a legal short upstream result fails local satisfaction; this is not a claim that upstream guarantees the count."
           },
           "stream": {
             "enum": [
@@ -228,7 +228,7 @@
             "maxLength": 256
           }
         },
-        "description": "Bounded static single-image profile. Missing, null and explicit controls remain distinct; user is not nullable. Explicit compression requires explicit JPEG or WebP. Transparent background cannot use JPEG. Unknown/legacy fields, edits, multiple images and streaming are rejected. Targets independently admit controls; a standard carrier does not prove a target accepts it. Identity hints never select credentials or routing. Explicit model activation is required.",
+        "description": "Bounded static ordered-image profile. Missing, null and explicit controls remain distinct; user is not nullable. Explicit compression requires explicit JPEG or WebP. Transparent background cannot use JPEG. Unknown/legacy fields, edits and streaming are rejected. Targets independently admit controls; a standard carrier does not prove a target accepts it. Identity hints never select credentials or routing. Explicit model activation is required.",
         "allOf": [
           {
             "not": {
@@ -352,7 +352,8 @@
           "data": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 1,
+            "maxItems": 10,
+            "description": "Ordered actual artifacts, exactly matching effective request n on success. Aggregate decoded bytes have a fixed 8 MiB hard ceiling; the Gateway default aggregate limit is 2 MiB, not multiplied by n.",
             "items": {
               "type": "object",
               "required": [
@@ -409,7 +410,7 @@
             "$ref": "#/components/schemas/ImageUsage"
           }
         },
-        "description": "All optional facts preserve absent/null/value; no URL fetch, file service, revised prompt or private carrier. JSON has the shared 4 MiB hard ceiling and tighter operator/endpoint budgets.",
+        "description": "All optional facts preserve absent/null/value. Top-level artifact reports apply uniformly to the collection; heterogeneous values or mixed presence are not silently omitted or replaced by the first image. Usage belongs to the whole operation, not each image. No URL fetch, file service, revised prompt or private carrier. Image-response JSON has a separate 16 MiB hard ceiling; ordinary conversation JSON remains at 4 MiB. Gateway operator and endpoint limits can be tighter. Per-image and aggregate decoded limits are independently enforced (each defaults to 2 MiB, each hard ceiling 8 MiB).",
         "allOf": [
           {
             "not": {

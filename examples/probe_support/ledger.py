@@ -157,9 +157,13 @@ class Run:
         tokens=2048,
         continue_oracle=False,
         task="generation",
+        images_per_request=None,
     ):
         require(task in ("generation", "images"), "plan_task", "setup")
         image_task = task == "images"
+        require(images_per_request is None or image_task, "plan_task", "setup")
+        image_count = 1 if images_per_request is None else images_per_request
+        require(type(image_count) is int and 1 <= image_count <= 10, "plan_images", "setup")
         rows = select_image_bindings(providers, models) if image_task else select_bindings(providers, models=models)
         require(
             type(limit) is int
@@ -184,7 +188,7 @@ class Run:
             "pi": "0.87.1",
         }
         if image_task:
-            plan["images_per_request"] = 1
+            plan["images_per_request"] = image_count
         raw = json.dumps(plan, sort_keys=True).encode()
         fd = os.open(
             directory / "plan.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
@@ -243,7 +247,7 @@ class Run:
             "setup",
         )
         require(
-            (self.plan["tokens"] is None and type(self.plan["images_per_request"]) is int and self.plan["images_per_request"] == 1
+            (self.plan["tokens"] is None and type(self.plan["images_per_request"]) is int and 1 <= self.plan["images_per_request"] <= 10
              if self.is_images else type(self.plan["tokens"]) is int and 1 <= self.plan["tokens"] <= 2048),
             "plan_tokens",
             "setup",
@@ -444,7 +448,7 @@ class Run:
                 "scenario": case,
                 "model": model,
                 "tokens": tokens,
-                **({"images": 1} if self.is_images else {}),
+                **({"images": self.plan["images_per_request"]} if self.is_images else {}),
                 "state": state,
                 "metrics": json.loads(metrics),
                 "source_fingerprint": source,
@@ -456,7 +460,7 @@ class Run:
                 "scenario": case,
                 "model": model,
                 "tokens": tokens,
-                **({"images": 1} if self.is_images else {}),
+                **({"images": self.plan["images_per_request"]} if self.is_images else {}),
                 "state": "not_run",
                 "metrics": {},
             }

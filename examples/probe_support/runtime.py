@@ -99,7 +99,8 @@ class ProbeClient(DefaultHttpxClient):
                 and body.get("model") == model
                 and isinstance(body.get("prompt"), str)
                 and 0 < len(body["prompt"]) <= 32000
-                and (body.get("n") is None or type(body["n"]) is int and body["n"] == 1)
+                and (body.get("n") is None and self.run.plan["images_per_request"] == 1
+                     or type(body.get("n")) is int and body["n"] == self.run.plan["images_per_request"])
                 and (body.get("stream") is None or body["stream"] is False)
                 and body.get("output_format") is None,
                 "controls", "budget",

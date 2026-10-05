@@ -84,11 +84,15 @@ fn static_control_presence_and_automatic_selection_do_not_become_reported_facts(
     let request = images::decode_request(&serde_json::to_vec(&automatic).unwrap()).unwrap();
     assert_eq!(request.task.size, Presence::Value(ImageSizeRequest::Auto));
     assert_eq!(images::encode_request(&request, "m").unwrap(), automatic);
-    let response = ImageGenerationResponse::new(1, ImageData::new("AQID").unwrap());
+    let response = ImageGenerationResponse::new(
+        1,
+        vec![GeneratedImage::new(ImageData::new("AQID").unwrap())],
+    )
+    .unwrap();
     response.validate_for(&request.task).unwrap();
-    assert!(response.image.size.is_absent());
-    assert!(response.image.quality.is_absent());
-    assert!(response.image.background.is_absent());
+    assert!(response.images[0].size.is_absent());
+    assert!(response.images[0].quality.is_absent());
+    assert!(response.images[0].background.is_absent());
 }
 
 #[test]
@@ -175,26 +179,30 @@ fn output_reports_must_not_contradict_explicit_controls() {
     request.quality = Presence::Value(ImageQualityRequest::Exact(ImageQuality::High));
     request.background =
         Presence::Value(ImageBackgroundRequest::Exact(ImageBackground::Transparent));
-    let response = ImageGenerationResponse::new(1, ImageData::new("AQID").unwrap());
+    let response = ImageGenerationResponse::new(
+        1,
+        vec![GeneratedImage::new(ImageData::new("AQID").unwrap())],
+    )
+    .unwrap();
     response.validate_for(&request).unwrap();
     for case in 0..4 {
         let mut response = response.clone();
         match case {
             0 => {
-                response.image.size = Presence::Value(ImageSize {
+                response.images[0].size = Presence::Value(ImageSize {
                     width: 512,
                     height: 512,
                 })
             }
-            1 => response.image.quality = Presence::Value(ImageQuality::Low),
-            2 => response.image.background = Presence::Value(ImageBackground::Opaque),
-            _ => response.image.format = Presence::Value(ImageFormat::Jpeg),
+            1 => response.images[0].quality = Presence::Value(ImageQuality::Low),
+            2 => response.images[0].background = Presence::Value(ImageBackground::Opaque),
+            _ => response.images[0].format = Presence::Value(ImageFormat::Jpeg),
         };
         assert!(response.validate_for(&request).is_err());
     }
     let mut impossible = response;
-    impossible.image.format = Presence::Value(ImageFormat::Jpeg);
-    impossible.image.background = Presence::Value(ImageBackground::Transparent);
+    impossible.images[0].format = Presence::Value(ImageFormat::Jpeg);
+    impossible.images[0].background = Presence::Value(ImageBackground::Transparent);
     assert!(images::encode_response(&impossible).is_err());
 }
 

@@ -1,4 +1,4 @@
-//! Independent, static single-image task. No conversation, runtime target or file service.
+//! Independent, static ordered image task. No conversation, runtime target or file service.
 use crate::semantic::value::{ImageFormat, Presence};
 use base64::engine::general_purpose::STANDARD;
 mod controls;
@@ -10,6 +10,9 @@ pub const MAX_PROMPT_CHARS: usize = 32_000;
 pub const MAX_PROMPT_BYTES: usize = MAX_PROMPT_CHARS * 4;
 pub const MAX_IMAGE_BYTES: usize = 8 << 20;
 pub const MAX_IMAGE_BASE64_BYTES: usize = MAX_IMAGE_BYTES.div_ceil(3) * 4;
+pub const MAX_IMAGE_COUNT: u8 = 10;
+/// Fixed aggregate decoded budget, never multiplied by the requested count.
+pub const MAX_IMAGES_BYTES: usize = 8 << 20;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[error("invalid or over-budget image generation value")]
@@ -18,6 +21,7 @@ pub struct ImageError;
 #[derive(Clone, Eq, PartialEq)]
 pub struct ImageGenerationRequest {
     prompt: String,
+    /// Exact delivery requirement; absent/null means one, not an upstream guarantee.
     pub count: Presence<u8>,
     pub format: Presence<ImageFormat>,
     pub size: Presence<ImageSizeRequest>,
@@ -58,6 +62,9 @@ impl ImageGenerationRequest {
     pub fn prompt(&self) -> &str {
         &self.prompt
     }
+    pub fn requested_count(&self) -> u8 {
+        self.count.value().copied().unwrap_or(1)
+    }
     pub fn set_prompt(&mut self, prompt: impl Into<String>) -> Result<(), ImageError> {
         let next = Self::new(prompt)?;
         self.prompt = next.prompt;
@@ -67,7 +74,7 @@ impl ImageGenerationRequest {
         if self.prompt.is_empty()
             || self.prompt.len() > MAX_PROMPT_BYTES
             || self.prompt.chars().count() > MAX_PROMPT_CHARS
-            || self.count.value().is_some_and(|n| *n != 1)
+            || !(1..=MAX_IMAGE_COUNT).contains(&self.requested_count())
             || self.format.value().is_some_and(|f| {
                 !matches!(f, ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Webp)
             })
@@ -161,6 +168,71 @@ pub struct GeneratedImage {
     pub background: Presence<ImageBackground>,
     pub quality: Presence<ImageQuality>,
 }
+impl GeneratedImage {
+    pub fn new(data: ImageData) -> Self {
+        Self {
+            data,
+            format: Presence::Absent,
+            size: Presence::Absent,
+            background: Presence::Absent,
+            quality: Presence::Absent,
+        }
+    }
+    pub fn validate(&self) -> Result<(), ImageError> {
+        if self
+            .format
+            .value()
+            .is_some_and(|f| !matches!(f, ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Webp))
+            || self.background == Presence::Value(ImageBackground::Transparent)
+                && self.format == Presence::Value(ImageFormat::Jpeg)
+        {
+            return Err(ImageError);
+        }
+        if let Some(size) = self.size.value() {
+            size.validate()?;
+        }
+        Ok(())
+    }
+    /// Standard top-level reports must describe every artifact, including presence.
+    pub fn same_reports(&self, other: &Self) -> bool {
+        self.format == other.format
+            && self.size == other.size
+            && self.background == other.background
+            && self.quality == other.quality
+    }
+    fn validate_for(&self, request: &ImageGenerationRequest) -> Result<(), ImageError> {
+        if let (Some(expected), Some(reported)) = (request.format.value(), self.format.value())
+            && expected != reported
+        {
+            return Err(ImageError);
+        }
+        if let (Some(ImageSizeRequest::Exact(expected)), Some(reported)) =
+            (request.size.value(), self.size.value())
+            && expected != reported
+        {
+            return Err(ImageError);
+        }
+        if let (Some(ImageQualityRequest::Exact(expected)), Some(reported)) =
+            (request.quality.value(), self.quality.value())
+            && expected != reported
+        {
+            return Err(ImageError);
+        }
+        if let (Some(ImageBackgroundRequest::Exact(expected)), Some(reported)) =
+            (request.background.value(), self.background.value())
+            && expected != reported
+        {
+            return Err(ImageError);
+        }
+        if request.background
+            == Presence::Value(ImageBackgroundRequest::Exact(ImageBackground::Transparent))
+            && self.format == Presence::Value(ImageFormat::Jpeg)
+        {
+            return Err(ImageError);
+        }
+        Ok(())
+    }
+}
 mod accounting;
 pub use accounting::{
     ImageBilling, ImageCostBreakdown, ImageTokenBreakdown, ImageUsage, UsdAmount,
@@ -168,7 +240,7 @@ pub use accounting::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImageGenerationResponse {
     pub created: u64,
-    pub image: GeneratedImage,
+    pub images: Vec<GeneratedImage>,
     pub usage: Presence<ImageUsage>,
 }
 impl ImageGenerationResponse {
@@ -176,67 +248,38 @@ impl ImageGenerationResponse {
     pub fn validate_for(&self, request: &ImageGenerationRequest) -> Result<(), ImageError> {
         request.validate()?;
         self.validate()?;
-        if let (Some(expected), Some(reported)) =
-            (request.format.value(), self.image.format.value())
-            && expected != reported
-        {
+        if self.images.len() != usize::from(request.requested_count()) {
             return Err(ImageError);
         }
-        if let (Some(ImageSizeRequest::Exact(expected)), Some(reported)) =
-            (request.size.value(), self.image.size.value())
-            && expected != reported
-        {
-            return Err(ImageError);
-        }
-        if let (Some(ImageQualityRequest::Exact(expected)), Some(reported)) =
-            (request.quality.value(), self.image.quality.value())
-            && expected != reported
-        {
-            return Err(ImageError);
-        }
-        if let (Some(ImageBackgroundRequest::Exact(expected)), Some(reported)) =
-            (request.background.value(), self.image.background.value())
-            && expected != reported
-        {
-            return Err(ImageError);
-        }
-        if request.background
-            == Presence::Value(ImageBackgroundRequest::Exact(ImageBackground::Transparent))
-            && self.image.format == Presence::Value(ImageFormat::Jpeg)
-        {
-            return Err(ImageError);
+        for image in &self.images {
+            image.validate_for(request)?;
         }
         Ok(())
     }
-    pub fn new(created: u64, data: ImageData) -> Self {
-        Self {
+    pub fn new(created: u64, images: Vec<GeneratedImage>) -> Result<Self, ImageError> {
+        let response = Self {
             created,
-            image: GeneratedImage {
-                data,
-                format: Presence::Absent,
-                size: Presence::Absent,
-                background: Presence::Absent,
-                quality: Presence::Absent,
-            },
+            images,
             usage: Presence::Absent,
-        }
+        };
+        response.validate()?;
+        Ok(response)
+    }
+    pub fn decoded_bytes(&self) -> Result<usize, ImageError> {
+        self.images.iter().try_fold(0usize, |total, image| {
+            total
+                .checked_add(image.data.decoded_bytes())
+                .ok_or(ImageError)
+        })
     }
     pub fn validate(&self) -> Result<(), ImageError> {
-        if self
-            .image
-            .format
-            .value()
-            .is_some_and(|f| !matches!(f, ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Webp))
+        if !(1..=usize::from(MAX_IMAGE_COUNT)).contains(&self.images.len())
+            || self.decoded_bytes()? > MAX_IMAGES_BYTES
         {
             return Err(ImageError);
         }
-        if self.image.background == Presence::Value(ImageBackground::Transparent)
-            && self.image.format == Presence::Value(ImageFormat::Jpeg)
-        {
-            return Err(ImageError);
-        }
-        if let Some(size) = self.image.size.value() {
-            size.validate()?;
+        for image in &self.images {
+            image.validate()?;
         }
         if let Some(usage) = self.usage.value() {
             usage.validate()?;

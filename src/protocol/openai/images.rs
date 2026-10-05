@@ -272,25 +272,51 @@ pub fn decode_response(bytes: &[u8]) -> Result<ImageGenerationResponse, CodecErr
         ],
     )?;
     let data = required(map, "data")?.as_array().ok_or_else(invalid)?;
-    if data.len() != 1 {
+    if !(1..=usize::from(MAX_IMAGE_COUNT)).contains(&data.len()) {
         return Err(invalid());
     }
-    let image = object(&data[0], &["b64_json"])?;
-    let mut response = ImageGenerationResponse::new(
-        number(required(map, "created")?)?,
-        ImageData::new(string(required(image, "b64_json")?)?).map_err(|_| invalid())?,
-    );
-    response.image.format = optional(map, "output_format", format)?;
-    response.image.size = optional(map, "size", size)?;
-    response.image.background = optional(map, "background", |v| {
+    let format = optional(map, "output_format", format)?;
+    let size = optional(map, "size", size)?;
+    let background = optional(map, "background", |v| {
         string(v)?.parse().map_err(|_| invalid())
     })?;
-    response.image.quality = optional(map, "quality", |v| {
+    let quality = optional(map, "quality", |v| {
         string(v)?.parse().map_err(|_| invalid())
     })?;
+    let mut total = 0;
+    let mut images = Vec::with_capacity(data.len());
+    for item in data {
+        let item = object(item, &["b64_json"])?;
+        let data = image_data(required(item, "b64_json")?, &mut total)?;
+        images.push(GeneratedImage {
+            data,
+            format: format.clone(),
+            size: size.clone(),
+            background: background.clone(),
+            quality: quality.clone(),
+        });
+    }
+    let mut response = ImageGenerationResponse::new(number(required(map, "created")?)?, images)
+        .map_err(|_| invalid())?;
     response.usage = optional(map, "usage", usage)?;
     response.validate().map_err(|_| invalid())?;
     Ok(response)
+}
+/// Charge aggregate bytes before retaining another encoded artifact.
+pub(crate) fn image_data(value: &Value, total: &mut usize) -> Result<ImageData, CodecError> {
+    let encoded = string(value)?;
+    let remaining = MAX_IMAGES_BYTES.checked_sub(*total).ok_or_else(invalid)?;
+    if encoded.len() > remaining.div_ceil(3) * 4 {
+        return Err(CodecError::Limit);
+    }
+    let data = ImageData::new(encoded).map_err(|_| invalid())?;
+    *total = total
+        .checked_add(data.decoded_bytes())
+        .ok_or_else(invalid)?;
+    if *total > MAX_IMAGES_BYTES {
+        return Err(CodecError::Limit);
+    }
+    Ok(data)
 }
 fn breakdown_value(v: &ImageTokenBreakdown) -> Value {
     json!({"text_tokens":v.text.value().expect("validated text count"),"image_tokens":v.image.value().expect("validated image count")})
@@ -314,6 +340,14 @@ fn usage_value(v: &ImageUsage) -> Value {
 }
 pub fn encode_response(response: &ImageGenerationResponse) -> Result<Value, CodecError> {
     response.validate().map_err(|_| invalid())?;
+    let image = &response.images[0];
+    if response
+        .images
+        .iter()
+        .any(|other| !image.same_reports(other))
+    {
+        return Err(invalid());
+    }
     if response.usage.value().is_some_and(|u| {
         !crate::lowering::images::standard_tokens_representable(u) || !u.billing.is_absent()
     }) {
@@ -323,22 +357,23 @@ pub fn encode_response(response: &ImageGenerationResponse) -> Result<Value, Code
     map.insert("created".into(), json!(response.created));
     map.insert(
         "data".into(),
-        json!([{"b64_json":response.image.data.as_base64()}]),
+        Value::Array(
+            response
+                .images
+                .iter()
+                .map(|image| json!({"b64_json":image.data.as_base64()}))
+                .collect(),
+        ),
     );
-    put(
-        &mut map,
-        "output_format",
-        &response.image.format,
-        format_value,
-    );
-    put(&mut map, "size", &response.image.size, |s| {
+    put(&mut map, "output_format", &image.format, format_value);
+    put(&mut map, "size", &image.size, |s| {
         json!(format!("{}x{}", s.width, s.height))
     });
-    put(&mut map, "background", &response.image.background, |v| {
+    put(&mut map, "background", &image.background, |v| {
         let label: &str = (*v).into();
         json!(label)
     });
-    put(&mut map, "quality", &response.image.quality, |v| {
+    put(&mut map, "quality", &image.quality, |v| {
         let label: &str = (*v).into();
         json!(label)
     });

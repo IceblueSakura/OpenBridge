@@ -23,6 +23,7 @@ def main():
     plan.add_argument("--limit", type=int, default=32)
     plan.add_argument("--tokens", type=int)
     plan.add_argument("--task", choices=["generation", "images"], default="generation")
+    plan.add_argument("--images-per-request", type=int, choices=range(1, 11))
     plan.add_argument("--continue-oracle", action="store_true")
     plan.add_argument("--dry-run", action="store_true")
     run = sub.add_parser("run")
@@ -44,6 +45,7 @@ def main():
     args = parser.parse_args()
     if args.command == "plan":
         image_task = args.task == "images"
+        require(args.images_per_request is None or image_task, "plan_task", "setup")
         rows = select_image_bindings(args.providers, args.model) if image_task else select_bindings(args.providers, models=args.model)
         tokens = args.tokens if image_task else (2048 if args.tokens is None else args.tokens)
         require(1 <= args.limit <= 256 and (tokens is None if image_task else 1 <= tokens <= 2048), "plan_budget", "setup")
@@ -54,7 +56,7 @@ def main():
                         "models": [row[1] for row in rows],
                         "limit": args.limit,
                         "tokens": tokens,
-                        **({"images_per_request": 1} if image_task else {}),
+                        **({"images_per_request": args.images_per_request or 1} if image_task else {}),
                     }
                 )
             )
@@ -66,6 +68,7 @@ def main():
             limit=args.limit,
             tokens=tokens,
             task=args.task,
+            images_per_request=args.images_per_request,
             continue_oracle=args.continue_oracle,
         )
         print(json.dumps({"run": str(created.directory), "id": created.plan["id"]}))
@@ -114,7 +117,8 @@ def main():
             json.dumps(
                 {
                     "groups": [
-                        {"scenario": group[4], "requests": group[5], "tokens": group[6]}
+                        {"scenario": group[4], "requests": group[5], "tokens": group[6],
+                         **({"images": group[5] * ledger.plan["images_per_request"]} if ledger.is_images else {})}
                         for group in groups
                     ],
                     "remaining": ledger.plan["limit"]

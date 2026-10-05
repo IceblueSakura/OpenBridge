@@ -29,7 +29,7 @@ Authenticated bounded HTTP input
 | [gateway](../src/gateway/mod.rs) | 认证、启动准入、预算和实际 HTTP body 所有权 |
 | [binary](../src/bin/morphiecore.rs) | 显式私有文件 bootstrap 与 loopback listener |
 
-独立静态图片生成采用 [ImageGeneration task](../src/semantic/task/image_generation.rs)、[类型化请求入口](../src/adapter/images.rs) 与 [Images codec](../src/protocol/openai/images.rs)。[图片 binding](../src/topology/images.rs)在同一 CompiledTopology 中显式声明 public label、canonical identity、单 endpoint 与 Provider operation 路径，不给 Generation 合同填占位字段；采用范围为静态单图切片，目标 profile 与计量投影策略分别显式选择。Gateway 的 [Images intake](../src/gateway/images.rs)共享认证、受信 transport 和上述 body publication/handoff 生命周期，不增加重试或资源服务。产品绑定归[图片 catalog](../src/topology/catalog/images.rs)，binary 仅激活明确选定的图片标签，不从已有凭据池推定媒体授权。
+独立静态图片生成采用 [ImageGeneration task](../src/semantic/task/image_generation.rs)、[类型化请求入口](../src/adapter/images.rs) 与 [Images codec](../src/protocol/openai/images.rs)。[图片 binding](../src/topology/images.rs)在同一 CompiledTopology 中显式声明 public label、canonical identity、单 endpoint 与 Provider operation 路径，不给 Generation 合同填占位字段；有序产物集合共享一次执行和响应级计量，目标 profile 与计量投影策略分别显式选择。Gateway 的 [Images intake](../src/gateway/images.rs)共享认证、受信 transport 和上述 body publication/handoff 生命周期，不增加重试或资源服务。产品绑定归[图片 catalog](../src/topology/catalog/images.rs)，binary 仅激活明确选定的图片标签，不从已有凭据池推定媒体授权。
 
 ## 容易混淆的边界
 
