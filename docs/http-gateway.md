@@ -29,8 +29,9 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 | `POST /v1/responses` | [无状态 Responses profile](architecture-v2/responses-text-profile.md)；JSON 或 SSE |
 | `POST /v1/images/generations` | 显式激活的静态有序图片集合；JSON，inline 产物，图片模型须明确选择 |
 | `POST /v1/audio/speech` | 显式激活的独立 TTS；严格 EOF 后交付有界二进制音频，binary 模型须明确选择 |
+| `POST /v1/audio/transcriptions` | 显式激活的独立识别；有界 WAV/MP3 multipart 上传，严格 EOF 后返回标准 JSON |
 
-- 唯一的 `Authorization: Bearer …` 在应用层 body 收集或目录查询前校验；重复或错误认证拒绝，其他 header 不替代它。生成请求使用 UTF-8 JSON Content-Type，不接受 Content-Encoding；严格 JSON 拒绝重复 key，先绑定 public model/task 再 decode 语义。Models 无请求 body 或必需查询参数。
+- 唯一的 `Authorization: Bearer …` 在应用层 body 收集或目录查询前校验；重复或错误认证拒绝，其他 header 不替代它。除 Transcription 使用 multipart 外，生成请求使用 UTF-8 JSON Content-Type，均不接受 Content-Encoding；严格 JSON 拒绝重复 key，绑定 public model/task 后检查目标准入。Models 无请求 body 或必需查询参数。
 - `model` 仅接受已激活的 public label，不带 `provider/` 前缀。顶层 `provider` 字段即使为 null 也拒绝。目标 URL/path、上游 model、auth、adapter 与 scope 都来自受信绑定；入站 headers 不透传。
 - 每个 `(public model, client protocol)` 显式激活编译 Route 成员。保持 Route 和 pool 顺序，从同一最终 IR 独立预检每个固定 `(endpoint, credential)`；无兼容成员在 I/O 前失败。注册、Chat 激活与 Responses 激活不互相推定，查询方法见 [AGENTS](../AGENTS.md#current-provider-model-and-compatibility-information)。
 - 仅在 Public Model 准入输出 token 控制时，将 operator 缺省上限写入最终 IR，再派生 requirements/admission/lowering；显式超限拒绝，不静默裁剪。SIWC 不支持该上游参数：省略时不补值，显式请求拒绝。本地 bytes/events/deadline 预算不证明上游停算或费用上限。响应 reported facts 不从请求补齐。
@@ -43,9 +44,9 @@ Pool 按编译 binding 启用候选；只有账户或 key、没有 pool，不激
 
 ### 标准模型发现
 
-Models 列表采用 OpenAI 的 `{"object":"list","data":[…]}`，不分页；单模型查询返回同一标准对象。目录包含实际启动激活的对话、独立图片与 Speech public labels，跨协议和候选同名去重，按标签排序，不暴露未激活注册项。出现于目录仅说明有本地入口，不证明每个协议/控制、真实账户或上游推理可用。
+Models 列表采用 OpenAI 的 `{"object":"list","data":[…]}`，不分页；单模型查询返回同一标准对象。目录包含实际启动激活的各 task public labels，跨协议和候选同名去重，按标签排序，不暴露未激活注册项。出现于目录仅说明有本地入口，不证明每个协议/控制、真实账户或上游推理可用。
 
-`id` 是 public label，`object` 为 `"model"`；`created` 统一使用研发者模型发布时间，只有发布日期时按该日期 UTC 00:00 转换成 Unix 秒，不宣称精确发布时刻；`owned_by` 是模型研发者名称，不是推理服务商。未报告的可选 `shutdown_date` 省略。具体事实及来源归 [catalog](../src/topology/catalog/models.rs) 和[图片 catalog](../src/topology/catalog/images.rs)，不使用 OpenRouter 收录时间、Gateway 启动时间或账户 metadata 补值。
+`id` 是 public label，`object` 为 `"model"`；`created` 统一使用研发者模型发布时间，只有发布日期时按该日期 UTC 00:00 转换成 Unix 秒，不宣称精确发布时刻；`owned_by` 是模型研发者名称，不是推理服务商。未报告的可选 `shutdown_date` 省略。具体事实及来源归各 task 的 [catalog](../src/topology/catalog.rs)，不使用 OpenRouter 收录时间、Gateway 启动时间或账户 metadata 补值。
 
 可嵌入调用方在编译各 task identity 后，通过 `CompiledTopology::with_model_metadata` 为 canonical identity 提供经过验证的 [ModelMetadata](../src/topology/model_metadata.rs)，别名共用同一来源。纯 topology/语义消费者可不提供；Gateway 要求每个已激活 identity 都有元数据，缺失时拒绝启动，不隐藏该模型。启动时有界构建完整只读视图，不读取上游目录、凭据文件或请求内刷新；数量/字节硬边界归 [Models owner](../src/gateway/models.rs)，同时受 `Limits.response_bytes` 限制。空列表编码不解除 Gateway 至少有一个业务入口的要求。
 
@@ -107,6 +108,8 @@ Binary 从 [Speech catalog](../src/topology/catalog/speech.rs)解析绑定；只
 
 OpenRouter 的具名 MP3 映射与控制拒绝归 [Speech profile](architecture-v2/speech-profile.md#openrouter-mp3-target-mapping)。标准缺省格式在上游显式编码，避免 PCM 默认值改变请求；显式 `speed: 1` 或空 instructions 也不绕过目标拒绝。标准 codec 的格式 vocabulary 不意味着这个目标全部支持。
 
+Token Plan 使用[原生 MP3 映射](architecture-v2/speech-profile.md#token-plan-native-mp3-mapping)，不是 OpenAI 上游 wire。Gateway 聚合有界音频 SSE，不下载 JSON 中的 URL；无编码报告时仍返回 `application/octet-stream`。完整 native 报告保留在 IR，标准二进制仅按[具名音频投影](architecture-v2/protocol-and-lowering.md#独立音频的附属报告投影)省略附属信息。套餐 key 和按量 key 不互换，官方[工具交互式使用限制](https://help.aliyun.com/zh/model-studio/base-url)不因本地 HTTP 转换解除。
+
 以下请求发往 `/v1/audio/speech`，模型与 voice 都是占位符，须按所选 binding 替换；不授予真实调用权限：
 
 ```json
@@ -116,6 +119,22 @@ OpenRouter 的具名 MP3 映射与控制拒绝归 [Speech profile](architecture-
 成功返回原始音频 bytes，而非 JSON/Base64。上游可以分块，但本入口有界收集至严格 EOF 后才发布，不承诺首字节低延迟；SDK streaming-response 只是消费方式，不证明边生成边播放。Content-Type、长度及 transport 失败检查不证明音频可解码或内容正确。
 
 `Limits.speech_bytes`、`Limits.response_bytes`、Endpoint 和音频值硬预算共同限制完整产物；取消、绝对 deadline 和实际 handoff 复用共享交付层。不注入文本 output-token cap，不把本地 bytes/time 上限称为费用上限。SSE、自定义声音 ID、转录、Realtime、播放器、转码、文件保留和引用回放不在此入口范围。
+
+### 独立语音识别
+
+Transcription 使用独立 [SpeechRecognition task](../src/semantic/task/speech_recognition.rs)与[标准 JSON profile](architecture-v2/transcription-profile.md)。`POST /v1/audio/transcriptions` 接受单个 WAV/MP3 的 multipart `file`、public `model` 和可选 `language`，输出全文 `text` 与实际可映射的 duration usage。省略格式或显式 `response_format: json`、`stream: false` 属于同一同步分支；prompt、temperature、时间戳请求、其他输出格式、URL/ID 输入及流式均在 I/O 前拒绝。
+
+嵌入方通过 `CompiledTopology::with_transcriptions` 编译可信 operation 与单目标路由，再向 `Gateway::new_with_media` 的独立 `TranscriptionEntry` 列表显式传入标签；空列表不激活识别。Binary 从 [Transcription catalog](../src/topology/catalog/transcription.rs)取绑定，须在 `models` 明确选定，并配置同认证域的单来源、禁 fallback pool。共享 Token Plan 凭据不自动激活 Speech 或 Transcription，账户准入与实际使用仍需另行验证。
+
+原生 ASR 使用受信固定路径与 Base64 文件数据，不访问本地路径、上传存储服务或下载 URL。Multipart 的 envelope、字段、文件和上游 encoded bytes 分别有界；`Limits.transcription_request_bytes` 不放宽其他 JSON 请求的预算。文件名/MIME 仅声明格式，不证明音频可解码；时长及实际格式校验属于上游，本地截止时间不等于远端计费上限。
+
+返回示例仅示意标准形状，不承诺上游一定报告 usage：
+
+```json
+{"text":"Hello.","usage":{"type":"duration","seconds":1}}
+```
+
+IR 保留实际末句/词时序及 channel；不从末句假造全文时序，或从请求语言假造检测结果。标准 JSON 的附属报告省略按[具名音频投影](architecture-v2/protocol-and-lowering.md#独立音频的附属报告投影)执行。正文、闭合、错误与取消不受损失许可影响；上游读取或报告失败时不返回成功前缀。
 
 ### 默认资源边界
 

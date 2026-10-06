@@ -61,6 +61,15 @@ Responses 完善优先，不为 Chat 扩大标准核心以外的执行行为。�
 - 严格策略仍拒绝不可表示的报告。投影只修改副本，并通过 typed loss flags 区分“上游未报告”和“投影省略”；不添加私有 wire 字段。
 - 图片 bytes、格式与其他产物报告、真实完成、错误、资源预算和取消/提交边界不受损失许可影响。非法计量、非法或不完整产物必须先拒绝，不能靠删除 usage 获得成功；本规则不授权流式、请求控制或其他 task 的损失。
 
+### 独立音频的附属报告投影
+
+独立 Speech 的二进制输出与 Transcription 的简洁 JSON 分别采用具名、限定的附属报告投影，不继承 Chat 或 Images 的损失许可：
+
+- Speech result → 标准 audio：只省略请求/产物引用身份、URL/expiry、字符计量及分句/对齐报告；音频 bytes 与实际报告的编码保持不变。不得从请求的 MP3 意图或 URL 后缀补造输出格式。Owner 为 [Speech result](../../src/semantic/task/speech_synthesis/result.rs)，投影和 typed omission flags 归 [Speech lowering](../../src/lowering/speech.rs)。
+- Recognition result → 标准 JSON：完整转录正文和可准确映射的处理时长计量仍输出；请求身份、末句/词时间戳、标点细分及 channel 等无标准位置的附属报告只在该投影省略。Owner 为 [SpeechRecognition](../../src/semantic/task/speech_recognition.rs)，投影和 omission flags 归 [Transcription codec](../../src/protocol/openai/transcription.rs)。不得把末句报告变成全文时序，或从 language hint、词尾时间推算语言和文件总时长。
+- IR 保留实际报告、单位、scope 和最终性；累计快照不相加。结果编辑使相关报告失效，纯库消费者可检查未投影的完整结果。不能把“投影省略”标作“上游未报告”，也不为通知损失新增私有字段。
+- 两种投影都先验证完整结果；请求控制、媒体/转录正文、真实失败/终态、预算、取消和 handoff 不得受损。上游 SSE 聚合仅用于明确的 Speech profile，不授权下游流式交付或其他音频 operation 的损失。
+
 ## Source records
 
 Source/fidelity records 只保存有界的表示形式、wire identity、来源与依赖证明，不保存能覆盖 typed 值的第二正文。复用要求 owner 仍存在、目标/profile/scope 兼容、依赖未失效，且不能恢复删除值。请求、静态响应与事件分别检查。

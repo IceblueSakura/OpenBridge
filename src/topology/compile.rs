@@ -74,6 +74,7 @@ pub struct CompiledTopology {
     canonical_models: BTreeMap<String, CanonicalModel>,
     pub(super) image_routes: BTreeMap<String, super::images::ImageRoute>,
     pub(super) speech_routes: BTreeMap<String, super::speech::SpeechRoute>,
+    pub(super) transcription_routes: BTreeMap<String, super::transcription::TranscriptionRoute>,
     pub(super) model_metadata: BTreeMap<String, super::ModelMetadata>,
 }
 
@@ -266,6 +267,7 @@ pub fn compile(
         canonical_models: canonical_map,
         image_routes: BTreeMap::new(),
         speech_routes: BTreeMap::new(),
+        transcription_routes: BTreeMap::new(),
         model_metadata: BTreeMap::new(),
     })
 }

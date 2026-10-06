@@ -27,6 +27,7 @@ mod terminal;
 mod text;
 #[cfg(test)]
 mod tool_results_test;
+pub mod transcription;
 
 pub use crate::protocol::{CodecError, DecodedRequest, DecodedResponse, ResponseMetadata};
 use crate::{

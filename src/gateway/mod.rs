@@ -1,5 +1,6 @@
 //! Minimal HTTP ingress over immutable, explicitly bound task entries.
 mod admission;
+mod aliyun_speech;
 mod auth;
 mod body;
 pub mod bootstrap;
@@ -27,6 +28,9 @@ mod speech_tests;
 mod subscription_tests;
 #[cfg(test)]
 mod tests;
+mod transcription;
+#[cfg(test)]
+mod transcription_tests;
 #[cfg(test)]
 use crate::provider::SecretMaterial;
 use crate::{
@@ -37,7 +41,7 @@ use crate::{
     topology::{Endpoint, PublicModel},
     transport::http::HttpTransport,
 };
-pub use config::{Entry, ImageEntry, Limits, SpeechEntry, StartupError};
+pub use config::{Entry, ImageEntry, Limits, SpeechEntry, StartupError, TranscriptionEntry};
 pub use credentials::Credentials;
 use error::ApiError;
 use std::{collections::BTreeMap, sync::Arc};
@@ -92,6 +96,7 @@ struct Runtime {
     entries: BTreeMap<(u8, String), Arc<BoundEntry>>,
     images: BTreeMap<String, Arc<images::BoundImage>>,
     speech: BTreeMap<String, Arc<speech::BoundSpeech>>,
+    transcriptions: BTreeMap<String, Arc<transcription::BoundTranscription>>,
     models: models::ModelView,
     limits: Limits,
     permits: Arc<Semaphore>,

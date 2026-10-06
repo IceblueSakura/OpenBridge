@@ -155,3 +155,11 @@ pub fn response_content_type(artifact: &AudioArtifact) -> &'static str {
         Some(AudioEncoding::PcmS16Le24KhzMono) => "audio/pcm",
     }
 }
+
+/// Named standard-binary projection: omit ancillary synthesis reports, not audio.
+/// The source result remains available to typed consumers and is never mutated.
+pub fn project_result(
+    result: &crate::semantic::task::speech_synthesis::SpeechResult,
+) -> Result<crate::lowering::speech::BinaryProjection, CodecError> {
+    crate::lowering::speech::project_binary(result).map_err(|_| invalid())
+}

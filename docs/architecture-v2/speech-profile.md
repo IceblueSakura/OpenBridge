@@ -26,14 +26,24 @@ Only MP3 and explicitly bound named voices are admitted. Instructions and speed,
 
 Local execution uses one fixed target and credential source, without retry/fallback. This does not attest the aggregator's internal routing, retries, account qualification or remote completion.
 
+## Token Plan native MP3 mapping
+
+The trusted native profile follows [SpeechSynthesizer HTTP](https://help.aliyun.com/en/model-studio/qwen-audio-tts-http-api), the [model-specific voice list](https://help.aliyun.com/en/model-studio/qwen-audio-tts-voice-list) and [Token Plan integration](https://help.aliyun.com/en/model-studio/token-plan-multimodal-gen). A command that saves a response to a file is not evidence of a binary response: the native non-streaming contract reports a URL in JSON.
+
+The [native codec](../../src/protocol/aliyun_speech.rs) explicitly requests MP3 and the I/O owner selects upstream SSE, retaining and ordering its Base64 audio chunks without fetching URLs. Sentence closure, a normal synthesis stop, strict SSE framing and transport EOF are all required before one bounded downstream binary result. An error or missing chunk/closure cannot be repaired by a final URL. This is not downstream Speech SSE or low-latency delivery.
+
+Only the bound system voices and MP3 are admitted; instructions, speed and other formats remain rejected in this slice rather than silently removed or clamped. Model-native features do not automatically expand this selected profile. Authentication uses the Token Plan domain and pool, not the metered DashScope account. [Plan usage restrictions](https://help.aliyun.com/zh/model-studio/base-url) still apply: a local HTTP adapter does not authorize backend-service use.
+
+[SpeechResult](../../src/semantic/task/speech_synthesis/result.rs) retains the bounded reference, cumulative character count and sentence/alignment reports. Replacing audio invalidates dependent reports. Standard binary output uses only the [named ancillary-report projection](protocol-and-lowering.md#独立音频的附属报告投影); it neither rewrites the original result nor fabricates a transcript or output encoding.
+
 ## Binary reports and closure
 
 Only the selected profile interprets response media types. `application/octet-stream` does not report an encoding; request format must not fill it. Admitted format-specific MIME reports must agree with effective request format. The bounded `audio/x-wav` alias projects to `audio/wav`; PCM layout is supplied by the standard profile, not a universal interpretation of `audio/pcm`. Parameterized, absent, duplicate or conflicting media types and content encoding are rejected.
 
 The I/O owner bounds cumulative bytes, checks declared lengths and read errors, and waits for strict transport EOF before publication. HTTP chunking is accepted but does not become semantic audio events. Handoff, cancellation, deadlines and completion reuse the [execution contract](execution-model.md); no retries or post-publication replacement occur.
 
-Encoding labels and EOF do not prove valid frames, decodability, exact spoken text or audio quality. Codec and Gateway do not sniff, decode, transcode, play, retain or fetch audio. Binary output carries no standard usage report here; no count or cost is fabricated, and no accounting-loss rule is inherited from Images.
+Encoding labels and EOF do not prove valid frames, decodability, exact spoken text or audio quality. Codec and Gateway do not decode audio frames, transcode, play, persist or fetch audio; native Base64 decoding is only a byte-preserving wire transformation. Binary output carries no standard usage report here; the named projection above is the only ancillary-report loss allowance, with no count/cost fabrication or inherited Images policy.
 
 ## Deferred boundaries
 
-Low-latency binary delivery, SSE events, transcription, custom voices/consent, resource IDs/history and Realtime require separate contracts. A registered standard carrier does not activate a model, establish account permissions or bound remote fees. Consumer verification uses synthetic bytes; real Provider and quality checks require their own evidence and authorization.
+Low-latency binary delivery, downstream SSE, custom voices/consent, resource IDs/history and Realtime require separate contracts. [Transcription](transcription-profile.md) is an independent operation and does not widen this profile. A registered standard carrier does not activate a model, establish account permissions or bound remote fees. Consumer verification uses synthetic bytes; real Provider and quality checks require their own evidence and authorization.

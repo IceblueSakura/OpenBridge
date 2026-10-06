@@ -13,7 +13,7 @@ cargo run --locked --offline --bin morphiecore -- \
   --credentials-dir /path/to/private-store --config /path/to/private/gateway.json
 ```
 
-默认入口配置为目录中的 `gateway.json`，精确字段与资源上限归 [bootstrap](../src/gateway/bootstrap.rs)。该文件包含入口 `client_key`、可选 loopback `bind`、受信 `proxy`、诊断路径 `diagnostics`、显式模型过滤 `models` 和全局尝试上限 `max_attempts`。省略 models 使用已配置 pool 对应的默认对话绑定；[Images](http-gateway.md#独立图片生成) 与 [Speech](http-gateway.md#独立语音生成) 仍须显式选定，不因共享 pool 自动启用。空、重复、未知或未启用模型过滤拒绝。配置路径通过参数提供，不从 env 导入旧格式。
+默认入口配置为目录中的 `gateway.json`，精确字段与资源上限归 [bootstrap](../src/gateway/bootstrap.rs)。该文件包含入口 `client_key`、可选 loopback `bind`、受信 `proxy`、诊断路径 `diagnostics`、显式模型过滤 `models` 和全局尝试上限 `max_attempts`。省略 models 使用已配置 pool 对应的默认对话绑定；[Images](http-gateway.md#独立图片生成)、[Speech](http-gateway.md#独立语音生成) 与 [Transcription](http-gateway.md#独立语音识别) 仍须分别显式选定，不因共享 pool 自动启用。空、重复、未知或未启用模型过滤拒绝。配置路径通过参数提供，不从 env 导入旧格式。
 
 以下仅为 synthetic 结构示例；模型占位符须按 catalog 查询替换，不是实际准入声明：
 

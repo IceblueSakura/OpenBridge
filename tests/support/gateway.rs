@@ -115,8 +115,24 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
     let speech_binding = &morphiecore::topology::catalog::SPEECH_BINDINGS[0];
     let mut router_speech = speech_binding.route();
     router_speech.endpoint.target.origin = router_provider.origin.clone();
+    let native_speech_binding = morphiecore::topology::catalog::SPEECH_BINDINGS
+        .iter()
+        .find(|b| b.model == "qwen-audio-3.0-tts-plus")
+        .unwrap();
+    let asr_binding = &morphiecore::topology::catalog::TRANSCRIPTION_BINDINGS[0];
+    let mut native_provider = native_speech_binding.provider();
+    native_provider.origin = TrustedOrigin::parse(origin).unwrap();
+    let mut native_speech = native_speech_binding.route();
+    native_speech.endpoint.target.origin = native_provider.origin.clone();
+    let mut asr = asr_binding.route();
+    asr.endpoint.target.origin = native_provider.origin.clone();
     let topology = compile(
-        vec![provider, router_provider, speech_support::provider(origin)],
+        vec![
+            provider,
+            router_provider,
+            speech_support::provider(origin),
+            native_provider,
+        ],
         endpoints,
         vec![route],
         models,
@@ -132,9 +148,16 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         vec![
             speech_support::binding(origin).0,
             speech_binding.operation(),
+            native_speech_binding.operation(),
         ],
-        vec![speech_support::binding(origin).1, router_speech],
+        vec![
+            speech_support::binding(origin).1,
+            router_speech,
+            native_speech,
+        ],
     )
+    .unwrap()
+    .with_transcriptions(vec![asr_binding.operation()], vec![asr])
     .unwrap()
     .with_model_metadata([
         (
@@ -156,6 +179,14 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
         (
             ModelId::new(speech_binding.model).unwrap(),
             speech_binding.metadata(),
+        ),
+        (
+            ModelId::new(native_speech_binding.model).unwrap(),
+            native_speech_binding.metadata(),
+        ),
+        (
+            ModelId::new(asr_binding.model).unwrap(),
+            asr_binding.metadata(),
         ),
     ])
     .unwrap();
@@ -200,6 +231,10 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
             CredentialBindingId::new("speech-key").unwrap(),
             Arc::new(SecretMaterial::new("synthetic-speech-credential-0001").unwrap()),
         ),
+        (
+            CredentialBindingId::new("aliyun-tokenplan-cn-api-key").unwrap(),
+            Arc::new(SecretMaterial::new("synthetic-tokenplan-credential-0001").unwrap()),
+        ),
     ]);
     Gateway::new_with_media(
         topology,
@@ -219,7 +254,13 @@ pub fn gateway(origin: &str, limits: Limits) -> Gateway {
             morphiecore::gateway::SpeechEntry {
                 model: speech_binding.model.into(),
             },
+            morphiecore::gateway::SpeechEntry {
+                model: native_speech_binding.model.into(),
+            },
         ],
+        vec![morphiecore::gateway::TranscriptionEntry {
+            model: asr_binding.model.into(),
+        }],
         credentials,
         SecretMaterial::new(CLIENT_KEY).unwrap(),
         limits,

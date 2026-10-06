@@ -5,6 +5,8 @@ mod models;
 pub use images::{IMAGE_BINDINGS, ImageBinding};
 mod speech;
 pub use speech::{SPEECH_BINDINGS, SpeechBinding};
+mod transcription;
+pub use transcription::{TRANSCRIPTION_BINDINGS, TranscriptionBinding};
 mod subscriptions;
 use crate::{
     adapter::Adapter,
@@ -138,6 +140,13 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
         SPEECH_BINDINGS.iter().map(|b| b.operation()).collect(),
         SPEECH_BINDINGS.iter().map(|b| b.route()).collect(),
     )?
+    .with_transcriptions(
+        TRANSCRIPTION_BINDINGS
+            .iter()
+            .map(|b| b.operation())
+            .collect(),
+        TRANSCRIPTION_BINDINGS.iter().map(|b| b.route()).collect(),
+    )?
     .with_model_metadata(
         models::MODELS
             .iter()
@@ -158,6 +167,12 @@ pub fn default_topology() -> Result<CompiledTopology, TopologyError> {
                     ModelId::new(b.model).expect("static speech id"),
                     b.metadata(),
                 )
+            }))
+            .chain(TRANSCRIPTION_BINDINGS.iter().map(|b| {
+                (
+                    ModelId::new(b.model).expect("static transcription id"),
+                    b.metadata(),
+                )
             })),
     )
 }
@@ -174,6 +189,10 @@ fn declared_topology_compiles() {
     }
     for binding in SPEECH_BINDINGS {
         let route = topology.speech_route(binding.model).unwrap();
+        assert!(topology.model_metadata(&route.canonical_model).is_some());
+    }
+    for binding in TRANSCRIPTION_BINDINGS {
+        let route = topology.transcription_route(binding.model).unwrap();
         assert!(topology.model_metadata(&route.canonical_model).is_some());
     }
 }

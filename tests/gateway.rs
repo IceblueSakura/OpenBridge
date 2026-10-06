@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 #[path = "support/chat_profile.rs"]
 mod chat_wire;
+#[path = "support/tokenplan_audio.rs"]
+mod native_audio;
 #[allow(dead_code)]
 #[path = "support/responses_profile.rs"]
 mod responses_wire;
@@ -386,6 +388,18 @@ async fn image_answer(
 
 #[tokio::test]
 async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
+    async fn native_answer(
+        State(state): State<Upstream>,
+        headers: HeaderMap,
+        axum::Json(request): axum::Json<Value>,
+    ) -> Response {
+        state.0.lock().unwrap().push(request.clone());
+        if request["model"] == "qwen-audio-3.0-tts-plus" {
+            native_audio::speech(&headers, &request, false)
+        } else {
+            native_audio::transcription(&headers, &request, false)
+        }
+    }
     async fn speech_answer(
         State(state): State<Upstream>,
         headers: HeaderMap,
@@ -444,6 +458,14 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
         .route("/api/v1/images", post(openrouter_image_answer))
         .route("/audio/speech", post(speech_answer))
         .route("/api/v1/audio/speech", post(speech_answer))
+        .route(
+            "/api/v1/services/audio/tts/SpeechSynthesizer",
+            post(native_answer),
+        )
+        .route(
+            "/api/v1/services/aigc/multimodal-generation/generation",
+            post(native_answer),
+        )
         .with_state(observed.clone());
     let upstream_guard = Guard(tokio::spawn(async move {
         axum::serve(upstream, app).await.unwrap();
@@ -1214,6 +1236,43 @@ async fn real_router_uses_provider_http_for_json_sse_tools_and_cross_profile() {
             b"synthetic-router-audio"
         );
     }
+    let response=client.post(format!("{url}/v1/audio/speech")).bearer_auth(support::CLIENT_KEY)
+        .header("x-never-forward","private-input")
+        .json(&json!({"model":"qwen-audio-3.0-tts-plus","input":"synthetic plan speech","voice":"longanlingxin"}))
+        .send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()["content-type"],
+        "application/octet-stream"
+    );
+    assert_eq!(response.bytes().await.unwrap().as_ref(), b"native-audio");
+    let mut upload=b"--fixture\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nqwen-audio-3.0-asr-flash\r\n--fixture\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\nen\r\n--fixture\r\nContent-Disposition: form-data; name=\"file\"; filename=\"clip.wav\"\r\nContent-Type: audio/wav\r\n\r\n".to_vec();
+    upload.extend_from_slice(native_audio::WAV);
+    upload.extend_from_slice(b"\r\n--fixture--\r\n");
+    let before = observed.0.lock().unwrap().len();
+    let unauthorized = client
+        .post(format!("{url}/v1/audio/transcriptions"))
+        .body(upload.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), 401);
+    assert_eq!(observed.0.lock().unwrap().len(), before);
+    let response = client
+        .post(format!("{url}/v1/audio/transcriptions"))
+        .bearer_auth(support::CLIENT_KEY)
+        .header("content-type", "multipart/form-data; boundary=fixture")
+        .header("x-never-forward", "private-input")
+        .body(upload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        json!({"text":"Hi.","usage":{"type":"duration","seconds":1}})
+    );
+    assert_eq!(observed.0.lock().unwrap().len(), before + 1);
     let models: Value = client
         .get(format!("{url}/v1/models"))
         .bearer_auth(support::CLIENT_KEY)

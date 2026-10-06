@@ -49,6 +49,11 @@ impl ModelView {
                 .map(|m| &m.canonical_model)
                 .or_else(|| topology.image_route(label).map(|r| &r.canonical_model))
                 .or_else(|| topology.speech_route(label).map(|r| &r.canonical_model))
+                .or_else(|| {
+                    topology
+                        .transcription_route(label)
+                        .map(|r| &r.canonical_model)
+                })
                 .ok_or(StartupError::Binding)?;
             let metadata = topology
                 .model_metadata(canonical)

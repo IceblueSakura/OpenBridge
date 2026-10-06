@@ -20,6 +20,7 @@ MorphieCore 以一套独立 Semantic Model / IR 支撑低损 Provider 映射、�
 - [Responses](responses-text-profile.md)：请求型 Generation 的现有边界及本地兼容形式。
 - [Chat](chat-text-profile.md)：单候选兼容路径；[Chat media](chat-media-profile.md)单独限定 citations/audio 值、事件与引用。
 - [Speech](speech-profile.md)：独立 TTS task、标准控制与有界二进制产物，不扩大 Chat/Responses 音频准入。
+- [Transcription](transcription-profile.md)：独立识别 task、有界上传、实际时序报告与标准 JSON 投影，不提供文件服务。
 - [Schema](schema-profile.md)：当前结构/strict/reference 准入，不证明生成 adherence。
 - [客户端 Generation 边界](client-generation-profile.md)：无独立 `_openbridge` attachment；typed 语义保留，缺少目标载体时明确拒绝。
 

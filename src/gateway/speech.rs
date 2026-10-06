@@ -174,14 +174,32 @@ async fn produce_one(
         .min(runtime.limits.response_bytes)
         .min(entry.route.endpoint.execution.response_body_limit)
         .min(MAX_AUDIO_BYTES);
-    let audio = receive(
-        upstream,
-        &request.task,
-        entry.route.endpoint.profile,
-        limit,
-        trace,
-    )
-    .await?;
+    let audio = if entry.route.endpoint.profile.upstream_sse() {
+        let result = super::aliyun_speech::receive(
+            upstream,
+            limit,
+            runtime
+                .limits
+                .response_bytes
+                .min(entry.route.endpoint.execution.response_body_limit),
+            runtime.limits.event_bytes,
+            runtime.limits.max_events,
+            trace,
+        )
+        .await?;
+        codec::project_result(&result)
+            .map_err(|_| ApiError::upstream())?
+            .audio
+    } else {
+        receive(
+            upstream,
+            &request.task,
+            entry.route.endpoint.profile,
+            limit,
+            trace,
+        )
+        .await?
+    };
     trace.stage(Stage::Projection);
     let mut lifecycle = crate::execution::Lifecycle::new();
     body::send_audio(lane, audio, trace).await?;

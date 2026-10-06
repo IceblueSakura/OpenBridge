@@ -66,6 +66,8 @@ Images 的公开 Schema 用同一锁定环境中的 `jsonschema` 执行 Draft 20
 
 Speech 的请求与二进制响应 Schema 使用 `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_speech_schema.py`；字节完整性、精确数值边界、目标控制准入和取消归 Rust。固定 SDK 的 Gateway gate 同时检查 Speech eager/streaming-response 消费与 synthetic WAV 解码；不证明低延迟交付或真实语音质量。
 
+Transcription 的抽象 multipart/JSON Schema 使用 `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_transcription_schema.py`；真实 multipart framing、重复字段、原始 bytes、Base64 扩张和报告完整性由 Rust 验证。固定 SDK 的同一个 Gateway gate 覆盖 native TTS/ASR synthetic 映射，不额外创建生产 Router smoke，也不代替真实 Token Plan 准入。
+
 首次准备需要依赖下载；已有缓存可为 sync 加 `--offline`：
 
 ```sh

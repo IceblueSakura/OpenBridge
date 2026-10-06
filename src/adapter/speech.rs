@@ -6,6 +6,7 @@ use crate::semantic::task::speech_synthesis::SpeechRequest;
 pub enum Profile {
     Standard,
     OpenRouterMp3,
+    AliyunMp3,
 }
 impl Profile {
     pub fn encode_request(
@@ -18,13 +19,22 @@ impl Profile {
             Self::OpenRouterMp3 => {
                 crate::protocol::openrouter_speech::encode_request(request, model)
             }
+            Self::AliyunMp3 => crate::protocol::aliyun_speech::encode_request(request, model),
         }
+    }
+    pub fn upstream_sse(self) -> bool {
+        self == Self::AliyunMp3
     }
     pub fn reported_encoding(
         self,
         content_type: &str,
         task: &SpeechRequest,
     ) -> Result<Option<crate::semantic::value::AudioEncoding>, crate::protocol::CodecError> {
+        if self.upstream_sse() {
+            return Err(crate::protocol::CodecError::Invalid(
+                "native speech delivery",
+            ));
+        }
         if self == Self::OpenRouterMp3 {
             crate::protocol::openrouter_speech::validate_task(task)?;
         }

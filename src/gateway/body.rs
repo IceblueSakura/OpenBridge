@@ -172,6 +172,11 @@ pub(super) enum Producer {
         entry: Arc<super::speech::BoundSpeech>,
         request: crate::adapter::speech::Request,
     },
+    Transcription {
+        runtime: Arc<super::Runtime>,
+        entry: Arc<super::transcription::BoundTranscription>,
+        request: crate::adapter::transcription::Request,
+    },
 }
 impl Producer {
     async fn produce(
@@ -194,6 +199,21 @@ impl Producer {
                 request,
             } => {
                 super::images::produce(
+                    runtime,
+                    entry,
+                    request,
+                    deadline,
+                    &Lane { tx, state },
+                    trace,
+                )
+                .await
+            }
+            Self::Transcription {
+                runtime,
+                entry,
+                request,
+            } => {
+                super::transcription::produce(
                     runtime,
                     entry,
                     request,

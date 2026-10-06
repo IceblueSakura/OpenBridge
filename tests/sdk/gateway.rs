@@ -1,4 +1,7 @@
 //! Official SDK -> production Router -> synthetic HTTP Provider -> the same Router.
+#[allow(dead_code)]
+#[path = "../support/tokenplan_audio.rs"]
+mod native_audio;
 #[path = "../support/gateway.rs"]
 mod support;
 use super::{ServerGuard, chat_sdk::wire as chat_wire, wire};
@@ -50,6 +53,8 @@ struct Scenario {
 #[derive(Clone, Default)]
 struct Observed(
     Arc<Mutex<BTreeMap<Scenario, u8>>>,
+    Arc<std::sync::atomic::AtomicUsize>,
+    Arc<std::sync::atomic::AtomicUsize>,
     Arc<std::sync::atomic::AtomicUsize>,
     Arc<std::sync::atomic::AtomicUsize>,
     Arc<std::sync::atomic::AtomicUsize>,
@@ -237,6 +242,21 @@ async fn image_provider(
 #[tokio::test]
 #[ignore = "requires the pinned SDK; real gateway Router and synthetic HTTP Provider only"]
 async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
+    async fn native_provider(
+        State(state): State<Observed>,
+        headers: HeaderMap,
+        axum::Json(request): axum::Json<Value>,
+    ) -> Response {
+        let speech = request["model"] == "qwen-audio-3.0-tts-plus";
+        let index = if speech { &state.4 } else { &state.5 }
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert!(index < 3);
+        if speech {
+            native_audio::speech(&headers, &request, index == 2)
+        } else {
+            native_audio::transcription(&headers, &request, index == 2)
+        }
+    }
     async fn speech_provider(
         State(state): State<Observed>,
         headers: HeaderMap,
@@ -313,6 +333,14 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
                 .route("/images/generations", post(image_provider))
                 .route("/audio/speech", post(speech_provider))
                 .route("/api/v1/audio/speech", post(speech_provider))
+                .route(
+                    "/api/v1/services/audio/tts/SpeechSynthesizer",
+                    post(native_provider),
+                )
+                .route(
+                    "/api/v1/services/aigc/multimodal-generation/generation",
+                    post(native_provider),
+                )
                 .with_state(state),
         )
         .await
@@ -357,12 +385,15 @@ async fn sdk_uses_gateway_for_both_protocols_and_deliveries() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["requests"], 57);
-    assert_eq!(report["model_requests"], 13);
+    assert_eq!(report["requests"], 73);
+    assert_eq!(report["model_requests"], 15);
+    assert_eq!(report["native_audio_requests"], 14);
     assert_eq!(report["speech_requests"], 13);
     assert_eq!(observed.1.load(std::sync::atomic::Ordering::SeqCst), 3);
     assert_eq!(observed.2.load(std::sync::atomic::Ordering::SeqCst), 3);
     assert_eq!(observed.3.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(observed.4.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(observed.5.load(std::sync::atomic::Ordering::SeqCst), 3);
     {
         let observed = observed.0.lock().unwrap();
         assert_eq!(observed.len(), 8);

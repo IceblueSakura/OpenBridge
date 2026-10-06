@@ -28,6 +28,10 @@ pub struct SpeechEntry {
     pub model: String,
 }
 #[derive(Clone, Debug)]
+pub struct TranscriptionEntry {
+    pub model: String,
+}
+#[derive(Clone, Debug)]
 pub struct Limits {
     pub request_bytes: usize,
     pub response_bytes: usize,
@@ -37,6 +41,8 @@ pub struct Limits {
     pub images_bytes: usize,
     /// Complete binary audio bytes, also bounded by endpoint and response ceilings.
     pub speech_bytes: usize,
+    /// Whole multipart envelope, independently bounded from JSON ingress.
+    pub transcription_request_bytes: usize,
     pub event_bytes: usize,
     pub max_events: usize,
     pub concurrency: usize,
@@ -53,6 +59,7 @@ impl Default for Limits {
             image_bytes: 2 << 20,
             images_bytes: 2 << 20,
             speech_bytes: 8 << 20,
+            transcription_request_bytes: crate::protocol::openai::transcription::MAX_UPLOAD_BYTES,
             event_bytes: 1 << 20,
             max_events: 65_536,
             concurrency: 16,
@@ -92,6 +99,8 @@ impl Limits {
             && (1..=crate::semantic::task::image_generation::MAX_IMAGES_BYTES)
                 .contains(&self.images_bytes)
             && (1..=crate::semantic::value::MAX_AUDIO_BYTES).contains(&self.speech_bytes)
+            && (1..=crate::protocol::openai::transcription::MAX_UPLOAD_BYTES)
+                .contains(&self.transcription_request_bytes)
             && (1..=4 << 20).contains(&self.event_bytes)
             && (1..=1_000_000).contains(&self.max_events)
             && (1..=256).contains(&self.concurrency)
@@ -167,6 +176,7 @@ impl Gateway {
             entries,
             image_entries,
             vec![],
+            vec![],
             credentials,
             client_key,
             limits,
@@ -180,6 +190,7 @@ impl Gateway {
         entries: Vec<Entry>,
         image_entries: Vec<ImageEntry>,
         speech_entries: Vec<SpeechEntry>,
+        transcription_entries: Vec<TranscriptionEntry>,
         credentials: impl Into<Credentials>,
         client_key: SecretMaterial,
         limits: Limits,
@@ -188,6 +199,8 @@ impl Gateway {
         let credentials = credentials.into();
         let images = super::images::bind(&topology, image_entries, &credentials)?;
         let speech = super::speech::bind(&topology, speech_entries, &credentials)?;
+        let transcriptions =
+            super::transcription::bind(&topology, transcription_entries, &credentials)?;
         if !limits.validate() {
             return Err(StartupError::Limits);
         }
@@ -295,7 +308,7 @@ impl Gateway {
                 }));
             }
         }
-        if bound.is_empty() && images.is_empty() && speech.is_empty() {
+        if bound.is_empty() && images.is_empty() && speech.is_empty() && transcriptions.is_empty() {
             return Err(StartupError::Binding);
         }
         let mut activated = BTreeMap::new();
@@ -324,7 +337,8 @@ impl Gateway {
                 .keys()
                 .map(|(_, label)| label.as_str())
                 .chain(images.keys().map(String::as_str))
-                .chain(speech.keys().map(String::as_str)),
+                .chain(speech.keys().map(String::as_str))
+                .chain(transcriptions.keys().map(String::as_str)),
             limits.response_bytes,
         )?;
         Ok(Self {
@@ -334,6 +348,7 @@ impl Gateway {
                 entries: activated,
                 images,
                 speech,
+                transcriptions,
                 models,
                 limits,
                 permits,

@@ -3,7 +3,7 @@
   "info": {
     "title": "MorphieCore minimal model interaction gateway",
     "version": "0.1.0",
-    "description": "Current envelope-level HTTP contract, not complete standard conformance. Responses uses the Standard adapter; Chat retains the explicit MorphieCore compatibility profile. Provider-specific rules cannot authorize private Responses carriers or silent loss. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Static Images and binary Speech are independent tasks with explicit single-source API-key activation, never inferred from conversation bindings. Binary media entries require explicit model selection and the matching single-source, non-fallback credential pool; embedded callers also activate entries explicitly. Models exposes only activated public labels; fine-tuned model deletion is not authorized. No stateful resources or implicit local retry/fallback. Realtime, transcription and Speech SSE are not admitted."
+    "description": "Current envelope-level HTTP contract, not complete standard conformance. Responses uses the Standard adapter; Chat retains the explicit MorphieCore compatibility profile. Provider-specific rules cannot authorize private Responses carriers or silent loss. The independent _openbridge attachment is rejected on protocol envelopes/items and never emitted. Static Images, binary Speech and file Transcription are independent tasks with explicit single-source API-key activation, never inferred from conversation bindings. Binary media entries require explicit model selection and the matching single-source, non-fallback credential pool; embedded callers also activate entries explicitly. Named ancillary audio-report projections preserve full IR reports while emitting standard audio/JSON. Models exposes only activated public labels; fine-tuned model deletion is not authorized. No stateful resources, URL fetching or implicit local retry/fallback. Realtime and downstream audio SSE are not admitted."
   },
   "servers": [{"url": "http://127.0.0.1:8080"}],
   "security": [{"bearerAuth": []}],
@@ -11,7 +11,7 @@
     "/v1/models": {
       "get": {
         "operationId": "listModels",
-        "summary": "List activated conversation, image and speech public labels",
+        "summary": "List activated task public labels",
         "description": "Immutable local view, deduplicated across client protocols and candidates and sorted by label. No pagination, upstream discovery, capability/price extensions or request body. HEAD shares this route without a response body.",
         "responses": {
           "200": {
@@ -154,6 +154,41 @@
         }
       }
     },
+    "/v1/audio/transcriptions": {
+      "post": {
+        "operationId": "createTranscription",
+        "summary": "Transcribe one bounded WAV/MP3 upload through an explicitly activated binding",
+        "parameters": [{"$ref": "#/components/parameters/ProbeId"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {"$ref": "#/components/schemas/TranscriptionRequest"},
+              "encoding": {"file": {"contentType": "audio/wav, audio/x-wav, audio/mpeg, audio/mp3, application/octet-stream"}}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Complete text and reported duration usage after strict native JSON and transport EOF. Ancillary sentence/word/channel and request identity reports remain in IR but are omitted by the named standard JSON projection. No invented language, duration or timing coverage.",
+            "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TranscriptionResponse"}}}
+          },
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "405": {"$ref": "#/components/responses/Error"},
+          "408": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "415": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"},
+          "500": {"$ref": "#/components/responses/Error"},
+          "502": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"},
+          "504": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
     "/v1/audio/speech": {
       "post": {
         "operationId": "createSpeech",
@@ -165,7 +200,7 @@
         },
         "responses": {
           "200": {
-            "description": "Nonempty audio bytes after strict upstream EOF and bounded collection, not low-latency audio streaming. Format-specific Content-Type reflects an admitted upstream report; application/octet-stream remains generic, never inferred from request format. Transport closure and MIME do not attest decodability or speech quality. No fabricated transcript, ID, expiry or usage.",
+            "description": "Nonempty audio bytes after validated completion, strict upstream EOF and bounded collection, not low-latency audio streaming. A named native profile may aggregate upstream SSE without fetching a URL. Format-specific Content-Type reflects an admitted upstream report; application/octet-stream remains generic, never inferred from request format. Ancillary reference, accounting and alignment reports remain in IR and are omitted only by the named binary projection. Transport closure and MIME do not attest decodability or speech quality. No fabricated transcript, ID, expiry or usage.",
             "headers": {
               "Cache-Control": {"schema": {"type": "string", "const": "no-store"}},
               "X-Content-Type-Options": {"schema": {"type": "string", "const": "nosniff"}}
@@ -251,6 +286,31 @@
         "properties": {
           "object": {"const": "list"},
           "data": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Model"}}
+        }
+      },
+      "TranscriptionRequest": {
+        "type": "object", "required": ["model", "file"], "additionalProperties": false,
+        "properties": {
+          "model": {"$ref": "#/components/schemas/PublicModelLabel"},
+          "file": {"type": "string", "format": "binary", "minLength": 1, "maxLength": 1048576,
+            "description": "One nonempty WAV/MP3 file, at most 1 MiB of actual bytes. Filename and MIME are declarations, must not conflict, and do not prove valid audio. No URL, file ID or local-path resolution."},
+          "language": {"type": "string", "pattern": "^[a-z]{2}(?![\\s\\S])", "description": "Language intent; the selected target must support the code. Not copied into a detected-language report."},
+          "response_format": {"const": "json", "default": "json"},
+          "stream": {"const": false, "default": false}
+        },
+        "description": "Abstract multipart schema, not a JSON request. Fields and file occur at most once; empty, null or unsupported controls cannot bypass admission. Whole upload hard ceiling is 1 MiB plus 16 KiB framing; operator limits can be smaller. Prompt, temperature, timestamps, other response formats, streaming, provider options and private fields are rejected before I/O. Files are never persisted or decoded locally; bytes are re-encoded as Base64 only for the trusted native target."
+      },
+      "TranscriptionResponse": {
+        "type": "object", "required": ["text"], "additionalProperties": false,
+        "properties": {
+          "text": {"type": "string", "maxLength": 1048576, "description": "Complete recognized text, additionally bounded to 1 MiB UTF-8 bytes. Empty text does not itself imply a failure."},
+          "usage": {
+            "type": "object", "required": ["type", "seconds"], "additionalProperties": false,
+            "properties": {
+              "type": {"const": "duration"},
+              "seconds": {"type": "number", "minimum": 0, "description": "Reported processed audio duration; not inferred from word timestamps or locally measured file metadata."}
+            }
+          }
         }
       },
       "SpeechRequest": {

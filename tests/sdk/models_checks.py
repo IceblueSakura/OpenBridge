@@ -12,7 +12,9 @@ def check_models(client: openai.OpenAI) -> int:
         {"id": "public-image", "object": "model", "created": 8, "owned_by": "Synthetic Image Developer"},
         {"id": "public-model", "object": "model", "created": 7, "owned_by": "Synthetic Developer"},
         {"id": "public-speech", "object": "model", "created": 9, "owned_by": "Synthetic Speech Developer"},
+        {"id": "qwen-audio-3.0-asr-flash", "object": "model", "created": 1785369600, "owned_by": "Alibaba"},
         {"id": "qwen-audio-3.0-tts-flash", "object": "model", "created": 1784592000, "owned_by": "Alibaba"},
+        {"id": "qwen-audio-3.0-tts-plus", "object": "model", "created": 1784592000, "owned_by": "Alibaba"},
     ]
     page = client.models.list()
     requests = 1

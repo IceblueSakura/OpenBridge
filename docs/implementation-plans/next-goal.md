@@ -2,7 +2,7 @@
 
 ## 当前主线
 
-目标是让 **Gateway 与未来 Agent 复用同一套独立 Semantic Model / IR，通过标准 API 完成可验证的模型交互**。Generation 仍以规范 Responses 为主接口；当前优先推进独立 TTS Speech API，已有 Text/Image/File、标准文本/function 与类型化消费作为维护和回归边界。不以增加 Provider、模型数量或模态枚举作为进度。Chat Completions 是有限有损的兼容投影，不反向限制共享核心。
+目标是让 **Gateway 与未来 Agent 复用同一套独立 Semantic Model / IR，通过标准 API 完成可验证的模型交互**。Generation 仍以规范 Responses 为主接口；请求型音频以独立 Speech/Transcription API 推进，已有 Text/Image/File、标准文本/function 与类型化消费作为维护和回归边界。不以增加 Provider、模型数量或模态枚举作为进度。Chat Completions 是有限有损的兼容投影，不反向限制共享核心。
 
 本页维护推荐优先级、依赖和选片条件，不是实现完成声明或操作授权。有效合同归 [Semantic Model](../architecture-v2/semantic-ir.md)，已定稿行为切片及其当前状态只归 [current-focus](current-focus.md)，实际缺口归[实施边界](../implementation-status/generation.md)，等待证据的问题归[待决状态](../implementation-status/open-questions.md)。
 
@@ -10,7 +10,7 @@
 
 以下是**选片优先级，不是五个整块实施阶段**。每项按最小可观察场景拆分；前项只需闭合后项实际依赖的边界，不要求先补齐整个 Responses 标准。已有基础层和独立覆盖直接复用，不重复安排“重建 IR / Gateway / 凭据管理器”。
 
-**当前优先覆盖：请求型音频 TTS。** 基础 task、标准请求、有界二进制交付及 OpenRouter 目标映射按 [Speech profile](../architecture-v2/speech-profile.md)维护；显式嵌入/binary 激活归 [HTTP 合同](../http-gateway.md#独立语音生成)。优先针对已选目标定稿有预算和授权的真实验收，或按具体消费反例选择目标控制、低延迟二进制交付、Speech SSE、转录的最小切片，不重复建设产品接线。离线/SDK 与真实验收分别报告，不要求先完成全部 TTS 分支，不恢复 Realtime 或声音资源服务。下表为这一方向以外的顺序。
+**当前优先覆盖：请求型音频。** 基础 task、标准请求、有界交付及目标映射按 [Speech](../architecture-v2/speech-profile.md)和[Transcription profile](../architecture-v2/transcription-profile.md)维护；显式嵌入/binary 激活归 [HTTP 合同](../http-gateway.md)。优先针对已选目标定稿有预算和授权的真实验收，或按具体消费反例选择目标控制、低延迟交付、下游 SSE、转录报告扩展的最小切片，不重复建设产品接线。离线/SDK 与真实验收分别报告，不要求先完成全部音频分支，不恢复 Realtime 或声音资源服务。下表为这一方向以外的顺序。
 
 **产品选型顺序：优先 OpenRouter 上采用标准 OpenAI 协议的模型，次选 Token Plan 相关模型。** 这是接入优先级，不是请求内自动 fallback，也不限定模型研发者必须是 OpenAI。按具体 operation 核对协议、默认值、控制与产物；“OpenAI-compatible”不能替代逐项合同。必要差异仅在受信 profile 中具名映射，保持标准下游与共享 IR，不把不支持的控制静默丢弃。Token Plan 的套餐准入和所需原生协议分别核对，不与普通按量端点或凭据互换。来源入口见 [OpenRouter](../references/providers/README.md#openrouter) 与 [Model Studio](../references/providers/README.md#alibaba-cloud-model-studio)；此顺序不授权真实调用或私有 activation。
 
@@ -53,7 +53,7 @@
 |---|---|
 | 文件扩展 | 按上文选片前重评；先有具体消费场景与资源/issuer 合同，不为基础输入补建完整文件服务 |
 | 高级图片 | 维持 `/v1/images/generations` 基础静态生成与有序产物；SSE、预览/最终产物事件、编辑、蒙版、参考图、URL 下载和文件服务延期。恢复时独立选片，先完善所选 API 再追加模型验证，不自动扩大测试集合 |
-| Embedding、其他请求型音频与独立媒体 operation | TTS 按当前优先切片推进；转录与其他 operation 分别确定最小 task、输入/产物及资源范围。Embedding 保持独立 `/v1/embeddings` 目标；独立任务不强塞 Responses |
+| Embedding、其他请求型音频与独立媒体 operation | 基础 Speech/Transcription 按现有合同维护；其他分支分别确定最小 task、输入/产物及资源范围。Embedding 保持独立 `/v1/embeddings` 目标；独立任务不强塞 Responses |
 | Audio Realtime | 明确要实现；在请求型范围收敛并独立选片后展开协议与生命周期设计，不预建状态机或把音频重构塞入近期切片 |
 | Gemini/Anthropic 原生协议与 Agent runtime | 后置；待具体目标与消费者需要时选片。当前类型化消费验证不等于开发工具执行、记忆、会话管理或通用工作流 |
 | Reasoning opaque 闭合后权威 | 只按[待决问题的恢复证据](../implementation-status/open-questions.md#恢复选片所需证据)重评，不作为其他任务前置，不预建更新事件、严格校验器或回放服务 |

@@ -40,3 +40,32 @@ pub fn check_request(
     }
     Ok(())
 }
+/// Ancillary loss is distinct from an absent upstream report.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BinaryOmissions {
+    pub reference: bool,
+    pub accounting: bool,
+    pub alignment: bool,
+    pub request_id: bool,
+}
+pub struct BinaryProjection {
+    pub audio: crate::semantic::value::AudioArtifact,
+    pub omitted: BinaryOmissions,
+}
+pub fn project_binary(
+    result: &crate::semantic::task::speech_synthesis::SpeechResult,
+) -> Result<BinaryProjection, SpeechError> {
+    let report = result.report();
+    report.validate()?;
+    let empty = crate::semantic::task::speech_synthesis::AudioReference::default();
+    Ok(BinaryProjection {
+        audio: result.audio().clone(),
+        omitted: BinaryOmissions {
+            reference: report.reference != empty
+                || report.sentences.iter().any(|s| s.reference != empty),
+            accounting: report.billed_characters.is_some(),
+            alignment: !report.sentences.is_empty(),
+            request_id: report.request_id.is_some(),
+        },
+    })
+}

@@ -112,6 +112,12 @@ mod text_events;
 mod text_profile;
 #[path = "semantic/timestamps.rs"]
 mod timestamps;
+#[path = "semantic/tokenplan_asr.rs"]
+mod tokenplan_asr;
+#[path = "semantic/tokenplan_audio_binding.rs"]
+mod tokenplan_audio_binding;
+#[path = "semantic/tokenplan_speech.rs"]
+mod tokenplan_speech;
 #[path = "semantic/tool_namespaces.rs"]
 mod tool_namespaces;
 #[path = "semantic/tool_results.rs"]

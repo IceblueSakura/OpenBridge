@@ -5,6 +5,7 @@ import sys
 from sdk_support import check
 from models_checks import check_models
 from speech_checks import check_speech
+from tokenplan_audio_checks import check_native_audio
 from urllib.parse import urlsplit
 
 import openai
@@ -32,6 +33,7 @@ def run(base_url: str) -> None:
     ) as client:
         model_requests = check_models(client)
         speech_requests = check_speech(client)
+        native_audio_requests = check_native_audio(client)
         invalid = [
             {"reasoning": {"summary": False}},
             {"extra_body": {"session_id": "synthetic-session"}},
@@ -186,7 +188,8 @@ def run(base_url: str) -> None:
             check(image.size == "1536x1024" and image.quality == "high"
                   and image.background == "transparent" and image.output_format == "webp")
             check(image.usage is None)
-    print(json.dumps({"requests": requests + model_requests + speech_requests, "model_requests": model_requests,
+    print(json.dumps({"requests": requests + model_requests + speech_requests + native_audio_requests,
+                     "model_requests": model_requests, "native_audio_requests": native_audio_requests,
                      "protocols": 2, "deliveries": 2, "image_requests": 3, "speech_requests": speech_requests}))
 
 

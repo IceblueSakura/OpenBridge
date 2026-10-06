@@ -17,6 +17,7 @@ pub mod images;
 mod request;
 mod siwc;
 pub mod speech;
+pub mod transcription;
 pub use request::Request;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

@@ -24,7 +24,7 @@
 - **状态 API 与更广执行域**：活动 continuation/conversation、store/background、资源操作、compaction、WebSocket、其他独立媒体 operation、hosted/dynamic tools 与其他 task family 尚无完整主链。inactive 形式、queued 事件、TaskKind 名称和选定图片输入均不能代表这些能力已实现；未知分支不能塞进 generic extension。Realtime 等详细设计按计划后置，不是当前主线退出条件。
 
 - **独立图片生成产品接线**：独立静态图片生成的当前注册与显式激活需查[图片 catalog](../../src/topology/catalog/images.rs)及 bootstrap；真实账户准入与外部执行仍需独立验证。标准静态控制的表示不证明每个目标都接受，真实控制效果、大图片与跨目标预算仍需独立验证；图片编辑、URL 产物、流式图片与文件服务不由该切片推定。当前接口与资源边界归 [HTTP 指南](../http-gateway.md#独立图片生成)和 [Images codec](../../src/protocol/openai/images.rs)。
-- **Speech 产品与交付扩展**：具体注册和控制准入归 [Speech catalog](../../src/topology/catalog/speech.rs) 与 [profile](../architecture-v2/speech-profile.md)，账户与真实执行仍须独立验证。OpenRouter MP3 切片不补足其他格式、PCM 布局、instructions/speed 的目标载体或 Token Plan 原生适配；低延迟二进制交付、SSE、转录、自定义声音及资源服务仍缺各自合同。Synthetic 音频与 EOF 不证明真实音质或远端费用上限。
+- **请求型音频扩展**：具体注册归 [Speech](../../src/topology/catalog/speech.rs)与[Transcription catalog](../../src/topology/catalog/transcription.rs)，控制、报告与投影边界归 [Speech](../architecture-v2/speech-profile.md)和[Transcription profile](../architecture-v2/transcription-profile.md)。当前 MP3 目标映射不补足其他格式、PCM 布局或 instructions/speed 新载体；基础上传/JSON 识别不补足完整时序交付、字幕、URL 输入、说话人区分或翻译。低延迟交付、下游 SSE、自定义声音及资源服务仍需独立合同；账户资格、真实质量与费用仍未由 synthetic 音频、SDK 或 EOF 证明。
 
 ## 扩展与执行缺口
 

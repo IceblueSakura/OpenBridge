@@ -15,6 +15,7 @@ pub mod images;
 pub mod lifecycle;
 pub mod plan;
 pub mod speech;
+pub mod transcription;
 
 pub use attempt::{Attempt, AttemptError, UpstreamRequest, admit, prepare};
 pub use delivery::ResponseDelivery;

@@ -47,6 +47,10 @@ impl CompiledTopology {
             if self.canonical_model(&id).is_none()
                 && !self.image_routes.values().any(|r| r.canonical_model == id)
                 && !self.speech_routes.values().any(|r| r.canonical_model == id)
+                && !self
+                    .transcription_routes
+                    .values()
+                    .any(|r| r.canonical_model == id)
             {
                 return Err(TopologyError::UnknownCanonicalModel);
             }
