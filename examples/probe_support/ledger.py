@@ -23,6 +23,7 @@ MODELS = {row[1]: row for row in (*BINDINGS, *IMAGE_BINDINGS)}
 def source_fingerprint(root=None):
     root = Path(__file__).resolve().parents[2] if root is None else root
     paths = [root / name for name in ("Cargo.toml", "Cargo.lock", "tests/sdk/uv.lock",
+             "tests/sdk/pyproject.toml", "tests/sdk/.python-version", "rust-toolchain.toml",
              "package.json", "package-lock.json", "tsconfig.json")]
     for pattern in (
         "src/**/*.rs",
@@ -184,8 +185,8 @@ class Run:
             "created": int(time.time()),
             "expires": int(time.time()) + 86400,
             "source_fingerprint": source_fingerprint(),
-            "sdk": "3.19.0",
-            "pi": "0.87.1",
+            "sdk": "3.24.0",
+            "pi": "1.0.4",
         }
         if image_task:
             plan["images_per_request"] = image_count

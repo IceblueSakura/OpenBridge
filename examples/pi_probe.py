@@ -21,7 +21,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", default=os.environ.get("MORPHIECORE_PROBE_RUN"))
     parser.add_argument(
-        "--package", required=True, help="Explicit fixed Pi package directory (0.87.1)"
+        "--package", required=True, help="Explicit fixed Pi package directory (1.0.4)"
     )
     parser.add_argument("--model", default="nemotron-3-super", choices=MODELS)
     parser.add_argument("--protocol", choices=("chat", "responses"))

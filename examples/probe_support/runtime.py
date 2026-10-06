@@ -197,7 +197,7 @@ def summary(run):
 def gateway(run, models=None, *, synthetic=False, proxy=None):
     models = models or run.plan["models"]
     require(all(model in run.plan["models"] for model in models), "selection", "budget")
-    require(__version__ == "3.19.0", "sdk_version", "setup")
+    require(__version__ == "3.24.0", "sdk_version", "setup")
     if not synthetic:
         require(os.environ.get("MORPHIECORE_PROBE_LIVE") == "1", "live_not_enabled", "setup")
         require(

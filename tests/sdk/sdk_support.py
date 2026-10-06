@@ -15,8 +15,8 @@ def check(condition, message="SDK contract failed"):
 
 def client_for(base_url: str) -> openai.OpenAI:
     """Reject non-loopback targets and private client defaults before making requests."""
-    if openai.__version__ != "3.19.0":
-        raise RuntimeError("expected pinned openai==3.19.0")
+    if openai.__version__ != "3.24.0":
+        raise RuntimeError("expected pinned openai==3.24.0")
     parsed = urlsplit(base_url)
     if (parsed.scheme != "http" or not parsed.hostname or not parsed.port
             or not ipaddress.ip_address(parsed.hostname).is_loopback

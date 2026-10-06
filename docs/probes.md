@@ -105,7 +105,7 @@ Rust 入口在凭据加载前验证计划选择，默认不做目录请求。显
 
 ```sh
 uv run --project tests/sdk --locked --offline python examples/pi_probe.py \
-  --package /path/to/pi-0.87.1 --model "$PUBLIC_MODEL" --check --invalid-auth
+  --package /path/to/pinned-pi --model "$PUBLIC_MODEL" --check --invalid-auth
 ```
 
 Node 与 pi 类型依赖按[开发指南](development.md#测试语言与-js-工具)准备；可将 `--package` 指向本仓库 `node_modules/@earendil-works/pi-coding-agent`。`--protocol chat|responses` 可显式选择已准入协议；缺省取 probe catalog 的首项，不按模型名推断。协议选择在启动 Gateway 前验证，TS runner 只消费受信选择。
@@ -116,7 +116,7 @@ Node 与 pi 类型依赖按[开发指南](development.md#测试语言与-js-工�
 
 ```sh
 uv run --project tests/sdk --locked --offline python examples/pi_probe.py \
-  --package /path/to/pi-0.87.1 --model "$PUBLIC_MODEL" --run testdata/runtime/my-run --live
+  --package /path/to/pinned-pi --model "$PUBLIC_MODEL" --run testdata/runtime/my-run --live
 ```
 
 中继在首次 await 前同步预留本地 slot，验证正文后再占共享 slot；不修补实际认证/Content-Type。其端口为动态 loopback，不再固定占用 18080。strict 字面结果和未 trim 的 typed 正文/wire 比较独立于模型的标点或大小写偏好。synthetic read 只是受控工具 fixture，不证明通用文件工具或 TUI 兼容。

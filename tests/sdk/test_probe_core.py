@@ -29,7 +29,8 @@ class ProbeCoreTests(unittest.TestCase):
             root = Path(temp)
             paths = ("Cargo.toml", "Cargo.lock", "tests/sdk/uv.lock",
                      "package.json", "package-lock.json", "tsconfig.json",
-                     "examples/synthetic.ts")
+                     "examples/synthetic.ts", "tests/sdk/pyproject.toml",
+                     "tests/sdk/.python-version", "rust-toolchain.toml")
             for name in paths:
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)

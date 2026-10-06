@@ -60,7 +60,9 @@ npm test
 
 ## 固定 OpenAI SDK loopback
 
-Python 版本由 `tests/sdk/.python-version` 固定；OpenAI SDK 与测试环境 pip 在 `tests/sdk/pyproject.toml` 声明，全部传递依赖和下载 hash 由 `tests/sdk/uv.lock` 固定。环境只安装到被忽略的 `tests/sdk/.venv/`，不向系统 Python 安装 pip/package。不要直接 `pip install -U` 让环境偏离锁文件。
+Python 版本由 `tests/sdk/.python-version` 固定；SDK 与测试依赖在 `tests/sdk/pyproject.toml` 声明，全部传递依赖和下载 hash 由 `tests/sdk/uv.lock` 固定。环境只安装到被忽略的 `tests/sdk/.venv/`，不向系统 Python 安装 package；依赖由 uv 管理，不再额外安装 pip。不要用未锁定的安装命令让环境偏离锁文件。
+
+Python 分支选择优先生态兼容性，不要求跟随最新 minor；优先采用所选受支持分支的最新正式补丁。变更分支须同步约束与锁文件，并重新执行 Python/SDK 验收，不能仅凭版本较旧就宣称兼容性更好。
 
 Images 的公开 Schema 用同一锁定环境中的 `jsonschema` 执行 Draft 2020-12 检查：`uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_image_schema.py`。它验证 Schema、内部引用及独立合法/非法实例；Base64 内容、集合累计预算、请求/响应数量关系与 EOF 仍由 Rust 和交付测试验证，不由 `contentEncoding` 注解证明。
 
@@ -68,11 +70,11 @@ Speech 的请求与二进制响应 Schema 使用 `uv run --project tests/sdk --l
 
 Transcription 的抽象 multipart/JSON Schema 使用 `uv run --project tests/sdk --locked --offline python -m unittest discover -s tests/sdk -p test_transcription_schema.py`；真实 multipart framing、重复字段、原始 bytes、Base64 扩张和报告完整性由 Rust 验证。固定 SDK 的同一个 Gateway gate 覆盖 native TTS/ASR synthetic 映射，不额外创建生产 Router smoke，也不代替真实 Token Plan 准入。
 
-首次准备需要依赖下载；已有缓存可为 sync 加 `--offline`：
+首次准备需要依赖下载；已有缓存可为 sync 加 `--offline`。若 uv 的下载索引尚不包含固定 Python 版本，使用临时新版 uv 或准备匹配的解释器，不通过降低 `.python-version` 或取消锁定来绕过：
 
 ```sh
 uv sync --project tests/sdk --locked
-uv run --project tests/sdk --locked --offline python -m pip check
+uv pip check --directory tests/sdk --offline
 uv run --project tests/sdk --locked --offline cargo test --locked --offline --test sdk_loopback -- --ignored --test-threads=1
 ```
 

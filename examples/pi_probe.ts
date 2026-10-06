@@ -22,7 +22,7 @@ const run = requiredEnv('MORPHIECORE_PROBE_RUN');
 const home = requiredEnv('MORPHIECORE_PI_HOME');
 const pkg = requiredEnv('MORPHIECORE_PI_PACKAGE');
 const version = object(JSON.parse(await readFile(join(pkg,'package.json'),'utf8'))).version;
-if (version !== '0.87.1') throw new Error('Unpinned Pi');
+if (version !== '1.0.4') throw new Error('Unpinned Pi');
 const sdk: typeof import('@earendil-works/pi-coding-agent') = await import(pathToFileURL(join(pkg,'dist/index.js')).href);
 const {createAgentSession,createExtensionRuntime,defineTool,ModelRuntime,SessionManager,SettingsManager} = sdk;
 const plan = object(JSON.parse(await readFile(join(run,'plan.json'),'utf8')));

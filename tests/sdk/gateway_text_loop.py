@@ -15,7 +15,7 @@ import httpx2
 def run(base_url: str) -> None:
     """Verify real SDK tools, reasoning replay and JSON/SSE consumption without retries."""
     parsed = urlsplit(base_url)
-    if (openai.__version__ != "3.19.0" or parsed.scheme != "http"
+    if (openai.__version__ != "3.24.0" or parsed.scheme != "http"
             or not parsed.hostname or not parsed.port
             or not ipaddress.ip_address(parsed.hostname).is_loopback
             or parsed.path != "/v1" or parsed.query or parsed.fragment
